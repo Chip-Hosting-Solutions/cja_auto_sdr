@@ -12,7 +12,7 @@ This tool evolved from a Jupyter notebook proof-of-concept into a production-rea
 - **Reproducible Builds**: Lock file (`uv.lock`) ensures identical dependency versions across all environments
 - **Lightning-Fast Installation**: UV's Rust-based resolver installs packages 10-100x faster than pip
 - **Standardized Configuration**: `pyproject.toml` follows PEP 518/621 standards for modern Python projects
-- **Zero Configuration Conflicts**: UV's advanced resolver eliminates dependency hell
+- **Zero Configuration Conflicts**: UV's advanced resolver eliminates dependency issues
 - **Professional Project Structure**: Clear separation of concerns with proper package management
 
 **Why UV Over Traditional pip?**
