@@ -1,0 +1,11 @@
+# Python-generated files
+__pycache__/
+myconfig.json
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
