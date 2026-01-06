@@ -1,95 +1,111 @@
 # Customer Journey Analytics SDR Generator with Data Quality Validation
-Version 3.0 - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, error handling, and modern dependency management.
-What Makes Version 3.0 Different
-This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the CJA Summit 2025 notebook, Version 3.0 introduces significant architectural improvements:
-Modern Python Tooling with UV
-From Jupyter Notebook to Production Application
 
-Reproducible Builds: Lock file (uv.lock) ensures identical dependency versions across all environments
-Lightning-Fast Installation: UV's Rust-based resolver installs packages 10-100x faster than pip
-Standardized Configuration: pyproject.toml follows PEP 518/621 standards for modern Python projects
-Zero Configuration Conflicts: UV's advanced resolver eliminates dependency hell
-Professional Project Structure: Clear separation of concerns with proper package management
+**Version 3.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, error handling, and modern dependency management.
 
-Why UV Over Traditional pip?
+## What Makes Version 3.0 Different
 
-Speed: Package resolution in milliseconds vs seconds/minutes
-Reliability: Deterministic builds with cryptographic lock files
-Simplicity: One command (uv sync) replaces multiple pip operations
-Modern: Built for Python 3.14+ with future-proof architecture
-Developer Experience: Better error messages, faster iteration cycles
+This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the [CJA Summit 2025 notebook](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb), Version 3.0 introduces significant architectural improvements:
 
-Enterprise-Grade Reliability (New in v3.0)
-Comprehensive Error Handling & Validation
+### Modern Python Tooling with UV
 
-Pre-flight configuration validation before API calls
-Graceful degradation when partial data is unavailable
-Detailed error messages with actionable troubleshooting steps
-Automatic data view existence verification
-API connection health checks with retry logic
-Safe filename generation and permission handling
+**From Jupyter Notebook to Production Application**
+- **Reproducible Builds**: Lock file (`uv.lock`) ensures identical dependency versions across all environments
+- **Lightning-Fast Installation**: UV's Rust-based resolver installs packages 10-100x faster than pip
+- **Standardized Configuration**: `pyproject.toml` follows PEP 518/621 standards for modern Python projects
+- **Zero Configuration Conflicts**: UV's advanced resolver eliminates dependency hell
+- **Professional Project Structure**: Clear separation of concerns with proper package management
 
-Production Logging System
+**Why UV Over Traditional pip?**
+- **Speed**: Package resolution in milliseconds vs seconds/minutes
+- **Reliability**: Deterministic builds with cryptographic lock files  
+- **Simplicity**: One command (`uv sync`) replaces multiple pip operations
+- **Modern**: Built for Python 3.14+ with future-proof architecture
+- **Developer Experience**: Better error messages, faster iteration cycles
 
-Timestamped log files with rotation in dedicated logs/ directory
-Dual output streams (console + file) for real-time monitoring and audit trails
-Structured logging with severity levels (INFO, WARNING, ERROR, CRITICAL)
-Performance metrics tracking for optimization
-Complete execution summaries for reporting
+### Enterprise-Grade Reliability (New in v3.0)
 
-Advanced Data Quality Validation (New in v3.0)
-Automated Quality Assurance
+**Comprehensive Error Handling & Validation**
+- Pre-flight configuration validation before API calls
+- Graceful degradation when partial data is unavailable  
+- Detailed error messages with actionable troubleshooting steps
+- Automatic data view existence verification
+- API connection health checks with retry logic
+- Safe filename generation and permission handling
+
+**Production Logging System**
+- Timestamped log files with rotation in dedicated `logs/` directory
+- Dual output streams (console + file) for real-time monitoring and audit trails
+- Structured logging with severity levels (INFO, WARNING, ERROR, CRITICAL)
+- Performance metrics tracking for optimization
+- Complete execution summaries for reporting
+
+### Advanced Data Quality Validation (New in v3.0)
+
+**Automated Quality Assurance**
 Unlike the original notebook's simple data retrieval, v3.0 includes a comprehensive data quality framework:
 
-8+ Validation Checks: Duplicates, missing fields, null values, invalid IDs, empty datasets
-Severity Classification: CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting
-Actionable Insights: Detailed issue descriptions with affected component lists
-Quality Dashboard: Dedicated "Data Quality" sheet with filtering and sorting
-Trend Analysis Ready: Consistent reporting format for tracking quality over time
+- **8+ Validation Checks**: Duplicates, missing fields, null values, invalid IDs, empty datasets
+- **Severity Classification**: CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting
+- **Actionable Insights**: Detailed issue descriptions with affected component lists
+- **Quality Dashboard**: Dedicated "Data Quality" sheet with filtering and sorting
+- **Trend Analysis Ready**: Consistent reporting format for tracking quality over time
 
-Quality Checks Include:
+**Quality Checks Include:**
+1. Duplicate component name detection across metrics and dimensions
+2. Required field validation (id, name, type)
+3. Critical field null value identification
+4. Missing description detection for documentation completeness
+5. Invalid or malformed ID detection
+6. Empty dataset handling and reporting
+7. API response structure validation
+8. Cross-referential integrity checks
 
-Duplicate component name detection across metrics and dimensions
-Required field validation (id, name, type)
-Critical field null value identification
-Missing description detection for documentation completeness
-Invalid or malformed ID detection
-Empty dataset handling and reporting
-API response structure validation
-Cross-referential integrity checks
+### From Script to Application
 
-From Script to Application
-Architectural Improvements
-AspectOriginal NotebookVersion 3.0Execution ModelInteractive cellsStandalone applicationError HandlingBasic try-catchMulti-layer defensive programmingLoggingPrint statementsProfessional logging frameworkDependenciesManual installationManaged via pyproject.toml + uvData QualityNone8+ automated checksConfigurationHardcoded valuesValidated external configReliabilitySingle-run, manualProduction-ready with retriesMaintainabilityNotebook-basedModular Python classesScalabilitySingle data viewBatch processing readyOutputBasic ExcelFormatted with conditional styling
-Enhanced Output & Documentation
-Professional Excel Workbooks
+**Architectural Improvements**
 
-5 Formatted Sheets: Metadata, Data Quality, DataView details, Metrics, Dimensions
-Conditional Formatting: Severity-based color coding for instant issue identification
-Auto-filtering: Every sheet has sortable, filterable columns
-Frozen Headers: Easy navigation through large datasets
-Text Wrapping: Readable long descriptions and JSON content
-Alternating Rows: Improved visual scanning
+| Aspect | Original Notebook | Version 3.0 |
+|--------|------------------|-------------|
+| **Execution Model** | Interactive cells | Standalone application |
+| **Error Handling** | Basic try-catch | Multi-layer defensive programming |
+| **Logging** | Print statements | Professional logging framework |
+| **Dependencies** | Manual installation | Managed via pyproject.toml + uv |
+| **Data Quality** | None | 8+ automated checks |
+| **Configuration** | Hardcoded values | Validated external config |
+| **Reliability** | Single-run, manual | Production-ready with retries |
+| **Maintainability** | Notebook-based | Modular Python classes |
+| **Scalability** | Single data view | Batch processing ready |
+| **Output** | Basic Excel | Formatted with conditional styling |
 
-Comprehensive Metadata
+### Enhanced Output & Documentation
 
-Generation timestamp with timezone
-Component type distributions and breakdowns
-Data quality summary with issue counts by severity
-Version tracking for audit compliance
-API response metadata for troubleshooting
+**Professional Excel Workbooks**
+- **5 Formatted Sheets**: Metadata, Data Quality, DataView details, Metrics, Dimensions
+- **Conditional Formatting**: Severity-based color coding for instant issue identification
+- **Auto-filtering**: Every sheet has sortable, filterable columns
+- **Frozen Headers**: Easy navigation through large datasets
+- **Text Wrapping**: Readable long descriptions and JSON content
+- **Alternating Rows**: Improved visual scanning
 
-Operational Excellence
-Built for Automation
+**Comprehensive Metadata**
+- Generation timestamp with timezone
+- Component type distributions and breakdowns  
+- Data quality summary with issue counts by severity
+- Version tracking for audit compliance
+- API response metadata for troubleshooting
 
-Command-line friendly (batch scripts, cron jobs, CI/CD pipelines)
-Exit codes for monitoring and alerting systems
-Structured logs for log aggregation tools (Splunk, ELK, Datadog)
-Reproducible builds for containerization (Docker, Kubernetes)
-Environment variable support for secure credential management
+### Operational Excellence
 
-DevOps Ready
-bash# Single command deployment
+**Built for Automation**
+- Command-line friendly (batch scripts, cron jobs, CI/CD pipelines)
+- Exit codes for monitoring and alerting systems
+- Structured logs for log aggregation tools (Splunk, ELK, Datadog)
+- Reproducible builds for containerization (Docker, Kubernetes)
+- Environment variable support for secure credential management
+
+**DevOps Ready**
+```bash
+# Single command deployment
 uv sync && uv run python cja_sdr_generator.py
 
 # Scheduled execution (cron)
@@ -100,33 +116,36 @@ uv sync && uv run python cja_sdr_generator.py
   run: |
     uv sync
     uv run python cja_sdr_generator.py
-Documentation & Support
-Comprehensive README
+```
 
-Detailed installation instructions for all platforms
-Troubleshooting guide with common error solutions
-Best practices for production usage
-Security guidelines for credential management
-Performance optimization tips
-Multiple usage examples and scenarios
+### Documentation & Support
 
-Who Should Use Version 3.0?
-Ideal For:
+**Comprehensive README**
+- Detailed installation instructions for all platforms
+- Troubleshooting guide with common error solutions
+- Best practices for production usage
+- Security guidelines for credential management
+- Performance optimization tips
+- Multiple usage examples and scenarios
 
-Analytics Teams requiring regular SDR documentation
-DevOps Engineers automating CJA audits in CI/CD pipelines
-Data Governance teams needing audit trails and quality tracking
-Consultants managing multiple client CJA implementations
-Enterprise Organizations with compliance and documentation requirements
+### Who Should Use Version 3.0?
 
-Migration Path from Notebook:
+**Ideal For:**
+- **Analytics Teams** requiring regular SDR documentation
+- **DevOps Engineers** automating CJA audits in CI/CD pipelines
+- **Data Governance** teams needing audit trails and quality tracking
+- **Consultants** managing multiple client CJA implementations
+- **Enterprise Organizations** with compliance and documentation requirements
+
+**Migration Path from Notebook:**
 The notebook version is excellent for learning and ad-hoc exploration. Version 3.0 is designed for teams that need:
+- Scheduled, automated SDR generation
+- Data quality monitoring over time
+- Reliable execution in production environments
+- Professional documentation for stakeholders
+- Audit trails for compliance purposes
 
-Scheduled, automated SDR generation
-Data quality monitoring over time
-Reliable execution in production environments
-Professional documentation for stakeholders
-Audit trails for compliance purposes
+---
 
 ## Table of Contents
 
@@ -212,7 +231,7 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 
 ### 1.3 What's New in This Version
 
-**Version 3.0 Enhancements:**
+**Version 2.0 Enhancements:**
 
 ✅ **Modern Dependency Management**
 - Uses `uv` for fast, reliable package management
