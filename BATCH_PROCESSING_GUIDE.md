@@ -212,9 +212,11 @@ Throughput: 4.8 data views per minute
 ### Log Files
 
 **Batch Mode:**
+
 - `logs/SDR_Batch_Generation_YYYYMMDD_HHMMSS.log` - Main batch log
 
 **Single Mode:**
+
 - `logs/SDR_Generation_{DATA_VIEW_ID}_YYYYMMDD_HHMMSS.log` - Per data view log
 
 ## Scheduled Processing
@@ -293,6 +295,7 @@ uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --continue-on-error
 ### Issue: "No module named 'cjapy'"
 
 **Solution:** Use `uv run` to execute the script:
+
 ```bash
 uv run python cja_sdr_generator.py dv_12345
 ```
@@ -300,6 +303,7 @@ uv run python cja_sdr_generator.py dv_12345
 ### Issue: "error: the following arguments are required: DATA_VIEW_ID"
 
 **Solution:** Provide at least one data view ID:
+
 ```bash
 uv run python cja_sdr_generator.py dv_12345
 ```
@@ -307,6 +311,7 @@ uv run python cja_sdr_generator.py dv_12345
 ### Issue: "Invalid data view ID format"
 
 **Solution:** Ensure data view IDs start with `dv_`:
+
 ```bash
 # Wrong
 uv run python cja_sdr_generator.py 12345
@@ -318,6 +323,7 @@ uv run python cja_sdr_generator.py dv_12345
 ### Issue: Permission denied writing Excel file
 
 **Solution:** Close any open Excel files or specify a different output directory:
+
 ```bash
 uv run python cja_sdr_generator.py dv_12345 --output-dir ./new_reports
 ```
@@ -325,6 +331,7 @@ uv run python cja_sdr_generator.py dv_12345 --output-dir ./new_reports
 ### Issue: API rate limiting
 
 **Solution:** Reduce the number of workers:
+
 ```bash
 uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --workers 2
 ```
@@ -375,6 +382,7 @@ uv run python cja_sdr_generator.py dv_12345 dv_67890
 ## Support
 
 For issues, questions, or feature requests:
+
 1. Check this guide first
 2. Review error messages and logs
 3. Try with `--log-level DEBUG` for detailed output
