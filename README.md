@@ -393,7 +393,7 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja-auto-sdr-2026"
-version = "0.1.0"
+version = "3.0.0"
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -401,6 +401,11 @@ dependencies = [
     "cjapy>=0.2.4.post2",
     "pandas>=2.3.3",
     "xlsxwriter>=3.2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
 ]
 ```
 
