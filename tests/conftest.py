@@ -141,3 +141,16 @@ def temp_output_dir(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     return output_dir
+
+
+@pytest.fixture
+def large_sample_dataframe():
+    """Create a large sample DataFrame for performance testing"""
+    size = 500  # Large enough to show performance differences
+    return pd.DataFrame({
+        'id': [f'id_{i}' for i in range(size)],
+        'name': [f'Name {i}' if i % 10 != 0 else f'Name {i % 50}' for i in range(size)],  # Some duplicates
+        'type': ['metric' if i % 2 == 0 else 'calculated' for i in range(size)],
+        'description': [f'Description {i}' if i % 3 != 0 else None for i in range(size)],  # Some nulls
+        'title': [f'Title {i}' for i in range(size)]
+    })
