@@ -917,18 +917,339 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
         logger.error(f"Error formatting sheet {sheet_name}: {str(e)}")
         raise
 
+# ==================== OUTPUT FORMAT WRITERS ====================
+
+def write_csv_output(data_dict: Dict[str, pd.DataFrame], base_filename: str,
+                    output_dir: str, logger: logging.Logger) -> str:
+    """
+    Write data to CSV files (one per sheet)
+
+    Args:
+        data_dict: Dictionary mapping sheet names to DataFrames
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+
+    Returns:
+        Path to output directory containing CSV files
+    """
+    try:
+        logger.info("Generating CSV output...")
+
+        # Create subdirectory for CSV files
+        csv_dir = os.path.join(output_dir, f"{base_filename}_csv")
+        os.makedirs(csv_dir, exist_ok=True)
+
+        # Write each DataFrame to a separate CSV file
+        for sheet_name, df in data_dict.items():
+            csv_file = os.path.join(csv_dir, f"{sheet_name.replace(' ', '_').lower()}.csv")
+            df.to_csv(csv_file, index=False, encoding='utf-8')
+            logger.info(f"  ✓ Created CSV: {os.path.basename(csv_file)}")
+
+        logger.info(f"CSV files created in: {csv_dir}")
+        return csv_dir
+
+    except Exception as e:
+        logger.error(f"Error creating CSV files: {str(e)}")
+        raise
+
+
+def write_json_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
+                     base_filename: str, output_dir: str, logger: logging.Logger) -> str:
+    """
+    Write data to JSON format with hierarchical structure
+
+    Args:
+        data_dict: Dictionary mapping sheet names to DataFrames
+        metadata_dict: Metadata information
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+
+    Returns:
+        Path to JSON output file
+    """
+    try:
+        logger.info("Generating JSON output...")
+
+        # Build JSON structure
+        json_data = {
+            "metadata": metadata_dict,
+            "data_view": {},
+            "metrics": [],
+            "dimensions": [],
+            "data_quality": []
+        }
+
+        # Convert DataFrames to JSON-serializable format
+        for sheet_name, df in data_dict.items():
+            # Convert DataFrame to list of dictionaries
+            records = df.to_dict(orient='records')
+
+            # Map to appropriate section
+            if sheet_name == "Data Quality":
+                json_data["data_quality"] = records
+            elif sheet_name == "Metrics":
+                json_data["metrics"] = records
+            elif sheet_name == "Dimensions":
+                json_data["dimensions"] = records
+            elif sheet_name == "DataView Details":
+                # For single-record sheets, store as object not array
+                json_data["data_view"] = records[0] if records else {}
+
+        # Write JSON file
+        json_file = os.path.join(output_dir, f"{base_filename}.json")
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"✓ JSON file created: {json_file}")
+        return json_file
+
+    except Exception as e:
+        logger.error(f"Error creating JSON file: {str(e)}")
+        raise
+
+
+def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
+                     base_filename: str, output_dir: str, logger: logging.Logger) -> str:
+    """
+    Write data to HTML format with professional styling
+
+    Args:
+        data_dict: Dictionary mapping sheet names to DataFrames
+        metadata_dict: Metadata information
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+
+    Returns:
+        Path to HTML output file
+    """
+    try:
+        logger.info("Generating HTML output...")
+
+        # Build HTML content
+        html_parts = []
+
+        # HTML header with CSS
+        html_parts.append('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CJA Solution Design Reference</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        .metadata {
+            background-color: #ecf0f1;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 30px;
+        }
+        .metadata-item {
+            margin: 8px 0;
+            display: flex;
+            align-items: baseline;
+        }
+        .metadata-label {
+            font-weight: bold;
+            min-width: 200px;
+            color: #2c3e50;
+        }
+        .metadata-value {
+            color: #555;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        thead {
+            background-color: #3498db;
+            color: white;
+        }
+        th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        tbody tr:hover {
+            background-color: #e8f4f8;
+        }
+        .severity-CRITICAL {
+            background-color: #e74c3c !important;
+            color: white;
+            font-weight: bold;
+        }
+        .severity-HIGH {
+            background-color: #e67e22 !important;
+            color: white;
+        }
+        .severity-MEDIUM {
+            background-color: #f39c12 !important;
+            color: white;
+        }
+        .severity-LOW {
+            background-color: #95a5a6 !important;
+            color: white;
+        }
+        .severity-INFO {
+            background-color: #3498db !important;
+            color: white;
+        }
+        .section {
+            margin-bottom: 50px;
+        }
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+        @media print {
+            body {
+                background-color: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 CJA Solution Design Reference</h1>
+        ''')
+
+        # Metadata section
+        html_parts.append('<div class="metadata">')
+        html_parts.append('<h2>📋 Metadata</h2>')
+        for key, value in metadata_dict.items():
+            safe_value = str(value).replace('<', '&lt;').replace('>', '&gt;')
+            html_parts.append(f'''
+            <div class="metadata-item">
+                <span class="metadata-label">{key}:</span>
+                <span class="metadata-value">{safe_value}</span>
+            </div>
+            ''')
+        html_parts.append('</div>')
+
+        # Data sections
+        section_icons = {
+            "Data Quality": "🔍",
+            "DataView Details": "📊",
+            "Metrics": "📈",
+            "Dimensions": "📐"
+        }
+
+        for sheet_name, df in data_dict.items():
+            if df.empty:
+                continue
+
+            icon = section_icons.get(sheet_name, "📄")
+            html_parts.append(f'<div class="section">')
+            html_parts.append(f'<h2>{icon} {sheet_name}</h2>')
+
+            # Convert DataFrame to HTML with custom styling
+            df_html = df.to_html(index=False, escape=False, classes='data-table')
+
+            # Add severity-based row classes for Data Quality sheet
+            if sheet_name == "Data Quality" and 'Severity' in df.columns:
+                rows = df_html.split('<tr>')
+                styled_rows = [rows[0]]  # Keep header
+
+                for i, row in enumerate(rows[1:], 1):
+                    if i <= len(df):
+                        severity = df.iloc[i-1]['Severity'] if i-1 < len(df) else ''
+                        if severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+                            row = f'<tr class="severity-{severity}">' + row.split('>', 1)[1]
+                        else:
+                            row = '<tr>' + row
+                        styled_rows.append(row)
+
+                df_html = ''.join(styled_rows)
+
+            html_parts.append(df_html)
+            html_parts.append('</div>')
+
+        # Footer
+        html_parts.append(f'''
+        <div class="footer">
+            <p>Generated by CJA SDR Generator v3.0</p>
+            <p>Generated at {metadata_dict.get("Generated At", "N/A")}</p>
+        </div>
+    </div>
+</body>
+</html>
+        ''')
+
+        # Write HTML file
+        html_file = os.path.join(output_dir, f"{base_filename}.html")
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(html_parts))
+
+        logger.info(f"✓ HTML file created: {html_file}")
+        return html_file
+
+    except Exception as e:
+        logger.error(f"Error creating HTML file: {str(e)}")
+        raise
+
 # ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
 
 def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json",
-                           output_dir: str = ".", log_level: str = "INFO") -> ProcessingResult:
+                           output_dir: str = ".", log_level: str = "INFO",
+                           output_format: str = "excel") -> ProcessingResult:
     """
-    Process a single data view and generate SDR Excel file
+    Process a single data view and generate SDR in specified format(s)
 
     Args:
         data_view_id: The data view ID to process
         config_file: Path to CJA config file
         output_dir: Directory to save output files
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+        output_format: Output format (excel, csv, json, html, or all)
 
     Returns:
         ProcessingResult with processing details
@@ -1138,37 +1459,78 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             excel_file_name = f'CJA_DataView_dv_{data_view_id}_SDR.xlsx'
             output_path = Path(output_dir) / excel_file_name
 
-        # Write to Excel with formatting
+        # Prepare data for output generation
         logger.info("=" * 60)
-        logger.info("Generating Excel file")
+        logger.info(f"Generating output in format: {output_format}")
         logger.info("=" * 60)
+
+        # Prepare data dictionary for all formats
+        data_dict = {
+            'Metadata': metadata_df,
+            'Data Quality': data_quality_df,
+            'DataView Details': lookup_df,
+            'Metrics': metrics,
+            'Dimensions': dimensions
+        }
+
+        # Prepare metadata dictionary for JSON/HTML
+        metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict() if not metadata_df.empty else {}
+
+        # Base filename without extension
+        base_filename = output_path.stem if isinstance(output_path, Path) else Path(output_path).stem
+
+        # Determine which formats to generate
+        formats_to_generate = ['excel', 'csv', 'json', 'html'] if output_format == 'all' else [output_format]
+
+        output_files = []
 
         try:
-            logger.info(f"Creating Excel writer for: {output_path}")
+            for fmt in formats_to_generate:
+                if fmt == 'excel':
+                    logger.info("Generating Excel file...")
+                    with pd.ExcelWriter(str(output_path), engine='xlsxwriter') as writer:
+                        # Write sheets in order, with Data Quality first for visibility
+                        sheets_to_write = [
+                            (metadata_df, 'Metadata'),
+                            (data_quality_df, 'Data Quality'),
+                            (lookup_df, 'DataView'),
+                            (metrics, 'Metrics'),
+                            (dimensions, 'Dimensions')
+                        ]
 
-            with pd.ExcelWriter(str(output_path), engine='xlsxwriter') as writer:
-                # Write sheets in order, with Data Quality first for visibility
-                sheets_to_write = [
-                    (metadata_df, 'Metadata'),
-                    (data_quality_df, 'Data Quality'),
-                    (lookup_df, 'DataView'),
-                    (metrics, 'Metrics'),
-                    (dimensions, 'Dimensions')
-                ]
+                        for sheet_data, sheet_name in sheets_to_write:
+                            try:
+                                if sheet_data.empty:
+                                    logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
+                                    placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
+                                    apply_excel_formatting(writer, placeholder_df, sheet_name, logger)
+                                else:
+                                    apply_excel_formatting(writer, sheet_data, sheet_name, logger)
+                            except Exception as e:
+                                logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
+                                continue
 
-                for sheet_data, sheet_name in sheets_to_write:
-                    try:
-                        if sheet_data.empty:
-                            logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
-                            placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
-                            apply_excel_formatting(writer, placeholder_df, sheet_name, logger)
-                        else:
-                            apply_excel_formatting(writer, sheet_data, sheet_name, logger)
-                    except Exception as e:
-                        logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
-                        continue
+                    logger.info(f"✓ Excel file created: {output_path}")
+                    output_files.append(str(output_path))
 
-            logger.info(f"✓ SDR generation complete! File saved as: {output_path}")
+                elif fmt == 'csv':
+                    csv_output = write_csv_output(data_dict, base_filename, output_dir, logger)
+                    output_files.append(csv_output)
+
+                elif fmt == 'json':
+                    json_output = write_json_output(data_dict, metadata_dict, base_filename, output_dir, logger)
+                    output_files.append(json_output)
+
+                elif fmt == 'html':
+                    html_output = write_html_output(data_dict, metadata_dict, base_filename, output_dir, logger)
+                    output_files.append(html_output)
+
+            if len(output_files) > 1:
+                logger.info(f"✓ SDR generation complete! {len(output_files)} files created")
+                for file_path in output_files:
+                    logger.info(f"  • {file_path}")
+            else:
+                logger.info(f"✓ SDR generation complete! File saved as: {output_files[0]}")
 
             # Final summary
             logger.info("=" * 60)
@@ -1242,13 +1604,13 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     Worker function for multiprocessing
 
     Args:
-        args: Tuple of (data_view_id, config_file, output_dir, log_level)
+        args: Tuple of (data_view_id, config_file, output_dir, log_level, output_format)
 
     Returns:
         ProcessingResult
     """
-    data_view_id, config_file, output_dir, log_level = args
-    return process_single_dataview(data_view_id, config_file, output_dir, log_level)
+    data_view_id, config_file, output_dir, log_level, output_format = args
+    return process_single_dataview(data_view_id, config_file, output_dir, log_level, output_format)
 
 # ==================== BATCH PROCESSOR CLASS ====================
 
@@ -1256,12 +1618,14 @@ class BatchProcessor:
     """Process multiple data views in parallel using multiprocessing"""
 
     def __init__(self, config_file: str = "myconfig.json", output_dir: str = ".",
-                 workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO"):
+                 workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
+                 output_format: str = "excel"):
         self.config_file = config_file
         self.output_dir = output_dir
         self.workers = workers
         self.continue_on_error = continue_on_error
         self.log_level = log_level
+        self.output_format = output_format
         self.logger = setup_logging(batch_mode=True, log_level=log_level)
 
         # Create output directory if it doesn't exist
@@ -1284,6 +1648,7 @@ class BatchProcessor:
         self.logger.info(f"Parallel workers: {self.workers}")
         self.logger.info(f"Continue on error: {self.continue_on_error}")
         self.logger.info(f"Output directory: {self.output_dir}")
+        self.logger.info(f"Output format: {self.output_format}")
         self.logger.info("=" * 60)
 
         batch_start_time = time.time()
@@ -1297,7 +1662,7 @@ class BatchProcessor:
 
         # Prepare arguments for each worker
         worker_args = [
-            (dv_id, self.config_file, self.output_dir, self.log_level)
+            (dv_id, self.config_file, self.output_dir, self.log_level, self.output_format)
             for dv_id in data_view_ids
         ]
 
@@ -1421,6 +1786,18 @@ Examples:
   # With custom log level
   python cja_sdr_generator.py --batch dv_* --log-level WARNING
 
+  # Export as CSV files
+  python cja_sdr_generator.py dv_12345 --format csv
+
+  # Export as JSON
+  python cja_sdr_generator.py dv_12345 --format json
+
+  # Export as HTML
+  python cja_sdr_generator.py dv_12345 --format html
+
+  # Export in all formats
+  python cja_sdr_generator.py dv_12345 --format all
+
 Note:
   At least one data view ID must be provided.
   Use 'python cja_sdr_generator.py --help' to see all options.
@@ -1475,6 +1852,14 @@ Note:
         help='Logging level (default: INFO)'
     )
 
+    parser.add_argument(
+        '--format',
+        type=str,
+        default='excel',
+        choices=['excel', 'csv', 'json', 'html', 'all'],
+        help='Output format: excel (default), csv, json, html, or all (generates all formats)'
+    )
+
     return parser.parse_args()
 
 # ==================== MAIN FUNCTION ====================
@@ -1511,7 +1896,8 @@ def main():
             output_dir=args.output_dir,
             workers=args.workers,
             continue_on_error=args.continue_on_error,
-            log_level=args.log_level
+            log_level=args.log_level,
+            output_format=args.format
         )
 
         results = processor.process_batch(data_views)
@@ -1529,7 +1915,8 @@ def main():
             data_views[0],
             config_file=args.config_file,
             output_dir=args.output_dir,
-            log_level=args.log_level
+            log_level=args.log_level,
+            output_format=args.format
         )
 
         if not result.success:

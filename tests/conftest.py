@@ -154,3 +154,43 @@ def large_sample_dataframe():
         'description': [f'Description {i}' if i % 3 != 0 else None for i in range(size)],  # Some nulls
         'title': [f'Title {i}' for i in range(size)]
     })
+
+
+@pytest.fixture
+def sample_data_dict(sample_metrics_df, sample_dimensions_df):
+    """Create a sample data dictionary for output format testing"""
+    return {
+        'Metadata': pd.DataFrame({
+            'Property': ['Generated At', 'Data View ID', 'Tool Version'],
+            'Value': ['2024-01-01 12:00:00', 'dv_test_12345', '3.0']
+        }),
+        'Data Quality': pd.DataFrame([
+            {
+                'Severity': 'HIGH',
+                'Category': 'Duplicates',
+                'Type': 'Dimensions',
+                'Item Name': 'Test Dimension 1',
+                'Issue': 'Duplicate name found 2 times',
+                'Details': 'This dimension appears multiple times'
+            }
+        ]),
+        'DataView Details': pd.DataFrame({
+            'Property': ['Name', 'ID', 'Owner'],
+            'Value': ['Test Data View 1', 'dv_test_12345', 'Test Owner']
+        }),
+        'Metrics': sample_metrics_df,
+        'Dimensions': sample_dimensions_df
+    }
+
+
+@pytest.fixture
+def sample_metadata_dict():
+    """Create a sample metadata dictionary for output format testing"""
+    return {
+        'Generated At': '2024-01-01 12:00:00',
+        'Data View ID': 'dv_test_12345',
+        'Data View Name': 'Test Data View 1',
+        'Tool Version': '3.0',
+        'Metrics Count': '2',
+        'Dimensions Count': '3'
+    }

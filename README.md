@@ -141,6 +141,15 @@ Example (225 components):
 
 ### Enhanced Output & Documentation
 
+**Flexible Output Formats**
+- **Excel** (default): Professional formatted workbooks with color-coding and multi-sheet organization
+- **CSV**: Individual CSV files for easy data processing and ETL pipelines
+- **JSON**: Hierarchical structured data for API integration and automation
+- **HTML**: Web-ready reports with modern styling for sharing and presentations
+- **All**: Generate all formats simultaneously for comprehensive documentation packages
+
+See [OUTPUT_FORMATS.md](OUTPUT_FORMATS.md) for detailed format specifications, use cases, and integration examples.
+
 **Professional Excel Workbooks**
 - **5 Formatted Sheets**: Metadata, Data Quality, DataView details, Metrics, Dimensions
 - **Conditional Formatting**: Severity-based color coding for instant issue identification
