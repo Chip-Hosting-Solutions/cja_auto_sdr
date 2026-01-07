@@ -234,7 +234,9 @@ The notebook version is excellent for learning and ad-hoc exploration. Version 3
   * 7.4 Troubleshooting Guide
 * **8. Use Cases**
 * **9. Best Practices**
-* **10. Support and Logging**
+* **10. Testing**
+* **11. Support and Logging**
+* **12. Additional Resources**
 
 ---
 
@@ -1450,7 +1452,120 @@ uv run python cja_sdr_generator.py --batch \
 
 ---
 
-## 10. Support and Logging
+## 10. Testing
+
+The CJA SDR Generator includes a comprehensive automated test suite using pytest.
+
+### Running Tests
+
+**Run all tests:**
+```bash
+# Using uv (recommended)
+uv run pytest
+
+# With verbose output
+uv run pytest -v
+
+# With coverage report (requires pytest-cov)
+uv add --dev pytest-cov
+uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
+```
+
+**Run specific test categories:**
+```bash
+# CLI tests
+uv run pytest tests/test_cli.py
+
+# Data quality tests
+uv run pytest tests/test_data_quality.py
+
+# Utility function tests
+uv run pytest tests/test_utils.py
+```
+
+### Test Coverage
+
+The test suite includes:
+
+- **CLI Tests** (`test_cli.py`)
+  - Command-line argument parsing
+  - Data view ID validation
+  - Error handling for invalid inputs
+
+- **Data Quality Tests** (`test_data_quality.py`)
+  - Duplicate detection
+  - Missing field validation
+  - Null value detection
+  - Severity classification
+
+- **Utility Tests** (`test_utils.py`)
+  - Logging configuration
+  - Configuration file validation
+  - Filename sanitization
+  - Performance tracking
+
+### Test Structure
+
+```
+tests/
+├── __init__.py              # Test package initialization
+├── conftest.py              # Pytest fixtures and shared configuration
+├── test_cli.py              # Command-line interface tests
+├── test_data_quality.py     # Data quality validation tests
+├── test_utils.py            # Utility function tests
+└── README.md                # Detailed testing documentation
+```
+
+### Writing New Tests
+
+Follow pytest conventions:
+- Test files: `test_*.py`
+- Test classes: `Test*`
+- Test functions: `test_*`
+
+Example:
+```python
+def test_example_functionality():
+    """Test description"""
+    # Arrange
+    input_data = "test_input"
+
+    # Act
+    result = function_under_test(input_data)
+
+    # Assert
+    assert result == expected_output
+```
+
+### Continuous Integration
+
+Integrate tests into your CI/CD pipeline:
+
+```yaml
+# GitHub Actions example
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.14'
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync
+      - name: Run tests
+        run: uv run pytest
+```
+
+For more details, see [tests/README.md](tests/README.md).
+
+---
+
+## 11. Support and Logging
 
 ### Log File Location
 
@@ -1553,7 +1668,7 @@ uv sync --reinstall
 
 ---
 
-## 11. Additional Resources
+## 12. Additional Resources
 
 ### uv Documentation
 - Official uv Documentation: https://github.com/astral-sh/uv
