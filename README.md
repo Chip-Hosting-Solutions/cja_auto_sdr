@@ -152,16 +152,19 @@ Unlike the original notebook's simple data retrieval, Version 3.0 includes a com
 **DevOps Ready**
 ```bash
 # Single command deployment
-uv sync && uv run python cja_sdr_generator.py
+uv sync && uv run python cja_sdr_generator.py dv_production_12345
 
-# Scheduled execution (cron)
-0 9 * * 1 cd /path/to/project && uv run python cja_sdr_generator.py
+# Scheduled execution (cron) - single data view
+0 9 * * 1 cd /path/to/project && uv run python cja_sdr_generator.py dv_production_12345
+
+# Scheduled execution (cron) - batch processing multiple data views
+0 2 * * * cd /path/to/project && uv run python cja_sdr_generator.py --batch dv_prod_1 dv_prod_2 dv_prod_3 --continue-on-error
 
 # CI/CD pipeline integration
 - name: Generate SDR
   run: |
     uv sync
-    uv run python cja_sdr_generator.py
+    uv run python cja_sdr_generator.py --batch dv_production_12345 dv_staging_67890 --continue-on-error
 ```
 
 ### Documentation & Support
