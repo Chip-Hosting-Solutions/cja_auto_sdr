@@ -869,7 +869,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
             return ProcessingResult(
                 data_view_id=data_view_id,
-                data_view_name=lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown",
+                data_view_name=lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
                 success=False,
                 duration=time.time() - start_time,
                 error_message="No metrics or dimensions found"
@@ -965,7 +965,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                 'Value': [
                     formatted_timestamp,
                     data_view_id,
-                    lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown",
+                    lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
                     len(metrics),
                     '\n'.join(metric_summary) if metric_summary else 'No metrics found',
                     len(dimensions),
@@ -1011,10 +1011,10 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
 
         # Create Excel file name
         try:
-            dv_name = lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown"
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
             # Sanitize filename
             dv_name = "".join(c for c in dv_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            excel_file_name = f'CJA_DataView_{dv_name}_dv_{data_view_id}_SDR.xlsx'
+            excel_file_name = f'CJA_DataView_{dv_name}_{data_view_id}_SDR.xlsx'
 
             # Add output directory path
             output_path = Path(output_dir) / excel_file_name
