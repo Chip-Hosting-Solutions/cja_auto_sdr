@@ -12,3 +12,4 @@ logs/
 
 # Virtual environments
 .venv
+*.xlsx

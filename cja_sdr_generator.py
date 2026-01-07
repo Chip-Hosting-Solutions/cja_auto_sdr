@@ -362,10 +362,11 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
 class ParallelAPIFetcher:
     """Fetch multiple API endpoints in parallel using threading"""
-    
-    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, max_workers: int = 3):
+
+    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, perf_tracker: 'PerformanceTracker', max_workers: int = 3):
         self.cja = cja
         self.logger = logger
+        self.perf_tracker = perf_tracker
         self.max_workers = max_workers
     
     def fetch_all_data(self, data_view_id: str) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
@@ -376,31 +377,31 @@ class ParallelAPIFetcher:
             Tuple of (metrics_df, dimensions_df, dataview_info)
         """
         self.logger.info("Starting parallel data fetch operations...")
-        perf_tracker.start("Parallel API Fetch")
-        
+        self.perf_tracker.start("Parallel API Fetch")
+
         results = {
             'metrics': None,
             'dimensions': None,
             'dataview': None
         }
-        
+
         errors = {}
-        
+
         # Define fetch tasks
         tasks = {
             'metrics': lambda: self._fetch_metrics(data_view_id),
             'dimensions': lambda: self._fetch_dimensions(data_view_id),
             'dataview': lambda: self._fetch_dataview_info(data_view_id)
         }
-        
+
         # Execute tasks in parallel using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all tasks
             future_to_name = {
-                executor.submit(task): name 
+                executor.submit(task): name
                 for name, task in tasks.items()
             }
-            
+
             # Collect results as they complete
             for future in as_completed(future_to_name):
                 task_name = future_to_name[future]
@@ -410,8 +411,8 @@ class ParallelAPIFetcher:
                 except Exception as e:
                     errors[task_name] = str(e)
                     self.logger.error(f"✗ {task_name.capitalize()} fetch failed: {e}")
-        
-        perf_tracker.end("Parallel API Fetch")
+
+        self.perf_tracker.end("Parallel API Fetch")
         
         # Log summary
         success_count = sum(1 for v in results.values() if v is not None)
@@ -682,7 +683,7 @@ class DataQualityChecker:
 
 # ==================== EXCEL GENERATION ====================
 
-def apply_excel_formatting(writer, df, sheet_name):
+def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
     """Apply formatting to Excel sheets with error handling"""
     try:
         logger.info(f"Formatting sheet: {sheet_name}")
@@ -860,7 +861,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
         logger.info("Starting optimized data fetch operations")
         logger.info("=" * 60)
 
-        fetcher = ParallelAPIFetcher(cja, logger, max_workers=3)
+        fetcher = ParallelAPIFetcher(cja, logger, perf_tracker, max_workers=3)
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
         # Check if we have any data to process
@@ -1046,9 +1047,9 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                         if sheet_data.empty:
                             logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
                             placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
-                            apply_excel_formatting(writer, placeholder_df, sheet_name)
+                            apply_excel_formatting(writer, placeholder_df, sheet_name, logger)
                         else:
-                            apply_excel_formatting(writer, sheet_data, sheet_name)
+                            apply_excel_formatting(writer, sheet_data, sheet_name, logger)
                     except Exception as e:
                         logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
                         continue

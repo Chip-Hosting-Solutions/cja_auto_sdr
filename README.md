@@ -3,13 +3,13 @@
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
 
-**Version 4.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, error handling, and modern dependency management.
+**Version 3.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, error handling, and modern dependency management.
 
-## What Makes Version 4.0 Different
+## What Makes Version 3.0 Different
 
-This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the [CJA Summit 2025 notebook](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb), Version 4.0 introduces significant performance and usability improvements:
+This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the [CJA Summit 2025 notebook](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb), Version 3.0 represents a comprehensive enterprise solution with significant performance and usability improvements:
 
-### High-Performance Batch Processing (NEW in v4.0)
+### High-Performance Batch Processing
 
 **From Single Data View to Enterprise-Scale Batch Operations**
 - **3-4x Performance Improvement**: Process multiple data views in parallel using true multiprocessing
@@ -25,7 +25,7 @@ Parallel:   10 data views / 4 workers × 35s = ~87.5 seconds (1.5 minutes)
 Result:     4x faster (75% time savings)
 ```
 
-### Command-Line Interface (NEW in v4.0)
+### Command-Line Interface
 
 **Professional CLI with argparse**
 - **Required Arguments**: Data view IDs must be explicitly provided (no hardcoded defaults)
@@ -62,7 +62,7 @@ uv run python cja_sdr_generator.py --batch dv_* --workers 8 --output-dir ./repor
 - **Modern**: Built for Python 3.14+ with future-proof architecture
 - **Developer Experience**: Better error messages, faster iteration cycles
 
-### Enterprise-Grade Reliability (New in v3.0)
+### Enterprise-Grade Reliability
 
 **Comprehensive Error Handling & Validation**
 - Pre-flight configuration validation before API calls
@@ -79,10 +79,10 @@ uv run python cja_sdr_generator.py --batch dv_* --workers 8 --output-dir ./repor
 - Performance metrics tracking for optimization
 - Complete execution summaries for reporting
 
-### Advanced Data Quality Validation (New in v3.0)
+### Advanced Data Quality Validation
 
 **Automated Quality Assurance**
-Unlike the original notebook's simple data retrieval, v3.0 includes a comprehensive data quality framework:
+Unlike the original notebook's simple data retrieval, Version 3.0 includes a comprehensive data quality framework:
 
 - **8+ Validation Checks**: Duplicates, missing fields, null values, invalid IDs, empty datasets
 - **Severity Classification**: CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting
@@ -104,24 +104,24 @@ Unlike the original notebook's simple data retrieval, v3.0 includes a comprehens
 
 **Architectural Improvements**
 
-| Aspect | Original Notebook | Version 3.0 | Version 4.0 |
-|--------|------------------|-------------|-------------|
-| **Execution Model** | Interactive cells | Standalone application | CLI with argparse |
-| **Performance** | Single-threaded | Optimized single-view | **3-4x faster (parallel)** |
-| **Processing Mode** | One at a time | Single data view | **Batch processing** |
-| **Parallelism** | None | ThreadPoolExecutor (I/O) | **ProcessPoolExecutor (CPU)** |
-| **CLI Arguments** | None | Hardcoded in script | **Required arguments** |
-| **Error Handling** | Basic try-catch | Multi-layer defensive | **Continue-on-error mode** |
-| **Logging** | Print statements | Professional logging | **Batch + per-view logs** |
-| **Dependencies** | Manual installation | Managed via pyproject.toml + uv | Managed via pyproject.toml + uv |
-| **Data Quality** | None | 8+ automated checks | 8+ automated checks |
-| **Configuration** | Hardcoded values | Validated external config | **CLI with validation** |
-| **Reliability** | Single-run, manual | Production-ready with retries | **Resilient batch mode** |
-| **Maintainability** | Notebook-based | Modular Python classes | **Modular with workers** |
-| **Scalability** | Single data view | Single data view | **Unlimited data views** |
-| **Output** | Basic Excel | Formatted with conditional styling | **Multiple outputs in parallel** |
-| **Result Tracking** | None | Per execution | **Batch summary reports** |
-| **Throughput** | ~1 view/35s | ~1 view/35s | **~4 views/35s (4 workers)** |
+| Aspect | Original Notebook | Version 3.0 |
+|--------|------------------|-------------|
+| **Execution Model** | Interactive cells | CLI with argparse |
+| **Performance** | Single-threaded | **3-4x faster (parallel)** |
+| **Processing Mode** | One at a time | **Batch processing** |
+| **Parallelism** | None | **ProcessPoolExecutor (CPU)** |
+| **CLI Arguments** | None | **Required arguments** |
+| **Error Handling** | Basic try-catch | **Continue-on-error mode** |
+| **Logging** | Print statements | **Batch + per-view logs** |
+| **Dependencies** | Manual installation | Managed via pyproject.toml + uv |
+| **Data Quality** | None | 8+ automated checks |
+| **Configuration** | Hardcoded values | **CLI with validation** |
+| **Reliability** | Single-run, manual | **Resilient batch mode** |
+| **Maintainability** | Notebook-based | **Modular with workers** |
+| **Scalability** | Single data view | **Unlimited data views** |
+| **Output** | Basic Excel | **Multiple outputs in parallel** |
+| **Result Tracking** | None | **Batch summary reports** |
+| **Throughput** | ~1 view/35s | **~4 views/35s (4 workers)** |
 
 ### Enhanced Output & Documentation
 
@@ -174,7 +174,7 @@ uv sync && uv run python cja_sdr_generator.py
 - Performance optimization tips
 - Multiple usage examples and scenarios
 
-### Who Should Use Version 4.0?
+### Who Should Use Version 3.0?
 
 **Ideal For:**
 - **Analytics Teams** requiring regular SDR documentation across multiple data views
@@ -186,7 +186,7 @@ uv sync && uv run python cja_sdr_generator.py
 - **Large Organizations** with dozens or hundreds of data views requiring regular audits
 
 **Migration Path from Notebook:**
-The notebook version is excellent for learning and ad-hoc exploration. Version 4.0 is designed for teams that need:
+The notebook version is excellent for learning and ad-hoc exploration. Version 3.0 is designed for teams that need:
 - **High-Performance Processing**: 3-4x faster with parallel batch mode
 - **Scheduled, Automated SDR Generation**: CLI-ready for cron jobs and task schedulers
 - **Multi-Data View Support**: Process unlimited data views in parallel
@@ -280,9 +280,9 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Error diagnosis information
 - Execution summaries
 
-### 1.3 What's New in This Version
+### 1.3 What's New in Version 3.0
 
-**Version 4.0 Enhancements (Current):**
+**Comprehensive Enterprise Features:**
 
 🚀 **High-Performance Batch Processing**
 - Process multiple data views in parallel (3-4x faster)
@@ -307,8 +307,6 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Success rate calculations
 - Throughput metrics (data views per minute)
 - Individual and aggregate error reporting
-
-**Version 3.0 Features (Retained):**
 
 ✅ **Modern Dependency Management**
 - Uses `uv` for fast, reliable package management
@@ -1077,7 +1075,7 @@ uv sync
 
 **Solution:** Close the Excel file and re-run script
 
-#### CLI Argument Errors (NEW in v4.0)
+#### CLI Argument Errors
 
 **Error:** `error: the following arguments are required: DATA_VIEW_ID`
 
@@ -1115,7 +1113,7 @@ python --version  # Should be 3.14+
 uv sync --reinstall
 ```
 
-#### Batch Processing Issues (NEW in v4.0)
+#### Batch Processing Issues
 
 **Problem:** Batch processing slower than expected
 
