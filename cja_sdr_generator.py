@@ -1014,14 +1014,14 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             dv_name = lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown"
             # Sanitize filename
             dv_name = "".join(c for c in dv_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            excel_file_name = f'CJA_DataView_{dv_name}_{data_view_id}_SDR.xlsx'
+            excel_file_name = f'CJA_DataView_{dv_name}_dv_{data_view_id}_SDR.xlsx'
 
             # Add output directory path
             output_path = Path(output_dir) / excel_file_name
             logger.info(f"Excel file will be saved as: {output_path}")
         except Exception as e:
             logger.error(f"Error creating filename: {str(e)}")
-            excel_file_name = f'CJA_DataView_{data_view_id}_SDR.xlsx'
+            excel_file_name = f'CJA_DataView_dv_{data_view_id}_SDR.xlsx'
             output_path = Path(output_dir) / excel_file_name
 
         # Write to Excel with formatting
