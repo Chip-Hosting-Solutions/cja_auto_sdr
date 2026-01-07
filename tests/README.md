@@ -166,16 +166,19 @@ jobs:
 ### Tests Failing Locally
 
 1. **Ensure dependencies are installed**:
+
    ```bash
    uv sync
    ```
 
 2. **Check Python version**:
+
    ```bash
    python --version  # Should be 3.14+
    ```
 
 3. **Clear pytest cache**:
+
    ```bash
    rm -rf .pytest_cache __pycache__ tests/__pycache__
    ```
@@ -183,6 +186,7 @@ jobs:
 ### Import Errors
 
 If you see import errors, ensure the project root is in Python path:
+
 ```bash
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 uv run pytest
