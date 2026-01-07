@@ -1289,10 +1289,10 @@ Examples:
   # Single data view
   python cja_sdr_generator.py dv_12345
 
-  # Multiple data views (sequential)
+  # Multiple data views (automatically triggers parallel processing)
   python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
 
-  # Batch processing (parallel)
+  # Batch processing with explicit flag (same as above)
   python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
 
   # Custom workers
