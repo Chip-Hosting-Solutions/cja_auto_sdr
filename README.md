@@ -577,18 +577,23 @@ uv run python cja_sdr_generator.py dv_12345 --config-file ./prod_config.json
 uv run python cja_sdr_generator.py dv_12345 --log-level DEBUG
 ```
 
-#### **Multiple Data Views (Sequential)**
+#### **Multiple Data Views (Automatic Batch Mode)**
 
-When you provide multiple data view IDs without `--batch`, they process sequentially:
+When you provide multiple data view IDs, the script automatically enables parallel batch processing:
 
 ```bash
-# Process 3 data views one after another
+# Automatically triggers batch/parallel processing
 uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+
+# Explicitly use batch mode (same result)
+uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
 ```
 
-#### **Batch Processing (Parallel)**
+**Note**: The `--batch` flag is optional when processing multiple data views. The script automatically detects multiple data views and uses parallel processing for optimal performance.
 
-Use `--batch` for high-performance parallel processing:
+#### **Batch Processing Configuration**
+
+Customize parallel processing behavior:
 
 ```bash
 # Batch with default 4 workers
