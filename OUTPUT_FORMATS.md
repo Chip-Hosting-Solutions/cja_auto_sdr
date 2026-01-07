@@ -472,6 +472,7 @@ The implementation includes 20 comprehensive tests covering:
 - Large dataset handling
 
 Run tests:
+
 ```bash
 # Test all output formats
 uv run pytest tests/test_output_formats.py -v
@@ -489,12 +490,14 @@ uv run pytest tests/test_output_formats.py::TestHTMLOutput -v
 ### From Excel-only to Multi-format
 
 **Before:**
+
 ```bash
 python cja_sdr_generator.py dv_12345
 # Always generates Excel
 ```
 
 **After:**
+
 ```bash
 # Explicit Excel (same as before)
 python cja_sdr_generator.py dv_12345 --format excel
@@ -513,13 +516,17 @@ python cja_sdr_generator.py dv_12345 --format all
 ## Troubleshooting
 
 ### Issue: CSV files have encoding problems
+
 **Solution:** CSV files are UTF-8 encoded. Use `encoding='utf-8'` when reading:
+
 ```python
 df = pd.read_csv('file.csv', encoding='utf-8')
 ```
 
 ### Issue: JSON file is too large to process
+
 **Solution:** Stream the JSON data or use JSON streaming libraries:
+
 ```python
 import ijson
 with open('large.json', 'rb') as f:
@@ -529,10 +536,13 @@ with open('large.json', 'rb') as f:
 ```
 
 ### Issue: HTML doesn't display correctly
+
 **Solution:** Ensure you're viewing in a modern browser (Chrome, Firefox, Safari, Edge). The HTML uses modern CSS features.
 
 ### Issue: Need specific CSV encoding
+
 **Modification:** Edit `write_csv_output()` in `cja_sdr_generator.py` to change encoding:
+
 ```python
 df.to_csv(csv_file, index=False, encoding='latin1')  # or other encoding
 ```
