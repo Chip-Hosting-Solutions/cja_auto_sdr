@@ -8,40 +8,64 @@ import sys
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
+import argparse
+import os
+from dataclasses import dataclass
+
+# ==================== DATA STRUCTURES ====================
+
+@dataclass
+class ProcessingResult:
+    """Result of processing a single data view"""
+    data_view_id: str
+    data_view_name: str
+    success: bool
+    duration: float
+    metrics_count: int = 0
+    dimensions_count: int = 0
+    dq_issues_count: int = 0
+    output_file: str = ""
+    error_message: str = ""
 
 # ==================== LOGGING SETUP ====================
 
-def setup_logging(data_view_id: str) -> logging.Logger:
+def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level: str = "INFO") -> logging.Logger:
     """Setup logging to both file and console"""
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # Create log filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = log_dir / f"SDR_Generation_{data_view_id}_{timestamp}.log"
-    
+
+    if batch_mode:
+        log_file = log_dir / f"SDR_Batch_Generation_{timestamp}.log"
+    else:
+        log_file = log_dir / f"SDR_Generation_{data_view_id}_{timestamp}.log"
+
+    # Get numeric log level
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+
+    # Clear any existing handlers
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
     # Configure logging
     logging.basicConfig(
-        level=logging.INFO,
+        level=numeric_level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler(sys.stdout)
-        ]
+        ],
+        force=True
     )
-    
+
     logger = logging.getLogger(__name__)
     logger.info(f"Logging initialized. Log file: {log_file}")
     return logger
-
-# Set the Data View id we want into a variable
-data_view = "dv_677ea9291244fd082f02dd42"
-
-# Initialize logging
-logger = setup_logging(data_view)
 
 # ==================== PERFORMANCE TRACKING ====================
 
@@ -51,11 +75,11 @@ class PerformanceTracker:
         self.metrics = {}
         self.logger = logger
         self.start_times = {}
-    
+
     def start(self, operation_name: str):
         """Start timing an operation"""
         self.start_times[operation_name] = time.time()
-    
+
     def end(self, operation_name: str):
         """End timing an operation"""
         if operation_name in self.start_times:
@@ -63,28 +87,25 @@ class PerformanceTracker:
             self.metrics[operation_name] = duration
             self.logger.info(f"⏱️  {operation_name} completed in {duration:.2f}s")
             del self.start_times[operation_name]
-    
+
     def get_summary(self) -> str:
         """Generate performance summary"""
         if not self.metrics:
             return "No performance metrics collected"
-        
+
         total = sum(self.metrics.values())
         lines = ["", "=" * 60, "PERFORMANCE SUMMARY", "=" * 60]
-        
+
         for operation, duration in sorted(self.metrics.items(), key=lambda x: x[1], reverse=True):
             percentage = (duration / total) * 100 if total > 0 else 0
             lines.append(f"{operation:35s}: {duration:6.2f}s ({percentage:5.1f}%)")
-        
+
         lines.extend(["=" * 60, f"{'Total Execution Time':35s}: {total:6.2f}s", "=" * 60])
         return "\n".join(lines)
 
-# Initialize performance tracker
-perf_tracker = PerformanceTracker(logger)
-
 # ==================== CJA INITIALIZATION ====================
 
-def validate_config_file(config_file: str) -> bool:
+def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
     """Validate configuration file exists and has required structure"""
     try:
         logger.info(f"Validating configuration file: {config_file}")
@@ -136,15 +157,15 @@ def validate_config_file(config_file: str) -> bool:
         logger.error(f"Unexpected error validating config file: {str(e)}")
         return False
 
-def initialize_cja(config_file: str = "myconfig.json") -> Optional[cjapy.CJA]:
+def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = None) -> Optional[cjapy.CJA]:
     """Initialize CJA connection with comprehensive error handling"""
     try:
         logger.info("=" * 60)
         logger.info("INITIALIZING CJA CONNECTION")
         logger.info("=" * 60)
-        
+
         # Validate config file first
-        if not validate_config_file(config_file):
+        if not validate_config_file(config_file, logger):
             logger.critical("Configuration file validation failed")
             logger.critical("Please create a valid config file with the following structure:")
             logger.critical(json.dumps({
@@ -232,22 +253,9 @@ def initialize_cja(config_file: str = "myconfig.json") -> Optional[cjapy.CJA]:
         logger.critical("5. Check if cjapy library is up to date: pip install --upgrade cjapy")
         return None
 
-# Initialize CJA with comprehensive error handling
-cja = initialize_cja()
-
-if cja is None:
-    logger.critical("=" * 60)
-    logger.critical("FATAL ERROR: Cannot proceed without CJA connection")
-    logger.critical("=" * 60)
-    logger.critical("Script execution terminated")
-    logger.critical(f"Please check the log file for details: {Path('logs').absolute()}")
-    sys.exit(1)
-
-logger.info("✓ CJA connection established successfully")
-
 # ==================== DATA VIEW VALIDATION ====================
 
-def validate_data_view(cja: cjapy.CJA, data_view_id: str) -> bool:
+def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger) -> bool:
     """Validate that the data view exists and is accessible with detailed error reporting"""
     try:
         logger.info("=" * 60)
@@ -349,23 +357,6 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str) -> bool:
         logger.error("  2. You have access to this data view")
         logger.error("  3. Your API credentials are valid")
         return False
-
-# Validate data view before proceeding
-if not validate_data_view(cja, data_view):
-    logger.critical("=" * 60)
-    logger.critical("FATAL ERROR: Data view validation failed")
-    logger.critical("=" * 60)
-    logger.critical(f"Cannot proceed with invalid data view: {data_view}")
-    logger.critical("")
-    logger.critical("Please check:")
-    logger.critical("  1. Verify the data view ID is correct")
-    logger.critical("  2. Ensure you have permission to access this data view")
-    logger.critical("  3. Confirm the data view exists in your organization")
-    logger.critical("")
-    logger.critical("Script execution terminated")
-    sys.exit(1)
-
-logger.info("✓ Data view validation complete - proceeding with data fetch")
 
 # ==================== OPTIMIZED API DATA FETCHING ====================
 
@@ -502,37 +493,6 @@ class ParallelAPIFetcher:
         except Exception as e:
             self.logger.error(f"Failed to fetch data view information: {str(e)}")
             return {"name": "Unknown", "id": data_view_id, "error": str(e)}
-
-def fetch_metrics(cja: cjapy.CJA, data_view_id: str) -> pd.DataFrame:
-    """Legacy function - kept for backward compatibility"""
-    fetcher = ParallelAPIFetcher(cja, logger)
-    return fetcher._fetch_metrics(data_view_id)
-
-def fetch_dimensions(cja: cjapy.CJA, data_view_id: str) -> pd.DataFrame:
-    """Legacy function - kept for backward compatibility"""
-    fetcher = ParallelAPIFetcher(cja, logger)
-    return fetcher._fetch_dimensions(data_view_id)
-
-def fetch_dataview_info(cja: cjapy.CJA, data_view_id: str) -> dict:
-    """Legacy function - kept for backward compatibility"""
-    fetcher = ParallelAPIFetcher(cja, logger)
-    return fetcher._fetch_dataview_info(data_view_id)
-
-# Fetch all data with parallel optimization
-logger.info("=" * 60)
-logger.info("Starting optimized data fetch operations")
-logger.info("=" * 60)
-
-# Use parallel fetcher for optimal performance
-fetcher = ParallelAPIFetcher(cja, logger, max_workers=3)
-metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view)
-
-# Check if we have any data to process
-if metrics.empty and dimensions.empty:
-    logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
-    sys.exit(1)
-
-logger.info("Data fetch operations completed successfully")
 
 # ==================== DATA QUALITY VALIDATION ====================
 
@@ -720,165 +680,6 @@ class DataQualityChecker:
                 'Details': [str(e)]
             })
 
-# Initialize data quality checker
-logger.info("=" * 60)
-logger.info("Starting data quality validation")
-logger.info("=" * 60)
-
-dq_checker = DataQualityChecker(logger)
-
-# Required fields for validation
-REQUIRED_METRIC_FIELDS = ['id', 'name', 'type']
-REQUIRED_DIMENSION_FIELDS = ['id', 'name', 'type']
-CRITICAL_FIELDS = ['id', 'name', 'title', 'description']
-
-# Run all data quality checks
-logger.info("Running comprehensive data quality checks...")
-
-try:
-    # Check if dataframes are empty
-    dq_checker.check_empty_dataframe(metrics, 'Metrics')
-    dq_checker.check_empty_dataframe(dimensions, 'Dimensions')
-    
-    # Check for required fields
-    dq_checker.check_required_fields(metrics, 'Metrics', REQUIRED_METRIC_FIELDS)
-    dq_checker.check_required_fields(dimensions, 'Dimensions', REQUIRED_DIMENSION_FIELDS)
-    
-    # Check for duplicates
-    dq_checker.check_duplicates(metrics, 'Metrics')
-    dq_checker.check_duplicates(dimensions, 'Dimensions')
-    
-    # Check for null values in critical fields
-    dq_checker.check_null_values(metrics, 'Metrics', CRITICAL_FIELDS)
-    dq_checker.check_null_values(dimensions, 'Dimensions', CRITICAL_FIELDS)
-    
-    # Check for missing descriptions
-    dq_checker.check_missing_descriptions(metrics, 'Metrics')
-    dq_checker.check_missing_descriptions(dimensions, 'Dimensions')
-    
-    # Check ID validity
-    dq_checker.check_id_validity(metrics, 'Metrics')
-    dq_checker.check_id_validity(dimensions, 'Dimensions')
-    
-    logger.info(f"Data quality checks complete. Found {len(dq_checker.issues)} issue(s)")
-    
-except Exception as e:
-    logger.error(f"Error during data quality validation: {str(e)}")
-    logger.info("Continuing with SDR generation despite validation errors")
-
-# Get data quality issues dataframe
-data_quality_df = dq_checker.get_issues_dataframe()
-
-# ==================== DATA PROCESSING ====================
-
-logger.info("=" * 60)
-logger.info("Processing data for Excel export")
-logger.info("=" * 60)
-
-try:
-    # Process lookup data into DataFrame
-    logger.info("Processing data view lookup information...")
-    lookup_data = {k: [v] if not isinstance(v, (list, tuple)) else v for k, v in lookup_data.items()}
-    max_length = max(len(v) for v in lookup_data.values()) if lookup_data else 1
-    lookup_data = {k: v + [None] * (max_length - len(v)) for k, v in lookup_data.items()}
-    lookup_df = pd.DataFrame(lookup_data)
-    logger.info(f"Processed lookup data with {len(lookup_df)} rows")
-    
-except Exception as e:
-    logger.error(f"Error processing lookup data: {str(e)}")
-    lookup_df = pd.DataFrame({'Error': ['Failed to process data view information']})
-
-try:
-    # Enhanced metadata creation
-    logger.info("Creating metadata summary...")
-    metric_types = metrics['type'].value_counts().to_dict() if not metrics.empty and 'type' in metrics.columns else {}
-    metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
-    
-    dimension_types = dimensions['type'].value_counts().to_dict() if not dimensions.empty and 'type' in dimensions.columns else {}
-    dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
-    
-    # Get current timezone and formatted timestamp
-    local_tz = datetime.now().astimezone().tzinfo
-    current_time = datetime.now(local_tz)
-    formatted_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S %Z')
-    
-    # Count data quality issues by severity
-    severity_counts = data_quality_df['Severity'].value_counts().to_dict()
-    dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
-    
-    # Create enhanced metadata DataFrame
-    metadata_df = pd.DataFrame({
-        'Property': [
-            'Generated Date & timestamp and timezone',
-            'Data View ID',
-            'Data View Name',
-            'Total Metrics',
-            'Metrics Breakdown',
-            'Total Dimensions',
-            'Dimensions Breakdown',
-            'Data Quality Issues',
-            'Data Quality Summary'
-        ],
-        'Value': [
-            formatted_timestamp,
-            data_view,
-            lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown",
-            len(metrics),
-            '\n'.join(metric_summary) if metric_summary else 'No metrics found',
-            len(dimensions),
-            '\n'.join(dimension_summary) if dimension_summary else 'No dimensions found',
-            len(dq_checker.issues),
-            '\n'.join(dq_summary) if dq_summary else 'No issues'
-        ]
-    })
-    logger.info("Metadata created successfully")
-    
-except Exception as e:
-    logger.error(f"Error creating metadata: {str(e)}")
-    metadata_df = pd.DataFrame({'Error': ['Failed to create metadata']})
-
-# Function to format JSON cells
-def format_json_cell(value):
-    """Format JSON objects for Excel display"""
-    try:
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, indent=2)
-        return value
-    except Exception as e:
-        logger.warning(f"Error formatting JSON cell: {str(e)}")
-        return str(value)
-
-try:
-    # Apply JSON formatting to all dataframes
-    logger.info("Applying JSON formatting to dataframes...")
-    
-    for col in lookup_df.columns:
-        lookup_df[col] = lookup_df[col].map(format_json_cell)
-    
-    if not metrics.empty:
-        for col in metrics.columns:
-            metrics[col] = metrics[col].map(format_json_cell)
-    
-    if not dimensions.empty:
-        for col in dimensions.columns:
-            dimensions[col] = dimensions[col].map(format_json_cell)
-    
-    logger.info("JSON formatting applied successfully")
-    
-except Exception as e:
-    logger.error(f"Error applying JSON formatting: {str(e)}")
-
-# Create Excel file name
-try:
-    dv_name = lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown"
-    # Sanitize filename
-    dv_name = "".join(c for c in dv_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-    excel_file_name = f'CJA_DataView_{dv_name}_{data_view}_SDR.xlsx'
-    logger.info(f"Excel file will be saved as: {excel_file_name}")
-except Exception as e:
-    logger.error(f"Error creating filename: {str(e)}")
-    excel_file_name = f'CJA_DataView_{data_view}_SDR.xlsx'
-
 # ==================== EXCEL GENERATION ====================
 
 def apply_excel_formatting(writer, df, sheet_name):
@@ -1006,66 +807,618 @@ def apply_excel_formatting(writer, df, sheet_name):
         logger.error(f"Error formatting sheet {sheet_name}: {str(e)}")
         raise
 
-# Write to Excel with formatting
-logger.info("=" * 60)
-logger.info("Generating Excel file")
-logger.info("=" * 60)
+# ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
 
-try:
-    logger.info(f"Creating Excel writer for: {excel_file_name}")
+def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json",
+                           output_dir: str = ".", log_level: str = "INFO") -> ProcessingResult:
+    """
+    Process a single data view and generate SDR Excel file
 
-    with pd.ExcelWriter(excel_file_name, engine='xlsxwriter') as writer:
-        # Write sheets in order, with Data Quality first for visibility
-        sheets_to_write = [
-            (metadata_df, 'Metadata'),
-            (data_quality_df, 'Data Quality'),
-            (lookup_df, 'DataView'),
-            (metrics, 'Metrics'),
-            (dimensions, 'Dimensions')
+    Args:
+        data_view_id: The data view ID to process
+        config_file: Path to CJA config file
+        output_dir: Directory to save output files
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+
+    Returns:
+        ProcessingResult with processing details
+    """
+    start_time = time.time()
+
+    # Setup logging for this data view
+    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level)
+    perf_tracker = PerformanceTracker(logger)
+
+    try:
+        # Initialize CJA
+        cja = initialize_cja(config_file, logger)
+        if cja is None:
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name="Unknown",
+                success=False,
+                duration=time.time() - start_time,
+                error_message="CJA initialization failed"
+            )
+
+        logger.info("✓ CJA connection established successfully")
+
+        # Validate data view
+        if not validate_data_view(cja, data_view_id, logger):
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name="Unknown",
+                success=False,
+                duration=time.time() - start_time,
+                error_message="Data view validation failed"
+            )
+
+        logger.info("✓ Data view validation complete - proceeding with data fetch")
+
+        # Fetch data with parallel optimization
+        logger.info("=" * 60)
+        logger.info("Starting optimized data fetch operations")
+        logger.info("=" * 60)
+
+        fetcher = ParallelAPIFetcher(cja, logger, max_workers=3)
+        metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
+
+        # Check if we have any data to process
+        if metrics.empty and dimensions.empty:
+            logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown",
+                success=False,
+                duration=time.time() - start_time,
+                error_message="No metrics or dimensions found"
+            )
+
+        logger.info("Data fetch operations completed successfully")
+
+        # Data quality validation
+        logger.info("=" * 60)
+        logger.info("Starting data quality validation")
+        logger.info("=" * 60)
+
+        dq_checker = DataQualityChecker(logger)
+
+        # Required fields for validation
+        REQUIRED_METRIC_FIELDS = ['id', 'name', 'type']
+        REQUIRED_DIMENSION_FIELDS = ['id', 'name', 'type']
+        CRITICAL_FIELDS = ['id', 'name', 'title', 'description']
+
+        # Run all data quality checks
+        logger.info("Running comprehensive data quality checks...")
+
+        try:
+            dq_checker.check_empty_dataframe(metrics, 'Metrics')
+            dq_checker.check_empty_dataframe(dimensions, 'Dimensions')
+            dq_checker.check_required_fields(metrics, 'Metrics', REQUIRED_METRIC_FIELDS)
+            dq_checker.check_required_fields(dimensions, 'Dimensions', REQUIRED_DIMENSION_FIELDS)
+            dq_checker.check_duplicates(metrics, 'Metrics')
+            dq_checker.check_duplicates(dimensions, 'Dimensions')
+            dq_checker.check_null_values(metrics, 'Metrics', CRITICAL_FIELDS)
+            dq_checker.check_null_values(dimensions, 'Dimensions', CRITICAL_FIELDS)
+            dq_checker.check_missing_descriptions(metrics, 'Metrics')
+            dq_checker.check_missing_descriptions(dimensions, 'Dimensions')
+            dq_checker.check_id_validity(metrics, 'Metrics')
+            dq_checker.check_id_validity(dimensions, 'Dimensions')
+
+            logger.info(f"Data quality checks complete. Found {len(dq_checker.issues)} issue(s)")
+        except Exception as e:
+            logger.error(f"Error during data quality validation: {str(e)}")
+            logger.info("Continuing with SDR generation despite validation errors")
+
+        # Get data quality issues dataframe
+        data_quality_df = dq_checker.get_issues_dataframe()
+
+        # Data processing
+        logger.info("=" * 60)
+        logger.info("Processing data for Excel export")
+        logger.info("=" * 60)
+
+        try:
+            # Process lookup data into DataFrame
+            logger.info("Processing data view lookup information...")
+            lookup_data_copy = {k: [v] if not isinstance(v, (list, tuple)) else v for k, v in lookup_data.items()}
+            max_length = max(len(v) for v in lookup_data_copy.values()) if lookup_data_copy else 1
+            lookup_data_copy = {k: v + [None] * (max_length - len(v)) for k, v in lookup_data_copy.items()}
+            lookup_df = pd.DataFrame(lookup_data_copy)
+            logger.info(f"Processed lookup data with {len(lookup_df)} rows")
+        except Exception as e:
+            logger.error(f"Error processing lookup data: {str(e)}")
+            lookup_df = pd.DataFrame({'Error': ['Failed to process data view information']})
+
+        try:
+            # Enhanced metadata creation
+            logger.info("Creating metadata summary...")
+            metric_types = metrics['type'].value_counts().to_dict() if not metrics.empty and 'type' in metrics.columns else {}
+            metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
+
+            dimension_types = dimensions['type'].value_counts().to_dict() if not dimensions.empty and 'type' in dimensions.columns else {}
+            dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
+
+            # Get current timezone and formatted timestamp
+            local_tz = datetime.now().astimezone().tzinfo
+            current_time = datetime.now(local_tz)
+            formatted_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+            # Count data quality issues by severity
+            severity_counts = data_quality_df['Severity'].value_counts().to_dict()
+            dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
+
+            # Create enhanced metadata DataFrame
+            metadata_df = pd.DataFrame({
+                'Property': [
+                    'Generated Date & timestamp and timezone',
+                    'Data View ID',
+                    'Data View Name',
+                    'Total Metrics',
+                    'Metrics Breakdown',
+                    'Total Dimensions',
+                    'Dimensions Breakdown',
+                    'Data Quality Issues',
+                    'Data Quality Summary'
+                ],
+                'Value': [
+                    formatted_timestamp,
+                    data_view_id,
+                    lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown",
+                    len(metrics),
+                    '\n'.join(metric_summary) if metric_summary else 'No metrics found',
+                    len(dimensions),
+                    '\n'.join(dimension_summary) if dimension_summary else 'No dimensions found',
+                    len(dq_checker.issues),
+                    '\n'.join(dq_summary) if dq_summary else 'No issues'
+                ]
+            })
+            logger.info("Metadata created successfully")
+        except Exception as e:
+            logger.error(f"Error creating metadata: {str(e)}")
+            metadata_df = pd.DataFrame({'Error': ['Failed to create metadata']})
+
+        # Function to format JSON cells
+        def format_json_cell(value):
+            """Format JSON objects for Excel display"""
+            try:
+                if isinstance(value, (dict, list)):
+                    return json.dumps(value, indent=2)
+                return value
+            except Exception as e:
+                logger.warning(f"Error formatting JSON cell: {str(e)}")
+                return str(value)
+
+        try:
+            # Apply JSON formatting to all dataframes
+            logger.info("Applying JSON formatting to dataframes...")
+
+            for col in lookup_df.columns:
+                lookup_df[col] = lookup_df[col].map(format_json_cell)
+
+            if not metrics.empty:
+                for col in metrics.columns:
+                    metrics[col] = metrics[col].map(format_json_cell)
+
+            if not dimensions.empty:
+                for col in dimensions.columns:
+                    dimensions[col] = dimensions[col].map(format_json_cell)
+
+            logger.info("JSON formatting applied successfully")
+        except Exception as e:
+            logger.error(f"Error applying JSON formatting: {str(e)}")
+
+        # Create Excel file name
+        try:
+            dv_name = lookup_data.get("name", ["Unknown"])[0] if isinstance(lookup_data, dict) else "Unknown"
+            # Sanitize filename
+            dv_name = "".join(c for c in dv_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            excel_file_name = f'CJA_DataView_{dv_name}_{data_view_id}_SDR.xlsx'
+
+            # Add output directory path
+            output_path = Path(output_dir) / excel_file_name
+            logger.info(f"Excel file will be saved as: {output_path}")
+        except Exception as e:
+            logger.error(f"Error creating filename: {str(e)}")
+            excel_file_name = f'CJA_DataView_{data_view_id}_SDR.xlsx'
+            output_path = Path(output_dir) / excel_file_name
+
+        # Write to Excel with formatting
+        logger.info("=" * 60)
+        logger.info("Generating Excel file")
+        logger.info("=" * 60)
+
+        try:
+            logger.info(f"Creating Excel writer for: {output_path}")
+
+            with pd.ExcelWriter(str(output_path), engine='xlsxwriter') as writer:
+                # Write sheets in order, with Data Quality first for visibility
+                sheets_to_write = [
+                    (metadata_df, 'Metadata'),
+                    (data_quality_df, 'Data Quality'),
+                    (lookup_df, 'DataView'),
+                    (metrics, 'Metrics'),
+                    (dimensions, 'Dimensions')
+                ]
+
+                for sheet_data, sheet_name in sheets_to_write:
+                    try:
+                        if sheet_data.empty:
+                            logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
+                            placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
+                            apply_excel_formatting(writer, placeholder_df, sheet_name)
+                        else:
+                            apply_excel_formatting(writer, sheet_data, sheet_name)
+                    except Exception as e:
+                        logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
+                        continue
+
+            logger.info(f"✓ SDR generation complete! File saved as: {output_path}")
+
+            # Final summary
+            logger.info("=" * 60)
+            logger.info("EXECUTION SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"Data View: {dv_name} ({data_view_id})")
+            logger.info(f"Metrics: {len(metrics)}")
+            logger.info(f"Dimensions: {len(dimensions)}")
+            logger.info(f"Data Quality Issues: {len(dq_checker.issues)}")
+
+            if dq_checker.issues:
+                logger.info("Data Quality Issues by Severity:")
+                for severity, count in severity_counts.items():
+                    logger.info(f"  {severity}: {count}")
+
+            logger.info(f"Output file: {output_path}")
+            logger.info("=" * 60)
+
+            logger.info("Script execution completed successfully")
+            logger.info(perf_tracker.get_summary())
+
+            duration = time.time() - start_time
+
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=True,
+                duration=duration,
+                metrics_count=len(metrics),
+                dimensions_count=len(dimensions),
+                dq_issues_count=len(dq_checker.issues),
+                output_file=str(output_path)
+            )
+
+        except PermissionError as e:
+            logger.critical(f"Permission denied writing to {output_path}. File may be open in another program.")
+            logger.critical("Please close the file and try again.")
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=False,
+                duration=time.time() - start_time,
+                error_message=f"Permission denied: {str(e)}"
+            )
+        except Exception as e:
+            logger.critical(f"Failed to generate Excel file: {str(e)}")
+            logger.exception("Full exception details:")
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=False,
+                duration=time.time() - start_time,
+                error_message=str(e)
+            )
+
+    except Exception as e:
+        logger.critical(f"Unexpected error processing data view {data_view_id}: {str(e)}")
+        logger.exception("Full exception details:")
+        return ProcessingResult(
+            data_view_id=data_view_id,
+            data_view_name="Unknown",
+            success=False,
+            duration=time.time() - start_time,
+            error_message=str(e)
+        )
+
+# ==================== WORKER FUNCTION FOR MULTIPROCESSING ====================
+
+def process_single_dataview_worker(args: tuple) -> ProcessingResult:
+    """
+    Worker function for multiprocessing
+
+    Args:
+        args: Tuple of (data_view_id, config_file, output_dir, log_level)
+
+    Returns:
+        ProcessingResult
+    """
+    data_view_id, config_file, output_dir, log_level = args
+    return process_single_dataview(data_view_id, config_file, output_dir, log_level)
+
+# ==================== BATCH PROCESSOR CLASS ====================
+
+class BatchProcessor:
+    """Process multiple data views in parallel using multiprocessing"""
+
+    def __init__(self, config_file: str = "myconfig.json", output_dir: str = ".",
+                 workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO"):
+        self.config_file = config_file
+        self.output_dir = output_dir
+        self.workers = workers
+        self.continue_on_error = continue_on_error
+        self.log_level = log_level
+        self.logger = setup_logging(batch_mode=True, log_level=log_level)
+
+        # Create output directory if it doesn't exist
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    def process_batch(self, data_view_ids: List[str]) -> Dict:
+        """
+        Process multiple data views in parallel
+
+        Args:
+            data_view_ids: List of data view IDs to process
+
+        Returns:
+            Dictionary with processing results
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("BATCH PROCESSING START")
+        self.logger.info("=" * 60)
+        self.logger.info(f"Data views to process: {len(data_view_ids)}")
+        self.logger.info(f"Parallel workers: {self.workers}")
+        self.logger.info(f"Continue on error: {self.continue_on_error}")
+        self.logger.info(f"Output directory: {self.output_dir}")
+        self.logger.info("=" * 60)
+
+        batch_start_time = time.time()
+
+        results = {
+            'successful': [],
+            'failed': [],
+            'total': len(data_view_ids),
+            'total_duration': 0
+        }
+
+        # Prepare arguments for each worker
+        worker_args = [
+            (dv_id, self.config_file, self.output_dir, self.log_level)
+            for dv_id in data_view_ids
         ]
 
-        for sheet_data, sheet_name in sheets_to_write:
-            try:
-                if sheet_data.empty:
-                    logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
-                    placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
-                    apply_excel_formatting(writer, placeholder_df, sheet_name)
-                else:
-                    apply_excel_formatting(writer, sheet_data, sheet_name)
-            except Exception as e:
-                logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
-                # Continue with other sheets
-                continue
+        # Process with ProcessPoolExecutor for true parallelism
+        with ProcessPoolExecutor(max_workers=self.workers) as executor:
+            # Submit all tasks
+            future_to_dv = {
+                executor.submit(process_single_dataview_worker, args): args[0]
+                for args in worker_args
+            }
 
-    logger.info(f"✓ SDR generation complete! File saved as: {excel_file_name}")
-    
-    # Final summary
-    logger.info("=" * 60)
-    logger.info("EXECUTION SUMMARY")
-    logger.info("=" * 60)
-    logger.info(f"Data View: {dv_name} ({data_view})")
-    logger.info(f"Metrics: {len(metrics)}")
-    logger.info(f"Dimensions: {len(dimensions)}")
-    logger.info(f"Data Quality Issues: {len(dq_checker.issues)}")
-    
-    if dq_checker.issues:
-        logger.info("Data Quality Issues by Severity:")
-        for severity, count in severity_counts.items():
-            logger.info(f"  {severity}: {count}")
-    
-    logger.info(f"Output file: {excel_file_name}")
-    logger.info("=" * 60)
-    
-except PermissionError as e:
-    logger.critical(f"Permission denied writing to {excel_file_name}. File may be open in another program.")
-    logger.critical("Please close the file and try again.")
-    sys.exit(1)
-except Exception as e:
-    logger.critical(f"Failed to generate Excel file: {str(e)}")
-    logger.exception("Full exception details:")
-    sys.exit(1)
+            # Collect results as they complete
+            for future in as_completed(future_to_dv):
+                dv_id = future_to_dv[future]
+                try:
+                    result = future.result()
 
-logger.info("Script execution completed successfully")
+                    if result.success:
+                        results['successful'].append(result)
+                        self.logger.info(f"✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
+                    else:
+                        results['failed'].append(result)
+                        self.logger.error(f"✗ {dv_id}: FAILED - {result.error_message}")
 
-# Log performance summary
-logger.info(perf_tracker.get_summary())
+                        if not self.continue_on_error:
+                            self.logger.warning("Stopping batch processing due to error (use --continue-on-error to continue)")
+                            # Cancel remaining tasks
+                            for f in future_to_dv:
+                                f.cancel()
+                            break
+
+                except Exception as e:
+                    self.logger.error(f"✗ {dv_id}: EXCEPTION - {str(e)}")
+                    results['failed'].append(ProcessingResult(
+                        data_view_id=dv_id,
+                        data_view_name="Unknown",
+                        success=False,
+                        duration=0,
+                        error_message=str(e)
+                    ))
+
+                    if not self.continue_on_error:
+                        self.logger.warning("Stopping batch processing due to error")
+                        break
+
+        results['total_duration'] = time.time() - batch_start_time
+
+        # Print summary
+        self.print_summary(results)
+
+        return results
+
+    def print_summary(self, results: Dict):
+        """Print detailed batch processing summary"""
+        self.logger.info("")
+        self.logger.info("=" * 60)
+        self.logger.info("BATCH PROCESSING SUMMARY")
+        self.logger.info("=" * 60)
+
+        total = results['total']
+        successful_count = len(results['successful'])
+        failed_count = len(results['failed'])
+        success_rate = (successful_count / total * 100) if total > 0 else 0
+        total_duration = results['total_duration']
+        avg_duration = (total_duration / total) if total > 0 else 0
+
+        self.logger.info(f"Total data views: {total}")
+        self.logger.info(f"Successful: {successful_count}")
+        self.logger.info(f"Failed: {failed_count}")
+        self.logger.info(f"Success rate: {success_rate:.1f}%")
+        self.logger.info(f"Total duration: {total_duration:.1f}s")
+        self.logger.info(f"Average per data view: {avg_duration:.1f}s")
+        self.logger.info("")
+
+        if results['successful']:
+            self.logger.info("Successful Data Views:")
+            for result in results['successful']:
+                self.logger.info(f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {result.duration:5.1f}s")
+            self.logger.info("")
+
+        if results['failed']:
+            self.logger.info("Failed Data Views:")
+            for result in results['failed']:
+                self.logger.info(f"  ✗ {result.data_view_id:20s}  {result.error_message}")
+            self.logger.info("")
+
+        self.logger.info("=" * 60)
+
+        if total > 0 and total_duration > 0:
+            throughput = (total / total_duration) * 60  # per minute
+            self.logger.info(f"Throughput: {throughput:.1f} data views per minute")
+            self.logger.info("=" * 60)
+
+# ==================== COMMAND-LINE INTERFACE ====================
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse command-line arguments"""
+    parser = argparse.ArgumentParser(
+        description='CJA SDR Generator - Generate System Design Records for CJA Data Views',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  # Single data view
+  python cja_sdr_generator.py dv_12345
+
+  # Multiple data views (sequential)
+  python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+
+  # Batch processing (parallel)
+  python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+
+  # Custom workers
+  python cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 2
+
+  # Custom output directory
+  python cja_sdr_generator.py dv_12345 --output-dir ./reports
+
+  # Continue on errors
+  python cja_sdr_generator.py --batch dv_* --continue-on-error
+
+  # With custom log level
+  python cja_sdr_generator.py --batch dv_* --log-level WARNING
+
+Note:
+  At least one data view ID must be provided.
+  Use 'python cja_sdr_generator.py --help' to see all options.
+        '''
+    )
+
+    parser.add_argument(
+        'data_views',
+        nargs='+',
+        metavar='DATA_VIEW_ID',
+        help='Data view IDs to process (at least one required)'
+    )
+
+    parser.add_argument(
+        '--batch',
+        action='store_true',
+        help='Enable batch processing mode (parallel execution)'
+    )
+
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=4,
+        help='Number of parallel workers for batch mode (default: 4)'
+    )
+
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='.',
+        help='Output directory for generated files (default: current directory)'
+    )
+
+    parser.add_argument(
+        '--config-file',
+        type=str,
+        default='myconfig.json',
+        help='Path to CJA configuration file (default: myconfig.json)'
+    )
+
+    parser.add_argument(
+        '--continue-on-error',
+        action='store_true',
+        help='Continue processing remaining data views if one fails'
+    )
+
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help='Logging level (default: INFO)'
+    )
+
+    return parser.parse_args()
+
+# ==================== MAIN FUNCTION ====================
+
+def main():
+    """Main entry point for the script"""
+    # Parse arguments (will show error and help if no data views provided)
+    try:
+        args = parse_arguments()
+    except SystemExit as e:
+        # argparse calls sys.exit() on error or --help
+        # Re-raise to maintain expected behavior
+        raise
+
+    # Get data views from arguments (guaranteed to have at least one due to nargs='+')
+    data_views = args.data_views
+
+    # Validate data view format
+    invalid_dvs = [dv for dv in data_views if not dv.startswith('dv_')]
+    if invalid_dvs:
+        print(f"ERROR: Invalid data view ID format: {', '.join(invalid_dvs)}", file=sys.stderr)
+        print(f"       Data view IDs should start with 'dv_'", file=sys.stderr)
+        print(f"       Example: dv_677ea9291244fd082f02dd42", file=sys.stderr)
+        sys.exit(1)
+
+    # Process data views
+    if args.batch or len(data_views) > 1:
+        # Batch mode - parallel processing
+        print(f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers...")
+        print()
+
+        processor = BatchProcessor(
+            config_file=args.config_file,
+            output_dir=args.output_dir,
+            workers=args.workers,
+            continue_on_error=args.continue_on_error,
+            log_level=args.log_level
+        )
+
+        results = processor.process_batch(data_views)
+
+        # Exit with error code if any failed (unless continue-on-error)
+        if results['failed'] and not args.continue_on_error:
+            sys.exit(1)
+
+    else:
+        # Single mode - process one data view
+        print(f"Processing data view: {data_views[0]}")
+        print()
+
+        result = process_single_dataview(
+            data_views[0],
+            config_file=args.config_file,
+            output_dir=args.output_dir,
+            log_level=args.log_level
+        )
+
+        if not result.success:
+            sys.exit(1)
+
+if __name__ == "__main__":
+    main()

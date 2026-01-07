@@ -3,11 +3,48 @@
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
 
-**Version 3.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, error handling, and modern dependency management.
+**Version 4.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, error handling, and modern dependency management.
 
-## What Makes Version 3.0 Different
+## What Makes Version 4.0 Different
 
-This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the [CJA Summit 2025 notebook](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb), Version 3.0 introduces significant architectural improvements:
+This tool evolved from a Jupyter notebook proof-of-concept into a production-ready, enterprise-grade automation solution. Building on the foundation established in the [CJA Summit 2025 notebook](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb), Version 4.0 introduces significant performance and usability improvements:
+
+### High-Performance Batch Processing (NEW in v4.0)
+
+**From Single Data View to Enterprise-Scale Batch Operations**
+- **3-4x Performance Improvement**: Process multiple data views in parallel using true multiprocessing
+- **ProcessPoolExecutor**: Leverages separate processes for CPU-bound operations (no Python GIL limitations)
+- **Configurable Parallelism**: Adjust worker count (default: 4) based on your infrastructure and API limits
+- **Continue-on-Error**: Optional resilience mode processes all data views even if some fail
+- **Comprehensive Results Tracking**: Detailed success/failure reporting with timing metrics
+
+**Performance Comparison:**
+```
+Sequential: 10 data views × 35s = 350 seconds (5.8 minutes)
+Parallel:   10 data views / 4 workers × 35s = ~87.5 seconds (1.5 minutes)
+Result:     4x faster (75% time savings)
+```
+
+### Command-Line Interface (NEW in v4.0)
+
+**Professional CLI with argparse**
+- **Required Arguments**: Data view IDs must be explicitly provided (no hardcoded defaults)
+- **Flexible Options**: Batch mode, worker count, output directory, log level, and more
+- **Comprehensive Help**: Built-in `--help` with usage examples and documentation
+- **Input Validation**: Automatic validation of data view ID format
+- **Error Messages**: Clear, actionable error messages with suggested fixes
+
+**Usage Examples:**
+```bash
+# Single data view
+uv run python cja_sdr_generator.py dv_12345
+
+# Multiple data views (parallel batch processing)
+uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+
+# Custom configuration
+uv run python cja_sdr_generator.py --batch dv_* --workers 8 --output-dir ./reports
+```
 
 ### Modern Python Tooling with UV
 
@@ -67,18 +104,24 @@ Unlike the original notebook's simple data retrieval, v3.0 includes a comprehens
 
 **Architectural Improvements**
 
-| Aspect | Original Notebook | Version 3.0 |
-|--------|------------------|-------------|
-| **Execution Model** | Interactive cells | Standalone application |
-| **Error Handling** | Basic try-catch | Multi-layer defensive programming |
-| **Logging** | Print statements | Professional logging framework |
-| **Dependencies** | Manual installation | Managed via pyproject.toml + uv |
-| **Data Quality** | None | 8+ automated checks |
-| **Configuration** | Hardcoded values | Validated external config |
-| **Reliability** | Single-run, manual | Production-ready with retries |
-| **Maintainability** | Notebook-based | Modular Python classes |
-| **Scalability** | Single data view | Batch processing ready |
-| **Output** | Basic Excel | Formatted with conditional styling |
+| Aspect | Original Notebook | Version 3.0 | Version 4.0 |
+|--------|------------------|-------------|-------------|
+| **Execution Model** | Interactive cells | Standalone application | CLI with argparse |
+| **Performance** | Single-threaded | Optimized single-view | **3-4x faster (parallel)** |
+| **Processing Mode** | One at a time | Single data view | **Batch processing** |
+| **Parallelism** | None | ThreadPoolExecutor (I/O) | **ProcessPoolExecutor (CPU)** |
+| **CLI Arguments** | None | Hardcoded in script | **Required arguments** |
+| **Error Handling** | Basic try-catch | Multi-layer defensive | **Continue-on-error mode** |
+| **Logging** | Print statements | Professional logging | **Batch + per-view logs** |
+| **Dependencies** | Manual installation | Managed via pyproject.toml + uv | Managed via pyproject.toml + uv |
+| **Data Quality** | None | 8+ automated checks | 8+ automated checks |
+| **Configuration** | Hardcoded values | Validated external config | **CLI with validation** |
+| **Reliability** | Single-run, manual | Production-ready with retries | **Resilient batch mode** |
+| **Maintainability** | Notebook-based | Modular Python classes | **Modular with workers** |
+| **Scalability** | Single data view | Single data view | **Unlimited data views** |
+| **Output** | Basic Excel | Formatted with conditional styling | **Multiple outputs in parallel** |
+| **Result Tracking** | None | Per execution | **Batch summary reports** |
+| **Throughput** | ~1 view/35s | ~1 view/35s | **~4 views/35s (4 workers)** |
 
 ### Enhanced Output & Documentation
 
@@ -131,22 +174,27 @@ uv sync && uv run python cja_sdr_generator.py
 - Performance optimization tips
 - Multiple usage examples and scenarios
 
-### Who Should Use Version 3.0?
+### Who Should Use Version 4.0?
 
 **Ideal For:**
-- **Analytics Teams** requiring regular SDR documentation
-- **DevOps Engineers** automating CJA audits in CI/CD pipelines
-- **Data Governance** teams needing audit trails and quality tracking
-- **Consultants** managing multiple client CJA implementations
+- **Analytics Teams** requiring regular SDR documentation across multiple data views
+- **DevOps Engineers** automating CJA audits in CI/CD pipelines with batch processing
+- **Data Governance** teams needing audit trails and quality tracking at scale
+- **Consultants** managing multiple client CJA implementations efficiently
 - **Enterprise Organizations** with compliance and documentation requirements
+- **Multi-Environment Teams** needing to process production, staging, and development data views
+- **Large Organizations** with dozens or hundreds of data views requiring regular audits
 
 **Migration Path from Notebook:**
-The notebook version is excellent for learning and ad-hoc exploration. Version 3.0 is designed for teams that need:
-- Scheduled, automated SDR generation
-- Data quality monitoring over time
-- Reliable execution in production environments
-- Professional documentation for stakeholders
-- Audit trails for compliance purposes
+The notebook version is excellent for learning and ad-hoc exploration. Version 4.0 is designed for teams that need:
+- **High-Performance Processing**: 3-4x faster with parallel batch mode
+- **Scheduled, Automated SDR Generation**: CLI-ready for cron jobs and task schedulers
+- **Multi-Data View Support**: Process unlimited data views in parallel
+- **Data Quality Monitoring**: Track quality trends across all environments
+- **Reliable Execution**: Resilient batch mode with continue-on-error
+- **Professional Documentation**: Generate comprehensive SDRs for stakeholders
+- **Audit Trails**: Complete logging for compliance purposes
+- **Scalability**: Handle enterprise-scale CJA implementations efficiently
 
 ---
 
@@ -234,7 +282,33 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 
 ### 1.3 What's New in This Version
 
-**Version 3.0 Enhancements:**
+**Version 4.0 Enhancements (Current):**
+
+🚀 **High-Performance Batch Processing**
+- Process multiple data views in parallel (3-4x faster)
+- True multiprocessing with ProcessPoolExecutor (no GIL limitations)
+- Configurable worker count (default: 4, adjustable from 1-8+)
+- Continue-on-error mode for resilient batch operations
+- Comprehensive batch summary reports with success/failure tracking
+
+🎯 **Command-Line Interface**
+- Required data view arguments (no hardcoded defaults)
+- Full argument parsing with `argparse`
+- `--batch` mode for parallel processing
+- `--workers N` to control parallelism
+- `--output-dir PATH` for custom output locations
+- `--continue-on-error` for resilient processing
+- `--log-level LEVEL` for logging control
+- Built-in `--help` with comprehensive examples
+
+📊 **Enhanced Results Tracking**
+- Detailed batch processing summaries
+- Per-data-view timing and status
+- Success rate calculations
+- Throughput metrics (data views per minute)
+- Individual and aggregate error reporting
+
+**Version 3.0 Features (Retained):**
 
 ✅ **Modern Dependency Management**
 - Uses `uv` for fast, reliable package management
@@ -250,7 +324,7 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 
 ✅ **Data Quality Validation**
 - Automated quality checks with detailed reporting
-- New "Data Quality" sheet with color-coded issues
+- "Data Quality" sheet with color-coded issues
 - Severity-based prioritization
 - Actionable recommendations
 
@@ -259,6 +333,7 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Progress tracking for long operations
 - Error diagnosis and stack traces
 - Execution summary reporting
+- Separate logs for batch and single mode
 
 ✅ **Improved Reliability**
 - Validates data view existence before processing
@@ -454,102 +529,217 @@ logs/
 ### 4.1 Basic Usage
 
 1. **Prepare Configuration**: Ensure `myconfig.json` is properly configured
-2. **Activate Virtual Environment**: Run `source .venv/bin/activate` (or Windows equivalent)
-3. **Set Data View ID**: Edit the script to specify your target data view
-4. **Run the Script**: Execute using Python or uv
-5. **Review Output**: Check the generated Excel file and log file
+2. **Get Data View IDs**: Identify which data view(s) you want to process
+3. **Run the Script**: Execute with required data view ID arguments
+4. **Review Output**: Check the generated Excel file(s) and log file(s)
 
-### 4.2 Configuration
+**Quick Start:**
+```bash
+# Single data view
+uv run python cja_sdr_generator.py dv_YOUR_ID
 
-Edit these variables in the script:
+# Multiple data views (parallel batch processing)
+uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
+```
 
-```python
-# Set your target Data View ID
-data_view = "dv_677ea9291244fd082f02dd42"
+### 4.2 Command-Line Arguments
 
-# Optional: Change config file location
-config_file = "myconfig.json"
+**Required Arguments:**
+- `DATA_VIEW_ID [DATA_VIEW_ID ...]` - One or more data view IDs (must start with `dv_`)
+
+**Optional Arguments:**
+- `--batch` - Enable parallel batch processing mode
+- `--workers N` - Number of parallel workers (default: 4)
+- `--output-dir PATH` - Output directory for generated files (default: current directory)
+- `--config-file PATH` - Path to CJA configuration file (default: myconfig.json)
+- `--continue-on-error` - Continue processing remaining data views if one fails
+- `--log-level LEVEL` - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+- `-h, --help` - Show help message and exit
+
+**Get Help:**
+```bash
+uv run python cja_sdr_generator.py --help
 ```
 
 ### 4.3 Running the Script
 
-**Using uv (Recommended):**
-```bash
-# Make sure you're in the project directory
-cd cja-auto-sdr-2026
+#### **Single Data View Processing**
 
-# Run with uv (automatically uses project's virtual environment)
-uv run python cja_sdr_generator.py
+```bash
+# Basic usage with default settings
+uv run python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+
+# With custom output directory
+uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports
+
+# With custom config file
+uv run python cja_sdr_generator.py dv_12345 --config-file ./prod_config.json
+
+# With debug logging
+uv run python cja_sdr_generator.py dv_12345 --log-level DEBUG
 ```
 
-**Using Python directly:**
+#### **Multiple Data Views (Sequential)**
+
+When you provide multiple data view IDs without `--batch`, they process sequentially:
+
 ```bash
-# Make sure virtual environment is activated first
+# Process 3 data views one after another
+uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+```
+
+#### **Batch Processing (Parallel)**
+
+Use `--batch` for high-performance parallel processing:
+
+```bash
+# Batch with default 4 workers
+uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+
+# Custom worker count (conservative for shared API)
+uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 2
+
+# Aggressive parallelism (dedicated infrastructure)
+uv run python cja_sdr_generator.py --batch dv_* --workers 8
+
+# Continue on errors (resilient mode)
+uv run python cja_sdr_generator.py --batch dv_* --continue-on-error
+
+# Full production example
+uv run python cja_sdr_generator.py --batch \
+  dv_prod_12345 dv_staging_67890 dv_dev_abcde \
+  --workers 4 \
+  --output-dir ./sdr_reports \
+  --continue-on-error \
+  --log-level WARNING
+```
+
+#### **Reading Data Views from File**
+
+```bash
+# Create file with data view IDs
+cat > dataviews.txt <<EOF
+dv_production_12345
+dv_staging_67890
+dv_development_abcde
+EOF
+
+# Process all data views from file
+uv run python cja_sdr_generator.py --batch $(cat dataviews.txt)
+```
+
+#### **Using Python Directly**
+
+If you prefer not to use `uv`:
+
+```bash
+# Activate virtual environment first
 source .venv/bin/activate  # macOS/Linux
 # or
 .venv\Scripts\activate     # Windows
 
 # Run the script
-python cja_sdr_generator.py
+python cja_sdr_generator.py dv_12345
 ```
 
-**Adding Script as a Command:**
-
-You can add the script as a project command in `pyproject.toml`:
-
-```toml
-[project.scripts]
-generate-sdr = "cja_sdr_generator:main"
+**Expected Console Output (Single Data View):**
 ```
+Processing data view: dv_677ea9291244fd082f02dd42
 
-Then run with:
-```bash
-uv run generate-sdr
-```
-
-**Expected Console Output:**
-```
-2025-01-05 10:30:15 - INFO - Logging initialized. Log file: logs/SDR_Generation_dv_677ea9291244fd082f02dd42_20250105_103015.log
+2026-01-07 10:30:15 - INFO - Logging initialized. Log file: logs/SDR_Generation_dv_677ea9291244fd082f02dd42_20260107_103015.log
 ============================================================
 INITIALIZING CJA CONNECTION
 ============================================================
-2025-01-05 10:30:16 - INFO - Validating configuration file: myconfig.json
-2025-01-05 10:30:16 - INFO - Configuration file structure validated successfully
-2025-01-05 10:30:17 - INFO - CJA instance created successfully
-2025-01-05 10:30:17 - INFO - Testing API connection...
-2025-01-05 10:30:18 - INFO - ✓ API connection successful! Found 5 data view(s)
+2026-01-07 10:30:16 - INFO - Validating configuration file: myconfig.json
+2026-01-07 10:30:17 - INFO - ✓ API connection successful! Found 85 data view(s)
 ============================================================
 VALIDATING DATA VIEW
 ============================================================
-2025-01-05 10:30:19 - INFO - ✓ Data view validated successfully!
-2025-01-05 10:30:19 - INFO -   Name: Production Analytics
-2025-01-05 10:30:19 - INFO -   ID: dv_677ea9291244fd082f02dd42
+2026-01-07 10:30:19 - INFO - ✓ Data view validated successfully!
+2026-01-07 10:30:19 - INFO -   Name: Production Analytics
+2026-01-07 10:30:19 - INFO -   ID: dv_677ea9291244fd082f02dd42
 ============================================================
-Starting data fetch operations
+Starting optimized data fetch operations
 ============================================================
-2025-01-05 10:30:20 - INFO - Successfully fetched 150 metrics
-2025-01-05 10:30:22 - INFO - Successfully fetched 75 dimensions
-============================================================
-Starting data quality validation
-============================================================
-2025-01-05 10:30:23 - INFO - Data quality checks complete. Found 3 issue(s)
+2026-01-07 10:30:20 - INFO - Successfully fetched 150 metrics
+2026-01-07 10:30:22 - INFO - Successfully fetched 75 dimensions
 ============================================================
 GENERATING EXCEL FILE
 ============================================================
-2025-01-05 10:30:25 - INFO - ✓ SDR generation complete! File saved as: CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
+2026-01-07 10:30:25 - INFO - ✓ SDR generation complete! File saved as: CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
+```
+
+**Expected Console Output (Batch Mode):**
+```
+Processing 3 data view(s) in batch mode with 4 workers...
+
+2026-01-07 10:30:00 - INFO - ============================================================
+2026-01-07 10:30:00 - INFO - BATCH PROCESSING START
+2026-01-07 10:30:00 - INFO - ============================================================
+2026-01-07 10:30:00 - INFO - Data views to process: 3
+2026-01-07 10:30:00 - INFO - Parallel workers: 4
+2026-01-07 10:30:00 - INFO - ============================================================
+2026-01-07 10:30:15 - INFO - ✓ dv_12345: SUCCESS (14.5s)
+2026-01-07 10:30:16 - INFO - ✓ dv_67890: SUCCESS (15.2s)
+2026-01-07 10:30:18 - INFO - ✓ dv_abcde: SUCCESS (16.1s)
+
+============================================================
+BATCH PROCESSING SUMMARY
+============================================================
+Total data views: 3
+Successful: 3
+Failed: 0
+Success rate: 100.0%
+Total duration: 18.5s
+Average per data view: 6.2s
+
+Successful Data Views:
+  ✓ dv_12345         Production Analytics        14.5s
+  ✓ dv_67890         Development Analytics       15.2s
+  ✓ dv_abcde         Testing Analytics           16.1s
+============================================================
+Throughput: 9.7 data views per minute
+============================================================
 ```
 
 ### 4.4 Output Files
 
-**Excel Workbook:**
-- Filename: `CJA_DataView_[Name]_[ID]_SDR.xlsx`
-- Location: Project root directory
+**Excel Workbook(s):**
+- Filename Format: `CJA_DataView_[Name]_[ID]_SDR.xlsx`
+- Location: Specified by `--output-dir` (default: current directory)
 - Size: Typically 1-10 MB depending on data view size
+- Multiple Files: One Excel file per data view processed
 
-**Log File:**
+**Log Files:**
+
+*Single Mode:*
 - Filename: `SDR_Generation_[DataViewID]_[Timestamp].log`
 - Location: `logs/` subdirectory (created automatically)
-- Contains: Complete execution trace with timestamps
+- Contains: Complete execution trace for one data view
+
+*Batch Mode:*
+- Main Log: `SDR_Batch_Generation_[Timestamp].log`
+- Location: `logs/` subdirectory
+- Contains: Batch processing summary, all worker outputs, success/failure tracking
+
+**Output Directory Structure:**
+```
+cja-auto-sdr-2026/
+├── logs/
+│   ├── SDR_Generation_dv_12345_20260107_103015.log    # Single mode
+│   └── SDR_Batch_Generation_20260107_120000.log        # Batch mode
+├── CJA_DataView_Production_Analytics_dv_12345_SDR.xlsx
+├── CJA_DataView_Development_Analytics_dv_67890_SDR.xlsx
+└── CJA_DataView_Testing_Analytics_dv_abcde_SDR.xlsx
+```
+
+Or with custom output directory:
+```
+./reports/
+├── CJA_DataView_Production_Analytics_dv_12345_SDR.xlsx
+├── CJA_DataView_Development_Analytics_dv_67890_SDR.xlsx
+└── CJA_DataView_Testing_Analytics_dv_abcde_SDR.xlsx
+```
 
 ---
 
@@ -887,6 +1077,76 @@ uv sync
 
 **Solution:** Close the Excel file and re-run script
 
+#### CLI Argument Errors (NEW in v4.0)
+
+**Error:** `error: the following arguments are required: DATA_VIEW_ID`
+
+**Cause:** No data view IDs provided as arguments
+
+**Solution:** Provide at least one data view ID:
+```bash
+# Correct usage
+uv run python cja_sdr_generator.py dv_12345
+
+# For help
+uv run python cja_sdr_generator.py --help
+```
+
+**Error:** `Invalid data view ID format: invalid_id, test123`
+
+**Cause:** Data view IDs don't start with `dv_`
+
+**Solution:** Use properly formatted data view IDs:
+```bash
+# Wrong
+uv run python cja_sdr_generator.py 12345 test
+
+# Correct
+uv run python cja_sdr_generator.py dv_12345 dv_67890
+```
+
+**Error:** No module named 'argparse'
+
+**Cause:** Using Python < 3.2 (very unlikely)
+
+**Solution:** Update Python or reinstall dependencies:
+```bash
+python --version  # Should be 3.14+
+uv sync --reinstall
+```
+
+#### Batch Processing Issues (NEW in v4.0)
+
+**Problem:** Batch processing slower than expected
+
+**Possible Causes:**
+- Too many workers causing API rate limiting
+- Not using `--batch` flag (processes sequentially)
+- Network bottleneck
+
+**Solutions:**
+```bash
+# Ensure --batch flag is used
+uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3
+
+# Reduce workers if hitting rate limits
+uv run python cja_sdr_generator.py --batch dv_* --workers 2
+
+# Check logs for specific errors
+cat logs/SDR_Batch_Generation_*.log
+```
+
+**Problem:** Some data views fail in batch mode
+
+**Solution:** Use `--continue-on-error` to process all despite failures:
+```bash
+uv run python cja_sdr_generator.py --batch \
+  dv_1 dv_2 dv_3 \
+  --continue-on-error
+```
+
+Check the batch summary to see which failed and why.
+
 #### Slow Performance
 
 **Normal Duration:** 30-60 seconds for typical data view
@@ -1022,16 +1282,27 @@ uv add --dev pytest
 # Edit crontab
 crontab -e
 
-# Run every Monday at 9 AM
-0 9 * * 1 cd /path/to/cja-auto-sdr-2026 && /path/to/uv run python cja_sdr_generator.py
+# Run single data view every Monday at 9 AM
+0 9 * * 1 cd /path/to/cja-auto-sdr-2026 && /path/to/uv run python cja_sdr_generator.py dv_production_12345
+
+# Batch process multiple data views daily at 2 AM
+0 2 * * * cd /path/to/cja-auto-sdr-2026 && /path/to/uv run python cja_sdr_generator.py --batch dv_prod_1 dv_prod_2 dv_prod_3 --output-dir /reports/$(date +\%Y\%m\%d) --continue-on-error
+
+# Process from file weekly
+0 0 * * 0 cd /path/to/cja-auto-sdr-2026 && /path/to/uv run python cja_sdr_generator.py --batch $(cat dataviews.txt) --workers 8 --continue-on-error
 ```
 
 **Windows (Task Scheduler):**
 ```powershell
-# Create scheduled task
-$action = New-ScheduledTaskAction -Execute "uv" -Argument "run python cja_sdr_generator.py" -WorkingDirectory "C:\path\to\cja-auto-sdr-2026"
+# Single data view task
+$action = New-ScheduledTaskAction -Execute "uv" -Argument "run python cja_sdr_generator.py dv_production_12345" -WorkingDirectory "C:\path\to\cja-auto-sdr-2026"
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 9am
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Generation"
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Generation - Production"
+
+# Batch processing task
+$action = New-ScheduledTaskAction -Execute "uv" -Argument "run python cja_sdr_generator.py --batch dv_prod_1 dv_prod_2 dv_prod_3 --workers 4 --continue-on-error" -WorkingDirectory "C:\path\to\cja-auto-sdr-2026"
+$trigger = New-ScheduledTaskTrigger -Daily -At 2am
+Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Batch Generation"
 ```
 
 ### Data Quality Management
@@ -1074,54 +1345,101 @@ git commit -m "Update dependencies"
 - Store private keys securely (use key management systems)
 
 ### Performance Optimization
-- Run during off-peak hours if possible
-- Use caching for development/testing
-- Process multiple data views in batch
-- Monitor execution time trends
 
-### Automation with uv
+**Batch Processing Best Practices:**
+- Use `--batch` mode for processing 2+ data views
+- Adjust `--workers` based on infrastructure:
+  - Shared API (rate limits): 2 workers
+  - Balanced (default): 4 workers
+  - Dedicated infrastructure: 8+ workers
+- Run during off-peak hours if possible
+- Use `--continue-on-error` for resilient batch operations
+- Monitor execution time trends via batch summaries
+
+**Worker Optimization Table:**
+
+| Workers | Throughput (10 views) | Best For |
+|---------|----------------------|----------|
+| 1 | ~350s (sequential) | Testing, debugging |
+| 2 | ~175s (2x faster) | Shared API, conservative |
+| 4 | ~87s (4x faster) | Default, balanced |
+| 8 | ~44s (8x faster) | Dedicated infrastructure |
+
+### Automation with CLI
 
 **Create Automation Scripts:**
 
-Create `scripts/generate_sdr.sh`:
+Create `scripts/generate_production_sdr.sh`:
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")/.."
-uv run python cja_sdr_generator.py
+
+# Single production data view
+uv run python cja_sdr_generator.py dv_production_12345 \
+  --output-dir ./reports/production \
+  --log-level WARNING
 ```
 
-Or `scripts/generate_sdr.ps1`:
-```powershell
-Set-Location $PSScriptRoot\..
-uv run python cja_sdr_generator.py
+Create `scripts/generate_all_environments.sh`:
+```bash
+#!/bin/bash
+cd "$(dirname "$0")/.."
+
+# Batch process all environments
+uv run python cja_sdr_generator.py --batch \
+  dv_production_12345 \
+  dv_staging_67890 \
+  dv_development_abcde \
+  --workers 4 \
+  --output-dir ./reports/$(date +%Y%m%d) \
+  --continue-on-error \
+  --log-level INFO
 ```
 
 Make executable:
 ```bash
-chmod +x scripts/generate_sdr.sh
+chmod +x scripts/*.sh
 ```
 
-**Multiple Data Views:**
+**Windows PowerShell Script:**
 
-Create a batch script `generate_all_sdrs.py`:
-```python
-import subprocess
-import sys
+Create `scripts/generate_all_environments.ps1`:
+```powershell
+Set-Location $PSScriptRoot\..
 
-data_views = [
-    "dv_production_12345",
-    "dv_staging_67890",
-    "dv_development_abcde"
-]
-
-for dv in data_views:
-    print(f"Generating SDR for {dv}...")
-    subprocess.run([sys.executable, "cja_sdr_generator.py", dv])
+# Batch process all environments
+uv run python cja_sdr_generator.py --batch `
+  dv_production_12345 `
+  dv_staging_67890 `
+  dv_development_abcde `
+  --workers 4 `
+  --output-dir "./reports/$(Get-Date -Format 'yyyyMMdd')" `
+  --continue-on-error `
+  --log-level INFO
 ```
 
-Run with:
+**Process from Data View List File:**
+
+Create `dataviews.txt`:
+```
+dv_production_main
+dv_production_eu
+dv_production_apac
+dv_staging_main
+dv_development_main
+```
+
+Create `scripts/generate_from_file.sh`:
 ```bash
-uv run python generate_all_sdrs.py
+#!/bin/bash
+cd "$(dirname "$0")/.."
+
+# Batch process from file
+uv run python cja_sdr_generator.py --batch \
+  $(cat dataviews.txt) \
+  --workers 8 \
+  --output-dir ./reports/batch_$(date +%Y%m%d_%H%M%S) \
+  --continue-on-error
 ```
 
 ---
@@ -1300,8 +1618,24 @@ uv sync
 # Create myconfig.json with your Adobe credentials
 
 # 5. Run the generator
-uv run python cja_sdr_generator.py
+
+# Single data view
+uv run python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
+
+# Or batch process multiple data views (3-4x faster)
+uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
+
+# With custom options
+uv run python cja_sdr_generator.py --batch \
+  dv_ID1 dv_ID2 dv_ID3 \
+  --workers 4 \
+  --output-dir ./reports \
+  --continue-on-error
 
 # 6. Review output
-# Check the generated Excel file and logs/ directory
+# Check the generated Excel file(s) and logs/ directory
 ```
+
+### Additional Resources
+
+For detailed batch processing documentation, see [BATCH_PROCESSING_GUIDE.md](BATCH_PROCESSING_GUIDE.md)
