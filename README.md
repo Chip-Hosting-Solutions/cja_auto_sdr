@@ -340,19 +340,22 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Throughput metrics (data views per minute)
 - Individual and aggregate error reporting
 
-✅ **Modern Dependency Management**
+**Modern Dependency Management**
+
 - Uses `uv` for fast, reliable package management
 - `pyproject.toml` for standardized project configuration
 - Reproducible builds with lock files
 - Python 3.14+ compatibility
 
-✅ **Comprehensive Error Handling**
+**Comprehensive Error Handling**
+
 - Pre-flight validation of configuration files
 - API connection testing before data operations
 - Graceful handling of network failures
 - Detailed error messages with troubleshooting steps
 
-✅ **Data Quality Validation**
+**Data Quality Validation**
+
 - Automated quality checks with detailed reporting
 - **Optimized single-pass validation** (30-50% faster)
 - Vectorized pandas operations for better performance
@@ -361,14 +364,16 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Performance tracking and metrics
 - Actionable recommendations
 
-✅ **Advanced Logging**
+**Advanced Logging**
+
 - Timestamped log files with rotation
 - Progress tracking for long operations
 - Error diagnosis and stack traces
 - Execution summary reporting
 - Separate logs for batch and single mode
 
-✅ **Improved Reliability**
+**Improved Reliability**
+
 - Validates data view existence before processing
 - Handles empty datasets gracefully
 - Continues processing despite partial failures
@@ -448,6 +453,7 @@ pip install uv
 ```
 
 **Verify installation:**
+
 ```bash
 uv --version
 ```
@@ -1028,16 +1034,19 @@ INFO -   2. Development Analytics (ID: dv_def456)
 #### Script Won't Start
 
 **Check Python Version:**
+
 ```bash
 python --version  # Should be 3.14 or higher
 ```
 
 **Check uv Installation:**
+
 ```bash
 uv --version
 ```
 
 **Verify Virtual Environment:**
+
 ```bash
 # List installed packages
 uv pip list
@@ -1046,6 +1055,7 @@ uv pip list
 ```
 
 **Check Configuration File:**
+
 ```bash
 # Verify file exists
 ls myconfig.json
@@ -1059,6 +1069,7 @@ python -c "import json; json.load(open('myconfig.json'))"
 **Problem**: Module not found errors
 
 **Solutions:**
+
 ```bash
 # Reinstall all dependencies
 uv sync --reinstall
@@ -1073,6 +1084,7 @@ uv pip list | grep package-name
 **Problem**: Version conflicts
 
 **Solutions:**
+
 ```bash
 # Check for conflicts
 uv pip check
@@ -1090,6 +1102,7 @@ uv sync
 **Problem**: Wrong Python version or packages
 
 **Solutions:**
+
 ```bash
 # Remove and recreate virtual environment
 rm -rf .venv
@@ -1103,11 +1116,13 @@ uv sync
 #### Empty Output File
 
 **Check Log File For:**
+
 - "No metrics returned from API"
 - "No dimensions returned from API"
 - Possible data view has no components configured
 
 **Solutions:**
+
 - Verify data view has components
 - Check API permissions include read access
 - Try different data view
@@ -1127,6 +1142,7 @@ uv sync
 **Cause:** No data view IDs provided as arguments
 
 **Solution:** Provide at least one data view ID:
+
 ```bash
 # Correct usage
 uv run python cja_sdr_generator.py dv_12345
@@ -1140,6 +1156,7 @@ uv run python cja_sdr_generator.py --help
 **Cause:** Data view IDs don't start with `dv_`
 
 **Solution:** Use properly formatted data view IDs:
+
 ```bash
 # Wrong
 uv run python cja_sdr_generator.py 12345 test
@@ -1153,6 +1170,7 @@ uv run python cja_sdr_generator.py dv_12345 dv_67890
 **Cause:** Using Python < 3.2 (very unlikely)
 
 **Solution:** Update Python or reinstall dependencies:
+
 ```bash
 python --version  # Should be 3.14+
 uv sync --reinstall
@@ -1182,6 +1200,7 @@ cat logs/SDR_Batch_Generation_*.log
 **Problem:** Some data views fail in batch mode
 
 **Solution:** Use `--continue-on-error` to process all despite failures:
+
 ```bash
 uv run python cja_sdr_generator.py --batch \
   dv_1 dv_2 dv_3 \
@@ -1195,11 +1214,13 @@ Check the batch summary to see which failed and why.
 **Normal Duration:** 30-60 seconds for typical data view
 
 **If Slower:**
+
 - Large data views (200+ components) take longer
 - Network latency affects API calls
 - Check log file for which operation is slow
 
 **Performance Tips:**
+
 ```bash
 # Run with Python optimization
 uv run python -O cja_sdr_generator.py
@@ -1708,6 +1729,7 @@ Enterprise Data View (500+ components):
 #### Monitoring Performance
 
 **Check validation performance in logs:**
+
 ```bash
 # View validation timing
 grep "Data Quality Validation completed" logs/*.log
@@ -1733,11 +1755,12 @@ Total Execution Time               :  10.75s
 #### Backward Compatibility
 
 The optimization is **100% backward compatible:**
-- ✅ Original validation methods preserved
-- ✅ Identical validation results
-- ✅ Same issue structure and format
-- ✅ No breaking changes
-- ✅ All existing tests still pass
+
+- Original validation methods preserved
+- Identical validation results
+- Same issue structure and format
+- No breaking changes
+- All existing tests still pass
 
 Both validation approaches are available:
 ```python
@@ -1838,6 +1861,7 @@ chmod +x diagnose.sh
 ### Common Error Solutions
 
 **Error: `ModuleNotFoundError: No module named 'cjapy'`**
+
 ```bash
 # Solution: Sync dependencies
 uv sync
@@ -1847,6 +1871,7 @@ uv sync --reinstall
 ```
 
 **Error: `uv: command not found`**
+
 ```bash
 # Solution: Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -1856,6 +1881,7 @@ uv sync
 ```
 
 **Error: `Python version mismatch`**
+
 ```bash
 # Solution: Recreate with correct Python version
 rm -rf .venv
@@ -1864,6 +1890,7 @@ uv sync
 ```
 
 **Error: `Could not find a version that satisfies the requirement`**
+
 ```bash
 # Solution: Update package index
 uv pip install --upgrade pip
@@ -1892,6 +1919,7 @@ uv sync --reinstall
 ### Project Updates
 
 **Check for Updates:**
+
 ```bash
 # Update all dependencies
 uv sync --upgrade
