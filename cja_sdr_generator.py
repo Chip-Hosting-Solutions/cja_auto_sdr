@@ -1,4 +1,3 @@
-# %%
 import cjapy
 import pandas as pd
 import json
@@ -8,6 +7,9 @@ import logging
 import sys
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # ==================== LOGGING SETUP ====================
 
@@ -40,6 +42,45 @@ data_view = "dv_677ea9291244fd082f02dd42"
 
 # Initialize logging
 logger = setup_logging(data_view)
+
+# ==================== PERFORMANCE TRACKING ====================
+
+class PerformanceTracker:
+    """Track execution time for operations"""
+    def __init__(self, logger: logging.Logger):
+        self.metrics = {}
+        self.logger = logger
+        self.start_times = {}
+    
+    def start(self, operation_name: str):
+        """Start timing an operation"""
+        self.start_times[operation_name] = time.time()
+    
+    def end(self, operation_name: str):
+        """End timing an operation"""
+        if operation_name in self.start_times:
+            duration = time.time() - self.start_times[operation_name]
+            self.metrics[operation_name] = duration
+            self.logger.info(f"⏱️  {operation_name} completed in {duration:.2f}s")
+            del self.start_times[operation_name]
+    
+    def get_summary(self) -> str:
+        """Generate performance summary"""
+        if not self.metrics:
+            return "No performance metrics collected"
+        
+        total = sum(self.metrics.values())
+        lines = ["", "=" * 60, "PERFORMANCE SUMMARY", "=" * 60]
+        
+        for operation, duration in sorted(self.metrics.items(), key=lambda x: x[1], reverse=True):
+            percentage = (duration / total) * 100 if total > 0 else 0
+            lines.append(f"{operation:35s}: {duration:6.2f}s ({percentage:5.1f}%)")
+        
+        lines.extend(["=" * 60, f"{'Total Execution Time':35s}: {total:6.2f}s", "=" * 60])
+        return "\n".join(lines)
+
+# Initialize performance tracker
+perf_tracker = PerformanceTracker(logger)
 
 # ==================== CJA INITIALIZATION ====================
 
@@ -326,73 +367,165 @@ if not validate_data_view(cja, data_view):
 
 logger.info("✓ Data view validation complete - proceeding with data fetch")
 
-# ==================== API DATA FETCHING ====================
+# ==================== OPTIMIZED API DATA FETCHING ====================
+
+class ParallelAPIFetcher:
+    """Fetch multiple API endpoints in parallel using threading"""
+    
+    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, max_workers: int = 3):
+        self.cja = cja
+        self.logger = logger
+        self.max_workers = max_workers
+    
+    def fetch_all_data(self, data_view_id: str) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
+        """
+        Fetch metrics, dimensions, and data view info in parallel
+        
+        Returns:
+            Tuple of (metrics_df, dimensions_df, dataview_info)
+        """
+        self.logger.info("Starting parallel data fetch operations...")
+        perf_tracker.start("Parallel API Fetch")
+        
+        results = {
+            'metrics': None,
+            'dimensions': None,
+            'dataview': None
+        }
+        
+        errors = {}
+        
+        # Define fetch tasks
+        tasks = {
+            'metrics': lambda: self._fetch_metrics(data_view_id),
+            'dimensions': lambda: self._fetch_dimensions(data_view_id),
+            'dataview': lambda: self._fetch_dataview_info(data_view_id)
+        }
+        
+        # Execute tasks in parallel using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all tasks
+            future_to_name = {
+                executor.submit(task): name 
+                for name, task in tasks.items()
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_name):
+                task_name = future_to_name[future]
+                try:
+                    results[task_name] = future.result()
+                    self.logger.info(f"✓ {task_name.capitalize()} fetch completed")
+                except Exception as e:
+                    errors[task_name] = str(e)
+                    self.logger.error(f"✗ {task_name.capitalize()} fetch failed: {e}")
+        
+        perf_tracker.end("Parallel API Fetch")
+        
+        # Log summary
+        success_count = sum(1 for v in results.values() if v is not None)
+        self.logger.info(f"Parallel fetch complete: {success_count}/3 successful")
+        
+        if errors:
+            self.logger.warning(f"Errors encountered: {list(errors.keys())}")
+        
+        # Return results with proper None checking for DataFrames
+        metrics_result = results.get('metrics')
+        dimensions_result = results.get('dimensions')
+        dataview_result = results.get('dataview')
+        
+        # Handle DataFrame None checks properly
+        if metrics_result is None or (isinstance(metrics_result, pd.DataFrame) and metrics_result.empty):
+            metrics_result = pd.DataFrame()
+        
+        if dimensions_result is None or (isinstance(dimensions_result, pd.DataFrame) and dimensions_result.empty):
+            dimensions_result = pd.DataFrame()
+        
+        if dataview_result is None:
+            dataview_result = {}
+        
+        return metrics_result, dimensions_result, dataview_result
+    
+    def _fetch_metrics(self, data_view_id: str) -> pd.DataFrame:
+        """Fetch metrics with error handling"""
+        try:
+            self.logger.debug(f"Fetching metrics for {data_view_id}")
+            metrics = self.cja.getMetrics(data_view_id, inclType=True, full=True)
+            
+            if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
+                self.logger.warning("No metrics returned from API")
+                return pd.DataFrame()
+            
+            self.logger.info(f"Successfully fetched {len(metrics)} metrics")
+            return metrics
+            
+        except AttributeError as e:
+            self.logger.error(f"API method error - getMetrics may not be available: {str(e)}")
+            return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to fetch metrics: {str(e)}")
+            return pd.DataFrame()
+    
+    def _fetch_dimensions(self, data_view_id: str) -> pd.DataFrame:
+        """Fetch dimensions with error handling"""
+        try:
+            self.logger.debug(f"Fetching dimensions for {data_view_id}")
+            dimensions = self.cja.getDimensions(data_view_id, inclType=True, full=True)
+            
+            if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):
+                self.logger.warning("No dimensions returned from API")
+                return pd.DataFrame()
+            
+            self.logger.info(f"Successfully fetched {len(dimensions)} dimensions")
+            return dimensions
+            
+        except AttributeError as e:
+            self.logger.error(f"API method error - getDimensions may not be available: {str(e)}")
+            return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to fetch dimensions: {str(e)}")
+            return pd.DataFrame()
+    
+    def _fetch_dataview_info(self, data_view_id: str) -> dict:
+        """Fetch data view information with error handling"""
+        try:
+            self.logger.debug(f"Fetching data view information for {data_view_id}")
+            lookup_data = self.cja.getDataView(data_view_id)
+            
+            if not lookup_data:
+                self.logger.error("Data view information returned empty")
+                return {"name": "Unknown", "id": data_view_id}
+            
+            self.logger.info(f"Successfully fetched data view info: {lookup_data.get('name', 'Unknown')}")
+            return lookup_data
+            
+        except Exception as e:
+            self.logger.error(f"Failed to fetch data view information: {str(e)}")
+            return {"name": "Unknown", "id": data_view_id, "error": str(e)}
 
 def fetch_metrics(cja: cjapy.CJA, data_view_id: str) -> pd.DataFrame:
-    """Fetch metrics with error handling"""
-    try:
-        logger.info(f"Fetching metrics for data view: {data_view_id}")
-        metrics = cja.getMetrics(data_view_id, inclType=True, full=True)
-        
-        if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
-            logger.warning("No metrics returned from API")
-            return pd.DataFrame()
-        
-        logger.info(f"Successfully fetched {len(metrics)} metrics")
-        return metrics
-        
-    except AttributeError as e:
-        logger.error(f"API method error - getMetrics may not be available: {str(e)}")
-        return pd.DataFrame()
-    except Exception as e:
-        logger.error(f"Failed to fetch metrics: {str(e)}")
-        return pd.DataFrame()
+    """Legacy function - kept for backward compatibility"""
+    fetcher = ParallelAPIFetcher(cja, logger)
+    return fetcher._fetch_metrics(data_view_id)
 
 def fetch_dimensions(cja: cjapy.CJA, data_view_id: str) -> pd.DataFrame:
-    """Fetch dimensions with error handling"""
-    try:
-        logger.info(f"Fetching dimensions for data view: {data_view_id}")
-        dimensions = cja.getDimensions(data_view_id, inclType=True, full=True)
-        
-        if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):
-            logger.warning("No dimensions returned from API")
-            return pd.DataFrame()
-        
-        logger.info(f"Successfully fetched {len(dimensions)} dimensions")
-        return dimensions
-        
-    except AttributeError as e:
-        logger.error(f"API method error - getDimensions may not be available: {str(e)}")
-        return pd.DataFrame()
-    except Exception as e:
-        logger.error(f"Failed to fetch dimensions: {str(e)}")
-        return pd.DataFrame()
+    """Legacy function - kept for backward compatibility"""
+    fetcher = ParallelAPIFetcher(cja, logger)
+    return fetcher._fetch_dimensions(data_view_id)
 
 def fetch_dataview_info(cja: cjapy.CJA, data_view_id: str) -> dict:
-    """Fetch data view information with error handling"""
-    try:
-        logger.info(f"Fetching data view information: {data_view_id}")
-        lookup_data = cja.getDataView(data_view_id)
-        
-        if not lookup_data:
-            logger.error("Data view information returned empty")
-            return {"name": "Unknown", "id": data_view_id}
-        
-        logger.info(f"Successfully fetched data view info: {lookup_data.get('name', 'Unknown')}")
-        return lookup_data
-        
-    except Exception as e:
-        logger.error(f"Failed to fetch data view information: {str(e)}")
-        return {"name": "Unknown", "id": data_view_id, "error": str(e)}
+    """Legacy function - kept for backward compatibility"""
+    fetcher = ParallelAPIFetcher(cja, logger)
+    return fetcher._fetch_dataview_info(data_view_id)
 
-# Fetch all data with error handling
+# Fetch all data with parallel optimization
 logger.info("=" * 60)
-logger.info("Starting data fetch operations")
+logger.info("Starting optimized data fetch operations")
 logger.info("=" * 60)
 
-metrics = fetch_metrics(cja, data_view)
-dimensions = fetch_dimensions(cja, data_view)
-lookup_data = fetch_dataview_info(cja, data_view)
+# Use parallel fetcher for optimal performance
+fetcher = ParallelAPIFetcher(cja, logger, max_workers=3)
+metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view)
 
 # Check if we have any data to process
 if metrics.empty and dimensions.empty:
@@ -934,4 +1067,5 @@ except Exception as e:
 
 logger.info("Script execution completed successfully")
 
-
+# Log performance summary
+logger.info(perf_tracker.get_summary())
