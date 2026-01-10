@@ -3,7 +3,7 @@
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
 
-**Version 3.0** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, error handling, and modern dependency management.
+**Version 3.0.3** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, automatic retry with exponential backoff, and modern dependency management.
 
 ## What Makes Version 3.0 Different
 
@@ -66,11 +66,18 @@ uv run python cja_sdr_generator.py --batch dv_* --workers 8 --output-dir ./repor
 
 **Comprehensive Error Handling & Validation**
 - Pre-flight configuration validation before API calls
-- Graceful degradation when partial data is unavailable  
+- Graceful degradation when partial data is unavailable
 - Detailed error messages with actionable troubleshooting steps
 - Automatic data view existence verification
-- API connection health checks with retry logic
+- **Automatic retry with exponential backoff** for transient network failures
 - Safe filename generation and permission handling
+
+**Retry with Exponential Backoff**
+- Automatic retry on ConnectionError, TimeoutError, and network issues
+- Exponential backoff: 1s → 2s → 4s (configurable)
+- Jitter randomization to prevent thundering herd problems
+- Up to 3 retry attempts before failing (configurable)
+- Non-retryable errors fail immediately (no wasted time)
 
 **Production Logging System**
 - Timestamped log files with rotation in dedicated `logs/` directory
@@ -264,7 +271,8 @@ The notebook version is excellent for learning and ad-hoc exploration. Version 3
   * 7.1 Connection Errors
   * 7.2 Authentication Issues
   * 7.3 Data View Problems
-  * 7.4 Troubleshooting Guide
+  * 7.4 Network Errors and Automatic Retry
+  * 7.5 Troubleshooting Guide
 * **8. Use Cases**
 * **9. Best Practices**
 * **10. Testing**
@@ -293,8 +301,9 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 **Enterprise-Grade Error Handling**
 - Validates configuration files before connection attempts
 - Graceful failure handling with actionable error messages
-- Automatic retry logic for transient failures
+- **Automatic retry with exponential backoff** for transient network failures
 - Comprehensive logging to both console and file
+- **Color-coded console output** for instant visual feedback
 
 **Advanced Data Quality Validation**
 - Duplicate detection across metrics and dimensions
@@ -320,9 +329,24 @@ This enterprise-grade script audits your Customer Journey Analytics implementati
 - Error diagnosis information
 - Execution summaries
 
-### 1.3 What's New in Version 3.0
+### 1.3 What's New in Version 3.0.3
 
-**Comprehensive Enterprise Features:**
+**Latest Updates (v3.0.2 - v3.0.3):**
+
+🔄 **Retry with Exponential Backoff** (v3.0.3)
+- Automatic retry on transient network errors (ConnectionError, TimeoutError)
+- Exponential backoff with jitter to prevent thundering herd
+- Configurable: 3 retries, 1s base delay, 30s max delay
+- Applied to all CJA API calls for maximum reliability
+
+🎨 **CLI Quick Wins** (v3.0.2)
+- `--version` flag to display program version
+- `--quiet` / `-q` mode to suppress output except errors
+- Color-coded console output (green=success, red=error, yellow=warning)
+- Total runtime display in final summary
+- Enhanced config validation with schema-based type checking
+
+**Core Enterprise Features:**
 
 🚀 **High-Performance Batch Processing**
 - Process multiple data views in parallel (3-4x faster)
@@ -606,6 +630,7 @@ uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
 - `DATA_VIEW_ID [DATA_VIEW_ID ...]` - One or more data view IDs (must start with `dv_`)
 
 **Optional Arguments:**
+- `--version` - Show program version and exit
 - `--batch` - Enable parallel batch processing mode
 - `--workers N` - Number of parallel workers (default: 4)
 - `--output-dir PATH` - Output directory for generated files (default: current directory)
@@ -614,6 +639,7 @@ uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
 - `--log-level LEVEL` - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO or CJA_LOG_LEVEL env var)
 - `--production` - Enable production mode (minimal logging for 5-10% performance gain)
 - `--dry-run` - Validate configuration and connectivity without generating reports
+- `--quiet, -q` - Quiet mode: suppress all output except errors and final summary
 - `-h, --help` - Show help message and exit
 
 **Environment Variables:**
@@ -621,6 +647,10 @@ uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
 
 **Get Help:**
 ```bash
+# Show version
+uv run python cja_sdr_generator.py --version
+
+# Show help
 uv run python cja_sdr_generator.py --help
 ```
 
@@ -646,6 +676,9 @@ uv run python cja_sdr_generator.py dv_12345 --production
 
 # Dry-run to validate config and connectivity without generating reports
 uv run python cja_sdr_generator.py dv_12345 --dry-run
+
+# Quiet mode (suppress output except errors and final summary)
+uv run python cja_sdr_generator.py dv_12345 --quiet
 
 # Using environment variable for log level
 export CJA_LOG_LEVEL=WARNING
@@ -1058,7 +1091,50 @@ INFO -   2. Development Analytics (ID: dv_def456)
 3. Confirm the data view exists in your organization
 4. Check with admin if you need access granted
 
-### 7.4 Troubleshooting Guide
+### 7.4 Network Errors and Automatic Retry
+
+The script automatically retries API calls when transient network errors occur.
+
+**Retry Configuration (Default):**
+```
+Max Retries:      3 attempts after initial failure
+Base Delay:       1.0 seconds
+Max Delay:        30.0 seconds (cap)
+Backoff Formula:  delay = min(base_delay * 2^attempt, max_delay)
+Jitter:           Enabled (±50% randomization)
+```
+
+**Retryable Errors:**
+- `ConnectionError` - Network connectivity issues
+- `TimeoutError` - Request timeouts
+- `OSError` - Other network-related errors
+
+**Example Retry Sequence:**
+```
+Attempt 1: API call fails (ConnectionError)
+  → Wait ~1.0s (with jitter: 0.5-1.5s)
+Attempt 2: API call fails (ConnectionError)
+  → Wait ~2.0s (with jitter: 1.0-3.0s)
+Attempt 3: API call fails (ConnectionError)
+  → Wait ~4.0s (with jitter: 2.0-6.0s)
+Attempt 4: API call fails
+  → Error raised, processing stops for this data view
+```
+
+**Log Output During Retry:**
+```
+WARNING - Attempt 1/4 failed for getMetrics: Connection reset by peer. Retrying in 1.2s...
+WARNING - Attempt 2/4 failed for getMetrics: Connection reset by peer. Retrying in 2.4s...
+INFO - Successfully fetched 150 metrics
+```
+
+**Non-Retryable Errors** (fail immediately):
+- `ValueError` - Invalid parameters
+- `KeyError` - Missing data
+- `AttributeError` - API method not available
+- Authentication errors
+
+### 7.5 Troubleshooting Guide
 
 #### Script Won't Start
 
@@ -1573,12 +1649,12 @@ uv run pytest tests/test_utils.py
 
 ### Test Coverage
 
-The test suite includes **136 comprehensive tests**:
+The test suite includes **161 comprehensive tests**:
 
-- **CLI Tests** (`test_cli.py`) - 15 tests
+- **CLI Tests** (`test_cli.py`) - 19 tests
   - Command-line argument parsing
   - Data view ID validation
-  - Dry-run flag handling
+  - Dry-run, quiet, and version flag handling
   - Error handling for invalid inputs
 
 - **Data Quality Tests** (`test_data_quality.py`) - 10 tests
@@ -1630,6 +1706,13 @@ The test suite includes **136 comprehensive tests**:
   - API connection testing
   - Data view accessibility verification
   - Error handling scenarios
+
+- **Retry Tests** (`test_retry.py`) - 21 tests
+  - Exponential backoff behavior
+  - Jitter randomization
+  - Max retries enforcement
+  - Retryable vs non-retryable exceptions
+  - Function metadata preservation
 
 - **Output Format Tests** (`test_output_formats.py`) - 20 tests
   - Excel, CSV, JSON, HTML output validation

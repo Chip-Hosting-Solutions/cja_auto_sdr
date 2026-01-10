@@ -8,20 +8,21 @@ This directory contains automated tests for the CJA SDR Generator.
 tests/
 ├── __init__.py                      # Test package initialization
 ├── conftest.py                      # Pytest fixtures and configuration
-├── test_cli.py                      # Command-line interface tests (15 tests)
+├── test_cli.py                      # Command-line interface tests (19 tests)
 ├── test_data_quality.py             # Data quality validation tests (10 tests)
 ├── test_dry_run.py                  # Dry-run mode tests (12 tests)
-├── test_optimized_validation.py     # Optimized validation tests (16 tests)
-├── test_output_formats.py           # Output format tests (20 tests + 2 additional)
-├── test_utils.py                    # Utility function tests (14 tests)
 ├── test_early_exit.py               # Early exit optimization tests (11 tests)
 ├── test_logging_optimization.py     # Logging optimization tests (15 tests)
+├── test_optimized_validation.py     # Optimized validation tests (16 tests)
+├── test_output_formats.py           # Output format tests (22 tests)
 ├── test_parallel_validation.py      # Parallel validation tests (8 tests)
+├── test_retry.py                    # Retry with exponential backoff tests (21 tests)
+├── test_utils.py                    # Utility function tests (14 tests)
 ├── test_validation_cache.py         # Validation caching tests (15 tests)
 └── README.md                        # This file
 ```
 
-**Total: 136 comprehensive tests**
+**Total: 161 comprehensive tests**
 
 ## Running Tests
 
@@ -67,6 +68,9 @@ uv run pytest tests/test_validation_cache.py
 
 # Test dry-run mode
 uv run pytest tests/test_dry_run.py
+
+# Test retry with exponential backoff
+uv run pytest tests/test_retry.py
 ```
 
 ### Run Specific Test Classes or Functions
@@ -97,11 +101,11 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 
 ## Test Categories
 
-### CLI Tests (`test_cli.py` - 10 tests)
+### CLI Tests (`test_cli.py` - 19 tests)
 - **Argument parsing**: Tests command-line argument parsing
 - **Data view validation**: Tests data view ID format validation
+- **Flag handling**: Tests --version, --quiet, --dry-run flags
 - **Error handling**: Tests error cases and edge conditions
-- **Help output**: Tests help message generation
 
 ### Data Quality Tests (`test_data_quality.py` - 10 tests)
 - **Duplicate detection**: Tests detection of duplicate component names
@@ -152,6 +156,16 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 - **TTL expiration**: Tests time-to-live functionality
 - **Thread safety**: Tests concurrent cache access
 - **Performance**: Tests cache performance improvements
+
+### Retry Tests (`test_retry.py` - 21 tests)
+- **Decorator behavior**: Tests retry_with_backoff decorator
+- **Exponential backoff**: Tests delay calculation and progression
+- **Jitter**: Tests randomization of delays
+- **Retryable exceptions**: Tests which exceptions trigger retry
+- **Non-retryable exceptions**: Tests immediate failure for non-retryable errors
+- **Max retries**: Tests retry limit enforcement
+- **Function wrapper**: Tests make_api_call_with_retry function
+- **Metadata preservation**: Tests functools.wraps behavior
 
 ## Test Fixtures
 
@@ -277,11 +291,13 @@ uv run pytest
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (covered in CLI tests)
-- [x] Comprehensive test coverage (121 tests total)
+- [x] Comprehensive test coverage (161 tests total)
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
 - [x] Logging optimization tests (test_logging_optimization.py)
+- [x] Retry with exponential backoff tests (test_retry.py)
+- [x] CLI quick wins tests: --version, --quiet flags (test_cli.py)
 
 ## Future Enhancements
 
