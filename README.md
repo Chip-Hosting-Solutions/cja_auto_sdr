@@ -410,7 +410,7 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja-auto-sdr-2026"
-version = "3.0.0"
+version = "3.0.1"
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -418,6 +418,7 @@ dependencies = [
     "cjapy>=0.2.4.post2",
     "pandas>=2.3.3",
     "xlsxwriter>=3.2.9",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
@@ -430,6 +431,7 @@ dev = [
 - `cjapy>=0.2.4.post2` - Customer Journey Analytics API wrapper
 - `pandas>=2.3.3` - Data manipulation and analysis
 - `xlsxwriter>=3.2.9` - Excel file generation with formatting
+- `tqdm>=4.66.0` - Progress bar indicators for long-running operations
 - `pytz` - Timezone handling (included with pandas)
 
 ### 2.3 Authentication Setup
@@ -611,6 +613,7 @@ uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
 - `--continue-on-error` - Continue processing remaining data views if one fails
 - `--log-level LEVEL` - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO or CJA_LOG_LEVEL env var)
 - `--production` - Enable production mode (minimal logging for 5-10% performance gain)
+- `--dry-run` - Validate configuration and connectivity without generating reports
 - `-h, --help` - Show help message and exit
 
 **Environment Variables:**
@@ -640,6 +643,9 @@ uv run python cja_sdr_generator.py dv_12345 --log-level DEBUG
 
 # Production mode (5-10% faster, minimal logging)
 uv run python cja_sdr_generator.py dv_12345 --production
+
+# Dry-run to validate config and connectivity without generating reports
+uv run python cja_sdr_generator.py dv_12345 --dry-run
 
 # Using environment variable for log level
 export CJA_LOG_LEVEL=WARNING
@@ -1567,11 +1573,12 @@ uv run pytest tests/test_utils.py
 
 ### Test Coverage
 
-The test suite includes **121 comprehensive tests**:
+The test suite includes **136 comprehensive tests**:
 
-- **CLI Tests** (`test_cli.py`) - 10 tests
+- **CLI Tests** (`test_cli.py`) - 15 tests
   - Command-line argument parsing
   - Data view ID validation
+  - Dry-run flag handling
   - Error handling for invalid inputs
 
 - **Data Quality Tests** (`test_data_quality.py`) - 10 tests
@@ -1618,6 +1625,12 @@ The test suite includes **121 comprehensive tests**:
   - Thread safety under load
   - Performance improvement verification
 
+- **Dry-Run Tests** (`test_dry_run.py`) - 12 tests
+  - Configuration validation
+  - API connection testing
+  - Data view accessibility verification
+  - Error handling scenarios
+
 - **Output Format Tests** (`test_output_formats.py`) - 20 tests
   - Excel, CSV, JSON, HTML output validation
   - Format-specific features
@@ -1634,8 +1647,9 @@ The test suite includes **121 comprehensive tests**:
 tests/
 ├── __init__.py                      # Test package initialization
 ├── conftest.py                      # Pytest fixtures and shared configuration
-├── test_cli.py                      # Command-line interface tests (10 tests)
+├── test_cli.py                      # Command-line interface tests (15 tests)
 ├── test_data_quality.py             # Data quality validation tests (10 tests)
+├── test_dry_run.py                  # Dry-run mode tests (12 tests)
 ├── test_optimized_validation.py     # Optimized validation tests (16 tests)
 ├── test_utils.py                    # Utility function tests (14 tests)
 ├── test_early_exit.py               # Early exit optimization tests (11 tests)

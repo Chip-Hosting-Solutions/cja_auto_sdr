@@ -5,6 +5,37 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-01-09
+
+### Added
+
+#### Dry-Run Mode
+- **Configuration Validation**: New `--dry-run` CLI flag to validate configuration and connectivity without generating reports
+- **Three-Step Validation**: Validates config file, tests API connection, and verifies data view accessibility
+- **Pre-Flight Checks**: Ideal for CI/CD pipelines and debugging connection issues before full processing
+- **Actionable Output**: Clear success/failure indicators with suggested next steps
+
+#### Progress Indicators
+- **tqdm Integration**: Added progress bars for long-running operations with ETA and completion rate
+- **Batch Processing Progress**: Visual progress tracking for multi-data-view batch operations
+- **API Fetch Progress**: Progress indicators during parallel API data fetching
+- **Validation Progress**: Progress bars for parallel validation operations
+
+#### Excel Formatting Enhancements
+- **Metrics/Dimensions Column Reordering**: Name column now appears first for better readability
+- **Bold Name Column**: Name column in Metrics/Dimensions sheets styled bold for quick scanning
+- **Optimized Column Widths**: Tighter column width limits (description: 55, name/title: 40) for better layout
+
+### Changed
+- **Dependencies**: Added `tqdm>=4.66.0` for progress bar support
+- **Removed Unused Import**: Removed unused `asyncio` import from main module
+- **Test Count**: Expanded test suite from 121 to 136 tests
+
+### Fixed
+- **Test Threshold Adjustment**: Updated parallel validation test threshold to account for progress bar overhead on small datasets
+
+---
+
 ## [3.0.0] - 2026-01-08
 
 ### Added
