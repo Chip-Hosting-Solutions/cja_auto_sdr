@@ -70,21 +70,35 @@ def create_sample_metadata():
     })
 
 def create_sample_metrics():
-    """Create sample metrics for testing"""
+    """Create sample metrics for testing (lowercase column names like API)"""
     return pd.DataFrame({
-        'ID': ['metric_1', 'metric_2', 'metric_3'],
-        'Name': ['Page Views', 'Revenue', 'Conversion Rate'],
-        'Type': ['counter', 'currency', 'percentage'],
-        'Description': ['Total page views', 'Total revenue in USD', 'Conversion rate percentage']
+        'id': ['metric_1', 'metric_2', 'metric_3', 'metric_4', 'metric_5'],
+        'name': ['Page Views', 'Revenue Total', 'Conversion Rate', 'Average Session Duration', 'Bounce Rate'],
+        'type': ['counter', 'currency', 'percentage', 'time', 'percentage'],
+        'title': ['Page Views', 'Revenue', 'Conv Rate', 'Avg Session', 'Bounce'],
+        'description': [
+            'Total page views across all pages',
+            'Total revenue in USD from all transactions',
+            'Conversion rate as percentage of sessions',
+            'Average time spent per session in seconds',
+            'Percentage of single-page sessions'
+        ]
     })
 
 def create_sample_dimensions():
-    """Create sample dimensions for testing"""
+    """Create sample dimensions for testing (lowercase column names like API)"""
     return pd.DataFrame({
-        'ID': ['dim_1', 'dim_2', 'dim_3'],
-        'Name': ['Campaign', 'Product', 'Region'],
-        'Type': ['string', 'string', 'string'],
-        'Description': ['Marketing campaign', 'Product name', 'Geographic region']
+        'id': ['dim_1', 'dim_2', 'dim_3', 'dim_4', 'dim_5'],
+        'name': ['Campaign Source', 'Product Category', 'Geographic Region', 'User Segment', 'Device Type'],
+        'type': ['string', 'string', 'string', 'string', 'string'],
+        'title': ['Campaign', 'Product', 'Region', 'Segment', 'Device'],
+        'description': [
+            'Marketing campaign source attribution',
+            'Product category classification',
+            'Geographic region of user',
+            'User behavioral segment classification',
+            'Device type used for session'
+        ]
     })
 
 def main():
@@ -132,12 +146,15 @@ def main():
     logger.info("=" * 60)
     logger.info(f"SUCCESS: Excel file created at: {os.path.abspath(output_file)}")
     logger.info("\nEnhancements to verify in Excel:")
-    logger.info("  1. Data Quality sheet has summary table at top")
-    logger.info("  2. Issues sorted: CRITICAL -> HIGH -> MEDIUM -> LOW -> INFO")
-    logger.info("  3. Severity column has icons and bold text")
-    logger.info("  4. Each severity level has distinct color coding")
-    logger.info("  5. INFO severity has green styling")
-    logger.info("  6. Columns ordered: Severity first")
+    logger.info("  Data Quality sheet:")
+    logger.info("    1. Summary table at top with severity counts")
+    logger.info("    2. Issues sorted: CRITICAL -> HIGH -> MEDIUM -> LOW -> INFO")
+    logger.info("    3. Severity column has icons and bold text")
+    logger.info("    4. Each severity level has distinct color coding")
+    logger.info("  Metrics/Dimensions sheets:")
+    logger.info("    5. Columns reordered: name first, then type, id, title, description")
+    logger.info("    6. Name column is bold for quick scanning")
+    logger.info("    7. Narrower column widths (description capped at 55 chars)")
 
 if __name__ == '__main__':
     main()

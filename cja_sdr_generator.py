@@ -1192,6 +1192,13 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
         if sheet_name == 'Data Quality' and 'Severity' in df.columns:
             summary_rows = 7  # Title + header + 5 severity levels + blank row
 
+        # Reorder columns for Metrics/Dimensions sheets (Name first for readability)
+        if sheet_name in ('Metrics', 'Dimensions') and 'name' in df.columns:
+            preferred_order = ['name', 'type', 'id', 'title', 'description']
+            existing_cols = [col for col in preferred_order if col in df.columns]
+            other_cols = [col for col in df.columns if col not in preferred_order]
+            df = df[existing_cols + other_cols]
+
         # Write dataframe to sheet with offset for summary
         df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=summary_rows)
 
@@ -1270,7 +1277,26 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
             'align': 'top',
             'valign': 'top'
         })
-        
+
+        # Bold formats for Name column in Metrics/Dimensions sheets
+        name_bold_grey = workbook.add_format({
+            'bg_color': '#F2F2F2',
+            'border': 1,
+            'text_wrap': True,
+            'align': 'top',
+            'valign': 'top',
+            'bold': True
+        })
+
+        name_bold_white = workbook.add_format({
+            'bg_color': '#FFFFFF',
+            'border': 1,
+            'text_wrap': True,
+            'align': 'top',
+            'valign': 'top',
+            'bold': True
+        })
+
         # Special formats for Data Quality sheet
         if sheet_name == 'Data Quality':
             # Severity icons for visual indicators (Excel only)
@@ -1388,16 +1414,32 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(header_row, col_num, value, header_format)
         
-        # Set row height and column width with text wrapping
-        max_column_width = 100
+        # Column width caps - tighter limits for Metrics/Dimensions sheets
+        if sheet_name in ('Metrics', 'Dimensions'):
+            # Specific column width limits for better readability
+            column_width_caps = {
+                'name': 40,
+                'type': 20,
+                'id': 35,
+                'title': 40,
+                'description': 55,  # Narrower than default, relies on text wrap
+            }
+            default_cap = 50  # Narrower default for other columns
+        else:
+            column_width_caps = {}
+            default_cap = 100
+
+        # Set column widths with appropriate caps
         for idx, col in enumerate(df.columns):
             series = df[col]
+            col_lower = col.lower()
+            max_cap = column_width_caps.get(col_lower, default_cap)
             max_len = min(
                 max(
                     max(len(str(val).split('\n')[0]) for val in series) if len(series) > 0 else 0,
                     len(str(series.name))
                 ) + 2,
-                max_column_width
+                max_cap
             )
             worksheet.set_column(idx, idx, max_len)
         
@@ -1425,6 +1467,12 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
             else:
                 row_format = grey_format if idx % 2 == 0 else white_format
                 worksheet.set_row(excel_row, row_height, row_format)
+
+                # Apply bold Name column for Metrics/Dimensions sheets
+                if sheet_name in ('Metrics', 'Dimensions') and 'name' in df.columns:
+                    name_col_idx = df.columns.get_loc('name')
+                    name_format = name_bold_grey if idx % 2 == 0 else name_bold_white
+                    worksheet.write(excel_row, name_col_idx, df.iloc[idx]['name'], name_format)
 
         # Add autofilter to data table (offset by summary rows)
         worksheet.autofilter(summary_rows, 0, summary_rows + len(df), len(df.columns) - 1)
