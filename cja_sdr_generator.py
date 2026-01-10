@@ -726,6 +726,9 @@ class ParallelAPIFetcher:
 # ==================== DATA QUALITY VALIDATION ====================
 
 class DataQualityChecker:
+    # Severity levels in priority order (highest to lowest) for proper sorting
+    SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+
     def __init__(self, logger: logging.Logger, validation_cache: Optional[ValidationCache] = None):
         self.issues = []
         self.logger = logger
@@ -1109,7 +1112,7 @@ class DataQualityChecker:
             raise
 
     def get_issues_dataframe(self) -> pd.DataFrame:
-        """Return all issues as a DataFrame"""
+        """Return all issues as a DataFrame sorted by severity (CRITICAL first)"""
         try:
             if not self.issues:
                 self.logger.info("No data quality issues found")
@@ -1122,9 +1125,23 @@ class DataQualityChecker:
                     'Details': ['All validation checks passed successfully']
                 })
 
-            return pd.DataFrame(self.issues).sort_values(
+            df = pd.DataFrame(self.issues)
+
+            # Use CategoricalDtype for proper severity ordering (CRITICAL > HIGH > MEDIUM > LOW > INFO)
+            severity_dtype = pd.CategoricalDtype(categories=self.SEVERITY_ORDER, ordered=True)
+            df['Severity'] = df['Severity'].astype(severity_dtype)
+
+            # Reorder columns: Severity first for better readability
+            preferred_order = ['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details']
+            existing_cols = [col for col in preferred_order if col in df.columns]
+            other_cols = [col for col in df.columns if col not in preferred_order]
+            df = df[existing_cols + other_cols]
+
+            # Sort by severity (ascending=True with ordered categorical puts CRITICAL first)
+            # then by Category alphabetically
+            return df.sort_values(
                 by=['Severity', 'Category'],
-                ascending=[False, True]
+                ascending=[True, True]
             )
         except Exception as e:
             self.logger.error(f"Error creating issues dataframe: {str(e)}")
@@ -1169,12 +1186,64 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
     """Apply formatting to Excel sheets with error handling"""
     try:
         logger.info(f"Formatting sheet: {sheet_name}")
-        
-        # Write dataframe to sheet
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
-        
+
+        # Calculate row offset for Data Quality sheet (summary section at top)
+        summary_rows = 0
+        if sheet_name == 'Data Quality' and 'Severity' in df.columns:
+            summary_rows = 7  # Title + header + 5 severity levels + blank row
+
+        # Write dataframe to sheet with offset for summary
+        df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=summary_rows)
+
         workbook = writer.book
         worksheet = writer.sheets[sheet_name]
+
+        # Add summary section for Data Quality sheet
+        if sheet_name == 'Data Quality' and 'Severity' in df.columns:
+            # Calculate severity counts
+            severity_counts = df['Severity'].value_counts()
+
+            # Summary formats
+            title_format = workbook.add_format({
+                'bold': True,
+                'font_size': 14,
+                'font_color': '#366092',
+                'bottom': 2
+            })
+            summary_header = workbook.add_format({
+                'bold': True,
+                'bg_color': '#D9E1F2',
+                'border': 1,
+                'align': 'center'
+            })
+            summary_cell = workbook.add_format({
+                'border': 1,
+                'align': 'center'
+            })
+
+            # Write summary title
+            worksheet.write(0, 0, "Issue Summary", title_format)
+            worksheet.merge_range(0, 0, 0, 1, "Issue Summary", title_format)
+
+            # Write summary headers
+            worksheet.write(1, 0, "Severity", summary_header)
+            worksheet.write(1, 1, "Count", summary_header)
+
+            # Write severity counts in order
+            severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+            row = 2
+            total_count = 0
+            for sev in severity_order:
+                count = severity_counts.get(sev, 0)
+                if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:  # Always show main levels
+                    worksheet.write(row, 0, sev, summary_cell)
+                    worksheet.write(row, 1, int(count), summary_cell)
+                    total_count += count
+                    row += 1
+
+            # Set column widths for summary
+            worksheet.set_column(0, 0, 12)
+            worksheet.set_column(1, 1, 8)
         
         # Add formats
         header_format = workbook.add_format({
@@ -1204,6 +1273,16 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
         
         # Special formats for Data Quality sheet
         if sheet_name == 'Data Quality':
+            # Severity icons for visual indicators (Excel only)
+            severity_icons = {
+                'CRITICAL': '\u25cf',  # ● filled circle
+                'HIGH': '\u25b2',      # ▲ triangle up
+                'MEDIUM': '\u25a0',    # ■ filled square
+                'LOW': '\u25cb',       # ○ empty circle
+                'INFO': '\u2139'       # ℹ info symbol
+            }
+
+            # Row formats (for non-severity columns)
             critical_format = workbook.add_format({
                 'bg_color': '#FFC7CE',
                 'font_color': '#9C0006',
@@ -1212,7 +1291,7 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
                 'align': 'top',
                 'valign': 'top'
             })
-            
+
             high_format = workbook.add_format({
                 'bg_color': '#FFEB9C',
                 'font_color': '#9C6500',
@@ -1221,7 +1300,7 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
                 'align': 'top',
                 'valign': 'top'
             })
-            
+
             medium_format = workbook.add_format({
                 'bg_color': '#C6EFCE',
                 'font_color': '#006100',
@@ -1230,7 +1309,7 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
                 'align': 'top',
                 'valign': 'top'
             })
-            
+
             low_format = workbook.add_format({
                 'bg_color': '#DDEBF7',
                 'font_color': '#1F4E78',
@@ -1239,10 +1318,75 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
                 'align': 'top',
                 'valign': 'top'
             })
+
+            info_format = workbook.add_format({
+                'bg_color': '#E2EFDA',
+                'font_color': '#375623',
+                'border': 1,
+                'text_wrap': True,
+                'align': 'top',
+                'valign': 'top'
+            })
+
+            # Bold formats for Severity column (emphasize priority)
+            critical_bold = workbook.add_format({
+                'bg_color': '#FFC7CE',
+                'font_color': '#9C0006',
+                'bold': True,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+
+            high_bold = workbook.add_format({
+                'bg_color': '#FFEB9C',
+                'font_color': '#9C6500',
+                'bold': True,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+
+            medium_bold = workbook.add_format({
+                'bg_color': '#C6EFCE',
+                'font_color': '#006100',
+                'bold': True,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+
+            low_bold = workbook.add_format({
+                'bg_color': '#DDEBF7',
+                'font_color': '#1F4E78',
+                'bold': True,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+
+            info_bold = workbook.add_format({
+                'bg_color': '#E2EFDA',
+                'font_color': '#375623',
+                'bold': True,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+
+            # Map severity to formats
+            severity_formats = {
+                'CRITICAL': (critical_format, critical_bold),
+                'HIGH': (high_format, high_bold),
+                'MEDIUM': (medium_format, medium_bold),
+                'LOW': (low_format, low_bold),
+                'INFO': (info_format, info_bold)
+            }
         
-        # Format header row
+        # Format header row (offset by summary rows if present)
+        header_row = summary_rows
         for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_format)
+            worksheet.write(header_row, col_num, value, header_format)
         
         # Set row height and column width with text wrapping
         max_column_width = 100
@@ -1257,32 +1401,36 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
             )
             worksheet.set_column(idx, idx, max_len)
         
-        # Apply row formatting
+        # Apply row formatting (offset by summary rows)
+        data_start_row = summary_rows + 1  # +1 for header row
         for idx in range(len(df)):
             max_lines = max(str(val).count('\n') for val in df.iloc[idx]) + 1
             row_height = min(max_lines * 15, 400)
-            
+            excel_row = data_start_row + idx
+
             # Apply severity-based formatting for Data Quality sheet
             if sheet_name == 'Data Quality' and 'Severity' in df.columns:
-                severity = df.iloc[idx]['Severity']
-                if severity == 'CRITICAL':
-                    row_format = critical_format
-                elif severity == 'HIGH':
-                    row_format = high_format
-                elif severity == 'MEDIUM':
-                    row_format = medium_format
-                else:
-                    row_format = low_format
+                severity = str(df.iloc[idx]['Severity'])
+                row_format, bold_format = severity_formats.get(
+                    severity, (low_format, low_bold)
+                )
+
+                # Set row height and default format
+                worksheet.set_row(excel_row, row_height, row_format)
+
+                # Write Severity column with icon and bold format
+                severity_col_idx = df.columns.get_loc('Severity')
+                icon = severity_icons.get(severity, '')
+                worksheet.write(excel_row, severity_col_idx, f"{icon} {severity}", bold_format)
             else:
                 row_format = grey_format if idx % 2 == 0 else white_format
-            
-            worksheet.set_row(idx + 1, row_height, row_format)
-        
-        # Add autofilter to all sheets
-        worksheet.autofilter(0, 0, len(df), len(df.columns) - 1)
-        
-        # Freeze top row
-        worksheet.freeze_panes(1, 0)
+                worksheet.set_row(excel_row, row_height, row_format)
+
+        # Add autofilter to data table (offset by summary rows)
+        worksheet.autofilter(summary_rows, 0, summary_rows + len(df), len(df.columns) - 1)
+
+        # Freeze header row (summary + data header visible when scrolling)
+        worksheet.freeze_panes(summary_rows + 1, 0)
         
         logger.info(f"Successfully formatted sheet: {sheet_name}")
         
