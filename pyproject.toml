@@ -8,6 +8,7 @@ dependencies = [
     "cjapy>=0.2.4.post2",
     "pandas>=2.3.3",
     "xlsxwriter>=3.2.9",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]

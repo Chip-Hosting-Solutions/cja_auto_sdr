@@ -7,8 +7,8 @@ import logging
 import sys
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
-import asyncio
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 import time
 import threading
 import argparse
@@ -630,15 +630,25 @@ class ParallelAPIFetcher:
                 for name, task in tasks.items()
             }
 
-            # Collect results as they complete
-            for future in as_completed(future_to_name):
-                task_name = future_to_name[future]
-                try:
-                    results[task_name] = future.result()
-                    self.logger.info(f"✓ {task_name.capitalize()} fetch completed")
-                except Exception as e:
-                    errors[task_name] = str(e)
-                    self.logger.error(f"✗ {task_name.capitalize()} fetch failed: {e}")
+            # Collect results as they complete with progress indicator
+            with tqdm(
+                total=len(tasks),
+                desc="Fetching API data",
+                unit="item",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                leave=False
+            ) as pbar:
+                for future in as_completed(future_to_name):
+                    task_name = future_to_name[future]
+                    try:
+                        results[task_name] = future.result()
+                        pbar.set_postfix_str(f"✓ {task_name}", refresh=True)
+                        self.logger.info(f"✓ {task_name.capitalize()} fetch completed")
+                    except Exception as e:
+                        errors[task_name] = str(e)
+                        pbar.set_postfix_str(f"✗ {task_name}", refresh=True)
+                        self.logger.error(f"✗ {task_name.capitalize()} fetch failed: {e}")
+                    pbar.update(1)
 
         self.perf_tracker.end("Parallel API Fetch")
         
@@ -1094,15 +1104,25 @@ class DataQualityChecker:
                     for name, task in tasks.items()
                 }
 
-                # Collect results as they complete
-                for future in as_completed(future_to_name):
-                    task_name = future_to_name[future]
-                    try:
-                        future.result()  # This will re-raise any exception from the task
-                        self.logger.debug(f"✓ {task_name.capitalize()} validation completed")
-                    except Exception as e:
-                        self.logger.error(f"✗ {task_name.capitalize()} validation failed: {e}")
-                        self.logger.exception("Full error details:")
+                # Collect results as they complete with progress indicator
+                with tqdm(
+                    total=len(tasks),
+                    desc="Validating data",
+                    unit="check",
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                    leave=False
+                ) as pbar:
+                    for future in as_completed(future_to_name):
+                        task_name = future_to_name[future]
+                        try:
+                            future.result()  # This will re-raise any exception from the task
+                            pbar.set_postfix_str(f"✓ {task_name}", refresh=True)
+                            self.logger.debug(f"✓ {task_name.capitalize()} validation completed")
+                        except Exception as e:
+                            pbar.set_postfix_str(f"✗ {task_name}", refresh=True)
+                            self.logger.error(f"✗ {task_name.capitalize()} validation failed: {e}")
+                            self.logger.exception("Full error details:")
+                        pbar.update(1)
 
             self.logger.info(f"Parallel validation complete. Found {len(self.issues)} issue(s)")
 
@@ -2266,39 +2286,49 @@ class BatchProcessor:
                 for args in worker_args
             }
 
-            # Collect results as they complete
-            for future in as_completed(future_to_dv):
-                dv_id = future_to_dv[future]
-                try:
-                    result = future.result()
+            # Collect results as they complete with progress bar
+            with tqdm(
+                total=len(data_view_ids),
+                desc="Processing data views",
+                unit="view",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+            ) as pbar:
+                for future in as_completed(future_to_dv):
+                    dv_id = future_to_dv[future]
+                    try:
+                        result = future.result()
 
-                    if result.success:
-                        results['successful'].append(result)
-                        self.logger.info(f"✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
-                    else:
-                        results['failed'].append(result)
-                        self.logger.error(f"✗ {dv_id}: FAILED - {result.error_message}")
+                        if result.success:
+                            results['successful'].append(result)
+                            pbar.set_postfix_str(f"✓ {dv_id[:20]}", refresh=True)
+                            self.logger.info(f"✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
+                        else:
+                            results['failed'].append(result)
+                            pbar.set_postfix_str(f"✗ {dv_id[:20]}", refresh=True)
+                            self.logger.error(f"✗ {dv_id}: FAILED - {result.error_message}")
+
+                            if not self.continue_on_error:
+                                self.logger.warning("Stopping batch processing due to error (use --continue-on-error to continue)")
+                                # Cancel remaining tasks
+                                for f in future_to_dv:
+                                    f.cancel()
+                                break
+
+                    except Exception as e:
+                        self.logger.error(f"✗ {dv_id}: EXCEPTION - {str(e)}")
+                        results['failed'].append(ProcessingResult(
+                            data_view_id=dv_id,
+                            data_view_name="Unknown",
+                            success=False,
+                            duration=0,
+                            error_message=str(e)
+                        ))
 
                         if not self.continue_on_error:
-                            self.logger.warning("Stopping batch processing due to error (use --continue-on-error to continue)")
-                            # Cancel remaining tasks
-                            for f in future_to_dv:
-                                f.cancel()
+                            self.logger.warning("Stopping batch processing due to error")
                             break
 
-                except Exception as e:
-                    self.logger.error(f"✗ {dv_id}: EXCEPTION - {str(e)}")
-                    results['failed'].append(ProcessingResult(
-                        data_view_id=dv_id,
-                        data_view_name="Unknown",
-                        success=False,
-                        duration=0,
-                        error_message=str(e)
-                    ))
-
-                    if not self.continue_on_error:
-                        self.logger.warning("Stopping batch processing due to error")
-                        break
+                    pbar.update(1)
 
         results['total_duration'] = time.time() - batch_start_time
 
