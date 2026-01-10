@@ -434,7 +434,7 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja-auto-sdr-2026"
-version = "3.0.1"
+version = "3.0.3"
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -560,7 +560,20 @@ pip install cjapy>=0.2.4.post2 pandas>=2.3.3 xlsxwriter>=3.2.9
 
 ### 3.3 Configuration File Setup
 
-Create a `myconfig.json` file in the project root directory:
+Create a `myconfig.json` file in the project root directory. Two authentication methods are supported:
+
+**Option 1: OAuth Server-to-Server (Recommended)**
+
+```json
+{
+  "org_id": "your_org_id@AdobeOrg",
+  "client_id": "your_client_id",
+  "secret": "your_client_secret",
+  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+}
+```
+
+**Option 2: JWT (Legacy)**
 
 ```json
 {
@@ -573,11 +586,12 @@ Create a `myconfig.json` file in the project root directory:
 ```
 
 **Configuration Fields:**
-- `org_id`: Your Adobe Organization ID (found in Adobe I/O Console)
-- `client_id`: API Key / Client ID from your integration
-- `tech_id`: Technical Account ID (email format)
+- `org_id`: Your Adobe Organization ID (found in Adobe Developer Console)
+- `client_id`: Client ID from your integration
 - `secret`: Client Secret from your integration
-- `private_key`: Path to your private key file (.key or .pem)
+- `scopes`: OAuth scopes (for OAuth Server-to-Server auth only)
+- `tech_id`: Technical Account ID (for JWT auth only)
+- `private_key`: Path to your private key file (for JWT auth only)
 
 **Project Structure:**
 ```
