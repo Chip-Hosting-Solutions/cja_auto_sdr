@@ -5,7 +5,7 @@ from datetime import datetime
 import hashlib
 import logging
 import sys
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Callable, Any
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from tqdm import tqdm
@@ -13,7 +13,247 @@ import time
 import threading
 import argparse
 import os
+import random
+import functools
 from dataclasses import dataclass
+
+# ==================== VERSION ====================
+
+__version__ = "3.0.3"
+
+# ==================== CONSOLE COLORS ====================
+
+class ConsoleColors:
+    """ANSI color codes for terminal output"""
+    # Colors
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
+    # Disable colors if not a TTY or on Windows without ANSI support
+    _enabled = sys.stdout.isatty() and (os.name != 'nt' or os.environ.get('TERM'))
+
+    @classmethod
+    def success(cls, text: str) -> str:
+        """Format text as success (green)"""
+        if cls._enabled:
+            return f"{cls.GREEN}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def error(cls, text: str) -> str:
+        """Format text as error (red)"""
+        if cls._enabled:
+            return f"{cls.RED}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def warning(cls, text: str) -> str:
+        """Format text as warning (yellow)"""
+        if cls._enabled:
+            return f"{cls.YELLOW}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def info(cls, text: str) -> str:
+        """Format text as info (cyan)"""
+        if cls._enabled:
+            return f"{cls.CYAN}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def bold(cls, text: str) -> str:
+        """Format text as bold"""
+        if cls._enabled:
+            return f"{cls.BOLD}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def status(cls, success: bool, text: str) -> str:
+        """Format text based on success/failure status"""
+        return cls.success(text) if success else cls.error(text)
+
+# ==================== RETRY CONFIGURATION ====================
+
+# Default retry settings
+DEFAULT_RETRY_CONFIG = {
+    'max_retries': 3,           # Maximum number of retry attempts
+    'base_delay': 1.0,          # Initial delay in seconds
+    'max_delay': 30.0,          # Maximum delay between retries
+    'exponential_base': 2,      # Exponential backoff multiplier
+    'jitter': True,             # Add randomization to prevent thundering herd
+}
+
+# Exceptions that should trigger a retry (transient errors)
+RETRYABLE_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,  # Includes network-related errors
+)
+
+# HTTP status codes that should trigger a retry
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def retry_with_backoff(
+    max_retries: int = None,
+    base_delay: float = None,
+    max_delay: float = None,
+    exponential_base: int = None,
+    jitter: bool = None,
+    retryable_exceptions: tuple = None,
+    logger: logging.Logger = None
+) -> Callable:
+    """
+    Decorator that implements retry logic with exponential backoff.
+
+    Automatically retries failed API calls with increasing delays between attempts.
+    Includes jitter to prevent thundering herd problems when multiple processes retry.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Initial delay in seconds (default: 1.0)
+        max_delay: Maximum delay cap in seconds (default: 30.0)
+        exponential_base: Multiplier for exponential backoff (default: 2)
+        jitter: Add randomization to delays (default: True)
+        retryable_exceptions: Tuple of exception types to retry (default: network errors)
+        logger: Logger instance for retry messages
+
+    Returns:
+        Decorated function with retry capability
+
+    Example:
+        @retry_with_backoff(max_retries=3, base_delay=1.0)
+        def fetch_data():
+            return api.get_data()
+
+    Backoff Formula:
+        delay = min(base_delay * (exponential_base ** attempt), max_delay)
+        if jitter: delay = delay * random.uniform(0.5, 1.5)
+    """
+    # Use defaults if not specified
+    _max_retries = max_retries if max_retries is not None else DEFAULT_RETRY_CONFIG['max_retries']
+    _base_delay = base_delay if base_delay is not None else DEFAULT_RETRY_CONFIG['base_delay']
+    _max_delay = max_delay if max_delay is not None else DEFAULT_RETRY_CONFIG['max_delay']
+    _exponential_base = exponential_base if exponential_base is not None else DEFAULT_RETRY_CONFIG['exponential_base']
+    _jitter = jitter if jitter is not None else DEFAULT_RETRY_CONFIG['jitter']
+    _retryable_exceptions = retryable_exceptions if retryable_exceptions is not None else RETRYABLE_EXCEPTIONS
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            _logger = logger or logging.getLogger(__name__)
+            last_exception = None
+
+            for attempt in range(_max_retries + 1):  # +1 for initial attempt
+                try:
+                    return func(*args, **kwargs)
+                except _retryable_exceptions as e:
+                    last_exception = e
+
+                    if attempt == _max_retries:
+                        _logger.error(f"All {_max_retries + 1} attempts failed for {func.__name__}: {str(e)}")
+                        raise
+
+                    # Calculate delay with exponential backoff
+                    delay = min(_base_delay * (_exponential_base ** attempt), _max_delay)
+
+                    # Add jitter to prevent thundering herd
+                    if _jitter:
+                        delay = delay * random.uniform(0.5, 1.5)
+
+                    _logger.warning(
+                        f"Attempt {attempt + 1}/{_max_retries + 1} failed for {func.__name__}: {str(e)}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                except Exception as e:
+                    # Non-retryable exception, raise immediately
+                    _logger.error(f"{func.__name__} failed with non-retryable error: {str(e)}")
+                    raise
+
+            # Should not reach here, but just in case
+            if last_exception:
+                raise last_exception
+
+        return wrapper
+    return decorator
+
+
+def make_api_call_with_retry(
+    api_func: Callable,
+    *args,
+    logger: logging.Logger = None,
+    operation_name: str = "API call",
+    **kwargs
+) -> Any:
+    """
+    Execute an API call with retry logic.
+
+    This is a function-based alternative to the decorator for cases where
+    you need more control or are calling methods on objects.
+
+    Args:
+        api_func: The API function to call
+        *args: Positional arguments to pass to the function
+        logger: Logger instance for retry messages
+        operation_name: Human-readable name for logging
+        **kwargs: Keyword arguments to pass to the function
+
+    Returns:
+        Result from the API call
+
+    Raises:
+        The last exception if all retries fail
+
+    Example:
+        result = make_api_call_with_retry(
+            cja.getMetrics,
+            data_view_id,
+            logger=logger,
+            operation_name="getMetrics"
+        )
+    """
+    _logger = logger or logging.getLogger(__name__)
+    max_retries = DEFAULT_RETRY_CONFIG['max_retries']
+    base_delay = DEFAULT_RETRY_CONFIG['base_delay']
+    max_delay = DEFAULT_RETRY_CONFIG['max_delay']
+    exponential_base = DEFAULT_RETRY_CONFIG['exponential_base']
+    jitter = DEFAULT_RETRY_CONFIG['jitter']
+
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return api_func(*args, **kwargs)
+        except RETRYABLE_EXCEPTIONS as e:
+            last_exception = e
+
+            if attempt == max_retries:
+                _logger.error(f"All {max_retries + 1} attempts failed for {operation_name}: {str(e)}")
+                raise
+
+            delay = min(base_delay * (exponential_base ** attempt), max_delay)
+            if jitter:
+                delay = delay * random.uniform(0.5, 1.5)
+
+            _logger.warning(
+                f"Attempt {attempt + 1}/{max_retries + 1} failed for {operation_name}: {str(e)}. "
+                f"Retrying in {delay:.1f}s..."
+            )
+            time.sleep(delay)
+        except Exception as e:
+            # Non-retryable exception
+            _logger.error(f"{operation_name} failed with non-retryable error: {str(e)}")
+            raise
+
+    if last_exception:
+        raise last_exception
+
 
 # ==================== DATA STRUCTURES ====================
 
@@ -331,56 +571,129 @@ class ValidationCache:
             self._access_times.clear()
             self.logger.debug("Cache cleared")
 
+# ==================== CONFIG SCHEMA ====================
+
+# Configuration schema definition for validation
+CONFIG_SCHEMA = {
+    'required_fields': {
+        'org_id': {'type': str, 'description': 'Adobe Organization ID'},
+        'client_id': {'type': str, 'description': 'OAuth Client ID'},
+        'tech_id': {'type': str, 'description': 'Technical Account ID'},
+        'secret': {'type': str, 'description': 'Client Secret'},
+        'private_key': {'type': str, 'description': 'Path to private key file or key content'},
+    },
+    'optional_fields': {
+        'scopes': {'type': str, 'description': 'OAuth scopes (optional)'},
+        'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
+    }
+}
+
 # ==================== CJA INITIALIZATION ====================
 
 def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
-    """Validate configuration file exists and has required structure"""
+    """
+    Validate configuration file exists and has required structure.
+
+    Performs comprehensive validation:
+    1. File existence and readability
+    2. JSON syntax validation
+    3. Required fields presence
+    4. Field type validation
+    5. Empty value detection
+    6. Private key file validation (if path provided)
+
+    Args:
+        config_file: Path to the configuration JSON file
+        logger: Logger instance for output
+
+    Returns:
+        True if validation passes, False otherwise
+    """
+    validation_errors = []
+    validation_warnings = []
+
     try:
         logger.info(f"Validating configuration file: {config_file}")
-        
+
         config_path = Path(config_file)
-        
+
         # Check if file exists
         if not config_path.exists():
             logger.error(f"Configuration file not found: {config_path.absolute()}")
             logger.error(f"Please ensure '{config_file}' exists in the current directory")
             return False
-        
+
         # Check if file is readable
         if not config_path.is_file():
             logger.error(f"'{config_file}' is not a valid file")
             return False
-        
+
         # Validate JSON structure
         try:
             with open(config_path, 'r') as f:
                 config_data = json.load(f)
-            
-            # Check for required fields in config
-            required_fields = ['org_id', 'client_id', 'tech_id', 'secret', 'private_key']
-            missing_fields = [field for field in required_fields if field not in config_data]
-            
-            if missing_fields:
-                logger.warning(f"Configuration file may be missing required fields: {', '.join(missing_fields)}")
-                logger.warning("This may cause authentication failures")
-            else:
-                logger.info("Configuration file structure validated successfully")
-            
-            # Check for empty values
-            empty_fields = [field for field in required_fields if field in config_data and not config_data[field]]
-            if empty_fields:
-                logger.warning(f"Configuration file has empty values for: {', '.join(empty_fields)}")
-            
         except json.JSONDecodeError as e:
             logger.error(f"Configuration file is not valid JSON: {str(e)}")
             logger.error("Please check the file format and ensure it's properly formatted JSON")
             return False
-        except Exception as e:
-            logger.warning(f"Could not fully validate config structure: {str(e)}")
-            logger.info("Proceeding with initialization attempt...")
-        
+
+        # Validate it's a dictionary
+        if not isinstance(config_data, dict):
+            logger.error("Configuration file must contain a JSON object (dictionary)")
+            return False
+
+        # Check for required fields
+        for field_name, field_info in CONFIG_SCHEMA['required_fields'].items():
+            if field_name not in config_data:
+                validation_errors.append(f"Missing required field: '{field_name}' ({field_info['description']})")
+            elif not isinstance(config_data[field_name], field_info['type']):
+                validation_errors.append(
+                    f"Invalid type for '{field_name}': expected {field_info['type'].__name__}, "
+                    f"got {type(config_data[field_name]).__name__}"
+                )
+            elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
+                validation_errors.append(f"Empty value for required field: '{field_name}'")
+
+        # Validate optional fields if present
+        for field_name, field_info in CONFIG_SCHEMA['optional_fields'].items():
+            if field_name in config_data:
+                if not isinstance(config_data[field_name], field_info['type']):
+                    validation_warnings.append(
+                        f"Invalid type for optional field '{field_name}': expected {field_info['type'].__name__}"
+                    )
+
+        # Check for unknown fields (potential typos)
+        known_fields = set(CONFIG_SCHEMA['required_fields'].keys()) | set(CONFIG_SCHEMA['optional_fields'].keys())
+        unknown_fields = set(config_data.keys()) - known_fields
+        if unknown_fields:
+            validation_warnings.append(f"Unknown fields in config (possible typos): {', '.join(unknown_fields)}")
+
+        # Validate private_key - check if it's a file path or key content
+        if 'private_key' in config_data and config_data['private_key']:
+            pk_value = config_data['private_key']
+            # Check if it looks like a file path (not starting with -----)
+            if not pk_value.strip().startswith('-----'):
+                pk_path = Path(pk_value)
+                if not pk_path.exists():
+                    validation_warnings.append(f"Private key file not found: {pk_value}")
+                elif not pk_path.is_file():
+                    validation_errors.append(f"Private key path is not a file: {pk_value}")
+
+        # Report validation results
+        if validation_errors:
+            logger.error("Configuration validation FAILED:")
+            for error in validation_errors:
+                logger.error(f"  - {error}")
+            return False
+
+        if validation_warnings:
+            logger.warning("Configuration validation warnings:")
+            for warning in validation_warnings:
+                logger.warning(f"  - {warning}")
+
+        logger.info("Configuration file validated successfully")
         return True
-        
+
     except Exception as e:
         logger.error(f"Unexpected error validating config file: {str(e)}")
         return False
@@ -415,11 +728,15 @@ def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = 
         cja = cjapy.CJA()
         logger.info("CJA instance created successfully")
         
-        # Test connection with a simple API call
+        # Test connection with a simple API call (with retry)
         logger.info("Testing API connection...")
         try:
-            # Attempt to list data views to verify connection
-            test_call = cja.getDataViews()
+            # Attempt to list data views to verify connection with retry
+            test_call = make_api_call_with_retry(
+                cja.getDataViews,
+                logger=logger,
+                operation_name="getDataViews (connection test)"
+            )
             if test_call is not None:
                 logger.info(f"✓ API connection successful! Found {len(test_call) if hasattr(test_call, '__len__') else 'multiple'} data view(s)")
             else:
@@ -677,58 +994,83 @@ class ParallelAPIFetcher:
         return metrics_result, dimensions_result, dataview_result
     
     def _fetch_metrics(self, data_view_id: str) -> pd.DataFrame:
-        """Fetch metrics with error handling"""
+        """Fetch metrics with error handling and retry"""
         try:
             self.logger.debug(f"Fetching metrics for {data_view_id}")
-            metrics = self.cja.getMetrics(data_view_id, inclType=True, full=True)
-            
+
+            # Use retry for transient network errors
+            metrics = make_api_call_with_retry(
+                self.cja.getMetrics,
+                data_view_id,
+                inclType=True,
+                full=True,
+                logger=self.logger,
+                operation_name="getMetrics"
+            )
+
             if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
                 self.logger.warning("No metrics returned from API")
                 return pd.DataFrame()
-            
+
             self.logger.info(f"Successfully fetched {len(metrics)} metrics")
             return metrics
-            
+
         except AttributeError as e:
             self.logger.error(f"API method error - getMetrics may not be available: {str(e)}")
             return pd.DataFrame()
         except Exception as e:
             self.logger.error(f"Failed to fetch metrics: {str(e)}")
             return pd.DataFrame()
-    
+
     def _fetch_dimensions(self, data_view_id: str) -> pd.DataFrame:
-        """Fetch dimensions with error handling"""
+        """Fetch dimensions with error handling and retry"""
         try:
             self.logger.debug(f"Fetching dimensions for {data_view_id}")
-            dimensions = self.cja.getDimensions(data_view_id, inclType=True, full=True)
-            
+
+            # Use retry for transient network errors
+            dimensions = make_api_call_with_retry(
+                self.cja.getDimensions,
+                data_view_id,
+                inclType=True,
+                full=True,
+                logger=self.logger,
+                operation_name="getDimensions"
+            )
+
             if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):
                 self.logger.warning("No dimensions returned from API")
                 return pd.DataFrame()
-            
+
             self.logger.info(f"Successfully fetched {len(dimensions)} dimensions")
             return dimensions
-            
+
         except AttributeError as e:
             self.logger.error(f"API method error - getDimensions may not be available: {str(e)}")
             return pd.DataFrame()
         except Exception as e:
             self.logger.error(f"Failed to fetch dimensions: {str(e)}")
             return pd.DataFrame()
-    
+
     def _fetch_dataview_info(self, data_view_id: str) -> dict:
-        """Fetch data view information with error handling"""
+        """Fetch data view information with error handling and retry"""
         try:
             self.logger.debug(f"Fetching data view information for {data_view_id}")
-            lookup_data = self.cja.getDataView(data_view_id)
-            
+
+            # Use retry for transient network errors
+            lookup_data = make_api_call_with_retry(
+                self.cja.getDataView,
+                data_view_id,
+                logger=self.logger,
+                operation_name="getDataView"
+            )
+
             if not lookup_data:
                 self.logger.error("Data view information returned empty")
                 return {"name": "Unknown", "id": data_view_id}
-            
+
             self.logger.info(f"Successfully fetched data view info: {lookup_data.get('name', 'Unknown')}")
             return lookup_data
-            
+
         except Exception as e:
             self.logger.error(f"Failed to fetch data view information: {str(e)}")
             return {"name": "Unknown", "id": data_view_id, "error": str(e)}
@@ -1830,7 +2172,8 @@ def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
 def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json",
                            output_dir: str = ".", log_level: str = "INFO",
                            output_format: str = "excel", enable_cache: bool = False,
-                           cache_size: int = 1000, cache_ttl: int = 3600) -> ProcessingResult:
+                           cache_size: int = 1000, cache_ttl: int = 3600,
+                           quiet: bool = False) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
 
@@ -2210,14 +2553,14 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
 
     Args:
         args: Tuple of (data_view_id, config_file, output_dir, log_level, output_format,
-                       enable_cache, cache_size, cache_ttl)
+                       enable_cache, cache_size, cache_ttl, quiet)
 
     Returns:
         ProcessingResult
     """
-    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl = args
+    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet = args
     return process_single_dataview(data_view_id, config_file, output_dir, log_level, output_format,
-                                   enable_cache, cache_size, cache_ttl)
+                                   enable_cache, cache_size, cache_ttl, quiet)
 
 # ==================== BATCH PROCESSOR CLASS ====================
 
@@ -2227,7 +2570,7 @@ class BatchProcessor:
     def __init__(self, config_file: str = "myconfig.json", output_dir: str = ".",
                  workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
                  output_format: str = "excel", enable_cache: bool = False,
-                 cache_size: int = 1000, cache_ttl: int = 3600):
+                 cache_size: int = 1000, cache_ttl: int = 3600, quiet: bool = False):
         self.config_file = config_file
         self.output_dir = output_dir
         self.workers = workers
@@ -2237,6 +2580,7 @@ class BatchProcessor:
         self.enable_cache = enable_cache
         self.cache_size = cache_size
         self.cache_ttl = cache_ttl
+        self.quiet = quiet
         self.logger = setup_logging(batch_mode=True, log_level=log_level)
 
         # Create output directory if it doesn't exist
@@ -2274,7 +2618,7 @@ class BatchProcessor:
         # Prepare arguments for each worker
         worker_args = [
             (dv_id, self.config_file, self.output_dir, self.log_level, self.output_format,
-             self.enable_cache, self.cache_size, self.cache_ttl)
+             self.enable_cache, self.cache_size, self.cache_ttl, self.quiet)
             for dv_id in data_view_ids
         ]
 
@@ -2291,7 +2635,8 @@ class BatchProcessor:
                 total=len(data_view_ids),
                 desc="Processing data views",
                 unit="view",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                disable=self.quiet
             ) as pbar:
                 for future in as_completed(future_to_dv):
                     dv_id = future_to_dv[future]
@@ -2338,12 +2683,7 @@ class BatchProcessor:
         return results
 
     def print_summary(self, results: Dict):
-        """Print detailed batch processing summary"""
-        self.logger.info("")
-        self.logger.info("=" * 60)
-        self.logger.info("BATCH PROCESSING SUMMARY")
-        self.logger.info("=" * 60)
-
+        """Print detailed batch processing summary with color-coded output"""
         total = results['total']
         successful_count = len(results['successful'])
         failed_count = len(results['failed'])
@@ -2351,30 +2691,62 @@ class BatchProcessor:
         total_duration = results['total_duration']
         avg_duration = (total_duration / total) if total > 0 else 0
 
+        # Log to file
+        self.logger.info("")
+        self.logger.info("=" * 60)
+        self.logger.info("BATCH PROCESSING SUMMARY")
+        self.logger.info("=" * 60)
         self.logger.info(f"Total data views: {total}")
         self.logger.info(f"Successful: {successful_count}")
         self.logger.info(f"Failed: {failed_count}")
         self.logger.info(f"Success rate: {success_rate:.1f}%")
         self.logger.info(f"Total duration: {total_duration:.1f}s")
         self.logger.info(f"Average per data view: {avg_duration:.1f}s")
-        self.logger.info("")
+
+        # Print color-coded console output
+        print()
+        print("=" * 60)
+        print(ConsoleColors.bold("BATCH PROCESSING SUMMARY"))
+        print("=" * 60)
+        print(f"Total data views: {total}")
+        print(f"Successful: {ConsoleColors.success(str(successful_count))}")
+        if failed_count > 0:
+            print(f"Failed: {ConsoleColors.error(str(failed_count))}")
+        else:
+            print(f"Failed: {failed_count}")
+        print(f"Success rate: {ConsoleColors.status(success_rate == 100, f'{success_rate:.1f}%')}")
+        print(f"Total duration: {total_duration:.1f}s")
+        print(f"Average per data view: {avg_duration:.1f}s")
+        print()
 
         if results['successful']:
+            print(ConsoleColors.success("Successful Data Views:"))
+            self.logger.info("")
             self.logger.info("Successful Data Views:")
             for result in results['successful']:
+                line = f"  {result.data_view_id:20s}  {result.data_view_name:30s}  {result.duration:5.1f}s"
+                print(ConsoleColors.success("  ✓") + line[3:])
                 self.logger.info(f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {result.duration:5.1f}s")
+            print()
             self.logger.info("")
 
         if results['failed']:
+            print(ConsoleColors.error("Failed Data Views:"))
             self.logger.info("Failed Data Views:")
             for result in results['failed']:
+                line = f"  {result.data_view_id:20s}  {result.error_message}"
+                print(ConsoleColors.error("  ✗") + line[3:])
                 self.logger.info(f"  ✗ {result.data_view_id:20s}  {result.error_message}")
+            print()
             self.logger.info("")
 
+        print("=" * 60)
         self.logger.info("=" * 60)
 
         if total > 0 and total_duration > 0:
             throughput = (total / total_duration) * 60  # per minute
+            print(f"Throughput: {throughput:.1f} data views per minute")
+            print("=" * 60)
             self.logger.info(f"Throughput: {throughput:.1f} data views per minute")
             self.logger.info("=" * 60)
 
@@ -2425,8 +2797,12 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger)
         cjapy.importConfigFile(config_file)
         cja = cjapy.CJA()
 
-        # Test API with getDataViews call
-        available_dvs = cja.getDataViews()
+        # Test API with getDataViews call (with retry for transient errors)
+        available_dvs = make_api_call_with_retry(
+            cja.getDataViews,
+            logger=logger,
+            operation_name="getDataViews (dry-run)"
+        )
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, '__len__') else 0
             print(f"  ✓ API connection successful")
@@ -2458,9 +2834,14 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger)
     invalid_count = 0
 
     for dv_id in data_views:
-        # Try to get data view info
+        # Try to get data view info (with retry for transient errors)
         try:
-            dv_info = cja.getDataView(dv_id)
+            dv_info = make_api_call_with_retry(
+                cja.getDataView,
+                dv_id,
+                logger=logger,
+                operation_name=f"getDataView({dv_id})"
+            )
             if dv_info:
                 dv_name = dv_info.get('name', 'Unknown')
                 print(f"  ✓ {dv_id}: {dv_name}")
@@ -2541,6 +2922,9 @@ Examples:
   # Dry-run to validate config and connectivity
   python cja_sdr_generator.py dv_12345 --dry-run
 
+  # Quiet mode (errors only)
+  python cja_sdr_generator.py dv_12345 --quiet
+
 Note:
   At least one data view ID must be provided.
   Use 'python cja_sdr_generator.py --help' to see all options.
@@ -2548,10 +2932,17 @@ Note:
     )
 
     parser.add_argument(
+        '--version',
+        action='version',
+        version=f'%(prog)s {__version__}',
+        help='Show program version and exit'
+    )
+
+    parser.add_argument(
         'data_views',
-        nargs='+',
+        nargs='*',
         metavar='DATA_VIEW_ID',
-        help='Data view IDs to process (at least one required)'
+        help='Data view IDs to process (at least one required unless using --version)'
     )
 
     parser.add_argument(
@@ -2635,12 +3026,20 @@ Note:
         help='Validate configuration and connectivity without generating reports'
     )
 
+    parser.add_argument(
+        '--quiet', '-q',
+        action='store_true',
+        help='Quiet mode - suppress all output except errors and final summary'
+    )
+
     return parser.parse_args()
 
 # ==================== MAIN FUNCTION ====================
 
 def main():
     """Main entry point for the script"""
+    main_start_time = time.time()
+
     # Parse arguments (will show error and help if no data views provided)
     try:
         args = parse_arguments()
@@ -2649,19 +3048,31 @@ def main():
         # Re-raise to maintain expected behavior
         raise
 
-    # Get data views from arguments (guaranteed to have at least one due to nargs='+')
+    # Get data views from arguments
     data_views = args.data_views
+
+    # Validate that at least one data view is provided
+    if not data_views:
+        print(ConsoleColors.error("ERROR: At least one data view ID is required"), file=sys.stderr)
+        print("Usage: python cja_sdr_generator.py DATA_VIEW_ID [DATA_VIEW_ID ...]", file=sys.stderr)
+        print("       Use --help for more information", file=sys.stderr)
+        sys.exit(1)
 
     # Validate data view format
     invalid_dvs = [dv for dv in data_views if not dv.startswith('dv_')]
     if invalid_dvs:
-        print(f"ERROR: Invalid data view ID format: {', '.join(invalid_dvs)}", file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Invalid data view ID format: {', '.join(invalid_dvs)}"), file=sys.stderr)
         print(f"       Data view IDs should start with 'dv_'", file=sys.stderr)
         print(f"       Example: dv_677ea9291244fd082f02dd42", file=sys.stderr)
         sys.exit(1)
 
-    # Production mode priority logic: --production overrides --log-level
-    effective_log_level = 'WARNING' if args.production else args.log_level
+    # Priority logic for log level: --quiet > --production > --log-level
+    if args.quiet:
+        effective_log_level = 'ERROR'
+    elif args.production:
+        effective_log_level = 'WARNING'
+    else:
+        effective_log_level = args.log_level
 
     # Handle dry-run mode
     if args.dry_run:
@@ -2672,8 +3083,9 @@ def main():
     # Process data views
     if args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
-        print(f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers...")
-        print()
+        if not args.quiet:
+            print(ConsoleColors.info(f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers..."))
+            print()
 
         processor = BatchProcessor(
             config_file=args.config_file,
@@ -2684,10 +3096,16 @@ def main():
             output_format=args.format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,
-            cache_ttl=args.cache_ttl
+            cache_ttl=args.cache_ttl,
+            quiet=args.quiet
         )
 
         results = processor.process_batch(data_views)
+
+        # Print total runtime
+        total_runtime = time.time() - main_start_time
+        print()
+        print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
         # Exit with error code if any failed (unless continue-on-error)
         if results['failed'] and not args.continue_on_error:
@@ -2695,8 +3113,9 @@ def main():
 
     else:
         # Single mode - process one data view
-        print(f"Processing data view: {data_views[0]}")
-        print()
+        if not args.quiet:
+            print(ConsoleColors.info(f"Processing data view: {data_views[0]}"))
+            print()
 
         result = process_single_dataview(
             data_views[0],
@@ -2706,8 +3125,23 @@ def main():
             output_format=args.format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,
-            cache_ttl=args.cache_ttl
+            cache_ttl=args.cache_ttl,
+            quiet=args.quiet
         )
+
+        # Print final status with color and total runtime
+        total_runtime = time.time() - main_start_time
+        print()
+        if result.success:
+            print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
+            print(f"  Output: {result.output_file}")
+            print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
+            if result.dq_issues_count > 0:
+                print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))
+        else:
+            print(ConsoleColors.error(f"FAILED: {result.error_message}"))
+
+        print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
         if not result.success:
             sys.exit(1)

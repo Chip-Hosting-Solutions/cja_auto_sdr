@@ -67,11 +67,13 @@ class TestCLIArguments:
             assert args.log_level == 'DEBUG'
 
     def test_parse_missing_data_view(self):
-        """Test that missing data view ID raises error"""
+        """Test that missing data view ID returns empty list (validated in main)"""
         test_args = ['cja_sdr_generator.py']
         with patch.object(sys, 'argv', test_args):
-            with pytest.raises(SystemExit):
-                parse_arguments()
+            # With nargs='*', empty data_views is allowed at parse time
+            # Validation is done in main() to support --version flag
+            args = parse_arguments()
+            assert args.data_views == []
 
     def test_parse_config_file(self):
         """Test parsing with custom config file"""
@@ -128,3 +130,32 @@ class TestCLIArguments:
             args = parse_arguments()
             assert args.dry_run is True
             assert args.data_views == ['dv_12345', 'dv_67890']
+
+    def test_quiet_flag(self):
+        """Test parsing with --quiet flag"""
+        test_args = ['cja_sdr_generator.py', '--quiet', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.quiet is True
+
+    def test_quiet_short_flag(self):
+        """Test parsing with -q short flag"""
+        test_args = ['cja_sdr_generator.py', '-q', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.quiet is True
+
+    def test_quiet_default_false(self):
+        """Test that quiet is False by default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.quiet is False
+
+    def test_version_flag_exits(self):
+        """Test that --version flag causes SystemExit"""
+        test_args = ['cja_sdr_generator.py', '--version']
+        with patch.object(sys, 'argv', test_args):
+            with pytest.raises(SystemExit) as exc_info:
+                parse_arguments()
+            assert exc_info.value.code == 0  # Clean exit

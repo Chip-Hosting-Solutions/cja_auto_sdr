@@ -5,6 +5,56 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.3] - 2026-01-10
+
+### Added
+
+#### Retry with Exponential Backoff
+- **Automatic Retry**: All API calls now automatically retry on transient network errors
+- **Exponential Backoff**: Delay between retries increases exponentially (1s, 2s, 4s, etc.)
+- **Jitter**: Random variation added to retry delays to prevent thundering herd problems
+- **Configurable**: Default settings (3 retries, 1s base delay, 30s max delay) can be customized
+- **Retryable Errors**: Handles ConnectionError, TimeoutError, and OSError automatically
+- **Non-Blocking**: Non-retryable errors (ValueError, KeyError, etc.) fail immediately
+- **Comprehensive Logging**: Warnings logged for each retry attempt with delay information
+
+#### Retry Implementation Details
+- `retry_with_backoff` decorator for wrapping functions with retry logic
+- `make_api_call_with_retry` function for ad-hoc API calls with retry
+- Applied to all CJA API calls: getDataViews, getDataView, getMetrics, getDimensions
+- Applied to dry-run mode validation calls
+- 21 new tests covering all retry scenarios
+
+---
+
+## [3.0.2] - 2026-01-10
+
+### Added
+
+#### CLI Quick Wins
+- **Version Flag**: New `--version` flag to display program version (3.0.2)
+- **Quiet Mode**: New `--quiet` / `-q` flag to suppress all output except errors and final summary
+- **Color-Coded Output**: Console output now uses ANSI colors for better visual feedback
+  - Green for success messages and successful data views
+  - Red for error messages and failed data views
+  - Yellow for warnings
+  - Bold for headers and important information
+- **Total Runtime Display**: Final summary now shows total runtime for all operations
+
+#### Enhanced Config Validation
+- **Schema-Based Validation**: Configuration file validation now uses a defined schema with type checking
+- **Type Validation**: Validates that all config fields have the correct data types
+- **Empty Value Detection**: Detects and reports empty values in required fields
+- **Unknown Field Detection**: Warns about unrecognized fields (possible typos)
+- **Private Key Validation**: Validates private key file path if provided as a file path
+
+### Changed
+- **Data View Validation**: Missing data views are now validated in main() instead of argparse, allowing `--version` flag to work without data view arguments
+- **Config Validation Strictness**: Missing required config fields now causes validation to fail (previously only warned)
+- **Test Count**: Expanded test suite from 136 to 140 tests
+
+---
+
 ## [3.0.1] - 2026-01-09
 
 ### Added

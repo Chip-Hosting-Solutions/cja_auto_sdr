@@ -98,9 +98,9 @@ class TestConfigValidation:
             # Missing other required fields
         }))
 
-        # Should log warnings but still return True
+        # Should fail when required fields are missing
         result = validate_config_file(str(incomplete_config), logger)
-        assert result is True
+        assert result is False
 
 
 class TestPerformanceTracker:

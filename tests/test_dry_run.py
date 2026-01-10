@@ -229,11 +229,11 @@ class TestValidateConfigFile:
         assert result is True
 
     def test_validate_config_with_missing_fields(self, tmp_path, logger):
-        """Test validation warns but succeeds for config with missing fields"""
+        """Test validation fails for config with missing required fields"""
         config = {"org_id": "test"}  # Missing other required fields
         config_path = tmp_path / "partial.json"
         with open(config_path, 'w') as f:
             json.dump(config, f)
-        # Should succeed but log warnings
+        # Should fail when required fields are missing
         result = validate_config_file(str(config_path), logger)
-        assert result is True
+        assert result is False
