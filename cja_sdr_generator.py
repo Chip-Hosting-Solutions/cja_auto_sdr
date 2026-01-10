@@ -574,16 +574,23 @@ class ValidationCache:
 # ==================== CONFIG SCHEMA ====================
 
 # Configuration schema definition for validation
+# Supports two authentication methods:
+# 1. OAuth Server-to-Server: org_id, client_id, secret (scopes optional)
+# 2. JWT Service Account: org_id, client_id, tech_id, secret, private_key
 CONFIG_SCHEMA = {
-    'required_fields': {
+    # Fields required for all authentication methods
+    'base_required_fields': {
         'org_id': {'type': str, 'description': 'Adobe Organization ID'},
         'client_id': {'type': str, 'description': 'OAuth Client ID'},
-        'tech_id': {'type': str, 'description': 'Technical Account ID'},
         'secret': {'type': str, 'description': 'Client Secret'},
+    },
+    # Additional fields required only for JWT (Service Account) authentication
+    'jwt_required_fields': {
+        'tech_id': {'type': str, 'description': 'Technical Account ID'},
         'private_key': {'type': str, 'description': 'Path to private key file or key content'},
     },
     'optional_fields': {
-        'scopes': {'type': str, 'description': 'OAuth scopes (optional)'},
+        'scopes': {'type': str, 'description': 'OAuth scopes (for OAuth Server-to-Server auth)'},
         'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
     }
 }
@@ -642,8 +649,8 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
             logger.error("Configuration file must contain a JSON object (dictionary)")
             return False
 
-        # Check for required fields
-        for field_name, field_info in CONFIG_SCHEMA['required_fields'].items():
+        # Check for base required fields (required for all auth methods)
+        for field_name, field_info in CONFIG_SCHEMA['base_required_fields'].items():
             if field_name not in config_data:
                 validation_errors.append(f"Missing required field: '{field_name}' ({field_info['description']})")
             elif not isinstance(config_data[field_name], field_info['type']):
@@ -654,6 +661,22 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
             elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
                 validation_errors.append(f"Empty value for required field: '{field_name}'")
 
+        # Determine auth method: JWT requires tech_id and private_key, OAuth S2S does not
+        has_jwt_fields = 'tech_id' in config_data or 'private_key' in config_data
+
+        if has_jwt_fields:
+            # JWT auth mode - validate JWT-specific required fields
+            for field_name, field_info in CONFIG_SCHEMA['jwt_required_fields'].items():
+                if field_name not in config_data:
+                    validation_errors.append(f"Missing required field for JWT auth: '{field_name}' ({field_info['description']})")
+                elif not isinstance(config_data[field_name], field_info['type']):
+                    validation_errors.append(
+                        f"Invalid type for '{field_name}': expected {field_info['type'].__name__}, "
+                        f"got {type(config_data[field_name]).__name__}"
+                    )
+                elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
+                    validation_errors.append(f"Empty value for required field: '{field_name}'")
+
         # Validate optional fields if present
         for field_name, field_info in CONFIG_SCHEMA['optional_fields'].items():
             if field_name in config_data:
@@ -663,7 +686,9 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
                     )
 
         # Check for unknown fields (potential typos)
-        known_fields = set(CONFIG_SCHEMA['required_fields'].keys()) | set(CONFIG_SCHEMA['optional_fields'].keys())
+        known_fields = (set(CONFIG_SCHEMA['base_required_fields'].keys()) |
+                        set(CONFIG_SCHEMA['jwt_required_fields'].keys()) |
+                        set(CONFIG_SCHEMA['optional_fields'].keys()))
         unknown_fields = set(config_data.keys()) - known_fields
         if unknown_fields:
             validation_warnings.append(f"Unknown fields in config (possible typos): {', '.join(unknown_fields)}")
@@ -708,10 +733,20 @@ def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = 
         # Validate config file first
         if not validate_config_file(config_file, logger):
             logger.critical("Configuration file validation failed")
-            logger.critical("Please create a valid config file with the following structure:")
+            logger.critical("Please create a valid config file using one of the following formats:")
+            logger.critical("")
+            logger.critical("OAuth Server-to-Server (recommended):")
             logger.critical(json.dumps({
                 "org_id": "your_org_id",
-                "client_id": "your_client_id", 
+                "client_id": "your_client_id",
+                "secret": "your_client_secret",
+                "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+            }, indent=2))
+            logger.critical("")
+            logger.critical("JWT Service Account (legacy):")
+            logger.critical(json.dumps({
+                "org_id": "your_org_id",
+                "client_id": "your_client_id",
                 "tech_id": "your_tech_account_id",
                 "secret": "your_client_secret",
                 "private_key": "path/to/private.key"
@@ -2825,7 +2860,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger)
 
     # Build set of available data view IDs for quick lookup
     available_ids = set()
-    if available_dvs:
+    if available_dvs is not None and (isinstance(available_dvs, pd.DataFrame) and not available_dvs.empty or not isinstance(available_dvs, pd.DataFrame) and available_dvs):
         for dv in available_dvs:
             if isinstance(dv, dict):
                 available_ids.add(dv.get('id', ''))
