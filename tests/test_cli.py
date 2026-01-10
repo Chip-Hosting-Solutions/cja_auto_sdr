@@ -106,3 +106,25 @@ class TestCLIArguments:
             args = parse_arguments()
             assert args.production is True
             assert args.log_level == 'DEBUG'  # Both parsed, main() decides priority
+
+    def test_dry_run_flag(self):
+        """Test parsing with --dry-run flag"""
+        test_args = ['cja_sdr_generator.py', '--dry-run', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.dry_run is True
+
+    def test_dry_run_default_false(self):
+        """Test that dry-run is False by default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.dry_run is False
+
+    def test_dry_run_with_multiple_data_views(self):
+        """Test dry-run with multiple data views"""
+        test_args = ['cja_sdr_generator.py', '--dry-run', 'dv_12345', 'dv_67890']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.dry_run is True
+            assert args.data_views == ['dv_12345', 'dv_67890']

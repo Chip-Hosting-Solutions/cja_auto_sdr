@@ -2378,6 +2378,124 @@ class BatchProcessor:
             self.logger.info(f"Throughput: {throughput:.1f} data views per minute")
             self.logger.info("=" * 60)
 
+# ==================== DRY-RUN MODE ====================
+
+def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger) -> bool:
+    """
+    Validate configuration and connectivity without generating reports.
+
+    Performs the following checks:
+    1. Configuration file validation (exists, valid JSON, required fields)
+    2. CJA API connection test
+    3. Data view accessibility verification
+
+    Args:
+        data_views: List of data view IDs to validate
+        config_file: Path to configuration file
+        logger: Logger instance
+
+    Returns:
+        True if all validations pass, False otherwise
+    """
+    print()
+    print("=" * 60)
+    print("DRY-RUN MODE - Validating configuration and connectivity")
+    print("=" * 60)
+    print()
+
+    all_passed = True
+
+    # Step 1: Validate config file
+    print("[1/3] Validating configuration file...")
+    if validate_config_file(config_file, logger):
+        print(f"  ✓ Configuration file '{config_file}' is valid")
+    else:
+        print(f"  ✗ Configuration file validation failed")
+        all_passed = False
+        print()
+        print("=" * 60)
+        print("DRY-RUN FAILED - Fix configuration issues before proceeding")
+        print("=" * 60)
+        return False
+
+    # Step 2: Test CJA connection
+    print()
+    print("[2/3] Testing CJA API connection...")
+    try:
+        cjapy.importConfigFile(config_file)
+        cja = cjapy.CJA()
+
+        # Test API with getDataViews call
+        available_dvs = cja.getDataViews()
+        if available_dvs is not None:
+            dv_count = len(available_dvs) if hasattr(available_dvs, '__len__') else 0
+            print(f"  ✓ API connection successful")
+            print(f"  ✓ Found {dv_count} accessible data view(s)")
+        else:
+            print("  ⚠ API connection returned None - may be unstable")
+            available_dvs = []
+    except Exception as e:
+        print(f"  ✗ API connection failed: {str(e)}")
+        all_passed = False
+        print()
+        print("=" * 60)
+        print("DRY-RUN FAILED - Cannot connect to CJA API")
+        print("=" * 60)
+        return False
+
+    # Step 3: Validate each data view
+    print()
+    print(f"[3/3] Validating {len(data_views)} data view(s)...")
+
+    # Build set of available data view IDs for quick lookup
+    available_ids = set()
+    if available_dvs:
+        for dv in available_dvs:
+            if isinstance(dv, dict):
+                available_ids.add(dv.get('id', ''))
+
+    valid_count = 0
+    invalid_count = 0
+
+    for dv_id in data_views:
+        # Try to get data view info
+        try:
+            dv_info = cja.getDataView(dv_id)
+            if dv_info:
+                dv_name = dv_info.get('name', 'Unknown')
+                print(f"  ✓ {dv_id}: {dv_name}")
+                valid_count += 1
+            else:
+                print(f"  ✗ {dv_id}: Not found or no access")
+                invalid_count += 1
+                all_passed = False
+        except Exception as e:
+            print(f"  ✗ {dv_id}: Error - {str(e)}")
+            invalid_count += 1
+            all_passed = False
+
+    # Summary
+    print()
+    print("=" * 60)
+    print("DRY-RUN SUMMARY")
+    print("=" * 60)
+    print(f"  Configuration: ✓ Valid")
+    print(f"  API Connection: ✓ Connected")
+    print(f"  Data Views: {valid_count} valid, {invalid_count} invalid")
+    print()
+
+    if all_passed:
+        print("✓ All validations passed - ready to generate reports")
+        print()
+        print("Run without --dry-run to generate SDR reports:")
+        print(f"  python cja_sdr_generator.py {' '.join(data_views)}")
+    else:
+        print("✗ Some validations failed - please fix issues before proceeding")
+
+    print("=" * 60)
+
+    return all_passed
+
 # ==================== COMMAND-LINE INTERFACE ====================
 
 def parse_arguments() -> argparse.Namespace:
@@ -2419,6 +2537,9 @@ Examples:
 
   # Export in all formats
   python cja_sdr_generator.py dv_12345 --format all
+
+  # Dry-run to validate config and connectivity
+  python cja_sdr_generator.py dv_12345 --dry-run
 
 Note:
   At least one data view ID must be provided.
@@ -2508,6 +2629,12 @@ Note:
         help='Output format: excel (default), csv, json, html, or all (generates all formats)'
     )
 
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Validate configuration and connectivity without generating reports'
+    )
+
     return parser.parse_args()
 
 # ==================== MAIN FUNCTION ====================
@@ -2535,6 +2662,12 @@ def main():
 
     # Production mode priority logic: --production overrides --log-level
     effective_log_level = 'WARNING' if args.production else args.log_level
+
+    # Handle dry-run mode
+    if args.dry_run:
+        logger = setup_logging(batch_mode=True, log_level='WARNING')
+        success = run_dry_run(data_views, args.config_file, logger)
+        sys.exit(0 if success else 1)
 
     # Process data views
     if args.batch or len(data_views) > 1:
