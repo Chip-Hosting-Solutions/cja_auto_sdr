@@ -249,3 +249,88 @@ class TestSampleConfig:
             # JWT fields
             assert 'tech_id' in config
             assert 'private_key' in config
+
+
+class TestUXImprovements:
+    """Test UX improvement features"""
+
+    def test_validate_only_flag(self):
+        """Test parsing with --validate-only flag (alias for --dry-run)"""
+        test_args = ['cja_sdr_generator.py', '--validate-only', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.dry_run is True
+
+    def test_max_issues_flag(self):
+        """Test parsing with --max-issues flag"""
+        test_args = ['cja_sdr_generator.py', '--max-issues', '10', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_issues == 10
+
+    def test_max_issues_default_zero(self):
+        """Test that max-issues defaults to 0 (show all)"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_issues == 0
+
+    def test_max_issues_with_skip_validation(self):
+        """Test max-issues with skip-validation"""
+        test_args = ['cja_sdr_generator.py', '--max-issues', '5', '--skip-validation', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_issues == 5
+            assert args.skip_validation is True
+
+
+class TestProcessingResult:
+    """Test ProcessingResult dataclass"""
+
+    def test_file_size_formatted_bytes(self):
+        """Test file size formatting for bytes"""
+        from cja_sdr_generator import ProcessingResult
+        result = ProcessingResult(
+            data_view_id='dv_test',
+            data_view_name='Test',
+            success=True,
+            duration=1.0,
+            file_size_bytes=500
+        )
+        assert result.file_size_formatted == '500 B'
+
+    def test_file_size_formatted_kilobytes(self):
+        """Test file size formatting for kilobytes"""
+        from cja_sdr_generator import ProcessingResult
+        result = ProcessingResult(
+            data_view_id='dv_test',
+            data_view_name='Test',
+            success=True,
+            duration=1.0,
+            file_size_bytes=2048
+        )
+        assert result.file_size_formatted == '2.0 KB'
+
+    def test_file_size_formatted_megabytes(self):
+        """Test file size formatting for megabytes"""
+        from cja_sdr_generator import ProcessingResult
+        result = ProcessingResult(
+            data_view_id='dv_test',
+            data_view_name='Test',
+            success=True,
+            duration=1.0,
+            file_size_bytes=1048576
+        )
+        assert result.file_size_formatted == '1.0 MB'
+
+    def test_file_size_formatted_zero(self):
+        """Test file size formatting for zero bytes"""
+        from cja_sdr_generator import ProcessingResult
+        result = ProcessingResult(
+            data_view_id='dv_test',
+            data_view_name='Test',
+            success=True,
+            duration=1.0,
+            file_size_bytes=0
+        )
+        assert result.file_size_formatted == '0 B'

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.4"
+__version__ = "3.0.5"
 
 # ==================== CONSOLE COLORS ====================
 
@@ -269,6 +269,17 @@ class ProcessingResult:
     dq_issues_count: int = 0
     output_file: str = ""
     error_message: str = ""
+    file_size_bytes: int = 0
+
+    @property
+    def file_size_formatted(self) -> str:
+        """Return human-readable file size"""
+        size = self.file_size_bytes
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
 
 # ==================== LOGGING SETUP ====================
 
@@ -1508,8 +1519,12 @@ class DataQualityChecker:
             self.logger.exception("Full error details:")
             raise
 
-    def get_issues_dataframe(self) -> pd.DataFrame:
-        """Return all issues as a DataFrame sorted by severity (CRITICAL first)"""
+    def get_issues_dataframe(self, max_issues: int = 0) -> pd.DataFrame:
+        """Return all issues as a DataFrame sorted by severity (CRITICAL first)
+
+        Args:
+            max_issues: Maximum number of issues to return (0 = all issues)
+        """
         try:
             if not self.issues:
                 self.logger.info("No data quality issues found")
@@ -1536,10 +1551,17 @@ class DataQualityChecker:
 
             # Sort by severity (ascending=True with ordered categorical puts CRITICAL first)
             # then by Category alphabetically
-            return df.sort_values(
+            df = df.sort_values(
                 by=['Severity', 'Category'],
                 ascending=[True, True]
             )
+
+            # Limit to top N issues if max_issues > 0
+            if max_issues > 0 and len(df) > max_issues:
+                self.logger.info(f"Limiting data quality issues to top {max_issues} (of {len(df)} total)")
+                df = df.head(max_issues)
+
+            return df
         except Exception as e:
             self.logger.error(f"Error creating issues dataframe: {str(e)}")
             return pd.DataFrame({
@@ -2208,7 +2230,8 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                            output_dir: str = ".", log_level: str = "INFO",
                            output_format: str = "excel", enable_cache: bool = False,
                            cache_size: int = 1000, cache_ttl: int = 3600,
-                           quiet: bool = False, skip_validation: bool = False) -> ProcessingResult:
+                           quiet: bool = False, skip_validation: bool = False,
+                           max_issues: int = 0) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
 
@@ -2219,6 +2242,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         output_format: Output format (excel, csv, json, html, or all)
         skip_validation: Skip data quality validation for faster processing
+        max_issues: Limit data quality issues to top N by severity (0 = all)
 
     Returns:
         ProcessingResult with processing details
@@ -2336,8 +2360,8 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                 logger.info("Continuing with SDR generation despite validation errors")
                 perf_tracker.end("Data Quality Validation")
 
-            # Get data quality issues dataframe
-            data_quality_df = dq_checker.get_issues_dataframe()
+            # Get data quality issues dataframe (limited if max_issues > 0)
+            data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
 
         # Data processing
         logger.info("=" * 60)
@@ -2544,6 +2568,20 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
 
             duration = time.time() - start_time
 
+            # Calculate total file size
+            total_size = 0
+            for file_path in output_files:
+                try:
+                    if os.path.isdir(file_path):
+                        # For CSV directories, sum all files
+                        for root, dirs, files in os.walk(file_path):
+                            for f in files:
+                                total_size += os.path.getsize(os.path.join(root, f))
+                    else:
+                        total_size += os.path.getsize(file_path)
+                except OSError:
+                    pass
+
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -2552,7 +2590,8 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_checker.issues),
-                output_file=str(output_path)
+                output_file=str(output_path),
+                file_size_bytes=total_size
             )
 
         except PermissionError as e:
@@ -2595,14 +2634,14 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
 
     Args:
         args: Tuple of (data_view_id, config_file, output_dir, log_level, output_format,
-                       enable_cache, cache_size, cache_ttl, quiet, skip_validation)
+                       enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues)
 
     Returns:
         ProcessingResult
     """
-    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation = args
+    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues = args
     return process_single_dataview(data_view_id, config_file, output_dir, log_level, output_format,
-                                   enable_cache, cache_size, cache_ttl, quiet, skip_validation)
+                                   enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues)
 
 # ==================== BATCH PROCESSOR CLASS ====================
 
@@ -2613,7 +2652,7 @@ class BatchProcessor:
                  workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
                  output_format: str = "excel", enable_cache: bool = False,
                  cache_size: int = 1000, cache_ttl: int = 3600, quiet: bool = False,
-                 skip_validation: bool = False):
+                 skip_validation: bool = False, max_issues: int = 0):
         self.config_file = config_file
         self.output_dir = output_dir
         self.workers = workers
@@ -2625,6 +2664,7 @@ class BatchProcessor:
         self.cache_ttl = cache_ttl
         self.quiet = quiet
         self.skip_validation = skip_validation
+        self.max_issues = max_issues
         self.logger = setup_logging(batch_mode=True, log_level=log_level)
 
         # Create output directory if it doesn't exist
@@ -2662,7 +2702,8 @@ class BatchProcessor:
         # Prepare arguments for each worker
         worker_args = [
             (dv_id, self.config_file, self.output_dir, self.log_level, self.output_format,
-             self.enable_cache, self.cache_size, self.cache_ttl, self.quiet, self.skip_validation)
+             self.enable_cache, self.cache_size, self.cache_ttl, self.quiet, self.skip_validation,
+             self.max_issues)
             for dv_id in data_view_ids
         ]
 
@@ -2978,6 +3019,12 @@ Examples:
   # Generate sample configuration file
   python cja_sdr_generator.py --sample-config
 
+  # Limit data quality issues to top 10 by severity
+  python cja_sdr_generator.py dv_12345 --max-issues 10
+
+  # Validate only (alias for --dry-run)
+  python cja_sdr_generator.py dv_12345 --validate-only
+
 Note:
   At least one data view ID must be provided (except for --list-dataviews, --sample-config).
   Use 'python cja_sdr_generator.py --help' to see all options.
@@ -3074,8 +3121,9 @@ Note:
     )
 
     parser.add_argument(
-        '--dry-run',
+        '--dry-run', '--validate-only',
         action='store_true',
+        dest='dry_run',
         help='Validate configuration and connectivity without generating reports'
     )
 
@@ -3101,6 +3149,14 @@ Note:
         '--sample-config',
         action='store_true',
         help='Generate a sample configuration file and exit'
+    )
+
+    parser.add_argument(
+        '--max-issues',
+        type=int,
+        default=0,
+        metavar='N',
+        help='Limit data quality issues to top N by severity (0 = show all, default: 0)'
     )
 
     return parser.parse_args()
@@ -3316,7 +3372,8 @@ def main():
             cache_size=args.cache_size,
             cache_ttl=args.cache_ttl,
             quiet=args.quiet,
-            skip_validation=args.skip_validation
+            skip_validation=args.skip_validation,
+            max_issues=args.max_issues
         )
 
         results = processor.process_batch(data_views)
@@ -3346,7 +3403,8 @@ def main():
             cache_size=args.cache_size,
             cache_ttl=args.cache_ttl,
             quiet=args.quiet,
-            skip_validation=args.skip_validation
+            skip_validation=args.skip_validation,
+            max_issues=args.max_issues
         )
 
         # Print final status with color and total runtime
@@ -3355,6 +3413,7 @@ def main():
         if result.success:
             print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
             print(f"  Output: {result.output_file}")
+            print(f"  Size: {result.file_size_formatted}")
             print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
             if result.dq_issues_count > 0:
                 print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))

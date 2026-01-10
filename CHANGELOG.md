@@ -5,6 +5,24 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5] - 2026-01-10
+
+### Added
+
+#### UX Improvements
+- **File Size in Output**: Success message now displays output file size in human-readable format (B, KB, MB, GB)
+- **`--validate-only`**: New alias for `--dry-run` with clearer semantics
+- **`--max-issues N`**: Limit data quality issues to top N by severity (0 = show all)
+  - Issues are sorted by severity (CRITICAL first) before limiting
+  - Useful for data views with many issues to focus on most important ones
+  - Works with all output formats
+
+#### Test Coverage
+- Added 8 new tests for UX improvements
+- Total test count increased from 171 to 179
+
+---
+
 ## [3.0.4] - 2026-01-10
 
 ### Added
