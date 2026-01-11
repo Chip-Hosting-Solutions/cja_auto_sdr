@@ -3,7 +3,7 @@
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
 
-**Version 3.0.5** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, automatic retry with exponential backoff, and modern dependency management.
+**Version 3.0.6** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, automatic retry with exponential backoff, and modern dependency management.
 
 ## What Makes Version 3.0 Different
 
@@ -659,18 +659,23 @@ uv run python cja_sdr_generator.py --batch dv_ID1 dv_ID2 dv_ID3
 **Optional Arguments:**
 - `--version` - Show program version and exit
 - `--batch` - Enable parallel batch processing mode
-- `--workers N` - Number of parallel workers (default: 4)
+- `--workers N` - Number of parallel workers (1-256, default: 4)
 - `--output-dir PATH` - Output directory for generated files (default: current directory)
 - `--config-file PATH` - Path to CJA configuration file (default: myconfig.json)
 - `--continue-on-error` - Continue processing remaining data views if one fails
 - `--log-level LEVEL` - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO or CJA_LOG_LEVEL env var)
 - `--production` - Enable production mode (minimal logging for 5-10% performance gain)
+- `--enable-cache` - Enable validation result caching (50-90% faster on repeated validations)
+- `--clear-cache` - Clear validation cache before processing (use with --enable-cache)
+- `--cache-size N` - Maximum cached validation results (>= 1, default: 1000)
+- `--cache-ttl N` - Cache time-to-live in seconds (>= 1, default: 3600 = 1 hour)
+- `--format FORMAT` - Output format: excel, csv, json, html, or all (default: excel)
 - `--dry-run` - Validate configuration and connectivity without generating reports
 - `--quiet, -q` - Quiet mode: suppress all output except errors and final summary
 - `--list-dataviews` - List all accessible data views and exit (no data view ID required)
 - `--skip-validation` - Skip data quality validation for faster processing (20-30% faster)
 - `--sample-config` - Generate a sample configuration file and exit
-- `--max-issues N` - Limit data quality issues to top N by severity (0 = show all)
+- `--max-issues N` - Limit data quality issues to top N by severity (>= 0, 0 = show all)
 - `--validate-only` - Alias for `--dry-run` with clearer semantics
 - `-h, --help` - Show help message and exit
 
@@ -963,6 +968,16 @@ Log files are stored in the `logs/` directory with detailed information:
 logs/
 └── SDR_Generation_dv_677ea9291244fd082f02dd42_20250105_103015.log
 ```
+
+**Log Rotation:**
+- Log files automatically rotate at 10MB to prevent unbounded disk usage
+- Up to 5 backup files are retained per session type
+- Maximum disk usage: ~60MB per session type
+- Ideal for long-running automation and cron jobs
+
+**Graceful Fallback:**
+- If the `logs/` directory can't be created (permissions, disk full), logs output to console only
+- Application continues to function without crashing
 
 **Log Content Includes:**
 - Timestamp for each operation
@@ -2049,8 +2064,9 @@ uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --enable-cache --worke
 
 **CLI Flags:**
 - `--enable-cache` - Enable validation result caching (required to use cache)
-- `--cache-size N` - Maximum cached entries (default: 1000)
-- `--cache-ttl N` - Time-to-live in seconds (default: 3600 = 1 hour)
+- `--clear-cache` - Clear cache before processing (use with --enable-cache for fresh validation)
+- `--cache-size N` - Maximum cached entries (>= 1, default: 1000)
+- `--cache-ttl N` - Time-to-live in seconds (>= 1, default: 3600 = 1 hour)
 
 #### Performance Expectations
 

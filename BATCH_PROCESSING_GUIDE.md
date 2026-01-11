@@ -40,11 +40,15 @@ uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde dv_11111 -
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--batch` | Explicitly enable batch mode (optional with multiple data views) | Auto-detect (parallel if multiple data views) |
-| `--workers N` | Number of parallel workers | 4 |
+| `--workers N` | Number of parallel workers (1-256) | 4 |
 | `--output-dir PATH` | Output directory for generated files | Current directory |
 | `--config-file PATH` | Path to CJA configuration file | myconfig.json |
 | `--continue-on-error` | Continue processing if one data view fails | Stop on first error |
 | `--log-level LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL) | INFO |
+| `--enable-cache` | Enable validation result caching | Disabled |
+| `--clear-cache` | Clear cache before processing (use with --enable-cache) | - |
+| `--cache-size N` | Maximum cached entries (>= 1) | 1000 |
+| `--cache-ttl N` | Cache time-to-live in seconds (>= 1) | 3600 |
 | `-h, --help` | Show help message and exit | - |
 
 ## Usage Examples

@@ -334,3 +334,107 @@ class TestProcessingResult:
             file_size_bytes=0
         )
         assert result.file_size_formatted == '0 B'
+
+
+class TestCacheFlags:
+    """Test cache-related CLI flags"""
+
+    def test_enable_cache_flag(self):
+        """Test parsing with --enable-cache flag"""
+        test_args = ['cja_sdr_generator.py', '--enable-cache', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.enable_cache is True
+
+    def test_enable_cache_default_false(self):
+        """Test that enable-cache defaults to False"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.enable_cache is False
+
+    def test_clear_cache_flag(self):
+        """Test parsing with --clear-cache flag"""
+        test_args = ['cja_sdr_generator.py', '--enable-cache', '--clear-cache', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.clear_cache is True
+            assert args.enable_cache is True
+
+    def test_clear_cache_default_false(self):
+        """Test that clear-cache defaults to False"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.clear_cache is False
+
+    def test_cache_size_flag(self):
+        """Test parsing with --cache-size flag"""
+        test_args = ['cja_sdr_generator.py', '--cache-size', '5000', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_size == 5000
+
+    def test_cache_size_default(self):
+        """Test that cache-size defaults to 1000"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_size == 1000
+
+    def test_cache_ttl_flag(self):
+        """Test parsing with --cache-ttl flag"""
+        test_args = ['cja_sdr_generator.py', '--cache-ttl', '7200', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_ttl == 7200
+
+    def test_cache_ttl_default(self):
+        """Test that cache-ttl defaults to 3600"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_ttl == 3600
+
+    def test_all_cache_flags_combined(self):
+        """Test all cache flags together"""
+        test_args = [
+            'cja_sdr_generator.py',
+            '--enable-cache', '--clear-cache',
+            '--cache-size', '2000', '--cache-ttl', '1800',
+            'dv_12345'
+        ]
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.enable_cache is True
+            assert args.clear_cache is True
+            assert args.cache_size == 2000
+            assert args.cache_ttl == 1800
+
+
+class TestConstants:
+    """Test that constants are properly used in defaults"""
+
+    def test_workers_default_uses_constant(self):
+        """Test that workers default matches DEFAULT_BATCH_WORKERS constant"""
+        from cja_sdr_generator import DEFAULT_BATCH_WORKERS
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.workers == DEFAULT_BATCH_WORKERS
+
+    def test_cache_size_default_uses_constant(self):
+        """Test that cache_size default matches DEFAULT_CACHE_SIZE constant"""
+        from cja_sdr_generator import DEFAULT_CACHE_SIZE
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_size == DEFAULT_CACHE_SIZE
+
+    def test_cache_ttl_default_uses_constant(self):
+        """Test that cache_ttl default matches DEFAULT_CACHE_TTL constant"""
+        from cja_sdr_generator import DEFAULT_CACHE_TTL
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.cache_ttl == DEFAULT_CACHE_TTL

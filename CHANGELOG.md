@@ -5,6 +5,65 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.6] - 2026-01-11
+
+### Added
+
+#### Robustness & Input Validation
+- **CLI Parameter Bounds Checking**: All numeric CLI parameters now validated
+  - `--workers`: Must be 1-256 (prevents crashes from invalid values)
+  - `--cache-size`: Must be >= 1
+  - `--cache-ttl`: Must be >= 1 second
+  - `--max-issues`: Must be >= 0
+- **Output Directory Error Handling**: Clear error messages for permission/disk issues when creating output directories
+- **Log Directory Graceful Fallback**: If log directory can't be created, falls back to console-only logging instead of crashing
+
+#### Logging Improvements
+- **RotatingFileHandler**: Log files now rotate automatically at 10MB with 5 backups retained
+  - Prevents unbounded disk usage during long-running automation/cron jobs
+  - Total maximum log storage: ~60MB per session type
+
+#### Configuration Validation
+- **OAuth Scopes Warning**: Warns when OAuth Server-to-Server authentication is detected without `scopes` field
+  - Provides example scopes string for proper API access
+  - Helps catch common misconfiguration before authentication failures
+
+#### Error Message Improvements
+- **Empty Data View Diagnostics**: When no metrics/dimensions are returned, provides:
+  - 4 possible causes (empty data view, permission issues, new data view, API issues)
+  - 3 troubleshooting steps with actionable guidance
+  - Improved error message text
+
+#### New CLI Flag
+- **`--clear-cache`**: Clear validation cache before processing
+  - Use with `--enable-cache` for fresh validation when needed
+  - Documents intent for cache clearing behavior
+
+#### Code Quality
+- **Extracted Constants**: Hardcoded worker counts replaced with named constants
+  - `DEFAULT_API_FETCH_WORKERS = 3`
+  - `DEFAULT_VALIDATION_WORKERS = 2`
+  - `DEFAULT_BATCH_WORKERS = 4`
+  - `MAX_BATCH_WORKERS = 256`
+  - `DEFAULT_CACHE_SIZE = 1000`
+  - `DEFAULT_CACHE_TTL = 3600`
+- **Improved Docstrings**: Added parameter constraints and valid ranges to key functions
+  - `process_single_dataview()`: Full parameter documentation
+  - `BatchProcessor`: Comprehensive class docstring with all parameters
+  - `ValidationCache`: Parameter constraints documented
+
+### Changed
+- Help text now shows parameter defaults and constraints from constants
+- Log directory creation failures no longer crash the application
+
+### Fixed
+- Potential crash when `--workers 0` or negative values provided
+- Potential crash when `--cache-size 0` provided
+- Potential crash when `--cache-ttl 0` provided
+- Cryptic error messages when output directory can't be created
+
+---
+
 ## [3.0.5] - 2026-01-10
 
 ### Added
@@ -346,7 +405,7 @@ Batch Processing (10 data views):
 | Validation Caching | No | Yes (50-90% faster on cache hits) |
 | Early Exit Optimization | No | Yes (15-20% faster on errors) |
 | Logging Optimization | No | Yes (5-10% faster with --production) |
-| Tests | None | 179 comprehensive tests |
+| Tests | None | 191 comprehensive tests |
 | Documentation | Basic | 5 detailed guides |
 | Performance Tracking | No | Yes, built-in with cache statistics |
 | Parallel Processing | No | Yes, configurable workers + concurrent validation |

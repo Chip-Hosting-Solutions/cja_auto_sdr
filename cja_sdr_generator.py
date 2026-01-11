@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 import hashlib
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 from typing import Dict, List, Tuple, Optional, Callable, Any
 from pathlib import Path
@@ -19,7 +20,19 @@ from dataclasses import dataclass
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.5"
+__version__ = "3.0.6"
+
+# ==================== DEFAULT CONSTANTS ====================
+
+# Worker thread/process limits
+DEFAULT_API_FETCH_WORKERS = 3      # Concurrent API fetch threads
+DEFAULT_VALIDATION_WORKERS = 2     # Concurrent validation threads
+DEFAULT_BATCH_WORKERS = 4          # Default batch processing workers
+MAX_BATCH_WORKERS = 256            # Maximum allowed batch workers
+
+# Cache defaults
+DEFAULT_CACHE_SIZE = 1000          # Maximum cached validation results
+DEFAULT_CACHE_TTL = 3600           # Cache TTL in seconds (1 hour)
 
 # ==================== CONSOLE COLORS ====================
 
@@ -290,15 +303,25 @@ def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level:
     """
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    try:
+        log_dir.mkdir(exist_ok=True)
+    except PermissionError:
+        print(f"Warning: Cannot create logs directory (permission denied). Logging to console only.", file=sys.stderr)
+        log_dir = None
+    except OSError as e:
+        print(f"Warning: Cannot create logs directory: {e}. Logging to console only.", file=sys.stderr)
+        log_dir = None
 
     # Create log filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    if batch_mode:
-        log_file = log_dir / f"SDR_Batch_Generation_{timestamp}.log"
+    if log_dir is not None:
+        if batch_mode:
+            log_file = log_dir / f"SDR_Batch_Generation_{timestamp}.log"
+        else:
+            log_file = log_dir / f"SDR_Generation_{data_view_id}_{timestamp}.log"
     else:
-        log_file = log_dir / f"SDR_Generation_{data_view_id}_{timestamp}.log"
+        log_file = None
 
     # Determine log level with priority: parameter > env var > default
     if log_level is None:
@@ -317,19 +340,30 @@ def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level:
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
 
+    # Configure logging handlers
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file is not None:
+        # Use RotatingFileHandler to prevent unbounded log growth
+        # 10MB max per file, keep 5 backup files
+        handlers.append(RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5
+        ))
+
     # Configure logging
     logging.basicConfig(
         level=numeric_level,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ],
+        handlers=handlers,
         force=True
     )
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Logging initialized. Log file: {log_file}")
+    if log_file is not None:
+        logger.info(f"Logging initialized. Log file: {log_file}")
+    else:
+        logger.info("Logging initialized. Console output only.")
     return logger
 
 # ==================== PERFORMANCE TRACKING ====================
@@ -418,9 +452,9 @@ class ValidationCache:
         Initialize validation cache
 
         Args:
-            max_size: Maximum number of cached entries (default: 1000)
-            ttl_seconds: Time-to-live for cache entries in seconds (default: 3600 = 1 hour)
-            logger: Logger instance for cache statistics
+            max_size: Maximum number of cached entries, >= 1 (default: 1000)
+            ttl_seconds: Time-to-live for cache entries in seconds, >= 1 (default: 3600 = 1 hour)
+            logger: Logger instance for cache statistics (default: module logger)
         """
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
@@ -687,6 +721,14 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
                     )
                 elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
                     validation_errors.append(f"Empty value for required field: '{field_name}'")
+        else:
+            # OAuth Server-to-Server mode - warn if scopes not provided
+            if 'scopes' not in config_data or not config_data.get('scopes', '').strip():
+                validation_warnings.append(
+                    "OAuth Server-to-Server auth detected without 'scopes' field. "
+                    "Consider adding scopes (e.g., 'openid,AdobeID,read_organizations,additional_info.projectedProductContext') "
+                    "for proper API access."
+                )
 
         # Validate optional fields if present
         for field_name, field_info in CONFIG_SCHEMA['optional_fields'].items():
@@ -2231,21 +2273,27 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                            output_format: str = "excel", enable_cache: bool = False,
                            cache_size: int = 1000, cache_ttl: int = 3600,
                            quiet: bool = False, skip_validation: bool = False,
-                           max_issues: int = 0) -> ProcessingResult:
+                           max_issues: int = 0, clear_cache: bool = False) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
 
     Args:
-        data_view_id: The data view ID to process
-        config_file: Path to CJA config file
-        output_dir: Directory to save output files
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
-        output_format: Output format (excel, csv, json, html, or all)
-        skip_validation: Skip data quality validation for faster processing
-        max_issues: Limit data quality issues to top N by severity (0 = all)
+        data_view_id: The data view ID to process (must start with 'dv_')
+        config_file: Path to CJA config file (default: 'myconfig.json')
+        output_dir: Directory to save output files (default: current directory)
+        log_level: Logging level - one of DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+        output_format: Output format - one of excel, csv, json, html, all (default: excel)
+        enable_cache: Enable validation result caching (default: False)
+        cache_size: Maximum cached validation results, >= 1 (default: 1000)
+        cache_ttl: Cache time-to-live in seconds, >= 1 (default: 3600)
+        quiet: Suppress non-error output (default: False)
+        skip_validation: Skip data quality validation for faster processing (default: False)
+        max_issues: Limit data quality issues to top N by severity, >= 0; 0 = all (default: 0)
+        clear_cache: Clear validation cache before processing (default: False)
 
     Returns:
-        ProcessingResult with processing details
+        ProcessingResult with processing details including success status, metrics/dimensions count,
+        output file path, and any error messages
     """
     start_time = time.time()
 
@@ -2284,18 +2332,29 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
         logger.info("Starting optimized data fetch operations")
         logger.info("=" * 60)
 
-        fetcher = ParallelAPIFetcher(cja, logger, perf_tracker, max_workers=3)
+        fetcher = ParallelAPIFetcher(cja, logger, perf_tracker, max_workers=DEFAULT_API_FETCH_WORKERS)
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
         # Check if we have any data to process
         if metrics.empty and dimensions.empty:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
             logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
+            logger.critical("Possible causes:")
+            logger.critical("  1. Data view has no metrics or dimensions configured")
+            logger.critical("  2. Your API credentials lack permission to read components")
+            logger.critical("  3. The data view is newly created and not yet populated")
+            logger.critical("  4. API rate limiting or temporary service issue")
+            logger.critical("")
+            logger.critical("Troubleshooting steps:")
+            logger.critical("  - Verify the data view has components in the CJA UI")
+            logger.critical("  - Check your OAuth scopes include component read permissions")
+            logger.critical("  - Try running with --list-dataviews to verify access")
             return ProcessingResult(
                 data_view_id=data_view_id,
-                data_view_name=lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
+                data_view_name=dv_name,
                 success=False,
                 duration=time.time() - start_time,
-                error_message="No metrics or dimensions found"
+                error_message="No metrics or dimensions found - data view may be empty or inaccessible"
             )
 
         logger.info("Data fetch operations completed successfully")
@@ -2322,7 +2381,11 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                     ttl_seconds=cache_ttl,
                     logger=logger
                 )
-                logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+                if clear_cache:
+                    validation_cache.clear()
+                    logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+                else:
+                    logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
 
             dq_checker = DataQualityChecker(logger, validation_cache=validation_cache)
 
@@ -2342,7 +2405,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                     metrics_required_fields=REQUIRED_METRIC_FIELDS,
                     dimensions_required_fields=REQUIRED_DIMENSION_FIELDS,
                     critical_fields=CRITICAL_FIELDS,
-                    max_workers=2
+                    max_workers=DEFAULT_VALIDATION_WORKERS
                 )
 
                 # Log aggregated summary instead of individual issue count
@@ -2639,22 +2702,43 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     Returns:
         ProcessingResult
     """
-    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues = args
+    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache = args
     return process_single_dataview(data_view_id, config_file, output_dir, log_level, output_format,
-                                   enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues)
+                                   enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache)
 
 # ==================== BATCH PROCESSOR CLASS ====================
 
 class BatchProcessor:
-    """Process multiple data views in parallel using multiprocessing"""
+    """
+    Process multiple data views in parallel using multiprocessing.
+
+    Provides parallel execution of SDR generation across multiple data views
+    with configurable worker count and error handling.
+
+    Args:
+        config_file: Path to CJA config file (default: 'myconfig.json')
+        output_dir: Directory for output files (default: current directory)
+        workers: Number of parallel workers, 1-256 (default: 4)
+        continue_on_error: Continue if individual data views fail (default: False)
+        log_level: Logging level - DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+        output_format: Output format - excel, csv, json, html, all (default: excel)
+        enable_cache: Enable validation result caching (default: False)
+        cache_size: Maximum cached validation results, >= 1 (default: 1000)
+        cache_ttl: Cache time-to-live in seconds, >= 1 (default: 3600)
+        quiet: Suppress non-error output (default: False)
+        skip_validation: Skip data quality validation (default: False)
+        max_issues: Limit issues to top N by severity, >= 0; 0 = all (default: 0)
+        clear_cache: Clear validation cache before processing (default: False)
+    """
 
     def __init__(self, config_file: str = "myconfig.json", output_dir: str = ".",
                  workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
                  output_format: str = "excel", enable_cache: bool = False,
                  cache_size: int = 1000, cache_ttl: int = 3600, quiet: bool = False,
-                 skip_validation: bool = False, max_issues: int = 0):
+                 skip_validation: bool = False, max_issues: int = 0, clear_cache: bool = False):
         self.config_file = config_file
         self.output_dir = output_dir
+        self.clear_cache = clear_cache
         self.workers = workers
         self.continue_on_error = continue_on_error
         self.log_level = log_level
@@ -2668,7 +2752,16 @@ class BatchProcessor:
         self.logger = setup_logging(batch_mode=True, log_level=log_level)
 
         # Create output directory if it doesn't exist
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        try:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            print(ConsoleColors.error(f"ERROR: Permission denied creating output directory: {output_dir}"), file=sys.stderr)
+            print("       Check that you have write permissions for the parent directory.", file=sys.stderr)
+            sys.exit(1)
+        except OSError as e:
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory '{output_dir}': {e}"), file=sys.stderr)
+            print("       Verify the path is valid and the disk has available space.", file=sys.stderr)
+            sys.exit(1)
 
     def process_batch(self, data_view_ids: List[str]) -> Dict:
         """
@@ -2703,7 +2796,7 @@ class BatchProcessor:
         worker_args = [
             (dv_id, self.config_file, self.output_dir, self.log_level, self.output_format,
              self.enable_cache, self.cache_size, self.cache_ttl, self.quiet, self.skip_validation,
-             self.max_issues)
+             self.max_issues, self.clear_cache)
             for dv_id in data_view_ids
         ]
 
@@ -3054,8 +3147,8 @@ Note:
     parser.add_argument(
         '--workers',
         type=int,
-        default=4,
-        help='Number of parallel workers for batch mode (default: 4)'
+        default=DEFAULT_BATCH_WORKERS,
+        help=f'Number of parallel workers for batch mode (default: {DEFAULT_BATCH_WORKERS}, max: {MAX_BATCH_WORKERS})'
     )
 
     parser.add_argument(
@@ -3099,17 +3192,23 @@ Note:
     )
 
     parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear validation cache before processing (use with --enable-cache for fresh validation)'
+    )
+
+    parser.add_argument(
         '--cache-size',
         type=int,
-        default=1000,
-        help='Maximum number of cached validation results (default: 1000)'
+        default=DEFAULT_CACHE_SIZE,
+        help=f'Maximum number of cached validation results (default: {DEFAULT_CACHE_SIZE})'
     )
 
     parser.add_argument(
         '--cache-ttl',
         type=int,
-        default=3600,
-        help='Cache time-to-live in seconds (default: 3600 = 1 hour)'
+        default=DEFAULT_CACHE_TTL,
+        help=f'Cache time-to-live in seconds (default: {DEFAULT_CACHE_TTL} = 1 hour)'
     )
 
     parser.add_argument(
@@ -3312,6 +3411,23 @@ def main():
         # Re-raise to maintain expected behavior
         raise
 
+    # Validate numeric parameter bounds
+    if args.workers < 1:
+        print(ConsoleColors.error("ERROR: --workers must be at least 1"), file=sys.stderr)
+        sys.exit(1)
+    if args.workers > MAX_BATCH_WORKERS:
+        print(ConsoleColors.error(f"ERROR: --workers cannot exceed {MAX_BATCH_WORKERS}"), file=sys.stderr)
+        sys.exit(1)
+    if args.cache_size < 1:
+        print(ConsoleColors.error("ERROR: --cache-size must be at least 1"), file=sys.stderr)
+        sys.exit(1)
+    if args.cache_ttl < 1:
+        print(ConsoleColors.error("ERROR: --cache-ttl must be at least 1 second"), file=sys.stderr)
+        sys.exit(1)
+    if args.max_issues < 0:
+        print(ConsoleColors.error("ERROR: --max-issues cannot be negative"), file=sys.stderr)
+        sys.exit(1)
+
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
         success = generate_sample_config()
@@ -3373,7 +3489,8 @@ def main():
             cache_ttl=args.cache_ttl,
             quiet=args.quiet,
             skip_validation=args.skip_validation,
-            max_issues=args.max_issues
+            max_issues=args.max_issues,
+            clear_cache=args.clear_cache
         )
 
         results = processor.process_batch(data_views)
@@ -3404,7 +3521,8 @@ def main():
             cache_ttl=args.cache_ttl,
             quiet=args.quiet,
             skip_validation=args.skip_validation,
-            max_issues=args.max_issues
+            max_issues=args.max_issues,
+            clear_cache=args.clear_cache
         )
 
         # Print final status with color and total runtime

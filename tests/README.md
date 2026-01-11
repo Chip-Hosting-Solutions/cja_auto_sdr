@@ -8,7 +8,7 @@ This directory contains automated tests for the CJA SDR Generator.
 tests/
 ├── __init__.py                      # Test package initialization
 ├── conftest.py                      # Pytest fixtures and configuration
-├── test_cli.py                      # Command-line interface tests (37 tests)
+├── test_cli.py                      # Command-line interface tests (49 tests)
 ├── test_data_quality.py             # Data quality validation tests (10 tests)
 ├── test_dry_run.py                  # Dry-run mode tests (12 tests)
 ├── test_early_exit.py               # Early exit optimization tests (11 tests)
@@ -22,7 +22,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 179 comprehensive tests**
+**Total: 191 comprehensive tests**
 
 ## Running Tests
 
@@ -101,10 +101,12 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 
 ## Test Categories
 
-### CLI Tests (`test_cli.py` - 37 tests)
+### CLI Tests (`test_cli.py` - 49 tests)
 - **Argument parsing**: Tests command-line argument parsing
 - **Data view validation**: Tests data view ID format validation
 - **Flag handling**: Tests --version, --quiet, --dry-run, --validate-only, --list-dataviews, --skip-validation, --sample-config, --max-issues flags
+- **Cache flags**: Tests --enable-cache, --clear-cache, --cache-size, --cache-ttl flags
+- **Constants validation**: Tests that CLI defaults match module constants
 - **Sample config generation**: Tests generate_sample_config function
 - **UX improvements**: Tests file size formatting and new flags
 - **Error handling**: Tests error cases and edge conditions
@@ -293,13 +295,15 @@ uv run pytest
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (covered in CLI tests)
-- [x] Comprehensive test coverage (179 tests total)
+- [x] Comprehensive test coverage (191 tests total)
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
 - [x] Logging optimization tests (test_logging_optimization.py)
 - [x] Retry with exponential backoff tests (test_retry.py)
 - [x] CLI quick wins tests: --version, --quiet flags (test_cli.py)
+- [x] Cache flags tests: --enable-cache, --clear-cache, --cache-size, --cache-ttl (test_cli.py)
+- [x] Constants validation tests (test_cli.py)
 
 ## Future Enhancements
 
