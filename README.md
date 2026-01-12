@@ -73,7 +73,7 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and setup
-cd cja-auto-sdr-2026
+cd cja_auto_sdr
 uv sync
 ```
 
@@ -143,7 +143,7 @@ uv run python cja_sdr_generator.py --list-dataviews
 ## Project Structure
 
 ```
-cja-auto-sdr-2026/
+cja_auto_sdr/
 ├── cja_sdr_generator.py     # Main script
 ├── myconfig.json            # Your credentials (DO NOT COMMIT)
 ├── pyproject.toml           # Project configuration

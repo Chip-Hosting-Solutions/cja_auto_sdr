@@ -116,7 +116,7 @@ uv --version
 
 If you have the project files:
 ```bash
-cd /path/to/cja-auto-sdr-2026
+cd /path/to/cja_auto_sdr
 ```
 
 ### 2.3 Install Dependencies

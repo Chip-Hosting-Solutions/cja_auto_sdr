@@ -44,7 +44,7 @@ uv --version
 
 ```bash
 # Navigate to project directory
-cd cja-auto-sdr-2026
+cd cja_auto_sdr
 
 # Create virtual environment and install dependencies
 uv sync
@@ -65,8 +65,8 @@ The `uv sync` command will:
 
 ```bash
 # Create new project
-uv init cja-auto-sdr-2026
-cd cja-auto-sdr-2026
+uv init cja_auto_sdr
+cd cja_auto_sdr
 
 # Add dependencies
 uv add cjapy>=0.2.4.post2
@@ -138,7 +138,7 @@ uv run python cja_sdr_generator.py --sample-config
 ## Project Structure
 
 ```
-cja-auto-sdr-2026/
+cja_auto_sdr/
 ├── .venv/                    # Virtual environment (created by uv)
 ├── logs/                     # Log files (created automatically)
 ├── docs/                     # Documentation
@@ -183,7 +183,7 @@ All dependencies are managed through `pyproject.toml`:
 
 ```toml
 [project]
-name = "cja-auto-sdr-2026"
+name = "cja_auto_sdr"
 version = "3.0.7"
 requires-python = ">=3.14"
 dependencies = [
