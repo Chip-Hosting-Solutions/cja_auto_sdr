@@ -2,22 +2,39 @@
 
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
-**Version 3.0.7** - A production-ready Python tool for generating Solution Design Reference (SDR) documents from your Customer Journey Analytics implementation with data quality validation.
+**Version 3.0.7** - A production-ready Python tool that automates the creation of Solution Design Reference (SDR) documents from your Adobe Customer Journey Analytics implementation.
 
 ## What It Is
 
-This tool audits your CJA implementation by:
-- **Connecting** to your CJA instance via the API
-- **Fetching** all metrics and dimensions from your Data View(s)
-- **Validating** data quality with 8+ automated checks
-- **Generating** professionally formatted Excel workbooks
+A **Solution Design Reference (SDR)** is the essential documentation that bridges your business requirements and your analytics implementation. It catalogs every metric and dimension in your CJA Data View, serving as the single source of truth for what data you're collecting and how it's configured.
 
-**Key Features:**
-- High-performance batch processing (3-4x faster with parallel execution)
-- Comprehensive data quality validation with severity-based reporting
-- Multiple output formats (Excel, CSV, JSON, HTML)
-- Enterprise-grade error handling with automatic retry
-- Modern dependency management with `uv`
+**The Problem:** Manually documenting CJA implementations is time-consuming, error-prone, and quickly becomes outdated. Teams waste hours exporting data, formatting spreadsheets, and cross-referencing configurations—only to repeat the process when things change.
+
+**The Solution:** This tool connects directly to the CJA API, extracts your complete Data View configuration, validates data quality, and generates professionally formatted documentation in seconds.
+
+### How It Works
+
+1. **Connects** to your CJA instance via the Adobe API
+2. **Extracts** all metrics, dimensions, and configuration from your Data View(s)
+3. **Validates** data quality with 8+ automated checks (duplicates, missing fields, null values)
+4. **Generates** formatted documentation with color-coded quality indicators
+
+### Key Features
+
+| Feature | Benefit |
+|---------|---------|
+| **Batch Processing** | Process multiple Data Views in parallel (3-4x faster) |
+| **Data Quality Validation** | Automatically detect duplicates, missing fields, and configuration issues |
+| **Multiple Output Formats** | Excel, CSV, JSON, or HTML—choose what fits your workflow |
+| **Automatic Retry** | Handles network issues gracefully with exponential backoff |
+| **CLI-First Design** | Easy to automate via cron jobs, CI/CD pipelines, or scripts |
+
+### Who It's For
+
+- **Analytics Teams** needing up-to-date implementation documentation
+- **Consultants** managing multiple client implementations
+- **Data Governance** teams requiring audit trails and quality tracking
+- **DevOps Engineers** automating CJA audits in CI/CD pipelines
 
 ## Quick Start
 
