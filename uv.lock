@@ -70,7 +70,7 @@ wheels = [
 ]
 
 [[package]]
-name = "cja-auto-sdr-2026"
+name = "cja-auto-sdr"
 version = "3.0.5"
 source = { virtual = "." }
 dependencies = [
