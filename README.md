@@ -3,7 +3,7 @@
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
 
-**Version 3.0.6** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, automatic retry with exponential backoff, and modern dependency management.
+**Version 3.0.7** - A production-ready Python tool for auditing your Customer Journey Analytics (CJA) implementation by generating comprehensive Solution Design Reference (SDR) documents with enterprise-grade data quality validation, high-performance batch processing, automatic retry with exponential backoff, and modern dependency management.
 
 ## What Makes Version 3.0 Different
 
@@ -1709,7 +1709,7 @@ uv run pytest tests/test_utils.py
 
 ### Test Coverage
 
-The test suite includes **179 comprehensive tests**:
+The test suite includes **208 comprehensive tests**:
 
 - **CLI Tests** (`test_cli.py`) - 37 tests
   - Command-line argument parsing
@@ -1732,11 +1732,13 @@ The test suite includes **179 comprehensive tests**:
   - Edge case handling
   - Vectorized operations validation
 
-- **Utility Tests** (`test_utils.py`) - 14 tests
+- **Utility Tests** (`test_utils.py`) - 27 tests
   - Logging configuration
   - Configuration file validation
   - Filename sanitization
   - Performance tracking
+  - Error message formatting helper
+  - Validation schema structure and integration
 
 - **Early Exit Tests** (`test_early_exit.py`) - 11 tests
   - Empty DataFrame handling
@@ -1756,12 +1758,13 @@ The test suite includes **179 comprehensive tests**:
   - Performance benchmarking
   - Error handling in parallel mode
 
-- **Validation Caching Tests** (`test_validation_cache.py`) - 15 tests
+- **Validation Caching Tests** (`test_validation_cache.py`) - 19 tests
   - Cache hit/miss behavior
   - LRU eviction correctness
   - TTL expiration timing
   - Thread safety under load
   - Performance improvement verification
+  - Cache key reuse optimization
 
 - **Dry-Run Tests** (`test_dry_run.py`) - 12 tests
   - Configuration validation
@@ -1798,8 +1801,8 @@ tests/
 ├── test_output_formats.py           # Output format tests (22 tests)
 ├── test_parallel_validation.py      # Parallel validation tests (8 tests)
 ├── test_retry.py                    # Retry with exponential backoff tests (21 tests)
-├── test_utils.py                    # Utility function tests (14 tests)
-├── test_validation_cache.py         # Validation caching tests (15 tests)
+├── test_utils.py                    # Utility function tests (27 tests)
+├── test_validation_cache.py         # Validation caching tests (19 tests)
 └── README.md                        # Detailed testing documentation
 ```
 

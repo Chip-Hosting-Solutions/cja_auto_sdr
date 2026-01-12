@@ -28,7 +28,7 @@ class TestValidationCache:
         """First validation should be cache miss"""
         cache = ValidationCache(max_size=100, ttl_seconds=3600)
 
-        result = cache.get(
+        result, cache_key = cache.get(
             sample_metrics_df,
             'Metrics',
             ['id', 'name', 'type'],
@@ -36,6 +36,7 @@ class TestValidationCache:
         )
 
         assert result is None
+        assert cache_key is not None  # Key should be returned for reuse
         stats = cache.get_statistics()
         assert stats['misses'] == 1
         assert stats['hits'] == 0
@@ -88,7 +89,7 @@ class TestValidationCache:
         )
 
         # Try to get with dimensions - should miss
-        result = cache.get(
+        result, _ = cache.get(
             sample_dimensions_df,
             'Dimensions',
             ['id', 'name', 'type'],
@@ -111,7 +112,7 @@ class TestValidationCache:
         )
 
         # Should be cached immediately
-        result = cache.get(
+        result, _ = cache.get(
             sample_metrics_df,
             'Metrics',
             ['id', 'name', 'type'],
@@ -123,7 +124,7 @@ class TestValidationCache:
         time.sleep(1.5)
 
         # Should be expired now
-        result = cache.get(
+        result, _ = cache.get(
             sample_metrics_df,
             'Metrics',
             ['id', 'name', 'type'],
@@ -159,9 +160,12 @@ class TestValidationCache:
         assert stats['evictions'] == 1
 
         # df1 and df3 should be cached, df2 should not
-        assert cache.get(df1, 'Metrics', ['id', 'name', 'type'], []) is not None
-        assert cache.get(df2, 'Metrics', ['id', 'name', 'type'], []) is None
-        assert cache.get(df3, 'Metrics', ['id', 'name', 'type'], []) is not None
+        result1, _ = cache.get(df1, 'Metrics', ['id', 'name', 'type'], [])
+        result2, _ = cache.get(df2, 'Metrics', ['id', 'name', 'type'], [])
+        result3, _ = cache.get(df3, 'Metrics', ['id', 'name', 'type'], [])
+        assert result1 is not None
+        assert result2 is None
+        assert result3 is not None
 
     def test_thread_safety(self, sample_metrics_df):
         """Cache should be thread-safe"""
@@ -276,13 +280,13 @@ class TestValidationCache:
         assert stats['hit_rate'] == 0
 
         # One miss
-        cache.get(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [])
+        _, cache_key = cache.get(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [])
         stats = cache.get_statistics()
         assert stats['misses'] == 1
         assert stats['hit_rate'] == 0
 
-        # Store and retrieve
-        cache.put(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [], [])
+        # Store and retrieve (use cache_key to avoid rehashing)
+        cache.put(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [], [], cache_key)
         cache.get(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [])
 
         stats = cache.get_statistics()
@@ -338,7 +342,7 @@ class TestValidationCache:
         assert stats['size'] == 0
 
         # Should be cache miss now
-        result = cache.get(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [])
+        result, _ = cache.get(sample_metrics_df, 'Metrics', ['id', 'name', 'type'], [])
         assert result is None
 
     def test_configuration_changes_cache_miss(self, sample_metrics_df):
@@ -355,7 +359,7 @@ class TestValidationCache:
         )
 
         # Try to get with different critical_fields - should miss
-        result = cache.get(
+        result, _ = cache.get(
             sample_metrics_df,
             'Metrics',
             ['id', 'name', 'type'],
@@ -386,7 +390,7 @@ class TestValidationCache:
         })
 
         # Should be cache miss
-        result = cache.get(df2, 'Metrics', ['id', 'name', 'type'], [])
+        result, _ = cache.get(df2, 'Metrics', ['id', 'name', 'type'], [])
         assert result is None
 
     def test_parallel_validation_with_cache(self, sample_metrics_df, sample_dimensions_df):
@@ -456,3 +460,112 @@ class TestValidationCache:
         # Results should be identical
         assert len(issues_no_cache) == len(issues_default)
         assert issues_no_cache == issues_default
+
+    def test_cache_key_reuse_optimization(self, sample_metrics_df):
+        """Test that cache key from get() can be reused in put() to avoid rehashing"""
+        cache = ValidationCache(max_size=100, ttl_seconds=3600)
+
+        # Get returns (None, cache_key) on miss
+        result, cache_key = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description']
+        )
+        assert result is None
+        assert cache_key is not None
+        assert 'Metrics:' in cache_key  # Key should contain item_type
+
+        # Put with the same cache_key should work
+        test_issues = [{'test': 'issue'}]
+        cache.put(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description'],
+            test_issues,
+            cache_key  # Reuse cache_key
+        )
+
+        # Get should now return the cached issues
+        cached_result, _ = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description']
+        )
+        assert cached_result is not None
+        assert len(cached_result) == 1
+        assert cached_result[0]['test'] == 'issue'
+
+        # Verify cache stats
+        stats = cache.get_statistics()
+        assert stats['hits'] == 1
+        assert stats['misses'] == 1
+
+    def test_cache_key_consistency(self, sample_metrics_df):
+        """Test that cache key is consistent for same inputs"""
+        cache = ValidationCache(max_size=100, ttl_seconds=3600)
+
+        # Get key twice with same parameters
+        _, key1 = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name']
+        )
+        _, key2 = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name']
+        )
+
+        # Keys should be identical
+        assert key1 == key2
+
+    def test_cache_key_differs_for_different_config(self, sample_metrics_df):
+        """Test that cache key differs when config changes"""
+        cache = ValidationCache(max_size=100, ttl_seconds=3600)
+
+        _, key1 = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name']
+        )
+        _, key2 = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description']  # Different critical fields
+        )
+
+        # Keys should be different
+        assert key1 != key2
+
+    def test_put_without_cache_key_backward_compatible(self, sample_metrics_df):
+        """Test that put() works without cache_key (backward compatibility)"""
+        cache = ValidationCache(max_size=100, ttl_seconds=3600)
+
+        # Put without providing cache_key (should compute it internally)
+        test_issues = [{'severity': 'HIGH', 'message': 'test'}]
+        cache.put(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description'],
+            test_issues
+            # No cache_key parameter
+        )
+
+        # Should be retrievable
+        result, _ = cache.get(
+            sample_metrics_df,
+            'Metrics',
+            ['id', 'name', 'type'],
+            ['id', 'name', 'description']
+        )
+        assert result is not None
+        assert len(result) == 1
+        assert result[0]['severity'] == 'HIGH'

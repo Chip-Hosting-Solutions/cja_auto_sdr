@@ -12,7 +12,9 @@ sys.path.insert(0, '/Users/bau/DEV/cja_auto_sdr_2026')
 from cja_sdr_generator import (
     setup_logging,
     validate_config_file,
-    PerformanceTracker
+    PerformanceTracker,
+    _format_error_msg,
+    VALIDATION_SCHEMA
 )
 
 
@@ -178,3 +180,112 @@ class TestPerformanceTracker:
         assert "inner_op" in tracker.metrics
         # Outer operation should take longer
         assert tracker.metrics["outer_op"] >= tracker.metrics["inner_op"]
+
+
+class TestErrorMessageFormatting:
+    """Test error message formatting helper"""
+
+    def test_format_error_msg_operation_only(self):
+        """Test formatting with just operation"""
+        msg = _format_error_msg("creating file")
+        assert msg == "Error creating file"
+
+    def test_format_error_msg_with_item_type(self):
+        """Test formatting with operation and item_type"""
+        msg = _format_error_msg("checking duplicates", "Metrics")
+        assert msg == "Error checking duplicates for Metrics"
+
+    def test_format_error_msg_with_error(self):
+        """Test formatting with operation and error"""
+        err = ValueError("test error")
+        msg = _format_error_msg("processing data", error=err)
+        assert msg == "Error processing data: test error"
+
+    def test_format_error_msg_full(self):
+        """Test formatting with all parameters"""
+        err = RuntimeError("connection failed")
+        msg = _format_error_msg("fetching API data", "Dimensions", err)
+        assert msg == "Error fetching API data for Dimensions: connection failed"
+
+    def test_format_error_msg_none_values(self):
+        """Test formatting handles None gracefully"""
+        msg = _format_error_msg("testing", None, None)
+        assert msg == "Error testing"
+
+    def test_format_error_msg_exception_without_message(self):
+        """Test formatting with exception that has no message"""
+        err = Exception()
+        msg = _format_error_msg("processing", error=err)
+        assert msg == "Error processing: "
+
+    def test_format_error_msg_special_characters(self):
+        """Test formatting with special characters in error"""
+        err = ValueError("file 'test.txt' not found: <path>")
+        msg = _format_error_msg("reading file", error=err)
+        assert "file 'test.txt' not found" in msg
+        assert "<path>" in msg
+
+
+class TestValidationSchema:
+    """Test centralized validation schema"""
+
+    def test_validation_schema_has_required_keys(self):
+        """Test schema contains all required keys"""
+        assert 'required_metric_fields' in VALIDATION_SCHEMA
+        assert 'required_dimension_fields' in VALIDATION_SCHEMA
+        assert 'critical_fields' in VALIDATION_SCHEMA
+
+    def test_validation_schema_metric_fields(self):
+        """Test metric required fields are correct"""
+        fields = VALIDATION_SCHEMA['required_metric_fields']
+        assert 'id' in fields
+        assert 'name' in fields
+        assert 'type' in fields
+
+    def test_validation_schema_dimension_fields(self):
+        """Test dimension required fields are correct"""
+        fields = VALIDATION_SCHEMA['required_dimension_fields']
+        assert 'id' in fields
+        assert 'name' in fields
+        assert 'type' in fields
+
+    def test_validation_schema_critical_fields(self):
+        """Test critical fields are correct"""
+        fields = VALIDATION_SCHEMA['critical_fields']
+        assert 'id' in fields
+        assert 'name' in fields
+        assert 'description' in fields
+
+    def test_validation_schema_is_immutable_reference(self):
+        """Test schema values are lists (can be used directly)"""
+        assert isinstance(VALIDATION_SCHEMA['required_metric_fields'], list)
+        assert isinstance(VALIDATION_SCHEMA['required_dimension_fields'], list)
+        assert isinstance(VALIDATION_SCHEMA['critical_fields'], list)
+
+    def test_validation_schema_integration_with_checker(self):
+        """Test VALIDATION_SCHEMA works with DataQualityChecker"""
+        from cja_sdr_generator import DataQualityChecker
+        import pandas as pd
+
+        logger = logging.getLogger("test")
+        checker = DataQualityChecker(logger)
+
+        # Create test DataFrame with all required fields
+        df = pd.DataFrame({
+            'id': ['m1', 'm2'],
+            'name': ['Metric 1', 'Metric 2'],
+            'type': ['int', 'currency'],
+            'description': ['Desc 1', 'Desc 2']
+        })
+
+        # Use VALIDATION_SCHEMA values directly
+        checker.check_all_quality_issues_optimized(
+            df,
+            'Metrics',
+            VALIDATION_SCHEMA['required_metric_fields'],
+            VALIDATION_SCHEMA['critical_fields']
+        )
+
+        # Should have no critical issues for valid data
+        critical_issues = [i for i in checker.issues if i['severity'] == 'CRITICAL']
+        assert len(critical_issues) == 0

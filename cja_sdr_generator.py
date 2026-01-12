@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.6"
+__version__ = "3.0.7"
 
 # ==================== DEFAULT CONSTANTS ====================
 
@@ -33,6 +33,36 @@ MAX_BATCH_WORKERS = 256            # Maximum allowed batch workers
 # Cache defaults
 DEFAULT_CACHE_SIZE = 1000          # Maximum cached validation results
 DEFAULT_CACHE_TTL = 3600           # Cache TTL in seconds (1 hour)
+
+# ==================== VALIDATION SCHEMA ====================
+
+# Centralized field definitions for data quality validation
+VALIDATION_SCHEMA = {
+    'required_metric_fields': ['id', 'name', 'type'],
+    'required_dimension_fields': ['id', 'name', 'type'],
+    'critical_fields': ['id', 'name', 'title', 'description'],
+}
+
+# ==================== ERROR FORMATTING ====================
+
+def _format_error_msg(operation: str, item_type: str = None, error: Exception = None) -> str:
+    """
+    Format error messages consistently across the application.
+
+    Args:
+        operation: Description of the operation that failed (e.g., "checking duplicates")
+        item_type: Optional item type context (e.g., "Metrics", "Dimensions")
+        error: Optional exception to include in the message
+
+    Returns:
+        Formatted error message string
+    """
+    msg = f"Error {operation}"
+    if item_type:
+        msg += f" for {item_type}"
+    if error:
+        msg += f": {str(error)}"
+    return msg
 
 # ==================== CONSOLE COLORS ====================
 
@@ -517,12 +547,13 @@ class ValidationCache:
             return f"error:{time.time()}"
 
     def get(self, df: pd.DataFrame, item_type: str,
-           required_fields: List[str], critical_fields: List[str]) -> Optional[List[Dict]]:
+           required_fields: List[str], critical_fields: List[str]) -> Tuple[Optional[List[Dict]], str]:
         """
         Retrieve cached validation results if available
 
         Returns:
-            List of validation issues if cache hit, None if cache miss or expired
+            Tuple of (issues list or None, cache_key).
+            The cache_key can be passed to put() to avoid recomputing the hash.
         """
         cache_key = self._generate_cache_key(df, item_type, required_fields, critical_fields)
 
@@ -530,7 +561,7 @@ class ValidationCache:
             if cache_key not in self._cache:
                 self._misses += 1
                 self.logger.debug(f"Cache MISS: {item_type} (key: {cache_key[:20]}...)")
-                return None
+                return None, cache_key
 
             cached_issues, timestamp = self._cache[cache_key]
 
@@ -541,7 +572,7 @@ class ValidationCache:
                 del self._cache[cache_key]
                 del self._access_times[cache_key]
                 self._misses += 1
-                return None
+                return None, cache_key
 
             # Cache hit - update access time
             self._access_times[cache_key] = time.time()
@@ -549,17 +580,21 @@ class ValidationCache:
             self.logger.debug(f"Cache HIT: {item_type} ({len(cached_issues)} issues)")
 
             # Return deep copy to prevent mutation of cached data
-            return [issue.copy() for issue in cached_issues]
+            return [issue.copy() for issue in cached_issues], cache_key
 
     def put(self, df: pd.DataFrame, item_type: str,
            required_fields: List[str], critical_fields: List[str],
-           issues: List[Dict]):
+           issues: List[Dict], cache_key: str = None):
         """
         Store validation results in cache
 
-        Implements LRU eviction when cache is full
+        Implements LRU eviction when cache is full.
+
+        Args:
+            cache_key: Optional pre-computed cache key from get() to avoid rehashing
         """
-        cache_key = self._generate_cache_key(df, item_type, required_fields, critical_fields)
+        if cache_key is None:
+            cache_key = self._generate_cache_key(df, item_type, required_fields, critical_fields)
 
         with self._lock:
             # Evict oldest entry if cache is full
@@ -1223,7 +1258,7 @@ class DataQualityChecker:
                     details=f'This {item_type.lower()} name appears {count} times in the data view'
                 )
         except Exception as e:
-            self.logger.error(f"Error checking duplicates for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("checking duplicates", item_type, e))
     
     def check_required_fields(self, df: pd.DataFrame, item_type: str, 
                             required_fields: List[str]):
@@ -1245,7 +1280,7 @@ class DataQualityChecker:
                     details=f'Missing fields: {", ".join(missing_fields)}'
                 )
         except Exception as e:
-            self.logger.error(f"Error checking required fields for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("checking required fields", item_type, e))
     
     def check_null_values(self, df: pd.DataFrame, item_type: str, 
                          critical_fields: List[str]):
@@ -1269,7 +1304,7 @@ class DataQualityChecker:
                             details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items[:10])}'
                         )
         except Exception as e:
-            self.logger.error(f"Error checking null values for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("checking null values", item_type, e))
     
     def check_missing_descriptions(self, df: pd.DataFrame, item_type: str):
         """Check for items without descriptions"""
@@ -1295,7 +1330,7 @@ class DataQualityChecker:
                     details=f'Items: {", ".join(str(x) for x in item_names[:20])}'
                 )
         except Exception as e:
-            self.logger.error(f"Error checking descriptions for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("checking descriptions", item_type, e))
     
     def check_empty_dataframe(self, df: pd.DataFrame, item_type: str):
         """Check if dataframe is empty"""
@@ -1310,7 +1345,7 @@ class DataQualityChecker:
                     details=f'The API returned an empty dataset for {item_type.lower()}'
                 )
         except Exception as e:
-            self.logger.error(f"Error checking if {item_type} dataframe is empty: {str(e)}")
+            self.logger.error(_format_error_msg("checking if dataframe is empty", item_type, e))
     
     def check_id_validity(self, df: pd.DataFrame, item_type: str):
         """Check for missing or invalid IDs"""
@@ -1334,7 +1369,7 @@ class DataQualityChecker:
                     details='Items without valid IDs may cause issues in reporting'
                 )
         except Exception as e:
-            self.logger.error(f"Error checking ID validity for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("checking ID validity", item_type, e))
     
     def check_all_quality_issues_optimized(self, df: pd.DataFrame, item_type: str,
                                            required_fields: List[str],
@@ -1363,8 +1398,10 @@ class DataQualityChecker:
         """
         try:
             # Check cache first (before any processing)
+            # get() returns (issues, cache_key) - reuse cache_key in put() to avoid rehashing
+            cache_key = None
             if self.validation_cache is not None:
-                cached_issues = self.validation_cache.get(
+                cached_issues, cache_key = self.validation_cache.get(
                     df, item_type, required_fields, critical_fields
                 )
                 if cached_issues is not None:
@@ -1387,10 +1424,10 @@ class DataQualityChecker:
                     description=f'No {item_type.lower()} found in data view',
                     details=f'The API returned an empty dataset for {item_type.lower()}'
                 )
-                # Cache the result before returning
+                # Cache the result before returning (reuse cache_key to avoid rehashing)
                 if self.validation_cache is not None:
                     new_issues = self.issues[issues_start_index:]
-                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues)
+                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
                 return
 
             # Check 2: Required fields validation (no iteration needed)
@@ -1404,10 +1441,10 @@ class DataQualityChecker:
                     description='Required fields missing from API response',
                     details=f'Missing fields: {", ".join(missing_fields)}'
                 )
-                # Cache the critical error result before returning
+                # Cache the critical error result before returning (reuse cache_key)
                 if self.validation_cache is not None:
                     new_issues = self.issues[issues_start_index:]
-                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues)
+                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
                 return  # Early exit: cannot proceed without required fields
 
             # Check 3: Vectorized duplicate detection
@@ -1473,13 +1510,13 @@ class DataQualityChecker:
 
             self.logger.debug(f"Optimized validation complete for {item_type}: {len(df)} items checked")
 
-            # Store results in cache after successful validation
+            # Store results in cache after successful validation (reuse cache_key to avoid rehashing)
             if self.validation_cache is not None:
                 new_issues = self.issues[issues_start_index:]
-                self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues)
+                self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
 
         except Exception as e:
-            self.logger.error(f"Error in optimized validation for {item_type}: {str(e)}")
+            self.logger.error(_format_error_msg("in optimized validation", item_type, e))
             self.logger.exception("Full error details:")
 
     def check_all_parallel(self,
@@ -1557,7 +1594,7 @@ class DataQualityChecker:
             self.logger.info(f"Parallel validation complete. Found {len(self.issues)} issue(s)")
 
         except Exception as e:
-            self.logger.error(f"Error in parallel validation: {str(e)}")
+            self.logger.error(_format_error_msg("in parallel validation", error=e))
             self.logger.exception("Full error details:")
             raise
 
@@ -1605,7 +1642,7 @@ class DataQualityChecker:
 
             return df
         except Exception as e:
-            self.logger.error(f"Error creating issues dataframe: {str(e)}")
+            self.logger.error(_format_error_msg("creating issues dataframe", error=e))
             return pd.DataFrame({
                 'Severity': ['ERROR'],
                 'Category': ['System'],
@@ -1944,7 +1981,7 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
         logger.info(f"Successfully formatted sheet: {sheet_name}")
         
     except Exception as e:
-        logger.error(f"Error formatting sheet {sheet_name}: {str(e)}")
+        logger.error(_format_error_msg(f"formatting sheet {sheet_name}", error=e))
         raise
 
 # ==================== OUTPUT FORMAT WRITERS ====================
@@ -1980,7 +2017,7 @@ def write_csv_output(data_dict: Dict[str, pd.DataFrame], base_filename: str,
         return csv_dir
 
     except Exception as e:
-        logger.error(f"Error creating CSV files: {str(e)}")
+        logger.error(_format_error_msg("creating CSV files", error=e))
         raise
 
 
@@ -2036,7 +2073,7 @@ def write_json_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         return json_file
 
     except Exception as e:
-        logger.error(f"Error creating JSON file: {str(e)}")
+        logger.error(_format_error_msg("creating JSON file", error=e))
         raise
 
 
@@ -2263,7 +2300,7 @@ def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         return html_file
 
     except Exception as e:
-        logger.error(f"Error creating HTML file: {str(e)}")
+        logger.error(_format_error_msg("creating HTML file", error=e))
         raise
 
 # ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
@@ -2389,11 +2426,6 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
 
             dq_checker = DataQualityChecker(logger, validation_cache=validation_cache)
 
-            # Required fields for validation
-            REQUIRED_METRIC_FIELDS = ['id', 'name', 'type']
-            REQUIRED_DIMENSION_FIELDS = ['id', 'name', 'type']
-            CRITICAL_FIELDS = ['id', 'name', 'title', 'description']
-
             # Run parallel data quality checks (10-15% faster than sequential)
             logger.info("Running parallel data quality checks...")
 
@@ -2402,9 +2434,9 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                 dq_checker.check_all_parallel(
                     metrics_df=metrics,
                     dimensions_df=dimensions,
-                    metrics_required_fields=REQUIRED_METRIC_FIELDS,
-                    dimensions_required_fields=REQUIRED_DIMENSION_FIELDS,
-                    critical_fields=CRITICAL_FIELDS,
+                    metrics_required_fields=VALIDATION_SCHEMA['required_metric_fields'],
+                    dimensions_required_fields=VALIDATION_SCHEMA['required_dimension_fields'],
+                    critical_fields=VALIDATION_SCHEMA['critical_fields'],
                     max_workers=DEFAULT_VALIDATION_WORKERS
                 )
 
@@ -2419,7 +2451,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
                 perf_tracker.end("Data Quality Validation")
 
             except Exception as e:
-                logger.error(f"Error during data quality validation: {str(e)}")
+                logger.error(_format_error_msg("during data quality validation", error=e))
                 logger.info("Continuing with SDR generation despite validation errors")
                 perf_tracker.end("Data Quality Validation")
 
@@ -2440,7 +2472,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             lookup_df = pd.DataFrame(lookup_data_copy)
             logger.info(f"Processed lookup data with {len(lookup_df)} rows")
         except Exception as e:
-            logger.error(f"Error processing lookup data: {str(e)}")
+            logger.error(_format_error_msg("processing lookup data", error=e))
             lookup_df = pd.DataFrame({'Error': ['Failed to process data view information']})
 
         try:
@@ -2488,7 +2520,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             })
             logger.info("Metadata created successfully")
         except Exception as e:
-            logger.error(f"Error creating metadata: {str(e)}")
+            logger.error(_format_error_msg("creating metadata", error=e))
             metadata_df = pd.DataFrame({'Error': ['Failed to create metadata']})
 
         # Function to format JSON cells
@@ -2519,7 +2551,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
 
             logger.info("JSON formatting applied successfully")
         except Exception as e:
-            logger.error(f"Error applying JSON formatting: {str(e)}")
+            logger.error(_format_error_msg("applying JSON formatting", error=e))
 
         # Create Excel file name
         try:
@@ -2532,7 +2564,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "myconfig.json
             output_path = Path(output_dir) / excel_file_name
             logger.info(f"Excel file will be saved as: {output_path}")
         except Exception as e:
-            logger.error(f"Error creating filename: {str(e)}")
+            logger.error(_format_error_msg("creating filename", error=e))
             excel_file_name = f'CJA_DataView_dv_{data_view_id}_SDR.xlsx'
             output_path = Path(output_dir) / excel_file_name
 
