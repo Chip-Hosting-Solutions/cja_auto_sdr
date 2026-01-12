@@ -123,6 +123,7 @@ uv run python cja_sdr_generator.py --list-dataviews
 
 | Guide | Description |
 |-------|-------------|
+| [Extended Quick Start](docs/QUICKSTART_GUIDE.md) | Complete walkthrough from zero to first SDR |
 | [Installation Guide](docs/INSTALLATION.md) | Detailed setup instructions, authentication options |
 | [CLI Reference](docs/CLI_REFERENCE.md) | Complete command-line options and examples |
 | [Data Quality](docs/DATA_QUALITY.md) | Validation checks, severity levels, understanding issues |
