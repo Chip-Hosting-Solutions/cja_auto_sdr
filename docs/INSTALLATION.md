@@ -91,11 +91,44 @@ source .venv/bin/activate  # macOS/Linux
 pip install cjapy>=0.2.4.post2 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0
 ```
 
-## Configuration File Setup
+## Credential Configuration
 
-Create a `myconfig.json` file in the project root directory.
+You have two options for configuring credentials:
 
-### OAuth Server-to-Server (Recommended)
+### Option 1: Environment Variables (Recommended for Production)
+
+Environment variables take precedence over configuration files. This is the recommended approach for:
+- CI/CD pipelines
+- Docker containers
+- Production deployments
+- Shared development environments
+
+Create a `.env` file in the project root (or set environment variables directly):
+
+```bash
+# OAuth Server-to-Server Authentication (Required)
+CJA_ORG_ID=your_org_id@AdobeOrg
+CJA_CLIENT_ID=your_client_id
+CJA_SECRET=your_client_secret
+CJA_SCOPES=openid, AdobeID, additional_info.projectedProductContext
+
+# Optional
+# CJA_SANDBOX=your_sandbox_name
+```
+
+To enable `.env` file loading, install the optional dependency:
+
+```bash
+uv add python-dotenv
+# or
+pip install python-dotenv
+```
+
+See `.env.example` for a complete template.
+
+### Option 2: Configuration File
+
+Create a `myconfig.json` file in the project root directory:
 
 ```json
 {
@@ -103,18 +136,6 @@ Create a `myconfig.json` file in the project root directory.
   "client_id": "your_client_id",
   "secret": "your_client_secret",
   "scopes": "openid, AdobeID, additional_info.projectedProductContext"
-}
-```
-
-### JWT Authentication (Legacy)
-
-```json
-{
-  "org_id": "your_org_id@AdobeOrg",
-  "client_id": "your_client_id",
-  "tech_id": "your_tech_account_id@techacct.adobe.com",
-  "secret": "your_client_secret",
-  "private_key": "path/to/private.key"
 }
 ```
 
@@ -126,14 +147,13 @@ uv run python cja_sdr_generator.py --sample-config
 
 ### Configuration Fields
 
-| Field | Description | Required For |
-|-------|-------------|--------------|
-| `org_id` | Adobe Organization ID (from Developer Console) | Both |
-| `client_id` | Client ID from your integration | Both |
-| `secret` | Client Secret from your integration | Both |
-| `scopes` | OAuth scopes | OAuth only |
-| `tech_id` | Technical Account ID | JWT only |
-| `private_key` | Path to private key file | JWT only |
+| Field | Description | Required |
+|-------|-------------|----------|
+| `org_id` | Adobe Organization ID (from Developer Console) | Yes |
+| `client_id` | Client ID from your integration | Yes |
+| `secret` | Client Secret from your integration | Yes |
+| `scopes` | OAuth scopes | Recommended |
+| `sandbox` | Sandbox name (optional) | No |
 
 ## Project Structure
 

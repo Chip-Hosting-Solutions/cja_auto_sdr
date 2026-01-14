@@ -143,14 +143,35 @@ Installed 15 packages in 0.8s
 
 ```bash
 uv run python cja_sdr_generator.py --version
-# Output: cja_sdr_generator.py version 3.0.7
+# Output: cja_sdr_generator.py version 3.0.8
 ```
 
 ---
 
 ## Step 3: Configure Authentication
 
-### 3.1 Create Configuration File
+You have two options for configuring credentials:
+
+### Option A: Environment Variables (Recommended for CI/CD)
+
+Create a `.env` file in the project root:
+
+```bash
+CJA_ORG_ID=YOUR_ORG_ID@AdobeOrg
+CJA_CLIENT_ID=YOUR_CLIENT_ID
+CJA_SECRET=YOUR_CLIENT_SECRET
+CJA_SCOPES=openid, AdobeID, additional_info.projectedProductContext
+```
+
+To enable `.env` file loading:
+
+```bash
+uv add python-dotenv
+```
+
+### Option B: Configuration File
+
+#### 3.1 Create Configuration File
 
 Create a file named `myconfig.json` in the project root directory:
 
@@ -170,7 +191,7 @@ Or create it manually:
 }
 ```
 
-### 3.2 Fill In Your Credentials
+#### 3.2 Fill In Your Credentials
 
 Replace the placeholder values with the credentials from Step 1.5:
 
@@ -185,7 +206,7 @@ Replace the placeholder values with the credentials from Step 1.5:
 
 ### 3.3 Secure Your Credentials
 
-Ensure `myconfig.json` is in `.gitignore`:
+Ensure credentials are not committed to version control:
 
 ```bash
 # Check if it's ignored

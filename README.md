@@ -2,7 +2,7 @@
 
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
-**Version 3.0.7** - A production-ready Python tool that automates the creation of Solution Design Reference (SDR) documents from your Adobe Customer Journey Analytics implementation.
+**Version 3.0.8** - A production-ready Python tool that automates the creation of Solution Design Reference (SDR) documents from your Adobe Customer Journey Analytics implementation.
 
 ## What It Is
 
@@ -79,6 +79,19 @@ uv sync
 
 ### 2. Configure Credentials
 
+**Option A: Environment Variables (Recommended for CI/CD and production)**
+
+Create a `.env` file in the project root (requires `uv add python-dotenv`):
+
+```bash
+CJA_ORG_ID=your_org_id@AdobeOrg
+CJA_CLIENT_ID=your_client_id
+CJA_SECRET=your_client_secret
+CJA_SCOPES=openid, AdobeID, additional_info.projectedProductContext
+```
+
+**Option B: Configuration File**
+
 Create `myconfig.json` with your Adobe credentials:
 
 ```json
@@ -89,6 +102,8 @@ Create `myconfig.json` with your Adobe credentials:
   "scopes": "openid, AdobeID, additional_info.projectedProductContext"
 }
 ```
+
+> **Note:** Environment variables take precedence over `myconfig.json` if both are present.
 
 ### 3. Run the Generator
 

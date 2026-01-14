@@ -26,9 +26,8 @@ class TestDryRunMode:
         config = {
             "org_id": "test_org",
             "client_id": "test_client",
-            "tech_id": "test_tech",
             "secret": "test_secret",
-            "private_key": "test_key"
+            "scopes": "openid, AdobeID, additional_info.projectedProductContext"
         }
         config_path = tmp_path / "test_config.json"
         with open(config_path, 'w') as f:
@@ -218,9 +217,8 @@ class TestValidateConfigFile:
         config = {
             "org_id": "test",
             "client_id": "test",
-            "tech_id": "test",
             "secret": "test",
-            "private_key": "test"
+            "scopes": "openid, AdobeID"
         }
         config_path = tmp_path / "valid.json"
         with open(config_path, 'w') as f:

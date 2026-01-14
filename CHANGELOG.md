@@ -5,6 +5,55 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.8] - 2026-01-14
+
+### Added
+
+#### Environment Variable Credentials Support
+- **Environment Variable Loading**: Credentials can now be loaded from environment variables
+  - `CJA_ORG_ID`: Adobe Organization ID
+  - `CJA_CLIENT_ID`: OAuth Client ID
+  - `CJA_SECRET`: Client Secret
+  - `CJA_SCOPES`: OAuth scopes
+  - `CJA_SANDBOX`: Sandbox name (optional)
+- **Priority Order**: Environment variables take precedence over `myconfig.json`
+- **Optional python-dotenv**: Install `python-dotenv` to enable automatic `.env` file loading
+- **`.env.example`**: Template file for environment variable configuration
+- **Full Backwards Compatibility**: Existing `myconfig.json` configurations continue to work unchanged
+
+#### Batch Processing Improvements
+- **File Size in Batch Summary**: Each successful data view now shows its output file size
+- **Total Output Size**: Batch summary includes total combined output size for all files
+
+#### Data Quality Improvements
+- **Complete Item Lists**: Data quality issues now show ALL affected item names
+  - Previously limited to 5-20 items depending on issue type
+  - Provides complete visibility for large data views with many issues
+
+### Removed
+
+#### JWT Authentication Support
+- **Removed JWT Authentication**: JWT (Service Account) authentication has been removed
+  - Adobe has deprecated JWT credentials in favor of OAuth Server-to-Server
+  - `tech_id` and `private_key` config fields are no longer supported
+  - `CJA_TECH_ID` and `CJA_PRIVATE_KEY` environment variables are no longer supported
+  - Users must migrate to OAuth Server-to-Server credentials
+  - See [Adobe's migration guide](https://developer.adobe.com/developer-console/docs/guides/authentication/ServerToServerAuthentication/migration/) for details
+
+### Changed
+- Updated documentation with environment variable configuration instructions
+- Batch summary output format now includes file size column for each data view
+- Updated error messages to include environment variable configuration option
+- Simplified configuration validation to OAuth-only fields
+
+### Documentation
+- Updated `README.md` with `.env` configuration option
+- Updated `docs/INSTALLATION.md` with environment variable setup section (OAuth-only)
+- Updated `docs/QUICKSTART_GUIDE.md` with dual configuration options
+- Added `.env.example` template file
+
+---
+
 ## [3.0.7] - 2026-01-11
 
 ### Added
@@ -152,7 +201,7 @@ if result is None:
   - Useful for quick regeneration of reports when data quality is already known
   - Works with both single and batch processing modes
 - **`--sample-config`**: New flag to generate a sample configuration file
-  - Creates `myconfig.sample.json` with template for both OAuth S2S and JWT authentication
+  - Creates `myconfig.sample.json` with template for OAuth Server-to-Server authentication
   - Includes clear instructions for configuring credentials
   - No data view ID argument required when using this flag
 

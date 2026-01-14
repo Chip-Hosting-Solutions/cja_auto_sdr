@@ -1,7 +1,12 @@
 # Python-generated files
 __pycache__/
-myconfig.json
 *.py[oc]
+
+# Credentials (DO NOT COMMIT)
+myconfig.json
+.env
+*.key
+*.pem
 build/
 dist/
 wheels/

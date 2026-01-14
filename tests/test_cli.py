@@ -237,18 +237,18 @@ class TestSampleConfig:
             assert 'client_id' in config
             assert 'secret' in config
 
-    def test_generate_sample_config_has_both_auth_methods(self):
-        """Test that generated config has both OAuth S2S and JWT fields"""
+    def test_generate_sample_config_has_oauth_fields(self):
+        """Test that generated config has OAuth S2S fields"""
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, 'test_config.json')
             generate_sample_config(output_path)
             with open(output_path) as f:
                 config = json.load(f)
             # OAuth S2S fields
+            assert 'org_id' in config
+            assert 'client_id' in config
+            assert 'secret' in config
             assert 'scopes' in config
-            # JWT fields
-            assert 'tech_id' in config
-            assert 'private_key' in config
 
 
 class TestUXImprovements:
