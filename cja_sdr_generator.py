@@ -17,10 +17,20 @@ import os
 import random
 import functools
 from dataclasses import dataclass
+import tempfile
+import atexit
+
+# Attempt to load python-dotenv if available (optional dependency)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .env file if present
+    _DOTENV_AVAILABLE = True
+except ImportError:
+    _DOTENV_AVAILABLE = False
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.7"
+__version__ = "3.0.8"
 
 # ==================== DEFAULT CONSTANTS ====================
 
@@ -329,7 +339,7 @@ class ProcessingResult:
 def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level: str = None) -> logging.Logger:
     """Setup logging to both file and console
 
-    Priority: 1) Passed parameter, 2) Environment variable CJA_LOG_LEVEL, 3) Default INFO
+    Priority: 1) Passed parameter, 2) Environment variable LOG_LEVEL, 3) Default INFO
     """
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
@@ -355,7 +365,7 @@ def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level:
 
     # Determine log level with priority: parameter > env var > default
     if log_level is None:
-        log_level = os.environ.get('CJA_LOG_LEVEL', 'INFO')
+        log_level = os.environ.get('LOG_LEVEL', 'INFO')
 
     # Validate log level
     valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
@@ -654,26 +664,118 @@ class ValidationCache:
 # ==================== CONFIG SCHEMA ====================
 
 # Configuration schema definition for validation
-# Supports two authentication methods:
-# 1. OAuth Server-to-Server: org_id, client_id, secret (scopes optional)
-# 2. JWT Service Account: org_id, client_id, tech_id, secret, private_key
+# Uses OAuth Server-to-Server authentication: org_id, client_id, secret, scopes
 CONFIG_SCHEMA = {
-    # Fields required for all authentication methods
+    # Fields required for OAuth Server-to-Server authentication
     'base_required_fields': {
         'org_id': {'type': str, 'description': 'Adobe Organization ID'},
         'client_id': {'type': str, 'description': 'OAuth Client ID'},
         'secret': {'type': str, 'description': 'Client Secret'},
     },
-    # Additional fields required only for JWT (Service Account) authentication
-    'jwt_required_fields': {
-        'tech_id': {'type': str, 'description': 'Technical Account ID'},
-        'private_key': {'type': str, 'description': 'Path to private key file or key content'},
-    },
     'optional_fields': {
-        'scopes': {'type': str, 'description': 'OAuth scopes (for OAuth Server-to-Server auth)'},
+        'scopes': {'type': str, 'description': 'OAuth scopes'},
         'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
     }
 }
+
+# Environment variable to config field mapping
+ENV_VAR_MAPPING = {
+    'org_id': 'ORG_ID',
+    'client_id': 'CLIENT_ID',
+    'secret': 'SECRET',
+    'scopes': 'SCOPES',
+    'sandbox': 'SANDBOX',
+}
+
+
+def load_credentials_from_env() -> Optional[Dict[str, str]]:
+    """
+    Load Adobe API credentials from environment variables.
+
+    Environment variables:
+        ORG_ID: Adobe Organization ID
+        CLIENT_ID: OAuth Client ID
+        SECRET: Client Secret
+        SCOPES: OAuth scopes
+        SANDBOX: Sandbox name (optional)
+
+    Returns:
+        Dictionary with credentials if any env vars are set, None otherwise
+    """
+    credentials = {}
+    for config_key, env_var in ENV_VAR_MAPPING.items():
+        value = os.environ.get(env_var)
+        if value and value.strip():
+            credentials[config_key] = value.strip()
+
+    # Return None if no CJA environment variables are set
+    if not credentials:
+        return None
+
+    return credentials
+
+
+def validate_env_credentials(credentials: Dict[str, str], logger: logging.Logger) -> bool:
+    """
+    Validate that environment credentials have minimum required fields for OAuth.
+
+    Args:
+        credentials: Dictionary of credentials from environment
+        logger: Logger instance
+
+    Returns:
+        True if credentials have minimum required fields
+    """
+    base_required = ['org_id', 'client_id', 'secret']
+
+    for field in base_required:
+        if field not in credentials or not credentials[field].strip():
+            logger.debug(f"Missing required environment variable: {ENV_VAR_MAPPING.get(field, field)}")
+            return False
+
+    # Check for OAuth scopes (recommended but not strictly required)
+    if 'scopes' not in credentials:
+        logger.warning("Environment credentials missing OAuth scopes - recommend setting SCOPES")
+
+    return True
+
+
+def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
+    """
+    Configure cjapy using environment credentials.
+
+    Creates a temporary JSON config file that is cleaned up on exit.
+
+    Args:
+        credentials: Dictionary of credentials from environment
+        logger: Logger instance
+    """
+    # cjapy.importConfigFile expects a JSON file, so we create a temporary one
+    # This is cleaned up on exit
+    temp_config = tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.json',
+        delete=False,
+        prefix='cja_env_config_'
+    )
+
+    json.dump(credentials, temp_config)
+    temp_config.close()
+
+    logger.debug(f"Created temporary config file: {temp_config.name}")
+
+    # Register cleanup
+    def cleanup_temp_config():
+        try:
+            os.unlink(temp_config.name)
+        except OSError:
+            pass
+
+    atexit.register(cleanup_temp_config)
+
+    # Import the temporary config
+    cjapy.importConfigFile(temp_config.name)
+
 
 # ==================== CJA INITIALIZATION ====================
 
@@ -741,29 +843,13 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
             elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
                 validation_errors.append(f"Empty value for required field: '{field_name}'")
 
-        # Determine auth method: JWT requires tech_id and private_key, OAuth S2S does not
-        has_jwt_fields = 'tech_id' in config_data or 'private_key' in config_data
-
-        if has_jwt_fields:
-            # JWT auth mode - validate JWT-specific required fields
-            for field_name, field_info in CONFIG_SCHEMA['jwt_required_fields'].items():
-                if field_name not in config_data:
-                    validation_errors.append(f"Missing required field for JWT auth: '{field_name}' ({field_info['description']})")
-                elif not isinstance(config_data[field_name], field_info['type']):
-                    validation_errors.append(
-                        f"Invalid type for '{field_name}': expected {field_info['type'].__name__}, "
-                        f"got {type(config_data[field_name]).__name__}"
-                    )
-                elif not config_data[field_name] or (isinstance(config_data[field_name], str) and not config_data[field_name].strip()):
-                    validation_errors.append(f"Empty value for required field: '{field_name}'")
-        else:
-            # OAuth Server-to-Server mode - warn if scopes not provided
-            if 'scopes' not in config_data or not config_data.get('scopes', '').strip():
-                validation_warnings.append(
-                    "OAuth Server-to-Server auth detected without 'scopes' field. "
-                    "Consider adding scopes (e.g., 'openid,AdobeID,read_organizations,additional_info.projectedProductContext') "
-                    "for proper API access."
-                )
+        # OAuth Server-to-Server auth - warn if scopes not provided
+        if 'scopes' not in config_data or not config_data.get('scopes', '').strip():
+            validation_warnings.append(
+                "OAuth Server-to-Server auth: 'scopes' field not set. "
+                "Consider adding scopes (e.g., 'openid,AdobeID,additional_info.projectedProductContext') "
+                "for proper API access."
+            )
 
         # Validate optional fields if present
         for field_name, field_info in CONFIG_SCHEMA['optional_fields'].items():
@@ -775,22 +861,10 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
 
         # Check for unknown fields (potential typos)
         known_fields = (set(CONFIG_SCHEMA['base_required_fields'].keys()) |
-                        set(CONFIG_SCHEMA['jwt_required_fields'].keys()) |
                         set(CONFIG_SCHEMA['optional_fields'].keys()))
         unknown_fields = set(config_data.keys()) - known_fields
         if unknown_fields:
             validation_warnings.append(f"Unknown fields in config (possible typos): {', '.join(unknown_fields)}")
-
-        # Validate private_key - check if it's a file path or key content
-        if 'private_key' in config_data and config_data['private_key']:
-            pk_value = config_data['private_key']
-            # Check if it looks like a file path (not starting with -----)
-            if not pk_value.strip().startswith('-----'):
-                pk_path = Path(pk_value)
-                if not pk_path.exists():
-                    validation_warnings.append(f"Private key file not found: {pk_value}")
-                elif not pk_path.is_file():
-                    validation_errors.append(f"Private key path is not a file: {pk_value}")
 
         # Report validation results
         if validation_errors:
@@ -812,39 +886,60 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
         return False
 
 def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = None) -> Optional[cjapy.CJA]:
-    """Initialize CJA connection with comprehensive error handling"""
+    """Initialize CJA connection with comprehensive error handling
+
+    Credential Loading Priority:
+        1. Environment variables (ORG_ID, CLIENT_ID, SECRET, etc.)
+        2. Configuration file (myconfig.json)
+    """
     try:
         logger.info("=" * 60)
         logger.info("INITIALIZING CJA CONNECTION")
         logger.info("=" * 60)
 
-        # Validate config file first
-        if not validate_config_file(config_file, logger):
-            logger.critical("Configuration file validation failed")
-            logger.critical("Please create a valid config file using one of the following formats:")
-            logger.critical("")
-            logger.critical("OAuth Server-to-Server (recommended):")
-            logger.critical(json.dumps({
-                "org_id": "your_org_id",
-                "client_id": "your_client_id",
-                "secret": "your_client_secret",
-                "scopes": "openid, AdobeID, additional_info.projectedProductContext"
-            }, indent=2))
-            logger.critical("")
-            logger.critical("JWT Service Account (legacy):")
-            logger.critical(json.dumps({
-                "org_id": "your_org_id",
-                "client_id": "your_client_id",
-                "tech_id": "your_tech_account_id",
-                "secret": "your_client_secret",
-                "private_key": "path/to/private.key"
-            }, indent=2))
-            return None
-        
-        # Attempt to import config
-        logger.info("Loading CJA configuration...")
-        cjapy.importConfigFile(config_file)
-        logger.info("Configuration loaded successfully")
+        # Try environment variables first
+        env_credentials = load_credentials_from_env()
+        use_env_credentials = False
+
+        if env_credentials:
+            logger.info("Found environment variables with CJA credentials...")
+            if validate_env_credentials(env_credentials, logger):
+                use_env_credentials = True
+                logger.info("Using credentials from environment variables")
+            else:
+                logger.info("Environment credentials incomplete, falling back to config file")
+
+        if use_env_credentials:
+            # Use environment credentials
+            logger.info("Loading CJA configuration from environment...")
+            _config_from_env(env_credentials, logger)
+            logger.info("Configuration loaded from environment variables")
+        else:
+            # Fall back to config file
+            logger.info(f"Validating configuration file: {config_file}")
+            if not validate_config_file(config_file, logger):
+                logger.critical("Configuration file validation failed")
+                logger.critical("Please create a valid config file OR set environment variables.")
+                logger.critical("")
+                logger.critical("Option 1: Environment Variables")
+                logger.critical("  export ORG_ID=your_org_id@AdobeOrg")
+                logger.critical("  export CLIENT_ID=your_client_id")
+                logger.critical("  export SECRET=your_client_secret")
+                logger.critical("  export SCOPES='openid, AdobeID, additional_info.projectedProductContext'")
+                logger.critical("")
+                logger.critical("Option 2: Config File (myconfig.json):")
+                logger.critical(json.dumps({
+                    "org_id": "your_org_id",
+                    "client_id": "your_client_id",
+                    "secret": "your_client_secret",
+                    "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+                }, indent=2))
+                return None
+
+            # Load config file
+            logger.info("Loading CJA configuration...")
+            cjapy.importConfigFile(config_file)
+            logger.info("Configuration loaded successfully")
         
         # Attempt to create CJA instance
         logger.info("Creating CJA instance...")
@@ -1299,9 +1394,9 @@ class DataQualityChecker:
                             severity='MEDIUM',
                             category='Null Values',
                             item_type=item_type,
-                            item_name=', '.join(str(x) for x in null_items[:5]),
+                            item_name=', '.join(str(x) for x in null_items),
                             description=f'Null values in "{field}" field',
-                            details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items[:10])}'
+                            details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items)}'
                         )
         except Exception as e:
             self.logger.error(_format_error_msg("checking null values", item_type, e))
@@ -1327,7 +1422,7 @@ class DataQualityChecker:
                     item_type=item_type,
                     item_name=f'{len(missing_desc)} items',
                     description=f'{len(missing_desc)} items without descriptions',
-                    details=f'Items: {", ".join(str(x) for x in item_names[:20])}'
+                    details=f'Items: {", ".join(str(x) for x in item_names)}'
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking descriptions", item_type, e))
@@ -1474,9 +1569,9 @@ class DataQualityChecker:
                         severity='MEDIUM',
                         category='Null Values',
                         item_type=item_type,
-                        item_name=', '.join(str(x) for x in null_items[:5]),
+                        item_name=', '.join(str(x) for x in null_items),
                         description=f'Null values in "{field}" field',
-                        details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items[:10])}'
+                        details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items)}'
                     )
 
             # Check 5: Vectorized missing descriptions check
@@ -1491,7 +1586,7 @@ class DataQualityChecker:
                         item_type=item_type,
                         item_name=f'{len(missing_desc)} items',
                         description=f'{len(missing_desc)} items without descriptions',
-                        details=f'Items: {", ".join(str(x) for x in item_names[:20])}'
+                        details=f'Items: {", ".join(str(x) for x in item_names)}'
                     )
 
             # Check 6: Vectorized ID validity check
@@ -2892,6 +2987,16 @@ class BatchProcessor:
 
         return results
 
+    @staticmethod
+    def _format_file_size(size_bytes: int) -> str:
+        """Format file size in human-readable format"""
+        size = size_bytes
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
+
     def print_summary(self, results: Dict):
         """Print detailed batch processing summary with color-coded output"""
         total = results['total']
@@ -2900,6 +3005,10 @@ class BatchProcessor:
         success_rate = (successful_count / total * 100) if total > 0 else 0
         total_duration = results['total_duration']
         avg_duration = (total_duration / total) if total > 0 else 0
+
+        # Calculate total output size
+        total_file_size = sum(r.file_size_bytes for r in results['successful'])
+        total_size_formatted = self._format_file_size(total_file_size)
 
         # Log to file
         self.logger.info("")
@@ -2910,6 +3019,7 @@ class BatchProcessor:
         self.logger.info(f"Successful: {successful_count}")
         self.logger.info(f"Failed: {failed_count}")
         self.logger.info(f"Success rate: {success_rate:.1f}%")
+        self.logger.info(f"Total output size: {total_size_formatted}")
         self.logger.info(f"Total duration: {total_duration:.1f}s")
         self.logger.info(f"Average per data view: {avg_duration:.1f}s")
 
@@ -2925,6 +3035,7 @@ class BatchProcessor:
         else:
             print(f"Failed: {failed_count}")
         print(f"Success rate: {ConsoleColors.status(success_rate == 100, f'{success_rate:.1f}%')}")
+        print(f"Total output size: {total_size_formatted}")
         print(f"Total duration: {total_duration:.1f}s")
         print(f"Average per data view: {avg_duration:.1f}s")
         print()
@@ -2934,9 +3045,10 @@ class BatchProcessor:
             self.logger.info("")
             self.logger.info("Successful Data Views:")
             for result in results['successful']:
-                line = f"  {result.data_view_id:20s}  {result.data_view_name:30s}  {result.duration:5.1f}s"
+                size_str = result.file_size_formatted
+                line = f"  {result.data_view_id:20s}  {result.data_view_name:30s}  {size_str:>10s}  {result.duration:5.1f}s"
                 print(ConsoleColors.success("  ✓") + line[3:])
-                self.logger.info(f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {result.duration:5.1f}s")
+                self.logger.info(f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {size_str:>10s}  {result.duration:5.1f}s")
             print()
             self.logger.info("")
 
@@ -3206,9 +3318,9 @@ Note:
     parser.add_argument(
         '--log-level',
         type=str,
-        default=os.environ.get('CJA_LOG_LEVEL', 'INFO'),
+        default=os.environ.get('LOG_LEVEL', 'INFO'),
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help='Logging level (default: INFO, or CJA_LOG_LEVEL environment variable)'
+        help='Logging level (default: INFO, or LOG_LEVEL environment variable)'
     )
 
     parser.add_argument(
@@ -3378,15 +3490,10 @@ def generate_sample_config(output_path: str = "myconfig.sample.json") -> bool:
         True if successful, False otherwise
     """
     sample_config = {
-        "_comment": "CJA SDR Generator Configuration - Choose ONE authentication method below",
-        "_oauth_s2s": "OAuth Server-to-Server (Recommended) - Remove JWT fields if using this method",
         "org_id": "YOUR_ORG_ID@AdobeOrg",
         "client_id": "your_client_id_here",
         "secret": "your_client_secret_here",
-        "scopes": "openid, AdobeID, additional_info.projectedProductContext",
-        "_jwt_legacy": "JWT Authentication (Legacy) - Remove OAuth scopes field if using this method",
-        "tech_id": "your_tech_account_id@techacct.adobe.com",
-        "private_key": "path/to/your/private.key"
+        "scopes": "openid, AdobeID, additional_info.projectedProductContext"
     }
 
     print()
@@ -3407,17 +3514,7 @@ def generate_sample_config(output_path: str = "myconfig.sample.json") -> bool:
         print()
         print("  2. Edit myconfig.json with your Adobe Developer Console credentials")
         print()
-        print("  3. Choose ONE authentication method:")
-        print()
-        print("     OAuth Server-to-Server (Recommended):")
-        print("       - Keep: org_id, client_id, secret, scopes")
-        print("       - Remove: tech_id, private_key, _comment fields")
-        print()
-        print("     JWT (Legacy):")
-        print("       - Keep: org_id, client_id, secret, tech_id, private_key")
-        print("       - Remove: scopes, _comment fields")
-        print()
-        print("  4. Test your configuration:")
+        print("  3. Test your configuration:")
         print("     python cja_sdr_generator.py --list-dataviews")
         print()
         print("=" * 60)

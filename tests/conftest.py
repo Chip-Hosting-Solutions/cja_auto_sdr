@@ -1,9 +1,10 @@
 """Pytest configuration and fixtures for CJA SDR Generator tests"""
 import pytest
 import json
+import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 import pandas as pd
 
 
@@ -13,9 +14,8 @@ def mock_config_file(tmp_path):
     config_data = {
         "org_id": "test_org@AdobeOrg",
         "client_id": "test_client_id",
-        "tech_id": "test_tech_id@techacct.adobe.com",
         "secret": "test_secret",
-        "private_key": "test_private.key"
+        "scopes": "openid, AdobeID, additional_info.projectedProductContext"
     }
     config_file = tmp_path / "test_config.json"
     config_file.write_text(json.dumps(config_data))
@@ -224,3 +224,31 @@ def large_dimensions_df():
             "description": f"Description {i}" if i % 3 == 0 else ""  # Some missing
         })
     return pd.DataFrame(data)
+
+
+@pytest.fixture
+def mock_env_credentials():
+    """Create mock OAuth environment credentials"""
+    return {
+        'ORG_ID': 'test_org@AdobeOrg',
+        'CLIENT_ID': 'test_client_id',
+        'SECRET': 'test_secret',
+        'SCOPES': 'openid, AdobeID, additional_info.projectedProductContext'
+    }
+
+
+@pytest.fixture
+def clean_env():
+    """Fixture to temporarily clear credential environment variables"""
+    # Save current env vars
+    saved = {}
+    credential_vars = ['ORG_ID', 'CLIENT_ID', 'SECRET', 'SCOPES', 'SANDBOX']
+    for k in credential_vars:
+        if k in os.environ:
+            saved[k] = os.environ.pop(k)
+
+    yield
+
+    # Restore env vars
+    for k, v in saved.items():
+        os.environ[k] = v
