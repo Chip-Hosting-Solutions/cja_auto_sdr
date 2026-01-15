@@ -19,14 +19,17 @@ import functools
 from dataclasses import dataclass
 import tempfile
 import atexit
+import uuid
 
 # Attempt to load python-dotenv if available (optional dependency)
+_DOTENV_AVAILABLE = False
+_DOTENV_LOADED = False
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # Load .env file if present
+    _DOTENV_LOADED = load_dotenv()  # Returns True if .env file was found and loaded
     _DOTENV_AVAILABLE = True
 except ImportError:
-    _DOTENV_AVAILABLE = False
+    pass  # python-dotenv not installed
 
 # ==================== VERSION ====================
 
@@ -73,6 +76,24 @@ def _format_error_msg(operation: str, item_type: str = None, error: Exception = 
     if error:
         msg += f": {str(error)}"
     return msg
+
+
+def format_file_size(size_bytes: int) -> str:
+    """
+    Format file size in human-readable format.
+
+    Args:
+        size_bytes: Size in bytes
+
+    Returns:
+        Human-readable string (e.g., "1.5 MB", "256 KB", "42 B")
+    """
+    size = size_bytes
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 # ==================== CONSOLE COLORS ====================
 
@@ -141,11 +162,20 @@ DEFAULT_RETRY_CONFIG = {
     'jitter': True,             # Add randomization to prevent thundering herd
 }
 
+# Custom exception for retryable HTTP status codes
+class RetryableHTTPError(Exception):
+    """Exception raised when API returns a retryable HTTP status code."""
+    def __init__(self, status_code: int, message: str = ""):
+        self.status_code = status_code
+        super().__init__(f"HTTP {status_code}: {message}" if message else f"HTTP {status_code}")
+
+
 # Exceptions that should trigger a retry (transient errors)
 RETRYABLE_EXCEPTIONS = (
     ConnectionError,
     TimeoutError,
     OSError,  # Includes network-related errors
+    RetryableHTTPError,  # Custom exception for HTTP status codes
 )
 
 # HTTP status codes that should trigger a retry
@@ -282,7 +312,21 @@ def make_api_call_with_retry(
 
     for attempt in range(max_retries + 1):
         try:
-            return api_func(*args, **kwargs)
+            result = api_func(*args, **kwargs)
+
+            # Check for HTTP status code in response (if exposed by the library)
+            status_code = None
+            if hasattr(result, 'status_code'):
+                status_code = result.status_code
+            elif isinstance(result, dict) and 'status_code' in result:
+                status_code = result['status_code']
+            elif isinstance(result, dict) and 'error' in result and isinstance(result['error'], dict):
+                status_code = result['error'].get('status_code')
+
+            if status_code is not None and status_code in RETRYABLE_STATUS_CODES:
+                raise RetryableHTTPError(status_code, f"Retryable status from {operation_name}")
+
+            return result
         except RETRYABLE_EXCEPTIONS as e:
             last_exception = e
 
@@ -327,12 +371,7 @@ class ProcessingResult:
     @property
     def file_size_formatted(self) -> str:
         """Return human-readable file size"""
-        size = self.file_size_bytes
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
-            size /= 1024
-        return f"{size:.1f} TB"
+        return format_file_size(self.file_size_bytes)
 
 # ==================== LOGGING SETUP ====================
 
@@ -700,7 +739,7 @@ CONFIG_SCHEMA = {
     }
 }
 
-# Environment variable to config field mapping
+# Environment variable to config field mapping (for credentials)
 ENV_VAR_MAPPING = {
     'org_id': 'ORG_ID',
     'client_id': 'CLIENT_ID',
@@ -708,6 +747,9 @@ ENV_VAR_MAPPING = {
     'scopes': 'SCOPES',
     'sandbox': 'SANDBOX',
 }
+
+# Additional environment variables (non-credential settings)
+# OUTPUT_DIR - Output directory for generated files (used by --output-dir)
 
 
 def load_credentials_from_env() -> Optional[Dict[str, str]]:
@@ -918,6 +960,15 @@ def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = 
         logger.info("=" * 60)
         logger.info("INITIALIZING CJA CONNECTION")
         logger.info("=" * 60)
+
+        # Log dotenv status for debugging
+        if _DOTENV_AVAILABLE:
+            if _DOTENV_LOADED:
+                logger.debug(".env file found and loaded")
+            else:
+                logger.debug(".env file not found (python-dotenv available but no .env file)")
+        else:
+            logger.debug("python-dotenv not installed (.env files will not be auto-loaded)")
 
         # Try environment variables first
         env_credentials = load_credentials_from_env()
@@ -2935,7 +2986,9 @@ class BatchProcessor:
         self.quiet = quiet
         self.skip_validation = skip_validation
         self.max_issues = max_issues
+        self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
         self.logger = setup_logging(batch_mode=True, log_level=log_level)
+        self.logger.info(f"Batch ID: {self.batch_id}")
 
         # Create output directory if it doesn't exist
         try:
@@ -2960,13 +3013,13 @@ class BatchProcessor:
             Dictionary with processing results
         """
         self.logger.info("=" * 60)
-        self.logger.info("BATCH PROCESSING START")
+        self.logger.info(f"[{self.batch_id}] BATCH PROCESSING START")
         self.logger.info("=" * 60)
-        self.logger.info(f"Data views to process: {len(data_view_ids)}")
-        self.logger.info(f"Parallel workers: {self.workers}")
-        self.logger.info(f"Continue on error: {self.continue_on_error}")
-        self.logger.info(f"Output directory: {self.output_dir}")
-        self.logger.info(f"Output format: {self.output_format}")
+        self.logger.info(f"[{self.batch_id}] Data views to process: {len(data_view_ids)}")
+        self.logger.info(f"[{self.batch_id}] Parallel workers: {self.workers}")
+        self.logger.info(f"[{self.batch_id}] Continue on error: {self.continue_on_error}")
+        self.logger.info(f"[{self.batch_id}] Output directory: {self.output_dir}")
+        self.logger.info(f"[{self.batch_id}] Output format: {self.output_format}")
         self.logger.info("=" * 60)
 
         batch_start_time = time.time()
@@ -3010,21 +3063,27 @@ class BatchProcessor:
                         if result.success:
                             results['successful'].append(result)
                             pbar.set_postfix_str(f"✓ {dv_id[:20]}", refresh=True)
-                            self.logger.info(f"✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
+                            self.logger.info(f"[{self.batch_id}] ✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
                         else:
                             results['failed'].append(result)
                             pbar.set_postfix_str(f"✗ {dv_id[:20]}", refresh=True)
-                            self.logger.error(f"✗ {dv_id}: FAILED - {result.error_message}")
+                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: FAILED - {result.error_message}")
 
                             if not self.continue_on_error:
-                                self.logger.warning("Stopping batch processing due to error (use --continue-on-error to continue)")
+                                self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error (use --continue-on-error to continue)")
                                 # Cancel remaining tasks
                                 for f in future_to_dv:
                                     f.cancel()
                                 break
 
+                    except (KeyboardInterrupt, SystemExit):
+                        # Allow graceful shutdown on Ctrl+C
+                        self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
+                        for f in future_to_dv:
+                            f.cancel()
+                        raise
                     except Exception as e:
-                        self.logger.error(f"✗ {dv_id}: EXCEPTION - {str(e)}")
+                        self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {str(e)}")
                         results['failed'].append(ProcessingResult(
                             data_view_id=dv_id,
                             data_view_name="Unknown",
@@ -3034,7 +3093,7 @@ class BatchProcessor:
                         ))
 
                         if not self.continue_on_error:
-                            self.logger.warning("Stopping batch processing due to error")
+                            self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
                             break
 
                     pbar.update(1)
@@ -3045,16 +3104,6 @@ class BatchProcessor:
         self.print_summary(results)
 
         return results
-
-    @staticmethod
-    def _format_file_size(size_bytes: int) -> str:
-        """Format file size in human-readable format"""
-        size = size_bytes
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
-            size /= 1024
-        return f"{size:.1f} TB"
 
     def print_summary(self, results: Dict):
         """Print detailed batch processing summary with color-coded output"""
@@ -3067,23 +3116,23 @@ class BatchProcessor:
 
         # Calculate total output size
         total_file_size = sum(r.file_size_bytes for r in results['successful'])
-        total_size_formatted = self._format_file_size(total_file_size)
+        total_size_formatted = format_file_size(total_file_size)
 
         # Log to file
         self.logger.info("")
         self.logger.info("=" * 60)
-        self.logger.info("BATCH PROCESSING SUMMARY")
+        self.logger.info(f"[{self.batch_id}] BATCH PROCESSING SUMMARY")
         self.logger.info("=" * 60)
-        self.logger.info(f"Total data views: {total}")
-        self.logger.info(f"Successful: {successful_count}")
-        self.logger.info(f"Failed: {failed_count}")
-        self.logger.info(f"Success rate: {success_rate:.1f}%")
-        self.logger.info(f"Total output size: {total_size_formatted}")
-        self.logger.info(f"Total duration: {total_duration:.1f}s")
-        self.logger.info(f"Average per data view: {avg_duration:.1f}s")
+        self.logger.info(f"[{self.batch_id}] Total data views: {total}")
+        self.logger.info(f"[{self.batch_id}] Successful: {successful_count}")
+        self.logger.info(f"[{self.batch_id}] Failed: {failed_count}")
+        self.logger.info(f"[{self.batch_id}] Success rate: {success_rate:.1f}%")
+        self.logger.info(f"[{self.batch_id}] Total output size: {total_size_formatted}")
+        self.logger.info(f"[{self.batch_id}] Total duration: {total_duration:.1f}s")
+        self.logger.info(f"[{self.batch_id}] Average per data view: {avg_duration:.1f}s")
         if total_duration > 0:
             throughput = total / total_duration
-            self.logger.info(f"Throughput: {throughput:.2f} views/second")
+            self.logger.info(f"[{self.batch_id}] Throughput: {throughput:.2f} views/second")
         self.logger.info("=" * 60)
 
         # Print color-coded console output
@@ -3198,6 +3247,10 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger)
         else:
             print("  ⚠ API connection returned None - may be unstable")
             available_dvs = []
+    except (KeyboardInterrupt, SystemExit):
+        print()
+        print(ConsoleColors.warning("Dry-run cancelled."))
+        raise
     except Exception as e:
         print(f"  ✗ API connection failed: {str(e)}")
         all_passed = False
@@ -3238,6 +3291,10 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger)
                 print(f"  ✗ {dv_id}: Not found or no access")
                 invalid_count += 1
                 all_passed = False
+        except (KeyboardInterrupt, SystemExit):
+            print()
+            print(ConsoleColors.warning("Validation cancelled."))
+            raise
         except Exception as e:
             print(f"  ✗ {dv_id}: Error - {str(e)}")
             invalid_count += 1
@@ -3364,8 +3421,8 @@ Note:
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='.',
-        help='Output directory for generated files (default: current directory)'
+        default=os.environ.get('OUTPUT_DIR', '.'),
+        help='Output directory for generated files (default: current directory, or OUTPUT_DIR env var)'
     )
 
     parser.add_argument(
@@ -3422,6 +3479,27 @@ Note:
     )
 
     parser.add_argument(
+        '--max-retries',
+        type=int,
+        default=DEFAULT_RETRY_CONFIG['max_retries'],
+        help=f'Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG["max_retries"]})'
+    )
+
+    parser.add_argument(
+        '--retry-base-delay',
+        type=float,
+        default=DEFAULT_RETRY_CONFIG['base_delay'],
+        help=f'Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["base_delay"]})'
+    )
+
+    parser.add_argument(
+        '--retry-max-delay',
+        type=float,
+        default=DEFAULT_RETRY_CONFIG['max_delay'],
+        help=f'Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["max_delay"]})'
+    )
+
+    parser.add_argument(
         '--format',
         type=str,
         default='excel',
@@ -3458,6 +3536,12 @@ Note:
         '--sample-config',
         action='store_true',
         help='Generate a sample configuration file and exit'
+    )
+
+    parser.add_argument(
+        '--validate-config',
+        action='store_true',
+        help='Validate configuration and API connectivity without processing any data views'
     )
 
     parser.add_argument(
@@ -3538,6 +3622,11 @@ def list_dataviews(config_file: str = "myconfig.json") -> bool:
         print("  python cja_sdr_generator.py --sample-config")
         return False
 
+    except (KeyboardInterrupt, SystemExit):
+        print()
+        print(ConsoleColors.warning("Operation cancelled."))
+        raise
+
     except Exception as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
         return False
@@ -3587,9 +3676,138 @@ def generate_sample_config(output_path: str = "myconfig.sample.json") -> bool:
 
         return True
 
-    except Exception as e:
+    except (PermissionError, OSError, IOError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to create sample config: {str(e)}"))
         return False
+
+
+# ==================== VALIDATE CONFIG ====================
+
+def validate_config_only(config_file: str = "myconfig.json") -> bool:
+    """
+    Validate configuration file and API connectivity without processing data views.
+
+    Tests:
+        1. Environment variables or config file exists
+        2. Required credentials are present
+        3. CJA API connection works
+
+    Args:
+        config_file: Path to CJA configuration file
+
+    Returns:
+        True if configuration is valid and API is reachable
+    """
+    print()
+    print("=" * 60)
+    print("CONFIGURATION VALIDATION")
+    print("=" * 60)
+    print()
+
+    all_passed = True
+
+    # Step 1: Check environment variables
+    print("[1/3] Checking credentials...")
+    env_credentials = load_credentials_from_env()
+
+    if env_credentials:
+        print(f"  ✓ Environment variables found")
+        if validate_env_credentials(env_credentials, logging.getLogger(__name__)):
+            print(f"  ✓ Environment credentials are valid")
+        else:
+            print(f"  ⚠ Environment credentials incomplete, checking config file...")
+            env_credentials = None  # Fall through to config file check
+    else:
+        print(f"  - No environment variables set")
+
+    # Step 2: Check config file if no valid env credentials
+    if not env_credentials:
+        print()
+        print("[2/3] Checking configuration file...")
+        config_path = Path(config_file)
+        if config_path.exists():
+            print(f"  ✓ Config file found: {config_file}")
+            try:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                print(f"  ✓ Config file is valid JSON")
+
+                # Check required fields
+                required = ['org_id', 'client_id', 'secret']
+                missing = [f for f in required if f not in config or not config[f]]
+                if missing:
+                    print(f"  ✗ Missing required fields: {', '.join(missing)}")
+                    all_passed = False
+                else:
+                    print(f"  ✓ Required fields present")
+            except json.JSONDecodeError as e:
+                print(f"  ✗ Invalid JSON: {str(e)}")
+                all_passed = False
+        else:
+            print(f"  ✗ Config file not found: {config_file}")
+            print()
+            print("  To create a sample config file:")
+            print("    python cja_sdr_generator.py --sample-config")
+            print()
+            print("  Or set environment variables:")
+            print("    export ORG_ID=your_org_id@AdobeOrg")
+            print("    export CLIENT_ID=your_client_id")
+            print("    export SECRET=your_client_secret")
+            all_passed = False
+    else:
+        print()
+        print("[2/3] Skipping config file check (using environment credentials)")
+
+    if not all_passed:
+        print()
+        print("=" * 60)
+        print(ConsoleColors.error("VALIDATION FAILED - Fix issues above"))
+        print("=" * 60)
+        return False
+
+    # Step 3: Test API connection
+    print()
+    print("[3/3] Testing API connection...")
+    try:
+        # Initialize CJA (will use env vars or config file automatically)
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.WARNING)  # Suppress normal output
+
+        if env_credentials:
+            _config_from_env(env_credentials, logger)
+        else:
+            cjapy.importConfigFile(config_file)
+
+        cja = cjapy.CJA()
+        print(f"  ✓ CJA client initialized")
+
+        # Test connection with API call
+        available_dvs = cja.getDataViews()
+        if available_dvs is not None:
+            dv_count = len(available_dvs) if hasattr(available_dvs, '__len__') else 0
+            print(f"  ✓ API connection successful")
+            print(f"  ✓ Found {dv_count} accessible data view(s)")
+        else:
+            print(f"  ⚠ API returned empty response - connection may be unstable")
+
+    except (KeyboardInterrupt, SystemExit):
+        print()
+        print(ConsoleColors.warning("Validation cancelled."))
+        raise
+    except Exception as e:
+        print(f"  ✗ API connection failed: {str(e)}")
+        all_passed = False
+
+    # Summary
+    print()
+    print("=" * 60)
+    if all_passed:
+        print(ConsoleColors.success("VALIDATION PASSED - Configuration is valid!"))
+    else:
+        print(ConsoleColors.error("VALIDATION FAILED - Check errors above"))
+    print("=" * 60)
+
+    return all_passed
 
 
 # ==================== MAIN FUNCTION ====================
@@ -3622,6 +3840,20 @@ def main():
     if args.max_issues < 0:
         print(ConsoleColors.error("ERROR: --max-issues cannot be negative"), file=sys.stderr)
         sys.exit(1)
+    if args.max_retries < 0:
+        print(ConsoleColors.error("ERROR: --max-retries cannot be negative"), file=sys.stderr)
+        sys.exit(1)
+    if args.retry_base_delay < 0:
+        print(ConsoleColors.error("ERROR: --retry-base-delay cannot be negative"), file=sys.stderr)
+        sys.exit(1)
+    if args.retry_max_delay < args.retry_base_delay:
+        print(ConsoleColors.error("ERROR: --retry-max-delay must be >= --retry-base-delay"), file=sys.stderr)
+        sys.exit(1)
+
+    # Update global retry config with CLI arguments
+    DEFAULT_RETRY_CONFIG['max_retries'] = args.max_retries
+    DEFAULT_RETRY_CONFIG['base_delay'] = args.retry_base_delay
+    DEFAULT_RETRY_CONFIG['max_delay'] = args.retry_max_delay
 
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
@@ -3631,6 +3863,11 @@ def main():
     # Handle --list-dataviews mode (no data view required)
     if args.list_dataviews:
         success = list_dataviews(args.config_file)
+        sys.exit(0 if success else 1)
+
+    # Handle --validate-config mode (no data view required)
+    if args.validate_config:
+        success = validate_config_only(args.config_file)
         sys.exit(0 if success else 1)
 
     # Get data views from arguments

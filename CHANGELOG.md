@@ -24,11 +24,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Batch Processing Improvements
 - **File Size in Batch Summary**: Each successful data view now shows its output file size
 - **Total Output Size**: Batch summary includes total combined output size for all files
+- **Correlation IDs**: Batch processing now includes 8-character correlation IDs in all log messages for easier log tracing
 
 #### Data Quality Improvements
 - **Complete Item Lists**: Data quality issues now show ALL affected item names
   - Previously limited to 5-20 items depending on issue type
   - Provides complete visibility for large data views with many issues
+
+#### New CLI Commands
+- **`--validate-config`**: Validate configuration and API connectivity without processing any data views
+  - Tests environment variables or config file
+  - Verifies API connection
+  - Reports number of accessible data views
+
+#### Configurable Retry Settings
+- **`--max-retries`**: Maximum API retry attempts (default: 3)
+- **`--retry-base-delay`**: Initial retry delay in seconds (default: 1.0)
+- **`--retry-max-delay`**: Maximum retry delay in seconds (default: 30.0)
+
+#### Environment Variable Enhancements
+- **`OUTPUT_DIR`**: Output directory can now be set via environment variable
+- **`.env` Loading Feedback**: Debug logging shows whether `.env` file was loaded
+
+#### Test Infrastructure
+- **Coverage Reporting**: pytest-cov integration with coverage threshold
+- **pytest-cov Dependency**: Added as dev dependency for coverage reporting
+
+### Fixed
+
+#### Critical: Exception Handling
+- **Graceful Ctrl+C**: Fixed overly broad exception handlers that prevented graceful shutdown
+  - Batch processing now properly handles `KeyboardInterrupt` and `SystemExit`
+  - Dry-run mode properly handles interruption
+  - List data views command properly handles interruption
+  - All operations now allow graceful cancellation with Ctrl+C
+
+#### HTTP Status Code Retry
+- **Status Code Handling**: `RETRYABLE_STATUS_CODES` (408, 429, 500, 502, 503, 504) now properly trigger retries
+  - Previously defined but never used
+  - Added `RetryableHTTPError` exception class
+  - API calls now check response status codes and retry appropriately
+
+#### Code Quality
+- **Deduplicated File Size Formatting**: Consolidated duplicate `_format_file_size` implementations into single `format_file_size()` utility function
 
 ### Removed
 
