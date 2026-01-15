@@ -109,14 +109,16 @@ Create `myconfig.json` with your Adobe credentials:
 
 ```bash
 # Single data view
-uv run python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
+cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 
 # Multiple data views (parallel processing)
-uv run python cja_sdr_generator.py dv_ID1 dv_ID2 dv_ID3
+cja_auto_sdr dv_ID1 dv_ID2 dv_ID3
 
 # List available data views
-uv run python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --list-dataviews
 ```
+
+> **Note:** After `uv sync`, run commands with `uv run cja_auto_sdr` or activate the venv first with `source .venv/bin/activate`.
 
 ### 4. Review Output
 
@@ -127,12 +129,12 @@ uv run python cja_sdr_generator.py --list-dataviews
 
 | Task | Command |
 |------|---------|
-| Single data view | `uv run python cja_sdr_generator.py dv_12345` |
-| Batch processing | `uv run python cja_sdr_generator.py dv_1 dv_2 dv_3` |
-| Custom output location | `uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports` |
-| Validate only (no report) | `uv run python cja_sdr_generator.py dv_12345 --dry-run` |
-| Skip validation (faster) | `uv run python cja_sdr_generator.py dv_12345 --skip-validation` |
-| Generate all formats | `uv run python cja_sdr_generator.py dv_12345 --format all` |
+| Single data view | `cja_auto_sdr dv_12345` |
+| Batch processing | `cja_auto_sdr dv_1 dv_2 dv_3` |
+| Custom output location | `cja_auto_sdr dv_12345 --output-dir ./reports` |
+| Validate only (no report) | `cja_auto_sdr dv_12345 --dry-run` |
+| Skip validation (faster) | `cja_auto_sdr dv_12345 --skip-validation` |
+| Generate all formats | `cja_auto_sdr dv_12345 --format all` |
 
 ## Documentation
 

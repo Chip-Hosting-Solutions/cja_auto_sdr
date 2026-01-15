@@ -20,22 +20,22 @@ Version 3.0 supports multiple output formats beyond Excel, providing flexible in
 
 ```bash
 # Excel format (default)
-python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 
 # CSV format
-python cja_sdr_generator.py dv_12345 --format csv
+cja_auto_sdr dv_12345 --format csv
 
 # JSON format
-python cja_sdr_generator.py dv_12345 --format json
+cja_auto_sdr dv_12345 --format json
 
 # HTML format
-python cja_sdr_generator.py dv_12345 --format html
+cja_auto_sdr dv_12345 --format html
 
 # All formats at once
-python cja_sdr_generator.py dv_12345 --format all
+cja_auto_sdr dv_12345 --format all
 
 # Batch processing with CSV output
-python cja_sdr_generator.py --batch dv_12345 dv_67890 --format csv --workers 4
+cja_auto_sdr --batch dv_12345 dv_67890 --format csv --workers 4
 ```
 
 ---
@@ -99,7 +99,7 @@ python cja_sdr_generator.py --batch dv_12345 dv_67890 --format csv --workers 4
 **Example Use Case:**
 ```bash
 # Export to CSV and process with pandas
-python cja_sdr_generator.py dv_12345 --format csv
+cja_auto_sdr dv_12345 --format csv
 
 # Then in Python:
 import pandas as pd
@@ -238,7 +238,7 @@ console.log(`Metrics: ${data.metrics.length}`);
 **Example:**
 ```bash
 # Generate HTML and open in browser
-python cja_sdr_generator.py dv_12345 --format html
+cja_auto_sdr dv_12345 --format html
 open CJA_DataView_myview_SDR.html  # macOS
 # or
 xdg-open CJA_DataView_myview_SDR.html  # Linux
@@ -261,7 +261,7 @@ Generate all output formats in a single run for complete documentation packages.
 **Example:**
 ```bash
 # Generate complete documentation package
-python cja_sdr_generator.py dv_12345 --format all --output-dir ./documentation
+cja_auto_sdr dv_12345 --format all --output-dir ./documentation
 ```
 
 **Best for:**
@@ -283,7 +283,7 @@ python cja_sdr_generator.py dv_12345 --format all --output-dir ./documentation
 DATE=$(date +%Y%m%d)
 OUTPUT_DIR="./reports/$DATE"
 
-python cja_sdr_generator.py \
+cja_auto_sdr \
   --batch dv_production dv_staging \
   --format html \
   --output-dir "$OUTPUT_DIR" \
@@ -368,7 +368,7 @@ for dv in "${DATA_VIEWS[@]}"; do
   echo "Processing $dv..."
 
   # Generate all formats
-  python cja_sdr_generator.py "$dv" \
+  cja_auto_sdr "$dv" \
     --format all \
     --output-dir "./audit/$(date +%Y-%m-%d)/$dv"
 done
@@ -492,7 +492,7 @@ uv run pytest tests/test_output_formats.py::TestHTMLOutput -v
 **Before:**
 
 ```bash
-python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 # Always generates Excel
 ```
 
@@ -500,13 +500,13 @@ python cja_sdr_generator.py dv_12345
 
 ```bash
 # Explicit Excel (same as before)
-python cja_sdr_generator.py dv_12345 --format excel
+cja_auto_sdr dv_12345 --format excel
 
 # Or choose other formats
-python cja_sdr_generator.py dv_12345 --format csv
-python cja_sdr_generator.py dv_12345 --format json
-python cja_sdr_generator.py dv_12345 --format html
-python cja_sdr_generator.py dv_12345 --format all
+cja_auto_sdr dv_12345 --format csv
+cja_auto_sdr dv_12345 --format json
+cja_auto_sdr dv_12345 --format html
+cja_auto_sdr dv_12345 --format all
 ```
 
 **Backward Compatibility:** The default format is Excel, so existing scripts continue to work without changes.

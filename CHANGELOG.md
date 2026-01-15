@@ -5,9 +5,19 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.8] - 2026-01-14
+## [3.0.8] - 2026-01-15
 
 ### Added
+
+#### Console Script Entry Points
+- **`cja_auto_sdr` command**: Run the tool directly without `python` prefix
+  - `cja_auto_sdr dv_12345` instead of `uv run python cja_sdr_generator.py dv_12345`
+  - Also available as `cja-auto-sdr` (hyphenated version)
+- **Proper packaging**: Added `[build-system]` with hatchling for standard Python packaging
+- **Multiple installation options**:
+  - `uv run cja_auto_sdr` - run within uv-managed environment
+  - `pip install .` then `cja_auto_sdr` - install globally or in any virtualenv
+  - Original `python cja_sdr_generator.py` continues to work
 
 #### Environment Variable Credentials Support
 - **Environment Variable Loading**: Credentials can now be loaded from environment variables
@@ -584,16 +594,19 @@ Batch Processing (10 data views):
 
 4. **Update scripts** (optional but recommended):
    ```bash
-   # Old way (still works)
-   python cja_sdr_generator.py dv_12345
+   # Recommended (v3.0.8+): Console script
+   cja_auto_sdr dv_12345
 
-   # New way (recommended)
-   uv run python cja_sdr_generator.py dv_12345
+   # Alternative: Using uv run
+   uv run cja_auto_sdr dv_12345
+
+   # Legacy (still works)
+   python cja_sdr_generator.py dv_12345
    ```
 
 5. **Explore new features**:
    - Try different output formats: `--format csv`, `--format json`, `--format html`
-   - Use batch processing: `uv run python cja_sdr_generator.py dv_1 dv_2 dv_3`
+   - Use batch processing: `cja_auto_sdr dv_1 dv_2 dv_3`
    - Review new documentation guides
 
 ---

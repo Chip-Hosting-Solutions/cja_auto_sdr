@@ -5,7 +5,20 @@ Complete command-line interface documentation for the CJA SDR Generator.
 ## Basic Syntax
 
 ```bash
-uv run python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
+cja_auto_sdr [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
+```
+
+### Alternative Invocations
+
+```bash
+# Using uv (recommended during development)
+uv run cja_auto_sdr [OPTIONS] DATA_VIEW_ID [...]
+
+# Hyphenated version (same functionality)
+cja-auto-sdr [OPTIONS] DATA_VIEW_ID [...]
+
+# Direct Python invocation (still supported)
+python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [...]
 ```
 
 ## Arguments
@@ -103,90 +116,90 @@ uv run python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
 
 ```bash
 # Basic usage
-uv run python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+cja_auto_sdr dv_677ea9291244fd082f02dd42
 
 # With custom output directory
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports
+cja_auto_sdr dv_12345 --output-dir ./reports
 
 # With custom config file
-uv run python cja_sdr_generator.py dv_12345 --config-file ./prod_config.json
+cja_auto_sdr dv_12345 --config-file ./prod_config.json
 
 # With debug logging
-uv run python cja_sdr_generator.py dv_12345 --log-level DEBUG
+cja_auto_sdr dv_12345 --log-level DEBUG
 ```
 
 ### Multiple Data Views
 
 ```bash
 # Automatic batch processing (detected from multiple IDs)
-uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+cja_auto_sdr dv_12345 dv_67890 dv_abcde
 
 # Explicit batch mode
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde
 
 # Custom worker count
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 8
+cja_auto_sdr --batch dv_12345 dv_67890 --workers 8
 
 # Continue on errors
-uv run python cja_sdr_generator.py --batch dv_* --continue-on-error
+cja_auto_sdr --batch dv_* --continue-on-error
 ```
 
 ### Discovery Commands
 
 ```bash
 # Validate configuration and API connectivity (no data view needed)
-uv run python cja_sdr_generator.py --validate-config
+cja_auto_sdr --validate-config
 
 # List all accessible data views
-uv run python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --list-dataviews
 
 # Generate sample configuration
-uv run python cja_sdr_generator.py --sample-config
+cja_auto_sdr --sample-config
 
 # Validate config without generating report
-uv run python cja_sdr_generator.py dv_12345 --dry-run
+cja_auto_sdr dv_12345 --dry-run
 ```
 
 ### Performance Optimization
 
 ```bash
 # Production mode (minimal logging)
-uv run python cja_sdr_generator.py dv_12345 --production
+cja_auto_sdr dv_12345 --production
 
 # Skip validation for faster processing
-uv run python cja_sdr_generator.py dv_12345 --skip-validation
+cja_auto_sdr dv_12345 --skip-validation
 
 # Enable caching for repeated runs
-uv run python cja_sdr_generator.py dv_12345 --enable-cache
+cja_auto_sdr dv_12345 --enable-cache
 
 # Quiet mode
-uv run python cja_sdr_generator.py dv_12345 --quiet
+cja_auto_sdr dv_12345 --quiet
 ```
 
 ### Output Formats
 
 ```bash
 # Excel (default)
-uv run python cja_sdr_generator.py dv_12345 --format excel
+cja_auto_sdr dv_12345 --format excel
 
 # CSV files
-uv run python cja_sdr_generator.py dv_12345 --format csv
+cja_auto_sdr dv_12345 --format csv
 
 # JSON
-uv run python cja_sdr_generator.py dv_12345 --format json
+cja_auto_sdr dv_12345 --format json
 
 # HTML report
-uv run python cja_sdr_generator.py dv_12345 --format html
+cja_auto_sdr dv_12345 --format html
 
 # All formats
-uv run python cja_sdr_generator.py dv_12345 --format all
+cja_auto_sdr dv_12345 --format all
 ```
 
 ### Production Examples
 
 ```bash
 # Full production batch
-uv run python cja_sdr_generator.py --batch \
+cja_auto_sdr --batch \
   dv_prod_12345 dv_staging_67890 dv_dev_abcde \
   --workers 4 \
   --output-dir ./sdr_reports \
@@ -194,13 +207,13 @@ uv run python cja_sdr_generator.py --batch \
   --log-level WARNING
 
 # Optimized run with caching
-uv run python cja_sdr_generator.py dv_12345 \
+cja_auto_sdr dv_12345 \
   --production \
   --enable-cache \
   --skip-validation
 
 # Read data views from file
-uv run python cja_sdr_generator.py --batch $(cat dataviews.txt)
+cja_auto_sdr --batch $(cat dataviews.txt)
 ```
 
 ## Output Files

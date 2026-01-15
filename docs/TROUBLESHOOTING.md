@@ -78,7 +78,7 @@ INFO -   1. Production Analytics (ID: dv_abc123)
 2. Verify you have access permissions to the data view
 3. Use `--list-dataviews` to see available data views:
    ```bash
-   uv run python cja_sdr_generator.py --list-dataviews
+   cja_auto_sdr --list-dataviews
    ```
 4. Check with admin if you need access granted
 
@@ -93,10 +93,10 @@ Invalid data view ID format: invalid_id, test123
 Data view IDs must start with `dv_`:
 ```bash
 # Wrong
-uv run python cja_sdr_generator.py 12345
+cja_auto_sdr 12345
 
 # Correct
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 ```
 
 ## CLI Argument Errors
@@ -111,10 +111,10 @@ error: the following arguments are required: DATA_VIEW_ID
 **Solution:**
 Provide at least one data view ID:
 ```bash
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 
 # For help
-uv run python cja_sdr_generator.py --help
+cja_auto_sdr --help
 ```
 
 ### Unknown Argument
@@ -122,7 +122,7 @@ uv run python cja_sdr_generator.py --help
 **Solution:**
 Check available options:
 ```bash
-uv run python cja_sdr_generator.py --help
+cja_auto_sdr --help
 ```
 
 ## Dependency Issues
@@ -196,7 +196,7 @@ source .venv/bin/activate  # macOS/Linux
 .venv\Scripts\activate     # Windows
 
 # Or use uv run (handles venv automatically)
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 ```
 
 ## File Errors
@@ -220,7 +220,7 @@ PermissionError: [Errno 13] Permission denied: 'output.xlsx'
 mkdir -p ./reports
 
 # Then run
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports
+cja_auto_sdr dv_12345 --output-dir ./reports
 ```
 
 ### Empty Output File
@@ -246,7 +246,7 @@ uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports
 **Solutions:**
 ```bash
 # Reduce workers
-uv run python cja_sdr_generator.py --batch dv_* --workers 2
+cja_auto_sdr --batch dv_* --workers 2
 
 # Check logs for rate limiting
 grep "rate limit" logs/*.log
@@ -257,7 +257,7 @@ grep "rate limit" logs/*.log
 **Solution:**
 Use `--continue-on-error`:
 ```bash
-uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --continue-on-error
+cja_auto_sdr --batch dv_1 dv_2 dv_3 --continue-on-error
 ```
 
 Check batch summary to see which failed and why.
@@ -276,10 +276,10 @@ Check batch summary to see which failed and why.
 **Solutions:**
 ```bash
 # Skip validation if not needed
-uv run python cja_sdr_generator.py dv_12345 --skip-validation
+cja_auto_sdr dv_12345 --skip-validation
 
 # Use production mode
-uv run python cja_sdr_generator.py dv_12345 --production
+cja_auto_sdr dv_12345 --production
 
 # Check network latency
 ping adobe.io
@@ -290,7 +290,7 @@ ping adobe.io
 ### Validate Config Without Running
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 --dry-run
+cja_auto_sdr dv_12345 --dry-run
 ```
 
 ### Check JSON Syntax
@@ -302,7 +302,7 @@ python -c "import json; json.load(open('myconfig.json'))"
 ### Generate Sample Config
 
 ```bash
-uv run python cja_sdr_generator.py --sample-config
+cja_auto_sdr --sample-config
 ```
 
 ## Log File Analysis

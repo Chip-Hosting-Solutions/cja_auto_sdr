@@ -179,7 +179,7 @@ sample_outputs/
 
 ### Help Output
 ```bash
-$ python cja_sdr_generator.py --help
+$ cja_auto_sdr --help
 ```
 
 **Verified Flags:**

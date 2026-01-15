@@ -15,7 +15,7 @@ Quickly understand the breadth and depth of your CJA setup:
 **Best for:** Quarterly reviews, new team member onboarding
 
 ```bash
-uv run python cja_sdr_generator.py dv_production --output-dir ./audits/$(date +%Y%m%d)
+cja_auto_sdr dv_production --output-dir ./audits/$(date +%Y%m%d)
 ```
 
 ### Implementation Verification
@@ -40,7 +40,7 @@ Maintain high-quality analytics configuration:
 
 ```bash
 # Focus on quality issues only
-uv run python cja_sdr_generator.py dv_12345 --max-issues 20
+cja_auto_sdr dv_12345 --max-issues 20
 ```
 
 ### Team Onboarding
@@ -65,10 +65,10 @@ Document configuration before and after changes:
 
 ```bash
 # Before change
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./baseline
+cja_auto_sdr dv_12345 --output-dir ./baseline
 
 # After change
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./after_change
+cja_auto_sdr dv_12345 --output-dir ./after_change
 ```
 
 ### Multi-Environment Comparison
@@ -82,7 +82,7 @@ Compare configurations across environments:
 **Best for:** DevOps, environment management
 
 ```bash
-uv run python cja_sdr_generator.py dv_dev dv_staging dv_prod \
+cja_auto_sdr dv_dev dv_staging dv_prod \
   --output-dir ./env_comparison
 ```
 
@@ -119,10 +119,10 @@ Run SDR generation regularly to track changes:
 crontab -e
 
 # Weekly audit on Monday at 9 AM
-0 9 * * 1 cd /path/to/project && uv run python cja_sdr_generator.py dv_production
+0 9 * * 1 cd /path/to/project && cja_auto_sdr dv_production
 
 # Daily batch at 2 AM
-0 2 * * * cd /path/to/project && uv run python cja_sdr_generator.py \
+0 2 * * * cd /path/to/project && cja_auto_sdr \
   dv_prod_1 dv_prod_2 --output-dir /reports/$(date +\%Y\%m\%d) --continue-on-error
 ```
 
@@ -130,7 +130,7 @@ crontab -e
 
 ```powershell
 $action = New-ScheduledTaskAction -Execute "uv" `
-  -Argument "run python cja_sdr_generator.py dv_production" `
+  -Argument "run cja_auto_sdr dv_production" `
   -WorkingDirectory "C:\path\to\project"
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 9am
 Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Weekly"
@@ -145,7 +145,7 @@ Create reusable scripts for common operations:
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")/.."
-uv run python cja_sdr_generator.py dv_production \
+cja_auto_sdr dv_production \
   --output-dir ./reports/production \
   --log-level WARNING
 ```
@@ -155,7 +155,7 @@ uv run python cja_sdr_generator.py dv_production \
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")/.."
-uv run python cja_sdr_generator.py \
+cja_auto_sdr \
   dv_production dv_staging dv_development \
   --output-dir ./reports/$(date +%Y%m%d) \
   --continue-on-error
@@ -174,7 +174,7 @@ dv_development
 
 Then:
 ```bash
-uv run python cja_sdr_generator.py $(cat dataviews.txt) --continue-on-error
+cja_auto_sdr $(cat dataviews.txt) --continue-on-error
 ```
 
 ### Data Quality Management
@@ -190,7 +190,7 @@ uv run python cja_sdr_generator.py $(cat dataviews.txt) --continue-on-error
 
 ```bash
 # Generate weekly reports with timestamps
-uv run python cja_sdr_generator.py dv_12345 \
+cja_auto_sdr dv_12345 \
   --output-dir ./quality_trends/week_$(date +%V)
 ```
 
@@ -234,10 +234,10 @@ logs/
 
 ```bash
 # Quick documentation (skip validation)
-uv run python cja_sdr_generator.py dv_12345 --skip-validation
+cja_auto_sdr dv_12345 --skip-validation
 
 # Cache for repeated runs
-uv run python cja_sdr_generator.py dv_12345 --enable-cache
+cja_auto_sdr dv_12345 --enable-cache
 ```
 
 ### CI/CD Integration
@@ -269,7 +269,7 @@ jobs:
 
       - name: Generate SDR
         run: |
-          uv run python cja_sdr_generator.py ${{ secrets.DATA_VIEW_ID }} \
+          cja_auto_sdr ${{ secrets.DATA_VIEW_ID }} \
             --output-dir ./artifacts
         env:
           # Store config as secret
@@ -303,14 +303,14 @@ reports/
 **Organizing by date:**
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 \
+cja_auto_sdr dv_12345 \
   --output-dir ./reports/$(date +%Y%m%d)
 ```
 
 **Organizing by environment:**
 
 ```bash
-uv run python cja_sdr_generator.py dv_prod \
+cja_auto_sdr dv_prod \
   --output-dir ./reports/production/$(date +%Y%m%d)
 ```
 

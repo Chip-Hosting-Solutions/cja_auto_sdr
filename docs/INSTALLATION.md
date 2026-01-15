@@ -60,6 +60,17 @@ The `uv sync` command will:
 - Create a virtual environment in `.venv/`
 - Install all dependencies from `pyproject.toml`
 - Generate a `uv.lock` file for reproducible builds
+- Install the `cja_auto_sdr` console script
+
+After syncing, you can run the tool as:
+```bash
+# Using uv run (no activation needed)
+uv run cja_auto_sdr --help
+
+# Or activate the venv first
+source .venv/bin/activate  # macOS/Linux
+cja_auto_sdr --help
+```
 
 ### Option 2: Start from Scratch
 
@@ -142,7 +153,7 @@ Create a `myconfig.json` file in the project root directory:
 ### Generate Sample Config
 
 ```bash
-uv run python cja_sdr_generator.py --sample-config
+cja_auto_sdr --sample-config
 ```
 
 ### Configuration Fields
@@ -255,13 +266,13 @@ uv pip list
 
 ```bash
 # Dry-run to test config and connectivity
-uv run python cja_sdr_generator.py dv_test --dry-run
+cja_auto_sdr dv_test --dry-run
 ```
 
 ### List Available Data Views
 
 ```bash
-uv run python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --list-dataviews
 ```
 
 ## Updating Dependencies

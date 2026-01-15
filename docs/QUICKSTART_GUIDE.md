@@ -142,7 +142,7 @@ Installed 15 packages in 0.8s
 ### 2.4 Verify Installation
 
 ```bash
-uv run python cja_sdr_generator.py --version
+cja_auto_sdr --version
 # Output: cja_sdr_generator.py version 3.0.8
 ```
 
@@ -177,7 +177,7 @@ Create a file named `myconfig.json` in the project root directory:
 
 ```bash
 # Generate a template (optional)
-uv run python cja_sdr_generator.py --sample-config
+cja_auto_sdr --sample-config
 ```
 
 Or create it manually:
@@ -226,7 +226,7 @@ Before generating reports, verify everything is configured correctly.
 ### 4.1 Test API Connection
 
 ```bash
-uv run python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --list-dataviews
 ```
 
 **Successful output:**
@@ -266,7 +266,7 @@ dv_677ea9291244fd082f02dd42
 Test without generating a report:
 
 ```bash
-uv run python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID --dry-run
+cja_auto_sdr dv_YOUR_DATA_VIEW_ID --dry-run
 ```
 
 **Expected output:**
@@ -291,7 +291,7 @@ Dry run complete. Remove --dry-run to generate the SDR.
 Replace `dv_YOUR_DATA_VIEW_ID` with your actual Data View ID:
 
 ```bash
-uv run python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+cja_auto_sdr dv_677ea9291244fd082f02dd42
 ```
 
 ### 5.2 Watch the Progress
@@ -449,14 +449,14 @@ Now that you've generated your first SDR, here are common next steps:
 
 ```bash
 # Process all your Data Views at once
-uv run python cja_sdr_generator.py dv_id1 dv_id2 dv_id3
+cja_auto_sdr dv_id1 dv_id2 dv_id3
 ```
 
 ### Generate All Formats
 
 ```bash
 # Excel, CSV, JSON, and HTML
-uv run python cja_sdr_generator.py dv_12345 --format all
+cja_auto_sdr dv_12345 --format all
 ```
 
 ### Set Up Automation

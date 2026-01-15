@@ -30,13 +30,13 @@ Result:     4x faster (75% time savings)
 
 ```bash
 # Default (4 workers)
-uv run python cja_sdr_generator.py dv_1 dv_2 dv_3
+cja_auto_sdr dv_1 dv_2 dv_3
 
 # Conservative (shared API, rate limits)
-uv run python cja_sdr_generator.py --batch dv_* --workers 2
+cja_auto_sdr --batch dv_* --workers 2
 
 # Aggressive (dedicated infrastructure)
-uv run python cja_sdr_generator.py --batch dv_* --workers 8
+cja_auto_sdr --batch dv_* --workers 8
 ```
 
 ### Worker Optimization Guide
@@ -98,16 +98,16 @@ Validation caching stores results in memory, eliminating redundant validation wh
 
 ```bash
 # Basic (defaults: 1000 entries, 1 hour TTL)
-uv run python cja_sdr_generator.py dv_12345 --enable-cache
+cja_auto_sdr dv_12345 --enable-cache
 
 # Custom cache size
-uv run python cja_sdr_generator.py dv_12345 --enable-cache --cache-size 5000
+cja_auto_sdr dv_12345 --enable-cache --cache-size 5000
 
 # Custom TTL (2 hours)
-uv run python cja_sdr_generator.py dv_12345 --enable-cache --cache-ttl 7200
+cja_auto_sdr dv_12345 --enable-cache --cache-ttl 7200
 
 # Clear cache before processing
-uv run python cja_sdr_generator.py dv_12345 --enable-cache --clear-cache
+cja_auto_sdr dv_12345 --enable-cache --clear-cache
 ```
 
 ### Cache Performance
@@ -165,7 +165,7 @@ Estimated Time Saved: 0.44s
 For fastest processing when quality checks aren't needed:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 --skip-validation
+cja_auto_sdr dv_12345 --skip-validation
 ```
 
 **Impact**: 20-30% faster overall
@@ -175,7 +175,7 @@ uv run python cja_sdr_generator.py dv_12345 --skip-validation
 Minimal logging for maximum performance:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 --production
+cja_auto_sdr dv_12345 --production
 ```
 
 **Impact**: 5-10% faster
@@ -185,14 +185,14 @@ uv run python cja_sdr_generator.py dv_12345 --production
 Suppress console output:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 --quiet
+cja_auto_sdr dv_12345 --quiet
 ```
 
 ### Combined Optimization
 
 ```bash
 # Maximum performance
-uv run python cja_sdr_generator.py dv_12345 \
+cja_auto_sdr dv_12345 \
   --production \
   --skip-validation \
   --quiet

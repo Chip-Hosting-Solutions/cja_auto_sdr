@@ -10,14 +10,14 @@ The CJA SDR Generator now supports high-performance batch processing with **3-4x
 
 ```bash
 # Process a single data view
-uv run python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+cja_auto_sdr dv_677ea9291244fd082f02dd42
 ```
 
 ### Multiple Data Views (Automatic Batch Mode)
 
 ```bash
 # Automatically triggers parallel batch processing
-uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+cja_auto_sdr dv_12345 dv_67890 dv_abcde
 ```
 
 **Note:** When you provide multiple data view IDs, the script automatically enables parallel processing with 4 workers by default. The `--batch` flag is optional.
@@ -26,7 +26,7 @@ uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
 
 ```bash
 # Explicitly use batch mode with custom settings
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde dv_11111 --workers 8
+cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde dv_11111 --workers 8
 ```
 
 ## Command-Line Arguments
@@ -57,32 +57,32 @@ uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde dv_11111 -
 
 ```bash
 # Single data view
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 
 # Multiple data views (automatically triggers parallel batch processing)
-uv run python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+cja_auto_sdr dv_12345 dv_67890 dv_abcde
 
 # Explicitly use batch mode (same result as above when multiple data views)
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde
 ```
 
 ### Advanced Examples
 
 ```bash
 # Custom number of workers (conservative for shared API)
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 2
+cja_auto_sdr --batch dv_12345 dv_67890 --workers 2
 
 # Custom output directory
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./reports
+cja_auto_sdr dv_12345 --output-dir ./reports
 
 # Continue processing even if some data views fail
-uv run python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde --continue-on-error
+cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde --continue-on-error
 
 # Batch processing with custom log level
-uv run python cja_sdr_generator.py --batch dv_* --log-level WARNING
+cja_auto_sdr --batch dv_* --log-level WARNING
 
 # Full production example
-uv run python cja_sdr_generator.py --batch \
+cja_auto_sdr --batch \
   dv_prod_12345 dv_staging_67890 dv_dev_abcde \
   --workers 4 \
   --output-dir ./sdr_reports \
@@ -102,10 +102,10 @@ dv_testing_99999
 EOF
 
 # Process all data views from file
-uv run python cja_sdr_generator.py --batch $(cat dataviews.txt)
+cja_auto_sdr --batch $(cat dataviews.txt)
 
 # With continue-on-error
-uv run python cja_sdr_generator.py --batch \
+cja_auto_sdr --batch \
   $(cat dataviews.txt) \
   --continue-on-error \
   --output-dir ./batch_reports
@@ -116,7 +116,7 @@ uv run python cja_sdr_generator.py --batch \
 ### No Arguments Provided
 
 ```bash
-$ uv run python cja_sdr_generator.py
+$ cja_auto_sdr
 
 usage: cja_sdr_generator.py [-h] [--batch] ... DATA_VIEW_ID [DATA_VIEW_ID ...]
 cja_sdr_generator.py: error: the following arguments are required: DATA_VIEW_ID
@@ -125,7 +125,7 @@ cja_sdr_generator.py: error: the following arguments are required: DATA_VIEW_ID
 ### Invalid Data View ID Format
 
 ```bash
-$ uv run python cja_sdr_generator.py invalid_id test123
+$ cja_auto_sdr invalid_id test123
 
 ERROR: Invalid data view ID format: invalid_id, test123
        Data view IDs should start with 'dv_'
@@ -135,7 +135,7 @@ ERROR: Invalid data view ID format: invalid_id, test123
 ### Help Output
 
 ```bash
-$ uv run python cja_sdr_generator.py --help
+$ cja_auto_sdr --help
 
 # Displays full help with all options and examples
 ```
@@ -231,14 +231,14 @@ Throughput: 4.8 data views per minute
 # Add to crontab (crontab -e)
 
 # Process all data views nightly at 2 AM
-0 2 * * * cd /path/to/project && uv run python cja_sdr_generator.py \
+0 2 * * * cd /path/to/project && cja_auto_sdr \
   --batch dv_prod_1 dv_prod_2 dv_prod_3 \
   --output-dir /reports/$(date +\%Y\%m\%d) \
   --continue-on-error \
   --log-level WARNING
 
 # Process weekly on Sunday at midnight
-0 0 * * 0 cd /path/to/project && uv run python cja_sdr_generator.py \
+0 0 * * 0 cd /path/to/project && cja_auto_sdr \
   --batch $(cat /path/to/dataviews.txt) \
   --workers 8 \
   --output-dir /weekly_reports/$(date +\%Y_week_\%V) \
@@ -264,10 +264,10 @@ Throughput: 4.8 data views per minute
 
 ```bash
 # Stop on first error (default, good for testing)
-uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3
+cja_auto_sdr --batch dv_1 dv_2 dv_3
 
 # Continue on error (good for production, get as many as possible)
-uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --continue-on-error
+cja_auto_sdr --batch dv_1 dv_2 dv_3 --continue-on-error
 ```
 
 ### 3. Output Organization
@@ -301,7 +301,7 @@ uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --continue-on-error
 **Solution:** Use `uv run` to execute the script:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 ```
 
 ### Issue: "error: the following arguments are required: DATA_VIEW_ID"
@@ -309,7 +309,7 @@ uv run python cja_sdr_generator.py dv_12345
 **Solution:** Provide at least one data view ID:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 ```
 
 ### Issue: "Invalid data view ID format"
@@ -318,10 +318,10 @@ uv run python cja_sdr_generator.py dv_12345
 
 ```bash
 # Wrong
-uv run python cja_sdr_generator.py 12345
+cja_auto_sdr 12345
 
 # Correct
-uv run python cja_sdr_generator.py dv_12345
+cja_auto_sdr dv_12345
 ```
 
 ### Issue: Permission denied writing Excel file
@@ -329,7 +329,7 @@ uv run python cja_sdr_generator.py dv_12345
 **Solution:** Close any open Excel files or specify a different output directory:
 
 ```bash
-uv run python cja_sdr_generator.py dv_12345 --output-dir ./new_reports
+cja_auto_sdr dv_12345 --output-dir ./new_reports
 ```
 
 ### Issue: API rate limiting
@@ -337,7 +337,7 @@ uv run python cja_sdr_generator.py dv_12345 --output-dir ./new_reports
 **Solution:** Reduce the number of workers:
 
 ```bash
-uv run python cja_sdr_generator.py --batch dv_1 dv_2 dv_3 --workers 2
+cja_auto_sdr --batch dv_1 dv_2 dv_3 --workers 2
 ```
 
 ## Migration from Old Version
@@ -354,10 +354,10 @@ python cja_sdr_generator.py
 
 ```bash
 # New way: Specify data view(s) as arguments
-uv run python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+cja_auto_sdr dv_677ea9291244fd082f02dd42
 
 # Or multiple at once
-uv run python cja_sdr_generator.py dv_12345 dv_67890
+cja_auto_sdr dv_12345 dv_67890
 ```
 
 ## Technical Details

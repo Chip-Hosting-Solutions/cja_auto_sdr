@@ -172,10 +172,10 @@ For large data views with many issues, you can limit the output:
 
 ```bash
 # Show only top 10 issues by severity
-uv run python cja_sdr_generator.py dv_12345 --max-issues 10
+cja_auto_sdr dv_12345 --max-issues 10
 
 # Show only top 5 critical/high issues
-uv run python cja_sdr_generator.py dv_12345 --max-issues 5
+cja_auto_sdr dv_12345 --max-issues 5
 ```
 
 Issues are sorted by severity (CRITICAL first) before limiting.
@@ -186,7 +186,7 @@ For faster processing when validation isn't needed:
 
 ```bash
 # Skip all validation checks (20-30% faster)
-uv run python cja_sdr_generator.py dv_12345 --skip-validation
+cja_auto_sdr dv_12345 --skip-validation
 ```
 
 Use cases for skipping validation:
