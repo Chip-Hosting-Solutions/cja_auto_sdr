@@ -8,16 +8,19 @@ Complete command-line interface documentation for the CJA SDR Generator.
 cja_auto_sdr [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
 ```
 
+> **Running commands:** You have two equivalent options:
+> - `uv run cja_auto_sdr ...` — works immediately, no activation needed
+> - `cja_auto_sdr ...` — after activating the venv: `source .venv/bin/activate`
+>
+> Examples in this guide omit `uv run` for brevity.
+
 ### Alternative Invocations
 
 ```bash
-# Using uv (recommended during development)
-uv run cja_auto_sdr [OPTIONS] DATA_VIEW_ID [...]
-
-# Hyphenated version (same functionality)
+# Hyphenated version (identical functionality)
 cja-auto-sdr [OPTIONS] DATA_VIEW_ID [...]
 
-# Direct Python invocation (still supported)
+# Direct Python invocation
 python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [...]
 ```
 
