@@ -118,7 +118,7 @@ cja_auto_sdr dv_ID1 dv_ID2 dv_ID3
 cja_auto_sdr --list-dataviews
 ```
 
-> **Note:** After `uv sync`, run commands with `uv run cja_auto_sdr` or activate the venv first with `source .venv/bin/activate`.
+> **Note:** After `uv sync`, run commands with `uv run cja_auto_sdr` or activate the venv first. Both `cja_auto_sdr` and `cja-auto-sdr` (hyphenated) work identically. For global installation: `pip install .` then use `cja_auto_sdr` directly.
 
 ### 4. Review Output
 
@@ -165,7 +165,7 @@ cja_auto_sdr/
 ├── myconfig.json            # Your credentials (DO NOT COMMIT)
 ├── pyproject.toml           # Project configuration
 ├── docs/                    # Documentation
-├── tests/                   # Test suite (221 tests)
+├── tests/                   # Test suite (229 tests)
 ├── logs/                    # Generated log files
 └── *.xlsx                   # Generated SDR files
 ```
