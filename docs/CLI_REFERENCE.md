@@ -57,6 +57,7 @@ uv run python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
 |--------|-------------|---------|
 | `--dry-run` | Validate config without generating reports | False |
 | `--validate-only` | Alias for --dry-run | False |
+| `--validate-config` | Validate config and API connectivity (no data view required) | False |
 | `--list-dataviews` | List accessible data views and exit | False |
 | `--sample-config` | Generate sample config file and exit | False |
 
@@ -68,6 +69,14 @@ uv run python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
 | `--clear-cache` | Clear cache before processing | False |
 | `--cache-size N` | Maximum cached entries | 1000 |
 | `--cache-ttl N` | Cache time-to-live in seconds | 3600 |
+
+### Retry Configuration
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--max-retries N` | Maximum API retry attempts | 3 |
+| `--retry-base-delay N` | Initial retry delay in seconds | 1.0 |
+| `--retry-max-delay N` | Maximum retry delay in seconds | 30.0 |
 
 ### Environment Variables
 
@@ -86,6 +95,7 @@ uv run python cja_sdr_generator.py [OPTIONS] DATA_VIEW_ID [DATA_VIEW_ID ...]
 | Variable | Description |
 |----------|-------------|
 | `LOG_LEVEL` | Default log level (overridden by --log-level) |
+| `OUTPUT_DIR` | Default output directory (overridden by --output-dir) |
 
 ## Usage Examples
 
@@ -124,6 +134,9 @@ uv run python cja_sdr_generator.py --batch dv_* --continue-on-error
 ### Discovery Commands
 
 ```bash
+# Validate configuration and API connectivity (no data view needed)
+uv run python cja_sdr_generator.py --validate-config
+
 # List all accessible data views
 uv run python cja_sdr_generator.py --list-dataviews
 
