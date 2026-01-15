@@ -1,6 +1,8 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+.coverage
+htmlcov/
 
 # Credentials (DO NOT COMMIT)
 myconfig.json
