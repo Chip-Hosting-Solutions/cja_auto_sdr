@@ -47,6 +47,10 @@ MAX_BATCH_WORKERS = 256            # Maximum allowed batch workers
 DEFAULT_CACHE_SIZE = 1000          # Maximum cached validation results
 DEFAULT_CACHE_TTL = 3600           # Cache TTL in seconds (1 hour)
 
+# Logging defaults
+LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10MB max per log file
+LOG_FILE_BACKUP_COUNT = 5              # Number of backup log files to keep
+
 # ==================== VALIDATION SCHEMA ====================
 
 # Centralized field definitions for data quality validation
@@ -246,6 +250,7 @@ def retry_with_backoff(
 
                     if attempt == _max_retries:
                         _logger.error(f"All {_max_retries + 1} attempts failed for {func.__name__}: {str(e)}")
+                        _logger.error("Troubleshooting: Check network connectivity, verify API credentials, or try again later")
                         raise
 
                     # Calculate delay with exponential backoff
@@ -344,6 +349,7 @@ def make_api_call_with_retry(
 
             if attempt == max_retries:
                 _logger.error(f"All {max_retries + 1} attempts failed for {operation_name}: {str(e)}")
+                _logger.error("Troubleshooting: Check network connectivity, verify API credentials, or try again later")
                 raise
 
             delay = min(base_delay * (exponential_base ** attempt), max_delay)
@@ -447,11 +453,10 @@ def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level:
     handlers = [logging.StreamHandler(sys.stdout)]
     if log_file is not None:
         # Use RotatingFileHandler to prevent unbounded log growth
-        # 10MB max per file, keep 5 backup files
         handlers.append(RotatingFileHandler(
             log_file,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5
+            maxBytes=LOG_FILE_MAX_BYTES,
+            backupCount=LOG_FILE_BACKUP_COUNT
         ))
 
     # Configure logging
@@ -734,6 +739,29 @@ class ValidationCache:
             self._access_times.clear()
             self.logger.debug("Cache cleared")
 
+    def log_statistics(self):
+        """
+        Log cache statistics in a user-friendly format.
+
+        Logs hit rate, total requests, cache size, and estimated time savings.
+        Only logs if there have been cache requests.
+        """
+        stats = self.get_statistics()
+        if stats['total_requests'] == 0:
+            self.logger.debug("Cache statistics: No requests recorded")
+            return
+
+        # Estimate time saved (average validation ~50ms, cache lookup ~1ms)
+        estimated_time_saved = stats['hits'] * 0.049  # 49ms saved per hit
+
+        self.logger.info(f"Cache Statistics: {stats['hits']}/{stats['total_requests']} hits "
+                        f"({stats['hit_rate']:.1f}% hit rate)")
+        self.logger.info(f"  - Cache size: {stats['size']}/{stats['max_size']} entries")
+        if stats['evictions'] > 0:
+            self.logger.info(f"  - Evictions: {stats['evictions']}")
+        if estimated_time_saved > 0.1:
+            self.logger.info(f"  - Estimated time saved: {estimated_time_saved:.2f}s")
+
 # ==================== CONFIG SCHEMA ====================
 
 # Configuration schema definition for validation
@@ -749,6 +777,14 @@ CONFIG_SCHEMA = {
         'scopes': {'type': str, 'description': 'OAuth scopes'},
         'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
     }
+}
+
+# Deprecated JWT authentication fields (removed in v3.0.8)
+# These fields indicate a user is trying to use the old JWT auth method
+JWT_DEPRECATED_FIELDS = {
+    'tech_acct': 'Technical Account ID (JWT auth)',
+    'private_key': 'Private key file path (JWT auth)',
+    'pathToKey': 'Private key file path (JWT auth)',
 }
 
 # Environment variable to config field mapping (for credentials)
@@ -935,9 +971,23 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
                         f"Invalid type for optional field '{field_name}': expected {field_info['type'].__name__}"
                     )
 
+        # Check for deprecated JWT authentication fields
+        deprecated_found = []
+        for field, description in JWT_DEPRECATED_FIELDS.items():
+            if field in config_data:
+                deprecated_found.append(f"'{field}' ({description})")
+        if deprecated_found:
+            validation_warnings.append(
+                f"DEPRECATED: JWT authentication was removed in v3.0.8. "
+                f"Found JWT fields: {', '.join(deprecated_found)}. "
+                f"Please migrate to OAuth Server-to-Server authentication. "
+                f"See docs/QUICKSTART_GUIDE.md for setup instructions."
+            )
+
         # Check for unknown fields (potential typos)
         known_fields = (set(CONFIG_SCHEMA['base_required_fields'].keys()) |
-                        set(CONFIG_SCHEMA['optional_fields'].keys()))
+                        set(CONFIG_SCHEMA['optional_fields'].keys()) |
+                        set(JWT_DEPRECATED_FIELDS.keys()))  # Include deprecated fields as "known"
         unknown_fields = set(config_data.keys()) - known_fields
         if unknown_fields:
             validation_warnings.append(f"Unknown fields in config (possible typos): {', '.join(unknown_fields)}")
@@ -957,8 +1007,12 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
         logger.info("Configuration file validated successfully")
         return True
 
+    except PermissionError as e:
+        logger.error(f"Permission denied reading config file: {e}")
+        logger.error("Check file permissions for the configuration file")
+        return False
     except Exception as e:
-        logger.error(f"Unexpected error validating config file: {str(e)}")
+        logger.error(f"Unexpected error validating config file ({type(e).__name__}): {str(e)}")
         return False
 
 def initialize_cja(config_file: str = "myconfig.json", logger: logging.Logger = None) -> Optional[cjapy.CJA]:
@@ -2196,6 +2250,14 @@ def write_csv_output(data_dict: Dict[str, pd.DataFrame], base_filename: str,
         logger.info(f"CSV files created in: {csv_dir}")
         return csv_dir
 
+    except PermissionError as e:
+        logger.error(f"Permission denied creating CSV files: {e}")
+        logger.error("Check write permissions for the output directory")
+        raise
+    except OSError as e:
+        logger.error(f"OS error creating CSV files: {e}")
+        logger.error("Check disk space and path validity")
+        raise
     except Exception as e:
         logger.error(_format_error_msg("creating CSV files", error=e))
         raise
@@ -2252,6 +2314,18 @@ def write_json_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         logger.info(f"✓ JSON file created: {json_file}")
         return json_file
 
+    except PermissionError as e:
+        logger.error(f"Permission denied creating JSON file: {e}")
+        logger.error("Check write permissions for the output directory")
+        raise
+    except OSError as e:
+        logger.error(f"OS error creating JSON file: {e}")
+        logger.error("Check disk space and path validity")
+        raise
+    except (TypeError, ValueError) as e:
+        logger.error(f"JSON serialization error: {e}")
+        logger.error("Data contains non-serializable values")
+        raise
     except Exception as e:
         logger.error(_format_error_msg("creating JSON file", error=e))
         raise
@@ -2479,6 +2553,14 @@ def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         logger.info(f"✓ HTML file created: {html_file}")
         return html_file
 
+    except PermissionError as e:
+        logger.error(f"Permission denied creating HTML file: {e}")
+        logger.error("Check write permissions for the output directory")
+        raise
+    except OSError as e:
+        logger.error(f"OS error creating HTML file: {e}")
+        logger.error("Check disk space and path validity")
+        raise
     except Exception as e:
         logger.error(_format_error_msg("creating HTML file", error=e))
         raise
