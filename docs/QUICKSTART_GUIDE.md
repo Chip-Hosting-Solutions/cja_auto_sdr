@@ -209,7 +209,10 @@ uv add python-dotenv
 Create a file named `myconfig.json` in the project root directory:
 
 ```bash
-# Generate a template (optional)
+# Copy the example template (recommended)
+cp .myconfig.json.example myconfig.json
+
+# Or generate a template
 uv run cja_auto_sdr --sample-config
 ```
 

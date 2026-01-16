@@ -259,6 +259,32 @@ Configuration error: Authentication failed
    uv add --upgrade cjapy
    ```
 
+### JWT Authentication Deprecated
+
+**Symptoms:**
+```
+WARNING - DEPRECATED: JWT authentication was removed in v3.0.8.
+Found JWT fields: 'tech_acct', 'private_key'...
+```
+
+**Cause:** Your configuration file contains JWT authentication fields that are no longer supported.
+
+**Solution:** Migrate to OAuth Server-to-Server authentication:
+
+1. Create new OAuth credentials in [Adobe Developer Console](https://developer.adobe.com/console/)
+2. Update your config file to use only these fields:
+   ```json
+   {
+     "org_id": "YOUR_ORG_ID@AdobeOrg",
+     "client_id": "YOUR_CLIENT_ID",
+     "secret": "YOUR_CLIENT_SECRET",
+     "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+   }
+   ```
+3. Remove deprecated fields: `tech_acct`, `private_key`, `pathToKey`
+
+See [Adobe's migration guide](https://developer.adobe.com/developer-console/docs/guides/authentication/ServerToServerAuthentication/migration/) for detailed instructions.
+
 ### API Connection Test Failed
 
 **Symptoms:**

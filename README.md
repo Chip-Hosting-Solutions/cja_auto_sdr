@@ -97,7 +97,10 @@ Get your credentials from [Adobe Developer Console](https://developer.adobe.com/
 **Option A: Configuration File (Quickest)**
 
 ```bash
-# Generate a template
+# Copy the example template
+cp .myconfig.json.example myconfig.json
+
+# Or generate a template
 uv run cja_auto_sdr --sample-config
 
 # Edit myconfig.json with your credentials
@@ -180,6 +183,7 @@ cja_auto_sdr/
 ├── cja_sdr_generator.py     # Main script
 ├── pyproject.toml           # Project configuration and dependencies
 ├── myconfig.json            # Your credentials (DO NOT COMMIT)
+├── .myconfig.json.example   # Config file template
 ├── .env.example             # Environment variable template
 ├── docs/                    # Documentation
 │   ├── QUICKSTART_GUIDE.md  # Getting started guide

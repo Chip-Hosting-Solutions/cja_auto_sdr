@@ -60,6 +60,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Coverage Reporting**: pytest-cov integration with coverage threshold
 - **pytest-cov Dependency**: Added as dev dependency for coverage reporting
 
+#### Developer Experience
+- **`.myconfig.json.example`**: New template file for config file setup (complements `.env.example`)
+- **JWT Deprecation Warning**: Config validation now warns when deprecated JWT fields (`tech_acct`, `private_key`, `pathToKey`) are detected, with migration guidance
+
+#### Error Handling Improvements
+- **Specific File I/O Exceptions**: CSV, JSON, and HTML writers now catch `PermissionError` and `OSError` with actionable messages
+- **JSON Serialization Errors**: JSON writer catches `TypeError`/`ValueError` with clear "non-serializable values" message
+- **Retry Troubleshooting**: Failed API retries now include actionable troubleshooting hints
+
+#### Code Quality
+- **Logging Constants**: Extracted `LOG_FILE_MAX_BYTES` (10MB) and `LOG_FILE_BACKUP_COUNT` (5) to constants section
+- **Cache Statistics Method**: Added `ValidationCache.log_statistics()` for compact cache performance logging
+
+### Changed
+- **pytest.ini**: Coverage flags now optional (removes pytest-cov as hard requirement for running tests)
+
 ### Fixed
 
 #### Critical: Exception Handling

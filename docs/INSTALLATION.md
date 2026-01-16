@@ -174,6 +174,16 @@ See `.env.example` for a complete template.
 
 Create a `myconfig.json` file in the project root directory:
 
+```bash
+# Copy the example template
+cp .myconfig.json.example myconfig.json
+
+# Or generate a sample config
+uv run cja_auto_sdr --sample-config
+```
+
+Then edit with your credentials:
+
 ```json
 {
   "org_id": "your_org_id@AdobeOrg",
@@ -181,12 +191,6 @@ Create a `myconfig.json` file in the project root directory:
   "secret": "your_client_secret",
   "scopes": "openid, AdobeID, additional_info.projectedProductContext"
 }
-```
-
-### Generate Sample Config
-
-```bash
-uv run cja_auto_sdr --sample-config
 ```
 
 ### Configuration Fields
