@@ -155,6 +155,10 @@ uv run cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 | Custom output location | `cja_auto_sdr dv_12345 --output-dir ./reports` |
 | Validate only (no report) | `cja_auto_sdr dv_12345 --dry-run` |
 | Skip validation (faster) | `cja_auto_sdr dv_12345 --skip-validation` |
+| Export as Excel | `cja_auto_sdr dv_12345 --format excel` |
+| Export as CSV | `cja_auto_sdr dv_12345 --format csv` |
+| Export as JSON | `cja_auto_sdr dv_12345 --format json` |
+| Export as HTML | `cja_auto_sdr dv_12345 --format html` |
 | Export as Markdown | `cja_auto_sdr dv_12345 --format markdown` |
 | Generate all formats | `cja_auto_sdr dv_12345 --format all` |
 
