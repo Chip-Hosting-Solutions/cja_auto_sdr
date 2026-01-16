@@ -3391,7 +3391,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "config.json",
             logger.info(f"Excel file will be saved as: {output_path}")
         except Exception as e:
             logger.error(_format_error_msg("creating filename", error=e))
-            excel_file_name = f'CJA_DataView_dv_{data_view_id}_SDR.xlsx'
+            excel_file_name = f'CJA_DataView_{data_view_id}_SDR.xlsx'
             output_path = Path(output_dir) / excel_file_name
 
         # Prepare data for output generation
