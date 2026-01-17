@@ -181,7 +181,7 @@ python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
 python cja_sdr_generator.py "Production Analytics"
 ```
 
-> **Tip:** You can specify data views by **name** in addition to ID. If multiple data views share the same name, all matching views will be processed.
+> **Tip:** You can specify Data Views by **name** in addition to ID. If multiple data views share the same name, all matching views will be processed.
 
 ### 5. Review Output
 
@@ -196,8 +196,8 @@ python cja_sdr_generator.py "Production Analytics"
 
 | Task | Command |
 |------|---------|
-| Single data view (by ID) | `cja_auto_sdr dv_12345` |
-| Single data view (by name) | `cja_auto_sdr "Production Analytics"` |
+| Single Data View (by ID) | `cja_auto_sdr dv_12345` |
+| Single Data View (by name) | `cja_auto_sdr "Production Analytics"` |
 | Batch processing (IDs) | `cja_auto_sdr dv_1 dv_2 dv_3` |
 | Batch processing (names) | `cja_auto_sdr "Prod" "Staging" "Test"` |
 | Mixed IDs and names | `cja_auto_sdr dv_12345 "Test Environment"` |
@@ -224,7 +224,7 @@ python cja_sdr_generator.py "Production Analytics"
 | [Use Cases & Best Practices](docs/USE_CASES.md) | Automation, scheduling, workflows |
 | [Output Formats](docs/OUTPUT_FORMATS.md) | Format specifications and examples |
 | [Batch Processing](docs/BATCH_PROCESSING_GUIDE.md) | Multi-data view processing guide |
-| [Data View Names](docs/DATA_VIEW_NAMES.md) | Using data view names instead of IDs (v3.0.9+) |
+| [Data View Names](docs/DATA_VIEW_NAMES.md) | Using Data View names instead of IDs |
 | [Testing](tests/README.md) | Running and writing tests |
 
 ## Requirements
