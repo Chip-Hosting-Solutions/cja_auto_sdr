@@ -370,6 +370,128 @@ uv run cja_auto_sdr invalid_id
 uv run cja_auto_sdr dv_12345
 ```
 
+### Data View Name Resolution Errors
+
+Starting in v3.0.9, you can use data view **names** instead of IDs. However, name resolution has strict requirements.
+
+#### Name Not Found
+
+**Symptoms:**
+```bash
+ERROR - Data view name 'Production Analytics' not found in accessible data views
+  → Remember: Name matching is CASE-SENSITIVE and requires EXACT match
+  → Run 'cja_auto_sdr --list-dataviews' to see all available names
+
+ERROR: No valid data views found
+
+Possible issues:
+  - Data view ID(s) or name(s) not found or you don't have access
+  - Data view name is not an EXACT match (names are case-sensitive)
+  - Configuration issue preventing data view lookup
+```
+
+**Common Causes:**
+
+1. **Case Sensitivity** - Names must match exactly (case-sensitive)
+   ```bash
+   # If actual name is "Production Analytics":
+   cja_auto_sdr "Production Analytics"    # ✅ Works
+   cja_auto_sdr "production analytics"    # ❌ Fails
+   cja_auto_sdr "PRODUCTION ANALYTICS"    # ❌ Fails
+   cja_auto_sdr "Production analytics"    # ❌ Fails
+   ```
+
+2. **Partial Name** - Must match the complete name
+   ```bash
+   # If actual name is "Production Analytics - North America":
+   cja_auto_sdr "Production Analytics - North America"  # ✅ Works
+   cja_auto_sdr "Production Analytics"                  # ❌ Fails
+   cja_auto_sdr "Production"                            # ❌ Fails
+   ```
+
+3. **Missing Quotes** - Names with spaces require quotes
+   ```bash
+   cja_auto_sdr Production Analytics      # ❌ Shell treats as 2 arguments
+   cja_auto_sdr "Production Analytics"    # ✅ Works
+   ```
+
+**Solutions:**
+
+1. List all accessible data views to see exact names:
+   ```bash
+   uv run cja_auto_sdr --list-dataviews
+   ```
+
+2. Copy the exact name from the output (including case and spacing)
+
+3. Always use quotes around names:
+   ```bash
+   uv run cja_auto_sdr "Production Analytics"
+   ```
+
+#### Mixing IDs and Names
+
+You can mix data view IDs and names in the same command:
+
+```bash
+# This works
+uv run cja_auto_sdr dv_12345 "Production Analytics" dv_67890
+
+# IDs start with 'dv_', everything else is treated as a name
+uv run cja_auto_sdr "Test Environment" dv_prod123 "Staging"
+```
+
+**Important:** If an identifier doesn't start with `dv_`, it's treated as a **name** and must:
+- Match exactly (case-sensitive)
+- Match the complete name (no partial matches)
+- Be enclosed in quotes if it contains spaces
+
+#### Name Resolution Performance
+
+Name resolution requires an additional API call to fetch all data views:
+
+**Impact:**
+- Adds ~1-2 seconds to startup time
+- Minimal impact on overall processing time
+
+**Optimization:**
+```bash
+# Use caching for repeated runs
+uv run cja_auto_sdr "Production Analytics" --enable-cache
+
+# Or use IDs directly if you know them (no lookup needed)
+uv run cja_auto_sdr dv_677ea9291244fd082f02dd42
+```
+
+#### Duplicate Names
+
+If multiple data views share the same name, **all matching views will be processed**:
+
+```bash
+$ uv run cja_auto_sdr "Production"
+
+Resolving 1 data view name(s)...
+INFO - Name 'Production' matched 3 data views: ['dv_prod001', 'dv_prod002', 'dv_prod003']
+
+Data view name resolution:
+  ✓ 'Production' → 3 matching data views:
+      - dv_prod001
+      - dv_prod002
+      - dv_prod003
+
+Processing 3 data view(s) total...
+```
+
+**This is by design** - useful when you have multiple environments with the same name.
+
+**To process only one:**
+1. Use the specific data view ID instead:
+   ```bash
+   uv run cja_auto_sdr dv_prod001
+   ```
+
+2. Or use `--list-dataviews` to find unique identifiers
+
 ### No Access to Data Views
 
 **Symptoms:**
@@ -1232,6 +1354,9 @@ cat logs/$(ls -t logs/ | head -1)
 | `Invalid data view ID format` | ID doesn't start with `dv_` | Use correct format |
 | `Data view returned empty response` | Not found or no access | Use `--list-dataviews` |
 | `No data views found` | No access to any data views | Check permissions |
+| `Data view name '{name}' not found` | Name not found or no access | Check exact spelling (case-sensitive) |
+| `Name matching is CASE-SENSITIVE` | Name case doesn't match | Copy exact name from `--list-dataviews` |
+| `No valid data views found` (with names) | Name resolution failed | Check case, quotes, and exact match |
 
 ### Output Errors
 
@@ -1291,3 +1416,4 @@ If you encounter issues not covered here:
 - [Performance Guide](PERFORMANCE.md) - Optimization options
 - [Data Quality Guide](DATA_QUALITY.md) - Understanding validation
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Multi-data view processing
+- [Data View Names Guide](DATA_VIEW_NAMES.md) - Using data view names instead of IDs

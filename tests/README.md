@@ -30,7 +30,32 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 411 comprehensive tests**
+**Total: 413 comprehensive tests**
+
+### Test Count Breakdown
+
+| Test File | Tests | Coverage Area |
+|-----------|-------|---------------|
+| `test_cli.py` | 71 | Command-line interface and argument parsing |
+| `test_output_formats.py` | 32 | CSV, JSON, HTML, Markdown output generation |
+| `test_cja_initialization.py` | 32 | CJA connection and configuration validation |
+| `test_utils.py` | 27 | Utility functions and helpers |
+| `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
+| `test_parallel_api_fetcher.py` | 24 | Parallel API data fetching |
+| `test_error_messages.py` | 23 | Enhanced error messages and guidance |
+| `test_retry.py` | 21 | Retry with exponential backoff |
+| `test_batch_processor.py` | 20 | Batch processing of multiple data views |
+| `test_validation_cache.py` | 19 | Validation result caching |
+| `test_process_single_dataview.py` | 18 | End-to-end single data view processing |
+| `test_optimized_validation.py` | 16 | Optimized data quality validation |
+| `test_name_resolution.py` | 16 | Data view name to ID resolution |
+| `test_logging_optimization.py` | 15 | Logging performance optimizations |
+| `test_env_credentials.py` | 13 | Environment variable credentials |
+| `test_dry_run.py` | 12 | Dry-run mode functionality |
+| `test_early_exit.py` | 11 | Early exit optimizations |
+| `test_data_quality.py` | 10 | Data quality validation logic |
+| `test_parallel_validation.py` | 8 | Parallel validation operations |
+| **Total** | **413** | **100% pass rate** |
 
 ## Running Tests
 
@@ -383,7 +408,7 @@ uv run pytest
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (411 tests total)
+- [x] Comprehensive test coverage (413 tests total)
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)

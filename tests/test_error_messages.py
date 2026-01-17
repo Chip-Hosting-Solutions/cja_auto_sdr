@@ -126,6 +126,32 @@ class TestErrorMessageHelper:
         assert "No data views found" in msg
         assert "CJA access" in msg
 
+    def test_data_view_name_not_found_message(self):
+        """Test data view not found message for a name (not an ID)"""
+        msg = ErrorMessageHelper.get_data_view_error_message("Production Analytics")
+        assert "Data View Not Found" in msg
+        assert "Production Analytics" in msg
+        assert "--list-dataviews" in msg
+        # Should include name-specific guidance
+        assert "EXACT match" in msg or "case-sensitive" in msg
+        assert "quotes" in msg.lower()
+
+    def test_data_view_id_vs_name_error_messages(self):
+        """Test that ID and name error messages have different guidance"""
+        id_msg = ErrorMessageHelper.get_data_view_error_message("dv_12345")
+        name_msg = ErrorMessageHelper.get_data_view_error_message("Production Analytics")
+
+        # ID message should mention ID-specific things
+        assert "dv_12345" in id_msg
+
+        # Name message should mention name-specific things
+        assert "EXACT match" in name_msg
+        assert "case-sensitive" in name_msg
+
+        # Both should have list-dataviews suggestion
+        assert "--list-dataviews" in id_msg
+        assert "--list-dataviews" in name_msg
+
     def test_all_messages_include_documentation_links(self):
         """Test that all error messages include documentation links"""
         http_msg = ErrorMessageHelper.get_http_error_message(401)

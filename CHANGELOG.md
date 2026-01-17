@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config File Rename** - Clearer naming: `config.json` instead of `myconfig.json`
 - **Markdown Output Format** - Export SDRs as GitHub/Confluence-compatible markdown with tables, TOC, and collapsible sections
 - **Enhanced Error Messages** - Contextual, actionable error messages with step-by-step fix guidance and documentation links
-- **Comprehensive Test Coverage** - 411 total tests covering all core processing components
+- **Comprehensive Test Coverage** - 413 total tests covering all core processing components
 - **UX Enhancements** - Quiet mode progress bar suppression, retry env vars, improved help text
 
 This release focuses on **ease of use** (name support, Windows compatibility), **documentation workflows** (markdown export), and **user experience** (helpful error messages, better CLI).
@@ -142,7 +142,7 @@ This release focuses on **ease of use** (name support, Windows compatibility), *
 - **Integration Tests**: Verification of enhanced messages in retry and validation flows
 - **Markdown Output Tests**: Full coverage of markdown generation, escaping, collapsible sections, Unicode, and more
 - **CLI Tests** (`tests/test_cli.py`): Expanded with 14 new tests for retry arguments (11) and --validate-config flag (3)
-- **Total Test Count**: 411 tests (100% pass rate)
+- **Total Test Count**: 413 tests (100% pass rate)
 
 ### Improved
 - **User Experience**:
@@ -169,7 +169,7 @@ This release focuses on **ease of use** (name support, Windows compatibility), *
 - **Full Backward Compatibility**: All existing commands and scripts continue to work
 - **ID-Based Commands**: All existing ID-based data view specifications work unchanged
 - **Config File Migration**: Users need to rename `myconfig.json` to `config.json` (simple `mv` command)
-- **No Breaking Changes**: All 411 tests pass, including legacy functionality
+- **No Breaking Changes**: All 413 tests pass, including legacy functionality
 
 ## [3.0.8] - 2026-01-15
 
@@ -740,7 +740,7 @@ Batch Processing (10 data views):
 | Validation Caching | No | Yes (50-90% faster on cache hits) |
 | Early Exit Optimization | No | Yes (15-20% faster on errors) |
 | Logging Optimization | No | Yes (5-10% faster with --production) |
-| Tests | None | 397 comprehensive tests |
+| Tests | None | 413 comprehensive tests |
 | Documentation | Basic | 5 detailed guides |
 | Performance Tracking | No | Yes, built-in with cache statistics |
 | Parallel Processing | No | Yes, configurable workers + concurrent validation |

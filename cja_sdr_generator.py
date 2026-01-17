@@ -492,6 +492,9 @@ class ErrorMessageHelper:
     @staticmethod
     def get_data_view_error_message(data_view_id: str, available_count: int = None) -> str:
         """Get detailed message for data view not found errors"""
+        # Determine if the identifier looks like an ID or a name
+        is_id = data_view_id.startswith('dv_')
+
         output = [
             f"{'='*60}",
             "Data View Not Found",
@@ -502,14 +505,30 @@ class ErrorMessageHelper:
             "  The data view does not exist or you don't have access to it",
             "",
             "How to fix it:",
-            "  1. Check for typos in the data view ID",
-            "  2. Verify the ID format (should start with 'dv_')",
-            "  3. List available data views:",
-            "       cja_auto_sdr --list-dataviews",
         ]
 
+        if is_id:
+            output.extend([
+                "  1. Check for typos in the data view ID",
+                "  2. Verify you have access to this data view in CJA",
+                "  3. List available data views to confirm the ID:",
+                "       cja_auto_sdr --list-dataviews",
+            ])
+        else:
+            output.extend([
+                "  1. Check for typos in the data view name",
+                "  2. Verify the name is an EXACT match (case-sensitive):",
+                "       'Production Analytics' ≠ 'production analytics'",
+                "       'Production Analytics' ≠ 'Production'",
+                "  3. List available data views to confirm the exact name:",
+                "       cja_auto_sdr --list-dataviews",
+                "  4. Use quotes around names with spaces:",
+                "       cja_auto_sdr \"Production Analytics\"",
+            ])
+
         if available_count is not None:
-            output.append(f"  4. You have access to {available_count} data view(s)")
+            next_num = 4 if is_id else 5
+            output.append(f"  {next_num}. You have access to {available_count} data view(s)")
             if available_count == 0:
                 output.extend([
                     "",
@@ -4374,6 +4393,8 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
                         logger.info(f"Name '{identifier}' matched {len(matching_ids)} data views: {matching_ids}")
                 else:
                     logger.error(f"Data view name '{identifier}' not found in accessible data views")
+                    logger.error(f"  → Remember: Name matching is CASE-SENSITIVE and requires EXACT match")
+                    logger.error(f"  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
                     # Don't add to resolved_ids - this is an error
 
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
@@ -4823,11 +4844,17 @@ def main():
         print(ConsoleColors.error("ERROR: No valid data views found"), file=sys.stderr)
         print()
         print("Possible issues:", file=sys.stderr)
-        print("  - Data view name(s) not found or you don't have access", file=sys.stderr)
+        print("  - Data view ID(s) or name(s) not found or you don't have access", file=sys.stderr)
+        print("  - Data view name is not an EXACT match (names are case-sensitive)", file=sys.stderr)
         print("  - Configuration issue preventing data view lookup", file=sys.stderr)
         print()
+        print("Tips for using Data View Names:", file=sys.stderr)
+        print("  • Names must match EXACTLY: 'Production Analytics' ≠ 'production analytics'", file=sys.stderr)
+        print("  • Use quotes around names: cja_auto_sdr \"Production Analytics\"", file=sys.stderr)
+        print("  • IDs start with 'dv_': cja_auto_sdr dv_12345", file=sys.stderr)
+        print()
         print("Try running: python cja_sdr_generator.py --list-dataviews", file=sys.stderr)
-        print("  to see all accessible data views", file=sys.stderr)
+        print("  to see all accessible data view IDs and names", file=sys.stderr)
         sys.exit(1)
 
     # Show resolution summary if names were used

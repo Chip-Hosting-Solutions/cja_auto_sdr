@@ -144,18 +144,103 @@ $ cja_auto_sdr "NonexistentView"
 ERROR: No valid data views found
 
 Possible issues:
-  - Data view name(s) not found or you don't have access
+  - Data view ID(s) or name(s) not found or you don't have access
+  - Data view name is not an EXACT match (names are case-sensitive)
   - Configuration issue preventing data view lookup
 
+Tips for using Data View Names:
+  • Names must match EXACTLY: 'Production Analytics' ≠ 'production analytics'
+  • Use quotes around names: cja_auto_sdr "Production Analytics"
+  • IDs start with 'dv_': cja_auto_sdr dv_12345
+
 Try running: python cja_sdr_generator.py --list-dataviews
-  to see all accessible data views
+  to see all accessible data view IDs and names
 ```
 
-**Solution:** Run `--list-dataviews` to see available names and ensure exact spelling.
+**Common Causes & Solutions:**
+
+1. **Case Mismatch** - Names are case-sensitive
+   - ❌ Wrong: `cja_auto_sdr "production analytics"`
+   - ✅ Right: `cja_auto_sdr "Production Analytics"`
+
+2. **Partial Name** - Must match the complete name
+   - ❌ Wrong: `cja_auto_sdr "Production"` (when name is "Production Analytics")
+   - ✅ Right: `cja_auto_sdr "Production Analytics"`
+
+3. **Missing Quotes** - Names with spaces need quotes
+   - ❌ Wrong: `cja_auto_sdr Production Analytics` (shell interprets as two arguments)
+   - ✅ Right: `cja_auto_sdr "Production Analytics"`
+
+4. **Typos** - Verify spelling matches exactly
+   - Run `--list-dataviews` to copy the exact name
+
+### Case Sensitivity Errors
+
+Data view names are **strictly case-sensitive**. Common mistakes:
+
+```bash
+# Example: Actual name is "Production Analytics"
+
+# ❌ These will NOT work:
+cja_auto_sdr "production analytics"     # lowercase
+cja_auto_sdr "PRODUCTION ANALYTICS"     # uppercase
+cja_auto_sdr "Production analytics"     # mixed case
+cja_auto_sdr "production Analytics"     # mixed case
+
+# ✅ This WILL work:
+cja_auto_sdr "Production Analytics"     # exact match
+```
+
+**How to avoid:** Always copy the name exactly from `--list-dataviews` output.
+
+### Partial Name Match Errors
+
+Names must match **completely and exactly**:
+
+```bash
+# Example: Actual name is "Production Analytics - North America"
+
+# ❌ These will NOT work:
+cja_auto_sdr "Production"                           # partial match
+cja_auto_sdr "Production Analytics"                 # missing suffix
+cja_auto_sdr "Analytics"                            # partial match
+cja_auto_sdr "North America"                        # partial match
+
+# ✅ This WILL work:
+cja_auto_sdr "Production Analytics - North America" # exact match
+```
 
 ### Configuration Error
 
-If the tool can't connect to CJA to resolve names, you'll see connection errors. Ensure your `config.json` is set up correctly.
+If the tool can't connect to CJA to resolve names, you'll see connection errors:
+
+```bash
+ERROR - Failed to resolve data view names: Authentication failed
+```
+
+**Solutions:**
+1. Verify your `config.json` has correct credentials
+2. Run `cja_auto_sdr --validate-config` to test the configuration
+3. Check network connectivity to Adobe services
+4. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#authentication--connection-errors) for detailed steps
+
+### Access Permission Errors
+
+If you don't have access to the data view:
+
+```bash
+WARNING - Data view name 'Restricted View' not found in accessible data views
+ERROR: No valid data views found
+```
+
+**This means:**
+- The data view exists, but your account doesn't have permission to access it
+- The data view name is spelled correctly, but it's not in your accessible list
+
+**Solutions:**
+1. Run `--list-dataviews` to see which data views you can access
+2. Contact your Adobe administrator to grant access
+3. Verify you're using the correct Adobe organization credentials
 
 ## Batch Processing with Names
 
