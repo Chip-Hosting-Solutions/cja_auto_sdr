@@ -330,7 +330,7 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja_auto_sdr"
-version = "3.0.8"
+version = "3.0.9"
 requires-python = ">=3.14"
 dependencies = [
     "cjapy>=0.2.4.post2",

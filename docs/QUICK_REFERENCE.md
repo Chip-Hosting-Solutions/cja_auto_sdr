@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.0.8.
+Single-page command cheat sheet for CJA SDR Generator v3.0.9.
 
 ## Essential Commands
 
