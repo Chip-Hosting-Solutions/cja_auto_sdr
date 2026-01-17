@@ -53,7 +53,11 @@ LOG_FILE_BACKUP_COUNT = 5              # Number of backup log files to keep
 
 # ==================== VALIDATION SCHEMA ====================
 
-# Centralized field definitions for data quality validation
+# Centralized field definitions for data quality validation.
+# Used by DataQualityChecker to identify:
+#   - Missing required fields (CRITICAL severity)
+#   - Null values in critical fields (MEDIUM severity)
+# Modify these lists as the CJA API evolves or validation requirements change.
 VALIDATION_SCHEMA = {
     'required_metric_fields': ['id', 'name', 'type'],
     'required_dimension_fields': ['id', 'name', 'type'],
@@ -777,7 +781,7 @@ class ProcessingResult:
 
     @property
     def file_size_formatted(self) -> str:
-        """Return human-readable file size"""
+        """Return human-readable file size (e.g., '1.5 MB', '256 KB')."""
         return format_file_size(self.file_size_bytes)
 
 # ==================== LOGGING SETUP ====================
@@ -1676,11 +1680,13 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 class ParallelAPIFetcher:
     """Fetch multiple API endpoints in parallel using threading"""
 
-    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, perf_tracker: 'PerformanceTracker', max_workers: int = 3):
+    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, perf_tracker: 'PerformanceTracker',
+                 max_workers: int = 3, quiet: bool = False):
         self.cja = cja
         self.logger = logger
         self.perf_tracker = perf_tracker
         self.max_workers = max_workers
+        self.quiet = quiet
     
     def fetch_all_data(self, data_view_id: str) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
         """
@@ -1721,7 +1727,8 @@ class ParallelAPIFetcher:
                 desc="Fetching API data",
                 unit="item",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
-                leave=False
+                leave=False,
+                disable=self.quiet
             ) as pbar:
                 for future in as_completed(future_to_name):
                     task_name = future_to_name[future]
@@ -1849,11 +1856,13 @@ class DataQualityChecker:
     # Severity levels in priority order (highest to lowest) for proper sorting
     SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
-    def __init__(self, logger: logging.Logger, validation_cache: Optional[ValidationCache] = None):
+    def __init__(self, logger: logging.Logger, validation_cache: Optional[ValidationCache] = None,
+                 quiet: bool = False):
         self.issues = []
         self.logger = logger
         self.validation_cache = validation_cache  # Optional cache for performance
         self._issues_lock = threading.Lock()  # Thread safety for parallel validation
+        self.quiet = quiet
     
     def add_issue(self, severity: str, category: str, item_type: str,
                   item_name: str, description: str, details: str = ""):
@@ -2222,7 +2231,8 @@ class DataQualityChecker:
                     desc="Validating data",
                     unit="check",
                     bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
-                    leave=False
+                    leave=False,
+                    disable=self.quiet
                 ) as pbar:
                     for future in as_completed(future_to_name):
                         task_name = future_to_name[future]
@@ -3185,7 +3195,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "config.json",
         logger.info("Starting optimized data fetch operations")
         logger.info("=" * 60)
 
-        fetcher = ParallelAPIFetcher(cja, logger, perf_tracker, max_workers=DEFAULT_API_FETCH_WORKERS)
+        fetcher = ParallelAPIFetcher(cja, logger, perf_tracker, max_workers=DEFAULT_API_FETCH_WORKERS, quiet=quiet)
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
         # Check if we have any data to process
@@ -3250,7 +3260,7 @@ def process_single_dataview(data_view_id: str, config_file: str = "config.json",
                 else:
                     logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
 
-            dq_checker = DataQualityChecker(logger, validation_cache=validation_cache)
+            dq_checker = DataQualityChecker(logger, validation_cache=validation_cache, quiet=quiet)
 
             # Run parallel data quality checks (10-15% faster than sequential)
             logger.info("Running parallel data quality checks...")
@@ -4097,6 +4107,9 @@ Examples:
 Note:
   At least one data view ID must be provided (except for --list-dataviews, --sample-config).
   Use 'python cja_sdr_generator.py --help' to see all options.
+
+Requirements:
+  Python 3.14 or higher required. Verify with: python --version
         '''
     )
 
@@ -4192,22 +4205,22 @@ Note:
     parser.add_argument(
         '--max-retries',
         type=int,
-        default=DEFAULT_RETRY_CONFIG['max_retries'],
-        help=f'Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG["max_retries"]})'
+        default=int(os.environ.get('MAX_RETRIES', DEFAULT_RETRY_CONFIG['max_retries'])),
+        help=f'Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG["max_retries"]}, or MAX_RETRIES env var)'
     )
 
     parser.add_argument(
         '--retry-base-delay',
         type=float,
-        default=DEFAULT_RETRY_CONFIG['base_delay'],
-        help=f'Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["base_delay"]})'
+        default=float(os.environ.get('RETRY_BASE_DELAY', DEFAULT_RETRY_CONFIG['base_delay'])),
+        help=f'Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["base_delay"]}, or RETRY_BASE_DELAY env var)'
     )
 
     parser.add_argument(
         '--retry-max-delay',
         type=float,
-        default=DEFAULT_RETRY_CONFIG['max_delay'],
-        help=f'Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["max_delay"]})'
+        default=float(os.environ.get('RETRY_MAX_DELAY', DEFAULT_RETRY_CONFIG['max_delay'])),
+        help=f'Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["max_delay"]}, or RETRY_MAX_DELAY env var)'
     )
 
     parser.add_argument(
@@ -4215,7 +4228,7 @@ Note:
         type=str,
         default='excel',
         choices=['excel', 'csv', 'json', 'html', 'markdown', 'all'],
-        help='Output format: excel (default), csv, json, html, markdown, or all (generates all formats)'
+        help='Output format: excel (default), csv, json, html, markdown, or all (generates all formats simultaneously)'
     )
 
     parser.add_argument(

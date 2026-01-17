@@ -536,3 +536,126 @@ class TestConsoleScriptEntryPoints:
         )
         assert result.returncode == 0
         assert __version__ in result.stdout
+
+
+class TestRetryArguments:
+    """Test retry-related CLI arguments"""
+
+    def test_max_retries_flag(self):
+        """Test parsing with --max-retries flag"""
+        test_args = ['cja_sdr_generator.py', '--max-retries', '5', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_retries == 5
+
+    def test_max_retries_default(self):
+        """Test that max-retries uses default from DEFAULT_RETRY_CONFIG"""
+        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_retries == DEFAULT_RETRY_CONFIG['max_retries']
+
+    def test_retry_base_delay_flag(self):
+        """Test parsing with --retry-base-delay flag"""
+        test_args = ['cja_sdr_generator.py', '--retry-base-delay', '2.5', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.retry_base_delay == 2.5
+
+    def test_retry_base_delay_default(self):
+        """Test that retry-base-delay uses default from DEFAULT_RETRY_CONFIG"""
+        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.retry_base_delay == DEFAULT_RETRY_CONFIG['base_delay']
+
+    def test_retry_max_delay_flag(self):
+        """Test parsing with --retry-max-delay flag"""
+        test_args = ['cja_sdr_generator.py', '--retry-max-delay', '60.0', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.retry_max_delay == 60.0
+
+    def test_retry_max_delay_default(self):
+        """Test that retry-max-delay uses default from DEFAULT_RETRY_CONFIG"""
+        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.retry_max_delay == DEFAULT_RETRY_CONFIG['max_delay']
+
+    def test_all_retry_flags_combined(self):
+        """Test all retry flags together"""
+        test_args = [
+            'cja_sdr_generator.py',
+            '--max-retries', '10',
+            '--retry-base-delay', '0.5',
+            '--retry-max-delay', '120',
+            'dv_12345'
+        ]
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.max_retries == 10
+            assert args.retry_base_delay == 0.5
+            assert args.retry_max_delay == 120.0
+
+    def test_retry_env_var_max_retries(self):
+        """Test that MAX_RETRIES env var sets default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.dict(os.environ, {'MAX_RETRIES': '7'}):
+            with patch.object(sys, 'argv', test_args):
+                args = parse_arguments()
+                assert args.max_retries == 7
+
+    def test_retry_env_var_base_delay(self):
+        """Test that RETRY_BASE_DELAY env var sets default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.dict(os.environ, {'RETRY_BASE_DELAY': '3.5'}):
+            with patch.object(sys, 'argv', test_args):
+                args = parse_arguments()
+                assert args.retry_base_delay == 3.5
+
+    def test_retry_env_var_max_delay(self):
+        """Test that RETRY_MAX_DELAY env var sets default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.dict(os.environ, {'RETRY_MAX_DELAY': '90.0'}):
+            with patch.object(sys, 'argv', test_args):
+                args = parse_arguments()
+                assert args.retry_max_delay == 90.0
+
+    def test_retry_cli_overrides_env_var(self):
+        """Test that CLI arguments override environment variables"""
+        test_args = ['cja_sdr_generator.py', '--max-retries', '2', 'dv_12345']
+        with patch.dict(os.environ, {'MAX_RETRIES': '10'}):
+            with patch.object(sys, 'argv', test_args):
+                args = parse_arguments()
+                assert args.max_retries == 2
+
+
+class TestValidateConfigFlag:
+    """Test --validate-config flag"""
+
+    def test_validate_config_flag(self):
+        """Test parsing with --validate-config flag"""
+        test_args = ['cja_sdr_generator.py', '--validate-config']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.validate_config is True
+            assert args.data_views == []
+
+    def test_validate_config_default_false(self):
+        """Test that validate-config is False by default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.validate_config is False
+
+    def test_validate_config_no_dataview_required(self):
+        """Test that --validate-config doesn't require data view argument"""
+        test_args = ['cja_sdr_generator.py', '--validate-config']
+        with patch.object(sys, 'argv', test_args):
+            # Should parse without error even though no data view is provided
+            args = parse_arguments()
+            assert args.validate_config is True
