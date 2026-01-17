@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.9] - 2026-01-16
 
-**🎯 What's New in 3.0.9:**
+### Highlights
 - **Data View Names** - Use human-readable names instead of IDs (e.g., `"Production Analytics"` vs `dv_12345`)
 - **Windows Support Improvements** - Comprehensive Windows-specific documentation and troubleshooting
 - **Config File Rename** - Clearer naming: `config.json` instead of `myconfig.json`
 - **Markdown Output Format** - Export SDRs as GitHub/Confluence-compatible markdown with tables, TOC, and collapsible sections
 - **Enhanced Error Messages** - Contextual, actionable error messages with step-by-step fix guidance and documentation links
-- **49 New Tests** - Comprehensive test coverage for all features (278 total tests)
+- **Comprehensive Test Coverage** - 397 total tests covering all core processing components
 
 This release focuses on **ease of use** (name support, Windows compatibility), **documentation workflows** (markdown export), and **user experience** (helpful error messages).
 
@@ -113,11 +113,16 @@ This release focuses on **ease of use** (name support, Windows compatibility), *
 - **Network Operations**: All API calls provide enhanced error context on failure
 
 #### Testing
-- **49 New Tests**: 16 name resolution tests + 21 error message tests + 12 markdown output tests
+- **168 New Tests**: Comprehensive test coverage expansion
 - **Name Resolution Tests** (`tests/test_name_resolution.py`): ID detection, single/multiple name resolution, duplicate handling, error scenarios
+- **Parallel API Fetcher Tests** (`tests/test_parallel_api_fetcher.py`): Thread pool execution, API data fetching, error handling
+- **Batch Processor Tests** (`tests/test_batch_processor.py`): Worker coordination, result aggregation, summary output
+- **Process Single Dataview Tests** (`tests/test_process_single_dataview.py`): End-to-end processing, output formats, caching
+- **Excel Formatting Tests** (`tests/test_excel_formatting.py`): Sheet formatting, severity colors, column/row sizing
+- **CJA Initialization Tests** (`tests/test_cja_initialization.py`): Config loading, credential validation, connection testing
 - **Integration Tests**: Verification of enhanced messages in retry and validation flows
 - **Markdown Output Tests**: Full coverage of markdown generation, escaping, collapsible sections, Unicode, and more
-- **Total Test Count**: Increased from 229 to 278 tests (100% pass rate)
+- **Total Test Count**: 397 tests (100% pass rate)
 
 ### Improved
 - **User Experience**:
@@ -142,7 +147,7 @@ This release focuses on **ease of use** (name support, Windows compatibility), *
 - **Full Backward Compatibility**: All existing commands and scripts continue to work
 - **ID-Based Commands**: All existing ID-based data view specifications work unchanged
 - **Config File Migration**: Users need to rename `myconfig.json` to `config.json` (simple `mv` command)
-- **No Breaking Changes**: All 278 tests pass, including legacy functionality
+- **No Breaking Changes**: All 397 tests pass, including legacy functionality
 
 ## [3.0.8] - 2026-01-15
 
@@ -713,7 +718,7 @@ Batch Processing (10 data views):
 | Validation Caching | No | Yes (50-90% faster on cache hits) |
 | Early Exit Optimization | No | Yes (15-20% faster on errors) |
 | Logging Optimization | No | Yes (5-10% faster with --production) |
-| Tests | None | 221 comprehensive tests |
+| Tests | None | 397 comprehensive tests |
 | Documentation | Basic | 5 detailed guides |
 | Performance Tracking | No | Yes, built-in with cache statistics |
 | Parallel Processing | No | Yes, configurable workers + concurrent validation |

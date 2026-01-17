@@ -8,23 +8,29 @@ This directory contains automated tests for the CJA SDR Generator.
 tests/
 ├── __init__.py                      # Test package initialization
 ├── conftest.py                      # Pytest fixtures and configuration
+├── test_batch_processor.py          # Batch processor tests
+├── test_cja_initialization.py       # CJA initialization and validation tests
 ├── test_cli.py                      # Command-line interface tests
 ├── test_data_quality.py             # Data quality validation tests
 ├── test_dry_run.py                  # Dry-run mode tests
 ├── test_early_exit.py               # Early exit optimization tests
 ├── test_env_credentials.py          # Environment variable credentials tests
+├── test_error_messages.py           # Enhanced error message tests
+├── test_excel_formatting.py         # Excel formatting tests
 ├── test_logging_optimization.py     # Logging optimization tests
+├── test_name_resolution.py          # Data view name resolution tests
 ├── test_optimized_validation.py     # Optimized validation tests
 ├── test_output_formats.py           # Output format tests
+├── test_parallel_api_fetcher.py     # Parallel API fetcher tests
 ├── test_parallel_validation.py      # Parallel validation tests
+├── test_process_single_dataview.py  # Single data view processing tests
 ├── test_retry.py                    # Retry with exponential backoff tests
 ├── test_utils.py                    # Utility function tests
 ├── test_validation_cache.py         # Validation caching tests
-├── test_error_messages.py           # Enhanced error message tests
 └── README.md                        # This file
 ```
 
-**Total: 262 comprehensive tests**
+**Total: 397 comprehensive tests**
 
 ## Running Tests
 
@@ -200,6 +206,52 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 - **Documentation links**: Tests that all error messages include help links
 - **Integration**: Tests ErrorMessageHelper integration with retry mechanism and validation
 
+### Parallel API Fetcher Tests (`test_parallel_api_fetcher.py`)
+- **Initialization**: Tests ParallelAPIFetcher class initialization and configuration
+- **fetch_all_data**: Tests parallel data fetching from CJA API
+- **_fetch_metrics**: Tests metrics retrieval with error handling
+- **_fetch_dimensions**: Tests dimensions retrieval with error handling
+- **_fetch_dataview_info**: Tests data view info retrieval with fallback handling
+- **Error handling**: Tests graceful handling of API failures and empty responses
+- **Logging**: Tests proper logging of fetch operations and errors
+
+### Batch Processor Tests (`test_batch_processor.py`)
+- **Initialization**: Tests BatchProcessor class initialization and worker configuration
+- **process_batch**: Tests batch processing workflow with multiple data views
+- **print_summary**: Tests summary output formatting and statistics
+- **Worker coordination**: Tests parallel worker execution and result collection
+- **Error handling**: Tests continue-on-error behavior and failure tracking
+- **Result aggregation**: Tests collection and reporting of processing results
+
+### Process Single Dataview Tests (`test_process_single_dataview.py`)
+- **Success scenarios**: Tests end-to-end processing with valid configuration
+- **Output formats**: Tests CSV, JSON, HTML, and Markdown output generation
+- **File naming**: Tests output file naming with data view names and IDs
+- **Caching**: Tests cache enable/disable configuration
+- **Skip validation**: Tests processing with validation disabled
+- **Error handling**: Tests handling of API errors and invalid data views
+- **Logger configuration**: Tests proper logger setup and teardown
+
+### Excel Formatting Tests (`test_excel_formatting.py`)
+- **Metrics sheet**: Tests Metrics sheet formatting and column widths
+- **Dimensions sheet**: Tests Dimensions sheet formatting and styles
+- **Data Quality sheet**: Tests severity color-coding and formatting
+- **Metadata sheet**: Tests key-value pair formatting
+- **Column widths**: Tests auto-width calculation and limits
+- **Row heights**: Tests row height configuration
+- **Multiple sheets**: Tests formatting across all sheet types
+- **Error handling**: Tests graceful handling of formatting errors
+
+### CJA Initialization Tests (`test_cja_initialization.py`)
+- **initialize_cja**: Tests CJA client initialization with config file and env vars
+- **validate_data_view**: Tests data view validation and existence checking
+- **list_dataviews**: Tests data view listing and output formatting
+- **validate_config_only**: Tests configuration validation without processing
+- **Config file loading**: Tests JSON config file parsing and validation
+- **Environment credentials**: Tests loading credentials from environment variables
+- **Connection testing**: Tests API connection verification
+- **Error scenarios**: Tests handling of invalid configs, missing credentials, and API failures
+
 ## Test Fixtures
 
 Test fixtures are defined in `conftest.py`:
@@ -323,8 +375,8 @@ uv run pytest
 
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
-- [x] Tests for batch processing functionality (covered in CLI tests)
-- [x] Comprehensive test coverage (221 tests total)
+- [x] Tests for batch processing functionality (test_batch_processor.py)
+- [x] Comprehensive test coverage (397 tests total)
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
@@ -334,6 +386,11 @@ uv run pytest
 - [x] Cache flags tests: --enable-cache, --clear-cache, --cache-size, --cache-ttl (test_cli.py)
 - [x] Constants validation tests (test_cli.py)
 - [x] Environment variable credentials tests (test_env_credentials.py)
+- [x] Parallel API fetcher tests (test_parallel_api_fetcher.py)
+- [x] Process single dataview tests (test_process_single_dataview.py)
+- [x] Excel formatting tests (test_excel_formatting.py)
+- [x] CJA initialization tests (test_cja_initialization.py)
+- [x] Name resolution tests (test_name_resolution.py)
 
 ## Future Enhancements
 

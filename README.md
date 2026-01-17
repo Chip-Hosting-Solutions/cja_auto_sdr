@@ -2,7 +2,7 @@
 
 <img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/54a43474-3fc6-4379-909c-452c19cdeac2" />
 
-**Version 3.0.9** - A production-ready Python tool that automates the creation of Solution Design Reference (SDR) documents from your Adobe Customer Journey Analytics implementation.
+A production-ready Python tool that automates the creation of Solution Design Reference (SDR) documents from your Adobe Customer Journey Analytics implementation.
 
 ## What It Is
 
@@ -181,7 +181,7 @@ python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
 python cja_sdr_generator.py "Production Analytics"
 ```
 
-> **New in v3.0.9:** You can now specify data views by **name** in addition to ID. If multiple data views share the same name, all matching views will be processed.
+> **Tip:** You can specify data views by **name** in addition to ID. If multiple data views share the same name, all matching views will be processed.
 
 ### 5. Review Output
 
@@ -247,7 +247,7 @@ cja_auto_sdr/
 │   ├── CLI_REFERENCE.md     # Command-line reference
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (278 tests)
+├── tests/                   # Test suite (397 tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output
