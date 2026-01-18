@@ -1469,6 +1469,62 @@ class SnapshotManager:
 
         return sorted(snapshots, key=lambda x: x.get('created_at', ''), reverse=True)
 
+    def apply_retention_policy(self, directory: str, data_view_id: str, keep_last: int) -> List[str]:
+        """
+        Apply retention policy by deleting old snapshots for a specific data view.
+
+        Args:
+            directory: Directory containing snapshots
+            data_view_id: Data view ID to filter snapshots
+            keep_last: Number of most recent snapshots to keep (0 = keep all)
+
+        Returns:
+            List of deleted file paths
+        """
+        if keep_last <= 0:
+            return []
+
+        # Get all snapshots for this data view
+        all_snapshots = self.list_snapshots(directory)
+        dv_snapshots = [s for s in all_snapshots if s.get('data_view_id') == data_view_id]
+
+        # Already sorted by created_at (newest first) from list_snapshots
+        if len(dv_snapshots) <= keep_last:
+            return []
+
+        # Delete old snapshots beyond the retention limit
+        deleted = []
+        for snapshot in dv_snapshots[keep_last:]:
+            filepath = snapshot.get('filepath')
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    self.logger.info(f"Retention policy: Deleted old snapshot {filepath}")
+                    deleted.append(filepath)
+                except OSError as e:
+                    self.logger.warning(f"Failed to delete snapshot {filepath}: {e}")
+
+        return deleted
+
+    def generate_snapshot_filename(self, data_view_id: str, data_view_name: str = None) -> str:
+        """
+        Generate a timestamped filename for auto-saved snapshots.
+
+        Args:
+            data_view_id: Data view ID
+            data_view_name: Optional data view name for more readable filenames
+
+        Returns:
+            Filename string (without directory path)
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Sanitize name for use in filename
+        if data_view_name:
+            safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in data_view_name)
+            safe_name = safe_name[:50]  # Limit length
+            return f"{safe_name}_{data_view_id}_{timestamp}.json"
+        return f"{data_view_id}_{timestamp}.json"
+
 
 # ==================== DATA VIEW COMPARATOR ====================
 
@@ -6493,6 +6549,11 @@ Examples:
   python cja_sdr_generator.py --diff dv_A dv_B --ignore-fields description,title
   python cja_sdr_generator.py --diff dv_A dv_B --diff-labels Production Staging
 
+  # Auto-snapshot: automatically save snapshots during diff for audit trail
+  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot
+  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot --snapshot-dir ./history
+  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot --keep-last 10
+
 Note:
   At least one data view ID must be provided (except for --list-dataviews, --sample-config).
   Use 'python cja_sdr_generator.py --help' to see all options.
@@ -6803,6 +6864,30 @@ Requirements:
         '--format-pr-comment',
         action='store_true',
         help='Output in GitHub/GitLab PR comment format (markdown with collapsible details)'
+    )
+
+    diff_group.add_argument(
+        '--auto-snapshot',
+        action='store_true',
+        help='Automatically save snapshots of data views during diff comparison. '
+             'Creates timestamped snapshots in --snapshot-dir for audit trail'
+    )
+
+    diff_group.add_argument(
+        '--snapshot-dir',
+        type=str,
+        default='./snapshots',
+        metavar='DIR',
+        help='Directory for auto-saved snapshots (default: ./snapshots). Used with --auto-snapshot'
+    )
+
+    diff_group.add_argument(
+        '--keep-last',
+        type=int,
+        default=0,
+        metavar='N',
+        help='Retention policy: keep only the last N snapshots per data view (0 = keep all). '
+             'Used with --auto-snapshot'
     )
 
     # Enable shell tab-completion if argcomplete is installed
@@ -7563,7 +7648,8 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
                         no_color: bool = False, quiet_diff: bool = False,
                         reverse_diff: bool = False, warn_threshold: Optional[float] = None,
                         group_by_field: bool = False, diff_output: Optional[str] = None,
-                        format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+                        format_pr_comment: bool = False, auto_snapshot: bool = False,
+                        snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff command to compare two data views.
 
@@ -7590,6 +7676,9 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
         group_by_field: Group changes by field name
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
+        auto_snapshot: Automatically save snapshots during diff
+        snapshot_dir: Directory for auto-saved snapshots
+        keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -7628,6 +7717,44 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
         if not quiet and not quiet_diff:
             print("Fetching target data view...")
         target_snapshot = snapshot_manager.create_snapshot(cja, target_id, quiet or quiet_diff)
+
+        # Auto-save snapshots if enabled
+        if auto_snapshot:
+            os.makedirs(snapshot_dir, exist_ok=True)
+
+            # Save source snapshot
+            source_filename = snapshot_manager.generate_snapshot_filename(
+                source_id, source_snapshot.data_view_name
+            )
+            source_path = os.path.join(snapshot_dir, source_filename)
+            snapshot_manager.save_snapshot(source_snapshot, source_path)
+
+            # Save target snapshot
+            target_filename = snapshot_manager.generate_snapshot_filename(
+                target_id, target_snapshot.data_view_name
+            )
+            target_path = os.path.join(snapshot_dir, target_filename)
+            snapshot_manager.save_snapshot(target_snapshot, target_path)
+
+            if not quiet and not quiet_diff:
+                print(f"Auto-saved snapshots to: {snapshot_dir}/")
+                print(f"  - {source_filename}")
+                print(f"  - {target_filename}")
+
+            # Apply retention policy if configured
+            if keep_last > 0:
+                deleted_source = snapshot_manager.apply_retention_policy(
+                    snapshot_dir, source_id, keep_last
+                )
+                deleted_target = snapshot_manager.apply_retention_policy(
+                    snapshot_dir, target_id, keep_last
+                )
+                total_deleted = len(deleted_source) + len(deleted_target)
+                if total_deleted > 0 and not quiet and not quiet_diff:
+                    print(f"  Retention policy: Deleted {total_deleted} old snapshot(s)")
+
+            if not quiet and not quiet_diff:
+                print()
 
         # Compare
         source_label = labels[0] if labels else source_snapshot.data_view_name
@@ -7699,7 +7826,8 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
                                   no_color: bool = False, quiet_diff: bool = False,
                                   reverse_diff: bool = False, warn_threshold: Optional[float] = None,
                                   group_by_field: bool = False, diff_output: Optional[str] = None,
-                                  format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+                                  format_pr_comment: bool = False, auto_snapshot: bool = False,
+                                  snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
 
@@ -7726,6 +7854,9 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         group_by_field: Group changes by field name
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
+        auto_snapshot: Automatically save snapshot of current data view state
+        snapshot_dir: Directory for auto-saved snapshots
+        keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -7756,6 +7887,31 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         if not quiet and not quiet_diff:
             print("Fetching current data view state...")
         target_snapshot = snapshot_manager.create_snapshot(cja, data_view_id, quiet or quiet_diff)
+
+        # Auto-save current state snapshot if enabled
+        if auto_snapshot:
+            os.makedirs(snapshot_dir, exist_ok=True)
+
+            # Save current state snapshot
+            current_filename = snapshot_manager.generate_snapshot_filename(
+                data_view_id, target_snapshot.data_view_name
+            )
+            current_path = os.path.join(snapshot_dir, current_filename)
+            snapshot_manager.save_snapshot(target_snapshot, current_path)
+
+            if not quiet and not quiet_diff:
+                print(f"Auto-saved current state to: {snapshot_dir}/{current_filename}")
+
+            # Apply retention policy if configured
+            if keep_last > 0:
+                deleted = snapshot_manager.apply_retention_policy(
+                    snapshot_dir, data_view_id, keep_last
+                )
+                if deleted and not quiet and not quiet_diff:
+                    print(f"  Retention policy: Deleted {len(deleted)} old snapshot(s)")
+
+            if not quiet and not quiet_diff:
+                print()
 
         # Handle reverse_diff - swap source and target
         if reverse_diff:
@@ -8199,7 +8355,10 @@ def main():
             warn_threshold=getattr(args, 'warn_threshold', None),
             group_by_field=getattr(args, 'group_by_field', False),
             diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False)
+            format_pr_comment=getattr(args, 'format_pr_comment', False),
+            auto_snapshot=getattr(args, 'auto_snapshot', False),
+            snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
+            keep_last=getattr(args, 'keep_last', 0)
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -8311,7 +8470,10 @@ def main():
             warn_threshold=getattr(args, 'warn_threshold', None),
             group_by_field=getattr(args, 'group_by_field', False),
             diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False)
+            format_pr_comment=getattr(args, 'format_pr_comment', False),
+            auto_snapshot=getattr(args, 'auto_snapshot', False),
+            snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
+            keep_last=getattr(args, 'keep_last', 0)
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes

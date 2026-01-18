@@ -10,16 +10,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Highlights
 - **Data View Diff Comparison (New)** - Compare data views to identify added, removed, and modified components with 20+ CLI options
 - **Snapshot-to-Snapshot Comparison** - Compare two snapshot files directly without API calls
+- **Auto-Snapshot on Diff** - Automatically save timestamped snapshots during diff comparisons for audit trails
 - **Smart Name Resolution** - Fuzzy matching suggestions for typos, interactive disambiguation for duplicates
 - **Comprehensive Type Hints** - Full type annotations for improved IDE support and static analysis
 - **Configuration Dataclasses** - Centralized, testable configuration with `SDRConfig`, `RetryConfig`, `CacheConfig`, `LogConfig`, `WorkerConfig`
 - **Custom Exception Hierarchy** - Better error handling with `CJASDRError`, `ConfigurationError`, `APIError`, `ValidationError`, `OutputError`
 - **OutputWriter Protocol** - Standardized interface for output format writers
-- **Expanded Test Coverage** - 580 total tests (+167 new: 123 diff comparison + 39 edge cases + 5 format validation)
+- **Expanded Test Coverage** - 596 total tests (+183 new: 139 diff comparison + 39 edge cases + 5 format validation)
 
-This release introduces the **Data View Diff Comparison** feature for change tracking and CI/CD integration, plus **code maintainability** improvements (type hints, centralized configuration) and **developer experience** enhancements (better exceptions, standardized interfaces) while maintaining full backward compatibility.
+This release introduces the **Data View Diff Comparison** feature for change tracking and CI/CD integration, **Auto-Snapshot** for automatic audit trails, plus **code maintainability** improvements (type hints, centralized configuration) and **developer experience** enhancements (better exceptions, standardized interfaces) while maintaining full backward compatibility.
 
 ### Added
+
+#### Auto-Snapshot on Diff (New Feature)
+Automatically save timestamped snapshots during diff comparisons—no extra commands needed.
+
+- **`--auto-snapshot`**: Enable automatic snapshot saving during `--diff` or `--diff-snapshot` operations
+- **`--snapshot-dir DIR`**: Directory for auto-saved snapshots (default: `./snapshots`)
+- **`--keep-last N`**: Retention policy to keep only the last N snapshots per data view (0 = keep all)
+- **Timestamped Filenames**: Snapshots saved with format `DataViewName_dv_id_YYYYMMDD_HHMMSS.json`
+- **Audit Trail**: Every comparison automatically documents the "before" state
+- **CI/CD Friendly**: Scheduled diffs build history automatically without manual intervention
+- **Zero Friction**: Transparent operation—just add `--auto-snapshot` to existing commands
+
+**Usage Examples:**
+```bash
+# Auto-save snapshots during diff comparison
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot
+
+# Custom snapshot directory
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot --snapshot-dir ./history
+
+# With retention policy (keep last 10 per data view)
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-last 10
+
+# Works with diff-snapshot too (saves current state)
+cja_auto_sdr dv_123 --diff-snapshot baseline.json --auto-snapshot
+```
+
+**New SnapshotManager Methods:**
+- `generate_snapshot_filename()`: Creates timestamped, sanitized filenames
+- `apply_retention_policy()`: Deletes old snapshots beyond retention limit
+
+**16 New Tests** for auto-snapshot functionality:
+- Filename generation (4 tests): with/without name, special chars, truncation
+- Retention policy (5 tests): keep all, delete old, per-data-view, empty/nonexistent dirs
+- CLI arguments (7 tests): defaults, custom values, all flags together
 
 #### Comprehensive Type Hints
 - **Function Signatures**: All key functions now have complete type annotations
@@ -171,7 +207,11 @@ Compare two data views or track changes over time with snapshots. This feature i
   - Console format for diff mode
   - Console format parsing for SDR (runtime validation)
   - Excel/JSON/all format validation
-- **Total Test Count**: 413 (v3.0.9) → 580 (v3.0.10) = +167 tests (100% pass rate)
+- **16 New Tests** for auto-snapshot functionality:
+  - Filename generation tests (4 tests)
+  - Retention policy tests (5 tests)
+  - CLI argument parsing tests (7 tests)
+- **Total Test Count**: 413 (v3.0.9) → 596 (v3.0.10) = +183 tests (100% pass rate)
 
 ### Fixed
 

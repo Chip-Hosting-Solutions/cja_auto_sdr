@@ -56,6 +56,7 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 | **Comparison** | Data View Diff | Compare two data views to identify added, removed, and modified components |
 | | Snapshot Support | Save and compare against baseline snapshots for change tracking |
 | | Snapshot-to-Snapshot | Compare two snapshot files directly without API calls |
+| | Auto-Snapshot on Diff | Automatically save timestamped snapshots during comparisons for audit trails |
 | | CI/CD Integration | Exit codes for pipeline automation (2=changes found, 3=threshold exceeded) |
 | | Smart Name Resolution | Fuzzy matching suggestions for typos, interactive disambiguation for duplicates |
 | **Usability** | Dry-Run Mode | Test configuration without generating reports |
@@ -220,6 +221,8 @@ python cja_sdr_generator.py "Production Analytics"
 | Save snapshot | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
 | Compare to snapshot | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
+| Auto-save snapshots on diff | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
+| With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
 
 ## Documentation
 
@@ -258,7 +261,7 @@ cja_auto_sdr/
 │   ├── CLI_REFERENCE.md     # Command-line reference
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (580 tests)
+├── tests/                   # Test suite (596 tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output

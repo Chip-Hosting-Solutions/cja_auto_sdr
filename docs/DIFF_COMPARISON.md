@@ -130,6 +130,39 @@ cja_auto_sdr --compare-snapshots ./prod.json ./staging.json --format html
 cja_auto_sdr --compare-snapshots ./old.json ./new.json --changes-only --side-by-side
 ```
 
+### Auto-Snapshot on Diff
+
+Automatically save timestamped snapshots during any diff comparison—no extra commands needed. This creates an audit trail without manual snapshot management.
+
+```bash
+# Auto-save snapshots during diff comparison
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot
+
+# Snapshots saved to: ./snapshots/
+#   - DataViewName_dv_12345_20260118_143022.json
+#   - DataViewName_dv_67890_20260118_143022.json
+
+# Custom snapshot directory
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --snapshot-dir ./history
+
+# With retention policy (keep only last 10 snapshots per data view)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-last 10
+
+# Works with diff-snapshot too (saves current state)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
+```
+
+**Benefits:**
+- **Audit Trail**: Every comparison automatically documents the "before" state
+- **Rollback Reference**: Can always see what changed when
+- **Zero Friction**: No extra commands; happens transparently
+- **CI/CD Friendly**: Scheduled diffs build history automatically
+
+**Retention Policy:**
+- `--keep-last 0` (default): Keep all snapshots forever
+- `--keep-last N`: Keep only the N most recent snapshots per data view
+- Old snapshots are deleted automatically after new ones are saved
+
 ## Smart Name Resolution
 
 When you specify data views by name, the tool provides intelligent features to help resolve ambiguities and typos.
@@ -187,6 +220,9 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--group-by-field` | Group changes by field name instead of by component. |
 | `--diff-output FILE` | Write diff output directly to file instead of stdout. |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format with collapsible details. |
+| `--auto-snapshot` | Automatically save snapshots during diff for audit trail. |
+| `--snapshot-dir DIR` | Directory for auto-saved snapshots (default: ./snapshots). |
+| `--keep-last N` | Retention: keep only last N snapshots per data view (0 = keep all). |
 
 ## Output Formats
 
@@ -602,8 +638,11 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestSnapshotToSnapshotComparison` | 4 | Direct snapshot file comparison |
 | `TestPromptForSelection` | 4 | Interactive selection prompts |
 | `TestNewFeatureCLIArguments` | 2 | --compare-snapshots CLI argument |
+| `TestAutoSnapshotFilenameGeneration` | 4 | Timestamped filename generation, sanitization |
+| `TestRetentionPolicy` | 5 | Keep all, delete old, per-data-view filtering |
+| `TestAutoSnapshotCLIArguments` | 7 | --auto-snapshot, --snapshot-dir, --keep-last |
 
-**Total: 123 tests**
+**Total: 139 tests**
 
 ### Running Tests
 
@@ -641,6 +680,8 @@ python -m pytest tests/test_diff_comparison.py --cov=cja_sdr_generator --cov-rep
 16. **API Caching** - Thread-safe data view cache with TTL expiration
 17. **Interactive Selection** - User prompts for disambiguation in TTY mode
 18. **Ambiguous Names** - Proper handling when names match multiple data views
+19. **Auto-Snapshot** - Automatic snapshot saving with timestamped filenames
+20. **Retention Policy** - Configurable snapshot retention per data view
 
 ## See Also
 

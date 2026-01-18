@@ -130,6 +130,9 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--group-by-field` | Group changes by field name instead of component | False |
 | `--diff-output FILE` | Write output to file instead of stdout | - |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format | False |
+| `--auto-snapshot` | Automatically save snapshots during diff for audit trail | False |
+| `--snapshot-dir DIR` | Directory for auto-saved snapshots | ./snapshots |
+| `--keep-last N` | Retention: keep only last N snapshots per data view (0=all) | 0 |
 
 ### Environment Variables
 
@@ -331,6 +334,18 @@ cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side --format markdown
 
 # Combined options
 cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields --side-by-side --show-only modified --changes-only
+
+# Auto-snapshot: automatically save snapshots during diff for audit trail
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot
+
+# Custom snapshot directory
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --snapshot-dir ./history
+
+# With retention policy (keep last 10 snapshots per data view)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-last 10
+
+# Auto-snapshot works with diff-snapshot too (saves current state)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
 ```
 
 ## Output Files

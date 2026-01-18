@@ -2656,3 +2656,228 @@ class TestPromptForSelection:
             with patch('builtins.input', side_effect=EOFError):
                 result = prompt_for_selection(options, "Select:")
                 assert result is None
+
+
+# ==================== Auto-Snapshot Tests ====================
+
+class TestAutoSnapshotFilenameGeneration:
+    """Tests for snapshot filename generation"""
+
+    def test_generate_filename_with_name(self):
+        """Test filename generation with data view name"""
+        manager = SnapshotManager()
+        filename = manager.generate_snapshot_filename("dv_12345", "My Data View")
+
+        assert filename.startswith("My_Data_View_dv_12345_")
+        assert filename.endswith(".json")
+        # Check timestamp format (YYYYMMDD_HHMMSS)
+        parts = filename.replace(".json", "").split("_")
+        assert len(parts[-2]) == 8  # YYYYMMDD
+        assert len(parts[-1]) == 6  # HHMMSS
+
+    def test_generate_filename_without_name(self):
+        """Test filename generation without data view name"""
+        manager = SnapshotManager()
+        filename = manager.generate_snapshot_filename("dv_67890")
+
+        assert filename.startswith("dv_67890_")
+        assert filename.endswith(".json")
+
+    def test_generate_filename_sanitizes_special_chars(self):
+        """Test that special characters in name are sanitized"""
+        manager = SnapshotManager()
+        filename = manager.generate_snapshot_filename("dv_123", "My/Data:View*Name?")
+
+        # Special chars should be replaced with underscores
+        assert "/" not in filename
+        assert ":" not in filename
+        assert "*" not in filename
+        assert "?" not in filename
+        assert filename.startswith("My_Data_View_Name_")
+
+    def test_generate_filename_truncates_long_names(self):
+        """Test that long names are truncated"""
+        manager = SnapshotManager()
+        long_name = "A" * 100
+        filename = manager.generate_snapshot_filename("dv_123", long_name)
+
+        # Name should be truncated to 50 chars
+        name_part = filename.split("_dv_123_")[0]
+        assert len(name_part) <= 50
+
+
+class TestRetentionPolicy:
+    """Tests for snapshot retention policy"""
+
+    def test_retention_keeps_all_when_zero(self):
+        """Test that keep_last=0 keeps all snapshots"""
+        manager = SnapshotManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple snapshots
+            for i in range(5):
+                snapshot = DataViewSnapshot(
+                    data_view_id="dv_test",
+                    data_view_name="Test",
+                    owner="test",
+                    description="test",
+                    metrics=[],
+                    dimensions=[]
+                )
+                manager.save_snapshot(snapshot, os.path.join(tmpdir, f"snapshot_{i}.json"))
+
+            deleted = manager.apply_retention_policy(tmpdir, "dv_test", keep_last=0)
+            assert deleted == []
+            assert len(os.listdir(tmpdir)) == 5
+
+    def test_retention_deletes_old_snapshots(self):
+        """Test that old snapshots are deleted beyond retention limit"""
+        manager = SnapshotManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create 5 snapshots with different timestamps
+            from datetime import datetime, timedelta
+            from unittest.mock import patch
+
+            for i in range(5):
+                timestamp = datetime.now() - timedelta(days=5-i)
+                snapshot = DataViewSnapshot(
+                    data_view_id="dv_test",
+                    data_view_name="Test",
+                    owner="test",
+                    description="test",
+                    metrics=[],
+                    dimensions=[]
+                )
+                # Manually set created_at for ordering
+                snapshot.created_at = timestamp.isoformat()
+                manager.save_snapshot(snapshot, os.path.join(tmpdir, f"snapshot_{i}.json"))
+
+            # Keep only last 2
+            deleted = manager.apply_retention_policy(tmpdir, "dv_test", keep_last=2)
+
+            assert len(deleted) == 3
+            remaining = os.listdir(tmpdir)
+            assert len(remaining) == 2
+
+    def test_retention_only_affects_matching_data_view(self):
+        """Test that retention only deletes snapshots for the specified data view"""
+        manager = SnapshotManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create snapshots for two different data views
+            for dv_id in ["dv_a", "dv_b"]:
+                for i in range(3):
+                    snapshot = DataViewSnapshot(
+                        data_view_id=dv_id,
+                        data_view_name=f"Test {dv_id}",
+                        owner="test",
+                        description="test",
+                        metrics=[],
+                        dimensions=[]
+                    )
+                    manager.save_snapshot(snapshot, os.path.join(tmpdir, f"{dv_id}_snapshot_{i}.json"))
+
+            # Apply retention only to dv_a
+            deleted = manager.apply_retention_policy(tmpdir, "dv_a", keep_last=1)
+
+            assert len(deleted) == 2
+            # dv_b should still have all 3
+            remaining = manager.list_snapshots(tmpdir)
+            dv_b_count = sum(1 for s in remaining if s['data_view_id'] == 'dv_b')
+            assert dv_b_count == 3
+
+    def test_retention_handles_empty_directory(self):
+        """Test retention with empty directory"""
+        manager = SnapshotManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            deleted = manager.apply_retention_policy(tmpdir, "dv_test", keep_last=5)
+            assert deleted == []
+
+    def test_retention_handles_nonexistent_directory(self):
+        """Test retention with non-existent directory"""
+        manager = SnapshotManager()
+        deleted = manager.apply_retention_policy("/nonexistent/path", "dv_test", keep_last=5)
+        assert deleted == []
+
+
+class TestAutoSnapshotCLIArguments:
+    """Tests for auto-snapshot CLI argument parsing"""
+
+    def test_auto_snapshot_flag_default(self):
+        """Test that --auto-snapshot defaults to False"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+            args = parse_arguments()
+            assert args.auto_snapshot is False
+
+    def test_auto_snapshot_flag_enabled(self):
+        """Test that --auto-snapshot can be enabled"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--auto-snapshot']):
+            args = parse_arguments()
+            assert args.auto_snapshot is True
+
+    def test_snapshot_dir_default(self):
+        """Test that --snapshot-dir has correct default"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+            args = parse_arguments()
+            assert args.snapshot_dir == './snapshots'
+
+    def test_snapshot_dir_custom(self):
+        """Test that --snapshot-dir can be customized"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--snapshot-dir', './my_snapshots']):
+            args = parse_arguments()
+            assert args.snapshot_dir == './my_snapshots'
+
+    def test_keep_last_default(self):
+        """Test that --keep-last defaults to 0 (keep all)"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+            args = parse_arguments()
+            assert args.keep_last == 0
+
+    def test_keep_last_custom(self):
+        """Test that --keep-last can be set"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--keep-last', '10']):
+            args = parse_arguments()
+            assert args.keep_last == 10
+
+    def test_all_auto_snapshot_flags_together(self):
+        """Test all auto-snapshot flags used together"""
+        from cja_sdr_generator import parse_arguments
+        from unittest.mock import patch
+        import sys
+
+        with patch.object(sys, 'argv', [
+            'prog', '--diff', 'dv_a', 'dv_b',
+            '--auto-snapshot',
+            '--snapshot-dir', './history',
+            '--keep-last', '5'
+        ]):
+            args = parse_arguments()
+            assert args.auto_snapshot is True
+            assert args.snapshot_dir == './history'
+            assert args.keep_last == 5
