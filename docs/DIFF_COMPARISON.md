@@ -93,14 +93,14 @@ metrics/bounce_rate (Bounce Rate) -->  metrics/bounce_rate (Bounce %)     = MODI
 
 ```bash
 # By ID
-cja_auto_sdr --diff dv_prod_12345 dv_staging_67890
+cja_auto_sdr --diff dv_12345 dv_67890
 
 # By name
 cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
 
 # Mix IDs and names (both supported)
-cja_auto_sdr --diff dv_prod_12345 "Staging Analytics"
-cja_auto_sdr --diff "Production Analytics" dv_staging_67890
+cja_auto_sdr --diff dv_12345 "Staging Analytics"
+cja_auto_sdr --diff "Production Analytics" dv_67890
 ```
 
 ### Save and Compare Against Snapshots
@@ -194,25 +194,25 @@ All existing output formats are supported for diff reports:
 
 ```bash
 # Console output (default for diff)
-cja_auto_sdr --diff dv_A dv_B
+cja_auto_sdr --diff dv_12345 dv_67890
 
 # HTML report
-cja_auto_sdr --diff dv_A dv_B --format html --output-dir ./reports
+cja_auto_sdr --diff dv_12345 dv_67890 --format html --output-dir ./reports
 
 # JSON (for CI/CD integration)
-cja_auto_sdr --diff dv_A dv_B --format json
+cja_auto_sdr --diff dv_12345 dv_67890 --format json
 
 # Markdown (for documentation/PRs)
-cja_auto_sdr --diff dv_A dv_B --format markdown
+cja_auto_sdr --diff dv_12345 dv_67890 --format markdown
 
 # Excel workbook
-cja_auto_sdr --diff dv_A dv_B --format excel
+cja_auto_sdr --diff dv_12345 dv_67890 --format excel
 
 # CSV files
-cja_auto_sdr --diff dv_A dv_B --format csv
+cja_auto_sdr --diff dv_12345 dv_67890 --format csv
 
 # All formats at once
-cja_auto_sdr --diff dv_A dv_B --format all
+cja_auto_sdr --diff dv_12345 dv_67890 --format all
 ```
 
 ## Console Output Example
@@ -221,8 +221,8 @@ cja_auto_sdr --diff dv_A dv_B --format all
 ================================================================================
 DATA VIEW COMPARISON REPORT
 ================================================================================
-Source: Production Analytics (dv_prod_12345)
-Target: Staging Analytics (dv_staging_67890)
+Source: Production Analytics (dv_12345)
+Target: Staging Analytics (dv_67890)
 Generated: 2025-01-17 14:30:00
 ================================================================================
 
@@ -288,7 +288,7 @@ The diff command uses exit codes for CI/CD integration:
 ```yaml
 - name: Check for Data View Drift
   run: |
-    cja_auto_sdr --diff dv_prod dv_staging --changes-only --format json
+    cja_auto_sdr --diff dv_12345 dv_67890 --changes-only --format json
     if [ $? -eq 2 ]; then
       echo "Warning: Production and Staging data views differ!"
       exit 1  # Fail the build
@@ -301,7 +301,7 @@ The diff command uses exit codes for CI/CD integration:
 #!/bin/bash
 # Validate staging matches expected baseline before deployment
 
-cja_auto_sdr dv_staging --diff-snapshot ./expected_baseline.json --changes-only
+cja_auto_sdr dv_67890 --diff-snapshot ./expected_baseline.json --changes-only
 
 if [ $? -eq 2 ]; then
     echo "ERROR: Staging environment has unexpected changes!"
@@ -318,7 +318,7 @@ echo "Validation passed. Proceeding with deployment..."
 #!/bin/bash
 # Fail the build if more than 5% of components changed
 
-cja_auto_sdr --diff dv_prod dv_staging --warn-threshold 5 --quiet-diff
+cja_auto_sdr --diff dv_12345 dv_67890 --warn-threshold 5 --quiet-diff
 exit_code=$?
 
 if [ $exit_code -eq 3 ]; then
@@ -334,7 +334,7 @@ fi
 
 ```bash
 # Generate markdown optimized for GitHub/GitLab PR comments
-cja_auto_sdr --diff dv_prod dv_staging --format-pr-comment --diff-output pr-comment.md
+cja_auto_sdr --diff dv_12345 dv_67890 --format-pr-comment --diff-output pr-comment.md
 
 # Post as PR comment (GitHub CLI)
 gh pr comment --body-file pr-comment.md
@@ -382,10 +382,10 @@ Generate diff reports for stakeholder review:
 
 ```bash
 # Create HTML report for review
-cja_auto_sdr --diff dv_old dv_new --format html --diff-labels "Before" "After"
+cja_auto_sdr --diff dv_12345 dv_67890 --format html --diff-labels "Before" "After"
 
 # Create Markdown for PR description
-cja_auto_sdr --diff dv_old dv_new --format markdown --changes-only > pr-changes.md
+cja_auto_sdr --diff dv_12345 dv_67890 --format markdown --changes-only > pr-changes.md
 ```
 
 ### 5. Audit Trail
@@ -419,7 +419,7 @@ cja_auto_sdr --compare-snapshots ./q1.json ./q2.json --format all --output-dir .
 Hide unchanged components to focus on differences:
 
 ```bash
-cja_auto_sdr --diff dv_A dv_B --changes-only
+cja_auto_sdr --diff dv_12345 dv_67890 --changes-only
 ```
 
 ### Summary Only
@@ -427,7 +427,7 @@ cja_auto_sdr --diff dv_A dv_B --changes-only
 Show only summary statistics without detailed changes:
 
 ```bash
-cja_auto_sdr --diff dv_A dv_B --summary
+cja_auto_sdr --diff dv_12345 dv_67890 --summary
 ```
 
 ### Ignore Specific Fields
@@ -435,7 +435,7 @@ cja_auto_sdr --diff dv_A dv_B --summary
 Exclude certain fields from comparison (e.g., ignore description changes):
 
 ```bash
-cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
+cja_auto_sdr --diff dv_12345 dv_67890 --ignore-fields description,title
 ```
 
 ### Custom Labels
@@ -443,7 +443,7 @@ cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
 Use custom labels instead of data view names:
 
 ```bash
-cja_auto_sdr --diff dv_A dv_B --diff-labels "Production" "Staging"
+cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels "Production" "Staging"
 ```
 
 ### Filter by Change Type
@@ -452,16 +452,16 @@ Show only specific types of changes:
 
 ```bash
 # Show only added components
-cja_auto_sdr --diff dv_A dv_B --show-only added
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only added
 
 # Show only removed components
-cja_auto_sdr --diff dv_A dv_B --show-only removed
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only removed
 
 # Show only modified components
-cja_auto_sdr --diff dv_A dv_B --show-only modified
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only modified
 
 # Combine multiple types
-cja_auto_sdr --diff dv_A dv_B --show-only added,modified
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only added,modified
 ```
 
 ### Filter by Component Type
@@ -470,10 +470,10 @@ Compare only metrics or only dimensions:
 
 ```bash
 # Compare only metrics
-cja_auto_sdr --diff dv_A dv_B --metrics-only
+cja_auto_sdr --diff dv_12345 dv_67890 --metrics-only
 
 # Compare only dimensions
-cja_auto_sdr --diff dv_A dv_B --dimensions-only
+cja_auto_sdr --diff dv_12345 dv_67890 --dimensions-only
 ```
 
 ### Side-by-Side View
@@ -482,10 +482,10 @@ Display modified items in a side-by-side format for easier comparison:
 
 ```bash
 # Console side-by-side view
-cja_auto_sdr --diff dv_A dv_B --side-by-side
+cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side
 
 # Markdown side-by-side (creates comparison tables)
-cja_auto_sdr --diff dv_A dv_B --side-by-side --format markdown
+cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side --format markdown
 ```
 
 Example side-by-side console output:
@@ -504,10 +504,10 @@ Compare additional fields including attribution, format, and bucketing settings:
 
 ```bash
 # Include extended fields in comparison
-cja_auto_sdr --diff dv_A dv_B --extended-fields
+cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields
 
 # Combine with other options
-cja_auto_sdr --diff dv_A dv_B --extended-fields --side-by-side --changes-only
+cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields --side-by-side --changes-only
 ```
 
 ## Comparison Fields

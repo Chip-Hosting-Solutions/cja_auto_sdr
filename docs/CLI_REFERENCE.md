@@ -253,7 +253,7 @@ cja_auto_sdr dv_12345 --format all
 ```bash
 # Full production batch
 cja_auto_sdr --batch \
-  dv_prod_12345 dv_staging_67890 dv_dev_abcde \
+  dv_12345 dv_67890 dv_abcde \
   --workers 4 \
   --output-dir ./sdr_reports \
   --continue-on-error \
@@ -273,14 +273,14 @@ cja_auto_sdr --batch $(cat dataviews.txt)
 
 ```bash
 # Compare two live data views (by ID)
-cja_auto_sdr --diff dv_prod_12345 dv_staging_67890
+cja_auto_sdr --diff dv_12345 dv_67890
 
 # Compare by name
 cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
 
 # Mix IDs and names (both supported)
-cja_auto_sdr --diff dv_prod_12345 "Staging Analytics"
-cja_auto_sdr --diff "Production Analytics" dv_staging_67890
+cja_auto_sdr --diff dv_12345 "Staging Analytics"
+cja_auto_sdr --diff "Production Analytics" dv_67890
 
 # Save a snapshot for later comparison (ID or name)
 cja_auto_sdr dv_12345 --snapshot ./snapshots/baseline.json
@@ -295,42 +295,42 @@ cja_auto_sdr --compare-snapshots ./snapshots/before.json ./snapshots/after.json
 cja_auto_sdr --compare-snapshots ./snapshots/prod.json ./snapshots/staging.json --format html
 
 # Diff with different output formats
-cja_auto_sdr --diff dv_A dv_B --format html --output-dir ./reports
-cja_auto_sdr --diff dv_A dv_B --format all
+cja_auto_sdr --diff dv_12345 dv_67890 --format html --output-dir ./reports
+cja_auto_sdr --diff dv_12345 dv_67890 --format all
 
 # Show only changes (hide unchanged items)
-cja_auto_sdr --diff dv_A dv_B --changes-only
+cja_auto_sdr --diff dv_12345 dv_67890 --changes-only
 
 # Show summary only (no detailed changes)
-cja_auto_sdr --diff dv_A dv_B --summary
+cja_auto_sdr --diff dv_12345 dv_67890 --summary
 
 # Ignore specific fields during comparison
-cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
+cja_auto_sdr --diff dv_12345 dv_67890 --ignore-fields description,title
 
 # Custom labels for source and target
-cja_auto_sdr --diff dv_A dv_B --diff-labels Production Staging
+cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels Production Staging
 
 # CI/CD integration (exit code 2 if differences found)
-cja_auto_sdr --diff dv_prod dv_staging --changes-only --format json
+cja_auto_sdr --diff dv_12345 dv_67890 --changes-only --format json
 echo $?  # 0 = no differences, 2 = differences found, 1 = error
 
 # Filter by change type
-cja_auto_sdr --diff dv_A dv_B --show-only added
-cja_auto_sdr --diff dv_A dv_B --show-only removed,modified
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only added
+cja_auto_sdr --diff dv_12345 dv_67890 --show-only removed,modified
 
 # Filter by component type
-cja_auto_sdr --diff dv_A dv_B --metrics-only
-cja_auto_sdr --diff dv_A dv_B --dimensions-only
+cja_auto_sdr --diff dv_12345 dv_67890 --metrics-only
+cja_auto_sdr --diff dv_12345 dv_67890 --dimensions-only
 
 # Extended field comparison
-cja_auto_sdr --diff dv_A dv_B --extended-fields
+cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields
 
 # Side-by-side view
-cja_auto_sdr --diff dv_A dv_B --side-by-side
-cja_auto_sdr --diff dv_A dv_B --side-by-side --format markdown
+cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side
+cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side --format markdown
 
 # Combined options
-cja_auto_sdr --diff dv_A dv_B --extended-fields --side-by-side --show-only modified --changes-only
+cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields --side-by-side --show-only modified --changes-only
 ```
 
 ## Output Files

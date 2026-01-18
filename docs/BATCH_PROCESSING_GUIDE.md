@@ -83,7 +83,7 @@ cja_auto_sdr --batch dv_* --log-level WARNING
 
 # Full production example
 cja_auto_sdr --batch \
-  dv_prod_12345 dv_staging_67890 dv_dev_abcde \
+  dv_12345 dv_67890 dv_abcde \
   --workers 4 \
   --output-dir ./sdr_reports \
   --continue-on-error \
@@ -95,10 +95,10 @@ cja_auto_sdr --batch \
 ```bash
 # Create a file with data view IDs (one per line)
 cat > dataviews.txt <<EOF
-dv_production_12345
-dv_staging_67890
-dv_development_abcde
-dv_testing_99999
+dv_12345
+dv_67890
+dv_abcde
+dv_99999
 EOF
 
 # Process all data views from file
@@ -232,7 +232,7 @@ Throughput: 4.8 data views per minute
 
 # Process all data views nightly at 2 AM
 0 2 * * * cd /path/to/project && cja_auto_sdr \
-  --batch dv_prod_1 dv_prod_2 dv_prod_3 \
+  --batch dv_12345 dv_67890 dv_abcde \
   --output-dir /reports/$(date +\%Y\%m\%d) \
   --continue-on-error \
   --log-level WARNING

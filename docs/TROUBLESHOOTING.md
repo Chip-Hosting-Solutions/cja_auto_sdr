@@ -438,7 +438,7 @@ You can mix data view IDs and names in the same command:
 uv run cja_auto_sdr dv_12345 "Production Analytics" dv_67890
 
 # IDs start with 'dv_', everything else is treated as a name
-uv run cja_auto_sdr "Test Environment" dv_prod123 "Staging"
+uv run cja_auto_sdr "Test Environment" dv_12345 "Staging"
 ```
 
 **Important:** If an identifier doesn't start with `dv_`, it's treated as a **name** and must:
@@ -471,13 +471,13 @@ If multiple data views share the same name, **all matching views will be process
 $ uv run cja_auto_sdr "Production"
 
 Resolving 1 data view name(s)...
-INFO - Name 'Production' matched 3 data views: ['dv_prod001', 'dv_prod002', 'dv_prod003']
+INFO - Name 'Production' matched 3 data views: ['dv_12345', 'dv_67890', 'dv_abcde']
 
 Data view name resolution:
   ✓ 'Production' → 3 matching data views:
-      - dv_prod001
-      - dv_prod002
-      - dv_prod003
+      - dv_12345
+      - dv_67890
+      - dv_abcde
 
 Processing 3 data view(s) total...
 ```
@@ -487,7 +487,7 @@ Processing 3 data view(s) total...
 **To process only one:**
 1. Use the specific data view ID instead:
    ```bash
-   uv run cja_auto_sdr dv_prod001
+   uv run cja_auto_sdr dv_12345
    ```
 
 2. Or use `--list-dataviews` to find unique identifiers

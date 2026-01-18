@@ -284,7 +284,7 @@ DATE=$(date +%Y%m%d)
 OUTPUT_DIR="./reports/$DATE"
 
 cja_auto_sdr \
-  --batch dv_production dv_staging \
+  --batch dv_12345 dv_67890 \
   --format html \
   --output-dir "$OUTPUT_DIR" \
   --workers 4
@@ -359,9 +359,9 @@ dimensions.to_sql('cja_dimensions', con=db_connection, if_exists='replace')
 # comprehensive_audit.sh - Generate comprehensive audit package
 
 DATA_VIEWS=(
-  "dv_production"
-  "dv_staging"
-  "dv_development"
+  "dv_12345"
+  "dv_67890"
+  "dv_abcde"
 )
 
 for dv in "${DATA_VIEWS[@]}"; do

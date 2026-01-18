@@ -15,7 +15,7 @@ Quickly understand the breadth and depth of your CJA setup:
 **Best for:** Quarterly reviews, new team member onboarding
 
 ```bash
-cja_auto_sdr dv_production --output-dir ./audits/$(date +%Y%m%d)
+cja_auto_sdr dv_12345 --output-dir ./audits/$(date +%Y%m%d)
 ```
 
 ### Implementation Verification
@@ -82,7 +82,7 @@ Compare configurations across environments:
 **Best for:** DevOps, environment management
 
 ```bash
-cja_auto_sdr dv_dev dv_staging dv_prod \
+cja_auto_sdr dv_12345 dv_67890 dv_abcde \
   --output-dir ./env_comparison
 ```
 
@@ -119,18 +119,18 @@ Run SDR generation regularly to track changes:
 crontab -e
 
 # Weekly audit on Monday at 9 AM
-0 9 * * 1 cd /path/to/project && cja_auto_sdr dv_production
+0 9 * * 1 cd /path/to/project && cja_auto_sdr dv_12345
 
 # Daily batch at 2 AM
 0 2 * * * cd /path/to/project && cja_auto_sdr \
-  dv_prod_1 dv_prod_2 --output-dir /reports/$(date +\%Y\%m\%d) --continue-on-error
+  dv_12345 dv_67890 --output-dir /reports/$(date +\%Y\%m\%d) --continue-on-error
 ```
 
 #### Windows (Task Scheduler)
 
 ```powershell
 $action = New-ScheduledTaskAction -Execute "uv" `
-  -Argument "run cja_auto_sdr dv_production" `
+  -Argument "run cja_auto_sdr dv_12345" `
   -WorkingDirectory "C:\path\to\project"
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 9am
 Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Weekly"
@@ -145,7 +145,7 @@ Create reusable scripts for common operations:
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")/.."
-cja_auto_sdr dv_production \
+cja_auto_sdr dv_12345 \
   --output-dir ./reports/production \
   --log-level WARNING
 ```
@@ -156,7 +156,7 @@ cja_auto_sdr dv_production \
 #!/bin/bash
 cd "$(dirname "$0")/.."
 cja_auto_sdr \
-  dv_production dv_staging dv_development \
+  dv_12345 dv_67890 dv_abcde \
   --output-dir ./reports/$(date +%Y%m%d) \
   --continue-on-error
 ```
@@ -165,11 +165,11 @@ cja_auto_sdr \
 
 Create `dataviews.txt`:
 ```
-dv_production_main
-dv_production_eu
-dv_production_apac
-dv_staging
-dv_development
+dv_12345
+dv_67890
+dv_abcde
+dv_11111
+dv_22222
 ```
 
 Then:
@@ -310,7 +310,7 @@ cja_auto_sdr dv_12345 \
 **Organizing by environment:**
 
 ```bash
-cja_auto_sdr dv_prod \
+cja_auto_sdr dv_12345 \
   --output-dir ./reports/production/$(date +%Y%m%d)
 ```
 

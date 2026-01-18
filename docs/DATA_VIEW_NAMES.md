@@ -70,13 +70,13 @@ If multiple data views share the same name, all matching views will be processed
 $ cja_auto_sdr "Production"
 
 Resolving 1 data view name(s)...
-INFO - Name 'Production' matched 3 data views: ['dv_prod001', 'dv_prod002', 'dv_prod003']
+INFO - Name 'Production' matched 3 data views: ['dv_12345', 'dv_67890', 'dv_abcde']
 
 Data view name resolution:
   ✓ 'Production' → 3 matching data views:
-      - dv_prod001
-      - dv_prod002
-      - dv_prod003
+      - dv_12345
+      - dv_67890
+      - dv_abcde
 
 Processing 3 data view(s) total...
 ```
@@ -251,7 +251,7 @@ Names work seamlessly with batch processing:
 cja_auto_sdr "Production" "Staging" "Test" --workers 4
 
 # Mix with IDs
-cja_auto_sdr dv_prod123 "Staging Analytics" dv_test456 --batch
+cja_auto_sdr dv_12345 "Staging Analytics" dv_67890 --batch
 ```
 
 ## Dry Run with Names

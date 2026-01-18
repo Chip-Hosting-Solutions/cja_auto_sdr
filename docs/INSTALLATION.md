@@ -386,7 +386,7 @@ uv pip list
 uv run cja_auto_sdr --validate-config
 
 # Or dry-run with a specific data view
-uv run cja_auto_sdr dv_test --dry-run
+uv run cja_auto_sdr dv_12345 --dry-run
 ```
 
 ### List Available Data Views
