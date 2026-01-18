@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Highlights
 - **Data View Diff Comparison (New)** - Compare data views to identify added, removed, and modified components with 20+ CLI options
+- **Snapshot-to-Snapshot Comparison** - Compare two snapshot files directly without API calls
+- **Smart Name Resolution** - Fuzzy matching suggestions for typos, interactive disambiguation for duplicates
 - **Comprehensive Type Hints** - Full type annotations for improved IDE support and static analysis
 - **Configuration Dataclasses** - Centralized, testable configuration with `SDRConfig`, `RetryConfig`, `CacheConfig`, `LogConfig`, `WorkerConfig`
 - **Custom Exception Hierarchy** - Better error handling with `CJASDRError`, `ConfigurationError`, `APIError`, `ValidationError`, `OutputError`
 - **OutputWriter Protocol** - Standardized interface for output format writers
-- **Expanded Test Coverage** - 551 total tests (+138 new: 94 diff comparison + 39 edge cases + 5 format validation)
+- **Expanded Test Coverage** - 580 total tests (+167 new: 123 diff comparison + 39 edge cases + 5 format validation)
 
 This release introduces the **Data View Diff Comparison** feature for change tracking and CI/CD integration, plus **code maintainability** improvements (type hints, centralized configuration) and **developer experience** enhancements (better exceptions, standardized interfaces) while maintaining full backward compatibility.
 
@@ -69,9 +71,15 @@ Compare two data views or track changes over time with snapshots. This feature i
 - **`--diff`**: Compare two live data views side-by-side
 - **`--snapshot`**: Save a data view state to JSON for later comparison
 - **`--diff-snapshot`**: Compare current data view against a saved snapshot
+- **`--compare-snapshots A B`**: Compare two snapshot files directly without API calls (offline analysis)
 - **Identified Changes**: Added, removed, and modified metrics/dimensions with field-level details
 - **Multiple Output Formats**: Console (default), JSON, HTML, Markdown, Excel, CSV
 - **CI/CD Integration**: Exit code 2 when differences found, exit code 3 when threshold exceeded
+
+**Smart Name Resolution:**
+- **Fuzzy Name Matching**: Suggests similar data view names when exact match not found (Levenshtein distance)
+- **Interactive Disambiguation**: Prompts user to select when name matches multiple data views (TTY mode only)
+- **API Response Caching**: 5-minute TTL cache for data view listings reduces API calls
 
 **Display Options:**
 - **ANSI Color-Coded Diff Output**: Green for added `[+]`, red for removed `[-]`, yellow for modified `[~]`; use `--no-color` to disable
@@ -115,6 +123,7 @@ Compare two data views or track changes over time with snapshots. This feature i
   - `--dimensions-only` - Compare only dimensions
   - `--extended-fields` - Use extended field comparison
   - `--side-by-side` - Show side-by-side comparison view
+  - `--compare-snapshots A B` - Compare two snapshot files directly (no API calls)
 
 #### Edge Case Tests
 - **39 New Tests** in `tests/test_edge_cases.py`:
@@ -129,7 +138,7 @@ Compare two data views or track changes over time with snapshots. This feature i
   - Concurrent access edge cases (1 test)
 
 #### Diff Comparison Tests (New)
-- **94 New Tests** in `tests/test_diff_comparison.py`:
+- **123 New Tests** in `tests/test_diff_comparison.py`:
   - Core comparison logic (12 tests)
   - DiffSummary dataclass (8 tests)
   - Console output formatting (6 tests)
@@ -151,11 +160,25 @@ Compare two data views or track changes over time with snapshots. This feature i
   - PR comment output (2 tests)
   - Breaking change detection (3 tests)
   - New CLI flags (7 tests)
+  - Ambiguous name resolution (6 tests)
+  - Levenshtein distance algorithm (4 tests)
+  - Fuzzy name matching (5 tests)
+  - Data view cache (4 tests)
+  - Snapshot-to-snapshot comparison (4 tests)
+  - Interactive selection prompts (4 tests)
+  - New feature CLI arguments (2 tests)
 - **5 New Tests** for format validation in `tests/test_cli.py`:
   - Console format for diff mode
   - Console format parsing for SDR (runtime validation)
   - Excel/JSON/all format validation
-- **Total Test Count**: 413 (v3.0.9) → 551 (v3.0.10) = +138 tests (100% pass rate)
+- **Total Test Count**: 413 (v3.0.9) → 580 (v3.0.10) = +167 tests (100% pass rate)
+
+### Fixed
+
+#### Ambiguous Name Resolution in Diff Mode
+- **Separate Resolution**: Source and target identifiers are now resolved independently for diff operations
+- **Exact Match Validation**: Diff operations (`--diff`, `--snapshot`, `--diff-snapshot`) now require exactly one data view match per identifier
+- Previously, both identifiers were combined and resolved together, which could lead to incorrect comparisons when data view names matched multiple entries
 
 ### Changed
 - **DEFAULT_RETRY_CONFIG**: Now uses `DEFAULT_RETRY.to_dict()` for backward compatibility
@@ -165,7 +188,7 @@ Compare two data views or track changes over time with snapshots. This feature i
 
 ### Backward Compatibility
 - **Full Backward Compatibility**: All existing code continues to work unchanged
-- **No Breaking Changes**: All 551 tests pass
+- **No Breaking Changes**: All 580 tests pass
 - **DEFAULT_RETRY_CONFIG Dict**: Still available as a dict for legacy code
 - **Configuration Migration**: Existing configurations work without changes
 

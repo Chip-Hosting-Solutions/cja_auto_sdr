@@ -55,7 +55,9 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 | | Pre-flight Validation | Validates config and connectivity before processing |
 | **Comparison** | Data View Diff | Compare two data views to identify added, removed, and modified components |
 | | Snapshot Support | Save and compare against baseline snapshots for change tracking |
+| | Snapshot-to-Snapshot | Compare two snapshot files directly without API calls |
 | | CI/CD Integration | Exit codes for pipeline automation (2=changes found, 3=threshold exceeded) |
+| | Smart Name Resolution | Fuzzy matching suggestions for typos, interactive disambiguation for duplicates |
 | **Usability** | Dry-Run Mode | Test configuration without generating reports |
 | | Discovery Commands | `--list-dataviews` and `--sample-config` for easy setup |
 | | Color-Coded Output | Green/yellow/red console feedback for instant status |
@@ -213,10 +215,11 @@ python cja_sdr_generator.py "Production Analytics"
 | Export as HTML | `cja_auto_sdr dv_12345 --format html` |
 | Export as Markdown | `cja_auto_sdr dv_12345 --format markdown` |
 | Generate all formats | `cja_auto_sdr dv_12345 --format all` |
-| Compare data views | `cja_auto_sdr --diff dv_prod dv_staging` |
-| Compare by name | `cja_auto_sdr --diff "Production" "Staging"` |
+| Compare Data Views (by ID) | `cja_auto_sdr --diff dv_1 dv_2` |
+| Compare Data Views (by name) | `cja_auto_sdr --diff "Production" "Staging"` |
 | Save snapshot | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
 | Compare to snapshot | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
+| Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
 
 ## Documentation
 
@@ -255,7 +258,7 @@ cja_auto_sdr/
 │   ├── CLI_REFERENCE.md     # Command-line reference
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (551 tests)
+├── tests/                   # Test suite (580 tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output

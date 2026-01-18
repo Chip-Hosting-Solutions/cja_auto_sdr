@@ -6695,6 +6695,14 @@ Requirements:
     )
 
     diff_group.add_argument(
+        '--compare-snapshots',
+        nargs=2,
+        metavar=('SOURCE', 'TARGET'),
+        help='Compare two snapshot files directly (no API calls required). '
+             'Example: --compare-snapshots baseline.json current.json'
+    )
+
+    diff_group.add_argument(
         '--changes-only',
         action='store_true',
         help='Only show changed items in diff output (hide unchanged)'
@@ -6818,16 +6826,244 @@ def is_data_view_id(identifier: str) -> bool:
     return identifier.startswith('dv_')
 
 
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """
+    Calculate the Levenshtein (edit) distance between two strings.
+
+    This is used to find similar data view names when exact match fails.
+
+    Args:
+        s1: First string
+        s2: Second string
+
+    Returns:
+        The minimum number of single-character edits needed to transform s1 into s2
+    """
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+
+    if len(s2) == 0:
+        return len(s1)
+
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            # j+1 instead of j since previous_row and current_row are one character longer
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+
+    return previous_row[-1]
+
+
+def find_similar_names(target: str, available_names: List[str], max_suggestions: int = 3,
+                       max_distance: int = None) -> List[Tuple[str, int]]:
+    """
+    Find names similar to the target using Levenshtein distance.
+
+    Args:
+        target: The name to find matches for
+        available_names: List of available names to search
+        max_suggestions: Maximum number of suggestions to return
+        max_distance: Maximum edit distance to consider (default: half of target length + 2)
+
+    Returns:
+        List of (name, distance) tuples, sorted by distance (closest first)
+    """
+    if max_distance is None:
+        max_distance = len(target) // 2 + 2
+
+    # Calculate distances
+    suggestions = []
+    target_lower = target.lower()
+
+    for name in available_names:
+        # Check exact case-insensitive match first
+        if name.lower() == target_lower:
+            suggestions.append((name, 0))
+            continue
+
+        # Calculate distance
+        distance = levenshtein_distance(target_lower, name.lower())
+        if distance <= max_distance:
+            suggestions.append((name, distance))
+
+    # Sort by distance and return top matches
+    suggestions.sort(key=lambda x: (x[1], x[0]))
+    return suggestions[:max_suggestions]
+
+
+# ==================== DATA VIEW CACHE ====================
+
+class DataViewCache:
+    """
+    Thread-safe cache for data view listings to avoid repeated API calls.
+
+    The cache has a configurable TTL and is automatically invalidated after
+    the TTL expires. This is useful when performing multiple diff operations
+    in the same session.
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._cache: Dict[str, Tuple[List[Dict], float]] = {}
+        self._ttl_seconds = 300  # 5 minute default TTL
+        self._initialized = True
+
+    def get(self, config_file: str) -> Optional[List[Dict]]:
+        """
+        Get cached data views for a config file.
+
+        Args:
+            config_file: The config file key
+
+        Returns:
+            List of data view dicts if cached and not expired, None otherwise
+        """
+        with self._lock:
+            if config_file in self._cache:
+                data, timestamp = self._cache[config_file]
+                if time.time() - timestamp < self._ttl_seconds:
+                    return data
+                # Expired - remove from cache
+                del self._cache[config_file]
+            return None
+
+    def set(self, config_file: str, data: List[Dict]) -> None:
+        """
+        Cache data views for a config file.
+
+        Args:
+            config_file: The config file key
+            data: List of data view dicts to cache
+        """
+        with self._lock:
+            self._cache[config_file] = (data, time.time())
+
+    def clear(self) -> None:
+        """Clear all cached data."""
+        with self._lock:
+            self._cache.clear()
+
+    def set_ttl(self, seconds: int) -> None:
+        """Set the cache TTL in seconds."""
+        self._ttl_seconds = seconds
+
+
+# Global cache instance
+_data_view_cache = DataViewCache()
+
+
+def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> List[Dict]:
+    """
+    Get data views with caching support.
+
+    Args:
+        cja: CJA API instance
+        config_file: Config file path (used as cache key)
+        logger: Logger instance
+
+    Returns:
+        List of data view dicts
+    """
+    # Check cache first
+    cached = _data_view_cache.get(config_file)
+    if cached is not None:
+        logger.debug(f"Using cached data views ({len(cached)} entries)")
+        return cached
+
+    # Fetch from API
+    logger.debug("Fetching data views from API (cache miss)")
+    available_dvs = cja.getDataViews()
+
+    if available_dvs is None:
+        return []
+
+    # Convert to list if DataFrame
+    if isinstance(available_dvs, pd.DataFrame):
+        available_dvs = available_dvs.to_dict('records')
+
+    # Cache the result
+    _data_view_cache.set(config_file, available_dvs)
+    logger.debug(f"Cached {len(available_dvs)} data views")
+
+    return available_dvs
+
+
+def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Optional[str]:
+    """
+    Prompt user to select from a list of options interactively.
+
+    Args:
+        options: List of (id, display_text) tuples
+        prompt_text: Text to display before options
+
+    Returns:
+        Selected ID or None if user cancels
+    """
+    # Check if we're in an interactive terminal
+    if not sys.stdin.isatty():
+        return None
+
+    print(f"\n{prompt_text}")
+    print("-" * 40)
+
+    for i, (opt_id, display) in enumerate(options, 1):
+        print(f"  [{i}] {display}")
+        print(f"      ID: {opt_id}")
+
+    print(f"  [0] Cancel")
+    print()
+
+    while True:
+        try:
+            choice = input("Enter selection (number): ").strip()
+            if choice == '0' or choice.lower() in ('q', 'quit', 'cancel'):
+                return None
+
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return options[idx - 1][0]
+
+            print(f"Invalid selection. Enter 1-{len(options)} or 0 to cancel.")
+        except ValueError:
+            print("Please enter a number.")
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            return None
+
+
 def resolve_data_view_names(identifiers: List[str], config_file: str = "config.json",
-                            logger: logging.Logger = None) -> Tuple[List[str], Dict[str, List[str]]]:
+                            logger: logging.Logger = None,
+                            suggest_similar: bool = True) -> Tuple[List[str], Dict[str, List[str]]]:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
     If it's a name, look up all data views with that exact name.
+
+    Features:
+    - Caches API calls for performance when resolving multiple names
+    - Suggests similar names using fuzzy matching when exact match fails
 
     Args:
         identifiers: List of data view IDs or names
         config_file: Path to CJA configuration file
         logger: Logger instance for logging
+        suggest_similar: If True, suggest similar names when exact match fails
 
     Returns:
         Tuple of (resolved_ids, name_to_ids_map)
@@ -6846,17 +7082,13 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
         cjapy.importConfigFile(config_file)
         cja = cjapy.CJA()
 
-        # Get all available data views
+        # Get all available data views (with caching)
         logger.debug("Fetching all data views for name resolution")
-        available_dvs = cja.getDataViews()
+        available_dvs = get_cached_data_views(cja, config_file, logger)
 
-        if available_dvs is None or (hasattr(available_dvs, '__len__') and len(available_dvs) == 0):
+        if not available_dvs:
             logger.error("No data views found or no access to any data views")
             return [], {}
-
-        # Convert to list if DataFrame
-        if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict('records')
 
         # Build a lookup map: name -> list of IDs
         name_to_id_lookup = {}
@@ -6898,8 +7130,21 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
                     else:
                         logger.info(f"Name '{identifier}' matched {len(matching_ids)} data views: {matching_ids}")
                 else:
+                    # Name not found - try to find similar names for helpful error message
                     logger.error(f"Data view name '{identifier}' not found in accessible data views")
-                    logger.error(f"  → Remember: Name matching is CASE-SENSITIVE and requires EXACT match")
+
+                    if suggest_similar:
+                        similar = find_similar_names(identifier, list(name_to_id_lookup.keys()))
+                        if similar:
+                            # Check for case-insensitive match first
+                            case_match = [s for s in similar if s[1] == 0]
+                            if case_match:
+                                logger.error(f"  → Did you mean '{case_match[0][0]}'? (case mismatch)")
+                            else:
+                                suggestions = [f"'{s[0]}'" for s in similar]
+                                logger.error(f"  → Did you mean: {', '.join(suggestions)}?")
+
+                    logger.error(f"  → Name matching is CASE-SENSITIVE and requires EXACT match")
                     logger.error(f"  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
                     # Don't add to resolved_ids - this is an error
 
@@ -7582,6 +7827,161 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         return False, False, None
 
 
+def handle_compare_snapshots_command(source_file: str, target_file: str,
+                                      output_format: str = "console", output_dir: str = ".",
+                                      changes_only: bool = False, summary_only: bool = False,
+                                      ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
+                                      quiet: bool = False, show_only: Optional[List[str]] = None,
+                                      metrics_only: bool = False, dimensions_only: bool = False,
+                                      extended_fields: bool = False, side_by_side: bool = False,
+                                      no_color: bool = False, quiet_diff: bool = False,
+                                      reverse_diff: bool = False, warn_threshold: Optional[float] = None,
+                                      group_by_field: bool = False, diff_output: Optional[str] = None,
+                                      format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+    """
+    Handle the --compare-snapshots command to compare two snapshot files directly.
+
+    This is useful for:
+    - Comparing snapshots from different points in time
+    - Offline comparison without API access
+    - CI/CD pipelines where you want to compare pre/post snapshots
+
+    Args:
+        source_file: Path to the source (baseline) snapshot file
+        target_file: Path to the target snapshot file
+        output_format: Output format
+        output_dir: Output directory
+        changes_only: Only show changed items
+        summary_only: Only show summary
+        ignore_fields: Fields to ignore
+        labels: Custom labels (source_label, target_label)
+        quiet: Suppress progress output
+        show_only: Filter to show only specific change types
+        metrics_only: Only compare metrics
+        dimensions_only: Only compare dimensions
+        extended_fields: Use extended field comparison
+        side_by_side: Show side-by-side comparison view
+        no_color: Disable ANSI color codes
+        quiet_diff: Suppress output, only return exit code
+        reverse_diff: Swap source and target
+        warn_threshold: Exit with code 3 if change % exceeds threshold
+        group_by_field: Group changes by field name
+        diff_output: Write output to file instead of stdout
+        format_pr_comment: Output in PR comment format
+
+    Returns:
+        Tuple of (success, has_changes, exit_code_override)
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO if not quiet else logging.WARNING)
+
+        if not quiet and not quiet_diff:
+            print()
+            print("=" * 60)
+            print("COMPARING TWO SNAPSHOTS")
+            print("=" * 60)
+            print(f"Source: {source_file}")
+            print(f"Target: {target_file}")
+            if reverse_diff:
+                print("(Reversed comparison)")
+            print()
+
+        # Load both snapshots
+        snapshot_manager = SnapshotManager(logger)
+
+        if not quiet and not quiet_diff:
+            print("Loading source snapshot...")
+        source_snapshot = snapshot_manager.load_snapshot(source_file)
+
+        if not quiet and not quiet_diff:
+            print("Loading target snapshot...")
+        target_snapshot = snapshot_manager.load_snapshot(target_file)
+
+        # Handle reverse_diff - swap source and target
+        if reverse_diff:
+            source_snapshot, target_snapshot = target_snapshot, source_snapshot
+            source_file, target_file = target_file, source_file
+
+        # Determine labels
+        if labels:
+            source_label, target_label = labels
+        else:
+            # Use snapshot metadata for labels
+            source_label = f"{source_snapshot.data_view_name} ({source_snapshot.created_at[:10]})"
+            target_label = f"{target_snapshot.data_view_name} ({target_snapshot.created_at[:10]})"
+
+        if not quiet and not quiet_diff:
+            print(f"Comparing: {source_label} vs {target_label}")
+            print()
+
+        # Compare snapshots
+        comparator = DataViewComparator(
+            logger,
+            ignore_fields=ignore_fields,
+            use_extended_fields=extended_fields,
+            show_only=show_only,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only
+        )
+        diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
+
+        # Check warn threshold
+        exit_code_override = None
+        if warn_threshold is not None:
+            max_change_pct = max(
+                diff_result.summary.metrics_change_percent,
+                diff_result.summary.dimensions_change_percent
+            )
+            if max_change_pct > warn_threshold:
+                exit_code_override = 3
+                if not quiet_diff:
+                    print(ConsoleColors.warning(
+                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                    ), file=sys.stderr)
+
+        # Generate output (unless quiet_diff is set)
+        if not quiet_diff:
+            # Determine effective format
+            effective_format = 'pr-comment' if format_pr_comment else output_format
+
+            # Generate base filename from snapshot names
+            source_base = Path(source_file).stem
+            target_base = Path(target_file).stem
+            base_filename = f"diff_{source_base}_vs_{target_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+            output_content = write_diff_output(
+                diff_result, effective_format, base_filename, output_dir, logger,
+                changes_only, summary_only, side_by_side, use_color=not no_color,
+                group_by_field=group_by_field
+            )
+
+            # Handle --diff-output flag
+            if diff_output and output_content:
+                with open(diff_output, 'w', encoding='utf-8') as f:
+                    f.write(output_content)
+                if not quiet:
+                    print(f"Diff output written to: {diff_output}")
+
+            if not quiet and output_format != 'console':
+                print()
+                print(ConsoleColors.success("Diff report generated successfully"))
+
+        return True, diff_result.summary.has_changes, exit_code_override
+
+    except FileNotFoundError as e:
+        print(ConsoleColors.error(f"ERROR: Snapshot file not found: {str(e)}"), file=sys.stderr)
+        return False, False, None
+    except ValueError as e:
+        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {str(e)}"), file=sys.stderr)
+        return False, False, None
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {str(e)}"), file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return False, False, None
+
+
 # ==================== MAIN FUNCTION ====================
 
 def main():
@@ -7666,6 +8066,49 @@ def main():
     if hasattr(args, 'diff_labels') and args.diff_labels:
         labels = tuple(args.diff_labels)
 
+    # Handle --compare-snapshots mode (compare two snapshot files directly)
+    if hasattr(args, 'compare_snapshots') and args.compare_snapshots:
+        source_file, target_file = args.compare_snapshots
+
+        # Check for conflicting options
+        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+            print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
+            sys.exit(1)
+
+        # Default to console for diff commands
+        diff_format = args.format if args.format else 'console'
+        success, has_changes, exit_code_override = handle_compare_snapshots_command(
+            source_file=source_file,
+            target_file=target_file,
+            output_format=diff_format,
+            output_dir=args.output_dir,
+            changes_only=getattr(args, 'changes_only', False),
+            summary_only=getattr(args, 'summary', False),
+            ignore_fields=ignore_fields,
+            labels=labels,
+            quiet=args.quiet,
+            show_only=show_only,
+            metrics_only=getattr(args, 'metrics_only', False),
+            dimensions_only=getattr(args, 'dimensions_only', False),
+            extended_fields=getattr(args, 'extended_fields', False),
+            side_by_side=getattr(args, 'side_by_side', False),
+            no_color=getattr(args, 'no_color', False),
+            quiet_diff=getattr(args, 'quiet_diff', False),
+            reverse_diff=getattr(args, 'reverse_diff', False),
+            warn_threshold=getattr(args, 'warn_threshold', None),
+            group_by_field=getattr(args, 'group_by_field', False),
+            diff_output=getattr(args, 'diff_output', None),
+            format_pr_comment=getattr(args, 'format_pr_comment', False)
+        )
+
+        # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
+        if success:
+            if exit_code_override is not None:
+                sys.exit(exit_code_override)
+            sys.exit(2 if has_changes else 0)
+        else:
+            sys.exit(1)
+
     # Handle --diff mode (compare two data views)
     if hasattr(args, 'diff') and args.diff:
         if len(data_view_inputs) != 2:
@@ -7678,14 +8121,59 @@ def main():
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
-        # Resolve names to IDs if needed
+        # Resolve names to IDs if needed - resolve EACH identifier separately
+        # to ensure 1:1 mapping for diff comparison
         temp_logger = logging.getLogger('name_resolution')
         temp_logger.setLevel(logging.WARNING)
-        resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
 
-        if len(resolved_ids) < 2:
-            print(ConsoleColors.error("ERROR: Could not resolve both data view identifiers"), file=sys.stderr)
+        source_input = data_view_inputs[0]
+        target_input = data_view_inputs[1]
+
+        # Resolve source identifier
+        source_resolved, source_map = resolve_data_view_names([source_input], args.config_file, temp_logger)
+        if not source_resolved:
+            print(ConsoleColors.error(f"ERROR: Could not resolve source data view: '{source_input}'"), file=sys.stderr)
             sys.exit(1)
+        if len(source_resolved) > 1:
+            # Ambiguous - try interactive selection if in terminal
+            options = [(dv_id, f"{source_input} ({dv_id})") for dv_id in source_resolved]
+            selected = prompt_for_selection(
+                options,
+                f"Source name '{source_input}' matches {len(source_resolved)} data views. Please select one:"
+            )
+            if selected:
+                source_resolved = [selected]
+            else:
+                # Not interactive or user cancelled
+                print(ConsoleColors.error(f"ERROR: Source name '{source_input}' is ambiguous - matches {len(source_resolved)} data views:"), file=sys.stderr)
+                for dv_id in source_resolved:
+                    print(f"  • {dv_id}", file=sys.stderr)
+                print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                sys.exit(1)
+
+        # Resolve target identifier
+        target_resolved, target_map = resolve_data_view_names([target_input], args.config_file, temp_logger)
+        if not target_resolved:
+            print(ConsoleColors.error(f"ERROR: Could not resolve target data view: '{target_input}'"), file=sys.stderr)
+            sys.exit(1)
+        if len(target_resolved) > 1:
+            # Ambiguous - try interactive selection if in terminal
+            options = [(dv_id, f"{target_input} ({dv_id})") for dv_id in target_resolved]
+            selected = prompt_for_selection(
+                options,
+                f"Target name '{target_input}' matches {len(target_resolved)} data views. Please select one:"
+            )
+            if selected:
+                target_resolved = [selected]
+            else:
+                # Not interactive or user cancelled
+                print(ConsoleColors.error(f"ERROR: Target name '{target_input}' is ambiguous - matches {len(target_resolved)} data views:"), file=sys.stderr)
+                for dv_id in target_resolved:
+                    print(f"  • {dv_id}", file=sys.stderr)
+                print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                sys.exit(1)
+
+        resolved_ids = [source_resolved[0], target_resolved[0]]
 
         # Default to console for diff commands
         diff_format = args.format if args.format else 'console'
@@ -7729,14 +8217,30 @@ def main():
             print("Usage: cja_auto_sdr DATA_VIEW --snapshot ./snapshots/baseline.json", file=sys.stderr)
             sys.exit(1)
 
-        # Resolve name to ID if needed
+        # Resolve name to ID if needed - ensure 1:1 mapping
         temp_logger = logging.getLogger('name_resolution')
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
 
         if not resolved_ids:
-            print(ConsoleColors.error("ERROR: Could not resolve data view identifier"), file=sys.stderr)
+            print(ConsoleColors.error(f"ERROR: Could not resolve data view: '{data_view_inputs[0]}'"), file=sys.stderr)
             sys.exit(1)
+        if len(resolved_ids) > 1:
+            # Ambiguous - try interactive selection if in terminal
+            dv_name = data_view_inputs[0]
+            options = [(dv_id, f"{dv_name} ({dv_id})") for dv_id in resolved_ids]
+            selected = prompt_for_selection(
+                options,
+                f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
+            )
+            if selected:
+                resolved_ids = [selected]
+            else:
+                print(ConsoleColors.error(f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"), file=sys.stderr)
+                for dv_id in resolved_ids:
+                    print(f"  • {dv_id}", file=sys.stderr)
+                print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                sys.exit(1)
 
         success = handle_snapshot_command(
             data_view_id=resolved_ids[0],
@@ -7758,14 +8262,30 @@ def main():
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
-        # Resolve name to ID if needed
+        # Resolve name to ID if needed - ensure 1:1 mapping
         temp_logger = logging.getLogger('name_resolution')
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
 
         if not resolved_ids:
-            print(ConsoleColors.error("ERROR: Could not resolve data view identifier"), file=sys.stderr)
+            print(ConsoleColors.error(f"ERROR: Could not resolve data view: '{data_view_inputs[0]}'"), file=sys.stderr)
             sys.exit(1)
+        if len(resolved_ids) > 1:
+            # Ambiguous - try interactive selection if in terminal
+            dv_name = data_view_inputs[0]
+            options = [(dv_id, f"{dv_name} ({dv_id})") for dv_id in resolved_ids]
+            selected = prompt_for_selection(
+                options,
+                f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
+            )
+            if selected:
+                resolved_ids = [selected]
+            else:
+                print(ConsoleColors.error(f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"), file=sys.stderr)
+                for dv_id in resolved_ids:
+                    print(f"  • {dv_id}", file=sys.stderr)
+                print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                sys.exit(1)
 
         # Default to console for diff commands
         diff_format = args.format if args.format else 'console'

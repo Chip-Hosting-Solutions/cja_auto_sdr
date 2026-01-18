@@ -2113,3 +2113,546 @@ class TestNewCLIFlags:
             assert args.format_pr_comment is True
         finally:
             sys.argv = original_argv
+
+
+# ==================== Ambiguous Name Resolution Tests ====================
+
+class TestAmbiguousNameResolution:
+    """Tests for ambiguous data view name handling in diff commands.
+
+    When a data view name maps to multiple data views, the diff functionality
+    must reject the ambiguous name and require the user to specify an exact ID.
+    """
+
+    def test_resolve_single_name_to_single_id(self):
+        """Test that a unique name resolves to exactly one ID"""
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_12345", "name": "Unique Analytics"},
+            {"id": "dv_67890", "name": "Other View"},
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+                resolved_ids, name_map = resolve_data_view_names(
+                    ["Unique Analytics"], "config.json", logger
+                )
+
+                assert len(resolved_ids) == 1
+                assert resolved_ids[0] == "dv_12345"
+
+    def test_resolve_name_to_multiple_ids(self):
+        """Test that an ambiguous name returns ALL matching IDs"""
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_prod_001", "name": "Analytics"},
+            {"id": "dv_staging_001", "name": "Analytics"},
+            {"id": "dv_dev_001", "name": "Analytics"},
+            {"id": "dv_other_999", "name": "Other View"},
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            # Mock the cached data views function
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+                resolved_ids, name_map = resolve_data_view_names(
+                    ["Analytics"], "config.json", logger
+                )
+
+                # Should return all 3 matching IDs
+                assert len(resolved_ids) == 3
+                assert "dv_prod_001" in resolved_ids
+                assert "dv_staging_001" in resolved_ids
+                assert "dv_dev_001" in resolved_ids
+                assert "dv_other_999" not in resolved_ids
+
+                # name_map should track the mapping
+                assert "Analytics" in name_map
+                assert len(name_map["Analytics"]) == 3
+
+    def test_resolve_explicit_id_unchanged(self):
+        """Test that explicit IDs pass through unchanged"""
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_12345", "name": "Analytics"},
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+                resolved_ids, name_map = resolve_data_view_names(
+                    ["dv_12345"], "config.json", logger
+                )
+
+                assert len(resolved_ids) == 1
+                assert resolved_ids[0] == "dv_12345"
+                # IDs don't create name_map entries
+                assert len(name_map) == 0
+
+    def test_diff_rejects_ambiguous_source_name(self):
+        """Test that diff command rejects ambiguous source name"""
+        # This tests the CLI validation logic that should reject
+        # names that resolve to multiple data views
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_prod_001", "name": "Analytics"},
+            {"id": "dv_staging_001", "name": "Analytics"},  # Duplicate name
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+                # When diff receives "Analytics", it should get multiple IDs back
+                resolved_ids, _ = resolve_data_view_names(
+                    ["Analytics"], "config.json", logger
+                )
+
+                # Validation: more than 1 result means ambiguous
+                assert len(resolved_ids) > 1, "Ambiguous name should return multiple IDs"
+
+    def test_diff_command_handles_source_target_separately(self):
+        """Test that diff command resolves source and target independently"""
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_prod_001", "name": "Production Analytics"},
+            {"id": "dv_staging_001", "name": "Staging Analytics"},
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+
+                # Resolve source separately
+                source_ids, _ = resolve_data_view_names(
+                    ["Production Analytics"], "config.json", logger
+                )
+
+                # Resolve target separately
+                target_ids, _ = resolve_data_view_names(
+                    ["Staging Analytics"], "config.json", logger
+                )
+
+                # Each should resolve to exactly one
+                assert len(source_ids) == 1
+                assert len(target_ids) == 1
+                assert source_ids[0] == "dv_prod_001"
+                assert target_ids[0] == "dv_staging_001"
+
+    def test_mixed_id_and_name_resolution(self):
+        """Test resolving mix of explicit IDs and names"""
+        from cja_sdr_generator import resolve_data_view_names
+        from unittest.mock import patch, MagicMock
+
+        mock_data_views = [
+            {"id": "dv_prod_001", "name": "Production Analytics"},
+            {"id": "dv_staging_001", "name": "Staging Analytics"},
+        ]
+
+        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+            mock_cjapy.CJA.return_value = MagicMock()
+            mock_cjapy.importConfigFile = MagicMock()
+            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+                logger = logging.getLogger('test')
+
+                # Source by ID, target by name
+                source_ids, _ = resolve_data_view_names(
+                    ["dv_prod_001"], "config.json", logger
+                )
+                target_ids, _ = resolve_data_view_names(
+                    ["Staging Analytics"], "config.json", logger
+                )
+
+                assert len(source_ids) == 1
+                assert len(target_ids) == 1
+                assert source_ids[0] == "dv_prod_001"
+                assert target_ids[0] == "dv_staging_001"
+
+
+# ==================== Levenshtein Distance Tests ====================
+
+class TestLevenshteinDistance:
+    """Tests for fuzzy matching using Levenshtein distance."""
+
+    def test_levenshtein_identical_strings(self):
+        """Test that identical strings have distance 0"""
+        from cja_sdr_generator import levenshtein_distance
+        assert levenshtein_distance("hello", "hello") == 0
+        assert levenshtein_distance("", "") == 0
+        assert levenshtein_distance("Analytics", "Analytics") == 0
+
+    def test_levenshtein_empty_string(self):
+        """Test distance with empty string"""
+        from cja_sdr_generator import levenshtein_distance
+        assert levenshtein_distance("", "hello") == 5
+        assert levenshtein_distance("hello", "") == 5
+
+    def test_levenshtein_single_edit(self):
+        """Test single character edits"""
+        from cja_sdr_generator import levenshtein_distance
+        # Substitution
+        assert levenshtein_distance("cat", "bat") == 1
+        # Insertion
+        assert levenshtein_distance("cat", "cats") == 1
+        # Deletion
+        assert levenshtein_distance("cats", "cat") == 1
+
+    def test_levenshtein_multiple_edits(self):
+        """Test multiple edits"""
+        from cja_sdr_generator import levenshtein_distance
+        assert levenshtein_distance("kitten", "sitting") == 3
+        assert levenshtein_distance("saturday", "sunday") == 3
+
+
+class TestFindSimilarNames:
+    """Tests for finding similar data view names."""
+
+    def test_find_exact_case_insensitive_match(self):
+        """Test finding exact case-insensitive match"""
+        from cja_sdr_generator import find_similar_names
+        names = ["Production Analytics", "Staging View", "Dev Environment"]
+        similar = find_similar_names("production analytics", names)
+
+        assert len(similar) >= 1
+        assert similar[0][0] == "Production Analytics"
+        assert similar[0][1] == 0  # Distance 0 for case-insensitive match
+
+    def test_find_similar_with_typo(self):
+        """Test finding similar names with typos"""
+        from cja_sdr_generator import find_similar_names
+        names = ["Production Analytics", "Staging View", "Development"]
+        similar = find_similar_names("Prodction Analytics", names)  # Missing 'u'
+
+        assert len(similar) >= 1
+        assert "Production Analytics" in [s[0] for s in similar]
+
+    def test_find_similar_limits_results(self):
+        """Test that results are limited to max_suggestions"""
+        from cja_sdr_generator import find_similar_names
+        names = [f"View {i}" for i in range(20)]
+        similar = find_similar_names("View", names, max_suggestions=3)
+
+        assert len(similar) <= 3
+
+    def test_find_similar_respects_max_distance(self):
+        """Test that max_distance is respected"""
+        from cja_sdr_generator import find_similar_names
+        names = ["Analytics", "Completely Different Name"]
+        similar = find_similar_names("Analytics", names, max_distance=2)
+
+        # "Completely Different Name" should be filtered out due to high distance
+        assert all(s[1] <= 2 for s in similar)
+
+    def test_find_similar_empty_list(self):
+        """Test with empty available names"""
+        from cja_sdr_generator import find_similar_names
+        similar = find_similar_names("Analytics", [])
+        assert len(similar) == 0
+
+
+# ==================== DataViewCache Tests ====================
+
+class TestDataViewCache:
+    """Tests for the data view caching mechanism."""
+
+    def test_cache_set_and_get(self):
+        """Test setting and getting from cache"""
+        from cja_sdr_generator import DataViewCache
+
+        # Create a fresh cache instance for testing
+        cache = DataViewCache.__new__(DataViewCache)
+        cache._cache = {}
+        cache._ttl_seconds = 300
+        cache._initialized = True
+
+        test_data = [{"id": "dv_1", "name": "Test"}]
+        cache.set("test_config.json", test_data)
+        result = cache.get("test_config.json")
+
+        assert result == test_data
+
+    def test_cache_miss(self):
+        """Test cache miss returns None"""
+        from cja_sdr_generator import DataViewCache
+
+        cache = DataViewCache.__new__(DataViewCache)
+        cache._cache = {}
+        cache._ttl_seconds = 300
+        cache._initialized = True
+
+        result = cache.get("nonexistent.json")
+        assert result is None
+
+    def test_cache_clear(self):
+        """Test clearing the cache"""
+        from cja_sdr_generator import DataViewCache
+
+        cache = DataViewCache.__new__(DataViewCache)
+        cache._cache = {}
+        cache._ttl_seconds = 300
+        cache._initialized = True
+
+        cache.set("config1.json", [{"id": "dv_1"}])
+        cache.set("config2.json", [{"id": "dv_2"}])
+        cache.clear()
+
+        assert cache.get("config1.json") is None
+        assert cache.get("config2.json") is None
+
+    def test_cache_ttl_expiry(self):
+        """Test that cache expires after TTL"""
+        from cja_sdr_generator import DataViewCache
+        import time
+
+        cache = DataViewCache.__new__(DataViewCache)
+        cache._cache = {}
+        cache._ttl_seconds = 0.1  # Very short TTL for testing
+        cache._initialized = True
+
+        cache.set("config.json", [{"id": "dv_1"}])
+        time.sleep(0.2)  # Wait for TTL to expire
+
+        result = cache.get("config.json")
+        assert result is None  # Should be expired
+
+
+# ==================== Snapshot-to-Snapshot Comparison Tests ====================
+
+class TestSnapshotToSnapshotComparison:
+    """Tests for comparing two snapshot files directly."""
+
+    @pytest.fixture
+    def temp_snapshots(self, tmp_path, sample_metrics, sample_dimensions):
+        """Create temporary snapshot files for testing"""
+        import copy
+
+        # Source snapshot - use deep copy to ensure isolation
+        source_metrics = copy.deepcopy(sample_metrics)
+        source_dimensions = copy.deepcopy(sample_dimensions)
+        source_snapshot = {
+            "snapshot_version": "1.0",
+            "created_at": "2025-01-01T10:00:00.000000",
+            "data_view_id": "dv_source",
+            "data_view_name": "Source Analytics",
+            "owner": "admin@example.com",
+            "description": "Source data view",
+            "metrics": source_metrics,
+            "dimensions": source_dimensions,
+            "metadata": {"tool_version": "3.0.10"}
+        }
+
+        # Target snapshot (with changes) - use deep copy and modify
+        target_metrics = copy.deepcopy(sample_metrics)
+        target_metrics[0]["description"] = "Modified description"
+        target_dimensions = copy.deepcopy(sample_dimensions)
+        target_snapshot = {
+            "snapshot_version": "1.0",
+            "created_at": "2025-01-15T10:00:00.000000",
+            "data_view_id": "dv_target",
+            "data_view_name": "Target Analytics",
+            "owner": "admin@example.com",
+            "description": "Target data view",
+            "metrics": target_metrics,
+            "dimensions": target_dimensions,
+            "metadata": {"tool_version": "3.0.10"}
+        }
+
+        source_file = tmp_path / "source_snapshot.json"
+        target_file = tmp_path / "target_snapshot.json"
+
+        with open(source_file, 'w') as f:
+            json.dump(source_snapshot, f)
+        with open(target_file, 'w') as f:
+            json.dump(target_snapshot, f)
+
+        return str(source_file), str(target_file)
+
+    def test_compare_snapshots_basic(self, temp_snapshots):
+        """Test basic snapshot-to-snapshot comparison"""
+        from cja_sdr_generator import handle_compare_snapshots_command
+
+        source_file, target_file = temp_snapshots
+        success, has_changes, exit_code = handle_compare_snapshots_command(
+            source_file=source_file,
+            target_file=target_file,
+            quiet=True,
+            quiet_diff=True
+        )
+
+        assert success is True
+        assert has_changes is True  # We modified one metric
+
+    def test_compare_snapshots_identical(self, tmp_path, sample_metrics, sample_dimensions):
+        """Test comparing identical snapshots"""
+        from cja_sdr_generator import handle_compare_snapshots_command
+
+        snapshot_data = {
+            "snapshot_version": "1.0",
+            "created_at": "2025-01-01T10:00:00.000000",
+            "data_view_id": "dv_test",
+            "data_view_name": "Test Analytics",
+            "owner": "admin@example.com",
+            "description": "Test",
+            "metrics": sample_metrics,
+            "dimensions": sample_dimensions,
+            "metadata": {}
+        }
+
+        file1 = tmp_path / "snap1.json"
+        file2 = tmp_path / "snap2.json"
+
+        with open(file1, 'w') as f:
+            json.dump(snapshot_data, f)
+        with open(file2, 'w') as f:
+            json.dump(snapshot_data, f)
+
+        success, has_changes, _ = handle_compare_snapshots_command(
+            source_file=str(file1),
+            target_file=str(file2),
+            quiet=True,
+            quiet_diff=True
+        )
+
+        assert success is True
+        assert has_changes is False
+
+    def test_compare_snapshots_file_not_found(self, tmp_path):
+        """Test error handling for missing snapshot file"""
+        from cja_sdr_generator import handle_compare_snapshots_command
+
+        success, _, _ = handle_compare_snapshots_command(
+            source_file=str(tmp_path / "nonexistent.json"),
+            target_file=str(tmp_path / "also_nonexistent.json"),
+            quiet=True,
+            quiet_diff=True
+        )
+
+        assert success is False
+
+    def test_compare_snapshots_with_reverse(self, temp_snapshots):
+        """Test reverse comparison flag"""
+        from cja_sdr_generator import handle_compare_snapshots_command
+
+        source_file, target_file = temp_snapshots
+        success, has_changes, _ = handle_compare_snapshots_command(
+            source_file=source_file,
+            target_file=target_file,
+            reverse_diff=True,
+            quiet=True,
+            quiet_diff=True
+        )
+
+        assert success is True
+        assert has_changes is True
+
+
+# ==================== CLI Arguments for New Features ====================
+
+class TestNewFeatureCLIArguments:
+    """Tests for CLI argument parsing of new features."""
+
+    def test_parse_compare_snapshots_argument(self):
+        """Test that --compare-snapshots is parsed correctly"""
+        from cja_sdr_generator import parse_arguments
+        import sys
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ['cja_sdr_generator.py', '--compare-snapshots', 'source.json', 'target.json']
+            args = parse_arguments()
+            assert args.compare_snapshots == ['source.json', 'target.json']
+        finally:
+            sys.argv = original_argv
+
+    def test_compare_snapshots_with_options(self):
+        """Test --compare-snapshots with additional options"""
+        from cja_sdr_generator import parse_arguments
+        import sys
+
+        original_argv = sys.argv
+        try:
+            sys.argv = [
+                'cja_sdr_generator.py',
+                '--compare-snapshots', 'a.json', 'b.json',
+                '--changes-only',
+                '--format', 'json'
+            ]
+            args = parse_arguments()
+            assert args.compare_snapshots == ['a.json', 'b.json']
+            assert args.changes_only is True
+            assert args.format == 'json'
+        finally:
+            sys.argv = original_argv
+
+
+# ==================== Interactive Prompt Tests ====================
+
+class TestPromptForSelection:
+    """Tests for interactive selection prompt."""
+
+    def test_prompt_returns_none_for_non_tty(self):
+        """Test that prompt returns None when not in interactive terminal"""
+        from cja_sdr_generator import prompt_for_selection
+        from unittest.mock import patch
+
+        # Mock sys.stdin.isatty() to return False
+        with patch('sys.stdin.isatty', return_value=False):
+            options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
+            result = prompt_for_selection(options, "Select one:")
+            assert result is None
+
+    def test_prompt_handles_valid_selection(self):
+        """Test that valid selection returns correct ID"""
+        from cja_sdr_generator import prompt_for_selection
+        from unittest.mock import patch
+
+        options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
+
+        with patch('sys.stdin.isatty', return_value=True):
+            with patch('builtins.input', return_value='1'):
+                result = prompt_for_selection(options, "Select one:")
+                assert result == "dv_1"
+
+    def test_prompt_handles_cancel(self):
+        """Test that cancel selection returns None"""
+        from cja_sdr_generator import prompt_for_selection
+        from unittest.mock import patch
+
+        options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
+
+        with patch('sys.stdin.isatty', return_value=True):
+            with patch('builtins.input', return_value='0'):
+                result = prompt_for_selection(options, "Select one:")
+                assert result is None
+
+    def test_prompt_handles_eof(self):
+        """Test that EOF is handled gracefully"""
+        from cja_sdr_generator import prompt_for_selection
+        from unittest.mock import patch
+
+        options = [("dv_1", "Option 1")]
+
+        with patch('sys.stdin.isatty', return_value=True):
+            with patch('builtins.input', side_effect=EOFError):
+                result = prompt_for_selection(options, "Select:")
+                assert result is None

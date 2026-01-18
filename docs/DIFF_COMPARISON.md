@@ -115,6 +115,54 @@ cja_auto_sdr dv_12345 --diff-snapshot ./snapshots/baseline.json
 cja_auto_sdr "Production Analytics" --diff-snapshot ./snapshots/baseline.json
 ```
 
+### Compare Two Snapshots Directly
+
+Compare two previously saved snapshot files without any API calls—useful for offline analysis, historical comparisons, or when API access is unavailable:
+
+```bash
+# Compare two snapshot files directly
+cja_auto_sdr --compare-snapshots ./snapshots/before.json ./snapshots/after.json
+
+# With output format
+cja_auto_sdr --compare-snapshots ./prod.json ./staging.json --format html
+
+# All diff options work with snapshot comparison
+cja_auto_sdr --compare-snapshots ./old.json ./new.json --changes-only --side-by-side
+```
+
+## Smart Name Resolution
+
+When you specify data views by name, the tool provides intelligent features to help resolve ambiguities and typos.
+
+### Fuzzy Name Matching
+
+If you mistype a data view name, the tool suggests similar names using fuzzy matching:
+
+```
+No data view found with name 'Prodction Analytics'
+Did you mean one of these?
+  - Production Analytics (edit distance: 1)
+  - Production Analytics v2 (edit distance: 4)
+```
+
+### Interactive Disambiguation
+
+When a name matches multiple data views (which requires exactly one match for diff operations), you'll be prompted to choose:
+
+```
+Multiple data views found with name 'Analytics':
+  1. dv_12345 - Analytics (Production)
+  2. dv_67890 - Analytics (Staging)
+  3. dv_abcde - Analytics (Test)
+Enter number to select, or 'q' to quit:
+```
+
+> **Note:** Interactive prompts only appear when running in an interactive terminal (TTY). In non-interactive contexts (CI/CD, scripts), the tool will report the ambiguity and exit with an error.
+
+### API Response Caching
+
+To minimize API calls during name resolution, data view listings are cached for 5 minutes. This significantly improves performance when processing multiple data views by name or retrying after errors.
+
 ## Command Options
 
 | Option | Description |
@@ -122,6 +170,7 @@ cja_auto_sdr "Production Analytics" --diff-snapshot ./snapshots/baseline.json
 | `--diff` | Compare two data views. Requires exactly 2 data view IDs/names. |
 | `--snapshot FILE` | Save a data view snapshot to a JSON file. |
 | `--diff-snapshot FILE` | Compare a data view against a saved snapshot. |
+| `--compare-snapshots A B` | Compare two snapshot files directly (no API calls needed). |
 | `--changes-only` | Only show changed items (hide unchanged components). |
 | `--summary` | Show summary statistics only (no detailed changes). |
 | `--ignore-fields FIELDS` | Comma-separated fields to ignore during comparison. |
@@ -347,8 +396,20 @@ Maintain an audit trail of data view changes:
 # Save snapshot after each approved change
 cja_auto_sdr dv_12345 --snapshot ./audit/$(date +%Y%m%d_%H%M%S).json
 
-# Generate comparison reports
-cja_auto_sdr --diff ./audit/20250101.json ./audit/20250115.json
+# Generate comparison reports between any two snapshots
+cja_auto_sdr --compare-snapshots ./audit/20250101.json ./audit/20250115.json
+```
+
+### 6. Offline Historical Comparison
+
+Compare historical snapshots without API access:
+
+```bash
+# Compare snapshots from different time periods
+cja_auto_sdr --compare-snapshots ./snapshots/q1-2025.json ./snapshots/q2-2025.json
+
+# Generate all format reports for quarterly review
+cja_auto_sdr --compare-snapshots ./q1.json ./q2.json --format all --output-dir ./quarterly-review
 ```
 
 ## Filtering Options
@@ -534,8 +595,15 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestPRCommentOutput` | 2 | --format-pr-comment output |
 | `TestBreakingChangeDetection` | 3 | Type changes, removals detection |
 | `TestNewCLIFlags` | 7 | All new CLI flags |
+| `TestAmbiguousNameResolution` | 6 | Ambiguous name handling in diff mode |
+| `TestLevenshteinDistance` | 4 | Edit distance algorithm accuracy |
+| `TestFindSimilarNames` | 5 | Fuzzy name matching suggestions |
+| `TestDataViewCache` | 4 | Cache singleton, TTL, thread safety |
+| `TestSnapshotToSnapshotComparison` | 4 | Direct snapshot file comparison |
+| `TestPromptForSelection` | 4 | Interactive selection prompts |
+| `TestNewFeatureCLIArguments` | 2 | --compare-snapshots CLI argument |
 
-**Total: 94 tests**
+**Total: 123 tests**
 
 ### Running Tests
 
@@ -568,6 +636,11 @@ python -m pytest tests/test_diff_comparison.py --cov=cja_sdr_generator --cov-rep
 11. **Unicode Handling** - Emojis, RTL text, special characters
 12. **Concurrent Access** - Thread safety for parallel comparisons
 13. **Version Migration** - Snapshot compatibility across versions
+14. **Snapshot-to-Snapshot** - Direct comparison of two snapshot files
+15. **Fuzzy Matching** - Levenshtein distance algorithm and similar name suggestions
+16. **API Caching** - Thread-safe data view cache with TTL expiration
+17. **Interactive Selection** - User prompts for disambiguation in TTY mode
+18. **Ambiguous Names** - Proper handling when names match multiple data views
 
 ## See Also
 
