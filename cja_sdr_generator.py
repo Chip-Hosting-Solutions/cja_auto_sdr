@@ -1,6 +1,7 @@
 import cjapy
 import pandas as pd
 import json
+import re
 from datetime import datetime
 import hashlib
 import logging
@@ -4235,6 +4236,8 @@ class ANSIColors:
     CYAN = '\033[96m'    # Info/headers
     BOLD = '\033[1m'
     RESET = '\033[0m'
+    # Regex to strip ANSI escape codes for visible length calculation
+    ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
 
     @classmethod
     def green(cls, text: str, enabled: bool = True) -> str:
@@ -4255,6 +4258,25 @@ class ANSIColors:
     @classmethod
     def bold(cls, text: str, enabled: bool = True) -> str:
         return f"{cls.BOLD}{text}{cls.RESET}" if enabled else text
+
+    @classmethod
+    def visible_len(cls, text: str) -> int:
+        """Return the visible length of a string, ignoring ANSI escape codes."""
+        return len(cls.ANSI_ESCAPE.sub('', text))
+
+    @classmethod
+    def rjust(cls, text: str, width: int) -> str:
+        """Right-justify a string accounting for ANSI escape codes."""
+        visible = cls.visible_len(text)
+        padding = max(0, width - visible)
+        return ' ' * padding + text
+
+    @classmethod
+    def ljust(cls, text: str, width: int) -> str:
+        """Left-justify a string accounting for ANSI escape codes."""
+        visible = cls.visible_len(text)
+        padding = max(0, width - visible)
+        return text + ' ' * padding
 
 
 def write_diff_console_output(diff_result: DiffResult, changes_only: bool = False,
@@ -4299,21 +4321,21 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
     lines.append(f"{'':20s} {diff_result.source_label:>{src_width}s} {diff_result.target_label:>{tgt_width}s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Changed':>12s}")
     lines.append("-" * total_width)
 
-    # Metrics row with percentage
+    # Metrics row with percentage (using ANSI-aware padding for colored strings)
     metrics_pct = f"({summary.metrics_change_percent:.1f}%)"
     added_str = ANSIColors.green(f"+{summary.metrics_added}", c) if summary.metrics_added else f"+{summary.metrics_added}"
     removed_str = ANSIColors.red(f"-{summary.metrics_removed}", c) if summary.metrics_removed else f"-{summary.metrics_removed}"
     modified_str = ANSIColors.yellow(f"~{summary.metrics_modified}", c) if summary.metrics_modified else f"~{summary.metrics_modified}"
     lines.append(f"{'Metrics':20s} {summary.source_metrics_count:{src_width}d} {summary.target_metrics_count:{tgt_width}d} "
-                f"{added_str:>10s} {removed_str:>10s} {modified_str:>10s} {metrics_pct:>12s}")
+                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {metrics_pct:>12s}")
 
-    # Dimensions row with percentage
+    # Dimensions row with percentage (using ANSI-aware padding for colored strings)
     dims_pct = f"({summary.dimensions_change_percent:.1f}%)"
     added_str = ANSIColors.green(f"+{summary.dimensions_added}", c) if summary.dimensions_added else f"+{summary.dimensions_added}"
     removed_str = ANSIColors.red(f"-{summary.dimensions_removed}", c) if summary.dimensions_removed else f"-{summary.dimensions_removed}"
     modified_str = ANSIColors.yellow(f"~{summary.dimensions_modified}", c) if summary.dimensions_modified else f"~{summary.dimensions_modified}"
     lines.append(f"{'Dimensions':20s} {summary.source_dimensions_count:{src_width}d} {summary.target_dimensions_count:{tgt_width}d} "
-                f"{added_str:>10s} {removed_str:>10s} {modified_str:>10s} {dims_pct:>12s}")
+                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {dims_pct:>12s}")
     lines.append("-" * total_width)
 
     if summary_only:
