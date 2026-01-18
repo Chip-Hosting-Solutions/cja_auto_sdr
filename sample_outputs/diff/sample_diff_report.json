@@ -1,0 +1,134 @@
+{
+  "metadata": {
+    "generated_at": "2025-01-17 14:30:00",
+    "tool_version": "3.0.9",
+    "source_label": "Production Analytics",
+    "target_label": "Staging Analytics"
+  },
+  "source": {
+    "id": "dv_prod_12345",
+    "name": "Production Analytics",
+    "owner": "admin@example.com",
+    "description": "Main production data view"
+  },
+  "target": {
+    "id": "dv_staging_67890",
+    "name": "Staging Analytics",
+    "owner": "admin@example.com",
+    "description": "Staging environment data view"
+  },
+  "summary": {
+    "source_metrics_count": 150,
+    "target_metrics_count": 148,
+    "source_dimensions_count": 75,
+    "target_dimensions_count": 78,
+    "metrics_added": 3,
+    "metrics_removed": 5,
+    "metrics_modified": 7,
+    "dimensions_added": 5,
+    "dimensions_removed": 2,
+    "dimensions_modified": 4,
+    "has_changes": true,
+    "total_changes": 26
+  },
+  "metric_diffs": [
+    {
+      "id": "metrics/new_conversion_rate",
+      "name": "New Conversion Rate",
+      "change_type": "added",
+      "changed_fields": {},
+      "source_data": null,
+      "target_data": {
+        "id": "metrics/new_conversion_rate",
+        "name": "New Conversion Rate",
+        "type": "decimal",
+        "description": "Conversion rate for new visitors"
+      }
+    },
+    {
+      "id": "metrics/legacy_bounce_rate",
+      "name": "Legacy Bounce Rate",
+      "change_type": "removed",
+      "changed_fields": {},
+      "source_data": {
+        "id": "metrics/legacy_bounce_rate",
+        "name": "Legacy Bounce Rate",
+        "type": "decimal",
+        "description": "Old bounce rate calculation"
+      },
+      "target_data": null
+    },
+    {
+      "id": "metrics/pageviews",
+      "name": "Page Views",
+      "change_type": "modified",
+      "changed_fields": {
+        "description": {
+          "source": "Total page views count",
+          "target": "Total page views count (updated calculation)"
+        }
+      },
+      "source_data": {
+        "id": "metrics/pageviews",
+        "name": "Page Views",
+        "type": "int",
+        "description": "Total page views count"
+      },
+      "target_data": {
+        "id": "metrics/pageviews",
+        "name": "Page Views",
+        "type": "int",
+        "description": "Total page views count (updated calculation)"
+      }
+    }
+  ],
+  "dimension_diffs": [
+    {
+      "id": "dimensions/user_segment",
+      "name": "User Segment",
+      "change_type": "added",
+      "changed_fields": {},
+      "source_data": null,
+      "target_data": {
+        "id": "dimensions/user_segment",
+        "name": "User Segment",
+        "type": "string",
+        "description": "User segmentation category"
+      }
+    },
+    {
+      "id": "dimensions/old_campaign",
+      "name": "Old Campaign",
+      "change_type": "removed",
+      "changed_fields": {},
+      "source_data": {
+        "id": "dimensions/old_campaign",
+        "name": "Old Campaign",
+        "type": "string",
+        "description": "Legacy campaign tracking"
+      },
+      "target_data": null
+    },
+    {
+      "id": "dimensions/device_type",
+      "name": "Device Type",
+      "change_type": "modified",
+      "changed_fields": {
+        "type": {
+          "source": "string",
+          "target": "enum"
+        }
+      },
+      "source_data": {
+        "id": "dimensions/device_type",
+        "name": "Device Type",
+        "type": "string"
+      },
+      "target_data": {
+        "id": "dimensions/device_type",
+        "name": "Device Type",
+        "type": "enum"
+      }
+    }
+  ]
+}

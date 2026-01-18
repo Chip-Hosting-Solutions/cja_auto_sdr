@@ -56,8 +56,22 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--output-dir PATH` | Output directory for generated files | Current directory |
-| `--format FORMAT` | Output format: excel, csv, json, html, markdown, all | excel |
+| `--format FORMAT` | Output format (see table below) | excel (SDR), console (diff) |
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
+
+**Format Availability by Mode:**
+
+| Format | SDR Generation | Diff Comparison |
+|--------|----------------|-----------------|
+| `excel` | ✓ (default) | ✓ |
+| `csv` | ✓ | ✓ |
+| `json` | ✓ | ✓ |
+| `html` | ✓ | ✓ |
+| `markdown` | ✓ | ✓ |
+| `console` | ✗ | ✓ (default) |
+| `all` | ✓ | ✓ |
+
+> **Note:** Console format is only supported for diff comparison. Using `--format console` with SDR generation will show an error with suggested alternatives.
 
 ### Configuration
 
@@ -93,6 +107,30 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--max-retries N` | Maximum API retry attempts | 3 |
 | `--retry-base-delay N` | Initial retry delay in seconds | 1.0 |
 | `--retry-max-delay N` | Maximum retry delay in seconds | 30.0 |
+
+### Diff Comparison (New in v3.0.10)
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--diff` | Compare two data views. Requires exactly 2 data view IDs/names | False |
+| `--snapshot FILE` | Save a data view snapshot to JSON file | - |
+| `--diff-snapshot FILE` | Compare data view against a saved snapshot | - |
+| `--changes-only` | Only show changed items (hide unchanged) | False |
+| `--summary` | Show summary statistics only | False |
+| `--ignore-fields FIELDS` | Comma-separated fields to ignore in comparison | - |
+| `--diff-labels A B` | Custom labels for the two sides | Data view names |
+| `--show-only TYPES` | Filter by change type: added, removed, modified (comma-separated) | All types |
+| `--metrics-only` | Only compare metrics (exclude dimensions) | False |
+| `--dimensions-only` | Only compare dimensions (exclude metrics) | False |
+| `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.) | False |
+| `--side-by-side` | Show side-by-side comparison view for modified items | False |
+| `--no-color` | Disable ANSI color codes in diff console output | False |
+| `--quiet-diff` | Suppress output, only return exit code | False |
+| `--reverse-diff` | Swap source and target comparison direction | False |
+| `--warn-threshold PERCENT` | Exit with code 3 if change % exceeds threshold | - |
+| `--group-by-field` | Group changes by field name instead of component | False |
+| `--diff-output FILE` | Write output to file instead of stdout | - |
+| `--format-pr-comment` | Output in GitHub/GitLab PR comment format | False |
 
 ### Environment Variables
 
@@ -232,6 +270,66 @@ cja_auto_sdr dv_12345 \
 cja_auto_sdr --batch $(cat dataviews.txt)
 ```
 
+### Data View Comparison (Diff) - New in v3.0.10
+
+```bash
+# Compare two live data views (by ID)
+cja_auto_sdr --diff dv_prod_12345 dv_staging_67890
+
+# Compare by name
+cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
+
+# Mix IDs and names (both supported)
+cja_auto_sdr --diff dv_prod_12345 "Staging Analytics"
+cja_auto_sdr --diff "Production Analytics" dv_staging_67890
+
+# Save a snapshot for later comparison (ID or name)
+cja_auto_sdr dv_12345 --snapshot ./snapshots/baseline.json
+cja_auto_sdr "Production Analytics" --snapshot ./snapshots/baseline.json
+
+# Compare current state against a saved snapshot (ID or name)
+cja_auto_sdr dv_12345 --diff-snapshot ./snapshots/baseline.json
+cja_auto_sdr "Production Analytics" --diff-snapshot ./snapshots/baseline.json
+
+# Diff with different output formats
+cja_auto_sdr --diff dv_A dv_B --format html --output-dir ./reports
+cja_auto_sdr --diff dv_A dv_B --format all
+
+# Show only changes (hide unchanged items)
+cja_auto_sdr --diff dv_A dv_B --changes-only
+
+# Show summary only (no detailed changes)
+cja_auto_sdr --diff dv_A dv_B --summary
+
+# Ignore specific fields during comparison
+cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
+
+# Custom labels for source and target
+cja_auto_sdr --diff dv_A dv_B --diff-labels Production Staging
+
+# CI/CD integration (exit code 2 if differences found)
+cja_auto_sdr --diff dv_prod dv_staging --changes-only --format json
+echo $?  # 0 = no differences, 2 = differences found, 1 = error
+
+# Filter by change type (v3.0.10+)
+cja_auto_sdr --diff dv_A dv_B --show-only added
+cja_auto_sdr --diff dv_A dv_B --show-only removed,modified
+
+# Filter by component type (v3.0.10+)
+cja_auto_sdr --diff dv_A dv_B --metrics-only
+cja_auto_sdr --diff dv_A dv_B --dimensions-only
+
+# Extended field comparison (v3.0.10+)
+cja_auto_sdr --diff dv_A dv_B --extended-fields
+
+# Side-by-side view (v3.0.10+)
+cja_auto_sdr --diff dv_A dv_B --side-by-side
+cja_auto_sdr --diff dv_A dv_B --side-by-side --format markdown
+
+# Combined options
+cja_auto_sdr --diff dv_A dv_B --extended-fields --side-by-side --show-only modified --changes-only
+```
+
 ## Output Files
 
 ### Excel Workbook
@@ -293,11 +391,15 @@ Throughput: 9.7 data views per minute
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Configuration error |
-| 3 | Authentication error |
-| 4 | Data view not found |
+| 0 | Success (diff: no differences found) |
+| 1 | General error (authentication, data view not found, API errors, etc.) |
+| 2 | Success with differences (diff mode only) - useful for CI/CD pipelines |
+| 3 | Threshold exceeded (diff mode with `--warn-threshold`) |
+
+> **Note:** In diff mode:
+> - Exit code 2 indicates the comparison was successful but differences were found
+> - Exit code 3 indicates differences exceeded the `--warn-threshold` percentage
+> - This allows CI/CD pipelines to fail builds based on change magnitude
 
 ## Shell Tab-Completion
 
@@ -364,3 +466,4 @@ DEBUG  INFO  WARNING  ERROR  CRITICAL
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md)
 - [Output Formats](OUTPUT_FORMATS.md)
 - [Performance Guide](PERFORMANCE.md)
+- [Data View Comparison Guide](DIFF_COMPARISON.md) (v3.0.10)

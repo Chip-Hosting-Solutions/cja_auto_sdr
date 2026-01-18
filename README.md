@@ -53,6 +53,9 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 | **Reliability** | Automatic Retry | Exponential backoff with jitter for transient network failures |
 | | Continue-on-Error | Batch processing continues even if individual Data Views fail |
 | | Pre-flight Validation | Validates config and connectivity before processing |
+| **Comparison (v3.0.10)** | Data View Diff | Compare two data views to identify added, removed, and modified components |
+| | Snapshot Support | Save and compare against baseline snapshots for change tracking |
+| | CI/CD Integration | Exit codes for pipeline automation (2=changes found, 3=threshold exceeded) |
 | **Usability** | Dry-Run Mode | Test configuration without generating reports |
 | | Discovery Commands | `--list-dataviews` and `--sample-config` for easy setup |
 | | Color-Coded Output | Green/yellow/red console feedback for instant status |
@@ -210,6 +213,10 @@ python cja_sdr_generator.py "Production Analytics"
 | Export as HTML | `cja_auto_sdr dv_12345 --format html` |
 | Export as Markdown | `cja_auto_sdr dv_12345 --format markdown` |
 | Generate all formats | `cja_auto_sdr dv_12345 --format all` |
+| **Compare data views (v3.0.10)** | `cja_auto_sdr --diff dv_prod dv_staging` |
+| Compare by name (v3.0.10) | `cja_auto_sdr --diff "Production" "Staging"` |
+| Save snapshot (v3.0.10) | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
+| Compare to snapshot (v3.0.10) | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
 
 ## Documentation
 
@@ -225,6 +232,7 @@ python cja_sdr_generator.py "Production Analytics"
 | [Output Formats](docs/OUTPUT_FORMATS.md) | Format specifications and examples |
 | [Batch Processing](docs/BATCH_PROCESSING_GUIDE.md) | Multi-data view processing guide |
 | [Data View Names](docs/DATA_VIEW_NAMES.md) | Using Data View names instead of IDs |
+| [Data View Comparison](docs/DIFF_COMPARISON.md) | Compare data views, snapshots, CI/CD integration (v3.0.10) |
 | [Testing](tests/README.md) | Running and writing tests |
 
 ## Requirements
@@ -247,13 +255,14 @@ cja_auto_sdr/
 │   ├── CLI_REFERENCE.md     # Command-line reference
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (413 tests)
+├── tests/                   # Test suite (551 tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output
 │   ├── json/                # Sample JSON output
 │   ├── html/                # Sample HTML output
-│   └── markdown/            # Sample Markdown output
+│   ├── markdown/            # Sample Markdown output
+│   └── diff/                # Sample diff comparison outputs
 ├── logs/                    # Generated log files
 └── *.xlsx                   # Generated SDR files
 ```

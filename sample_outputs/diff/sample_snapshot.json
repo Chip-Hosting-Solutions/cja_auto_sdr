@@ -1,0 +1,80 @@
+{
+  "snapshot_version": "1.0",
+  "created_at": "2025-01-17T10:00:00.000000",
+  "data_view_id": "dv_prod_12345",
+  "data_view_name": "Production Analytics",
+  "owner": "admin@example.com",
+  "description": "Main production data view for customer analytics",
+  "metrics": [
+    {
+      "id": "metrics/pageviews",
+      "name": "Page Views",
+      "type": "int",
+      "title": "Page Views",
+      "description": "Total page views count"
+    },
+    {
+      "id": "metrics/visits",
+      "name": "Visits",
+      "type": "int",
+      "title": "Visits",
+      "description": "Total visits to the site"
+    },
+    {
+      "id": "metrics/bounce_rate",
+      "name": "Bounce Rate",
+      "type": "decimal",
+      "title": "Bounce Rate",
+      "description": "Percentage of single-page sessions"
+    },
+    {
+      "id": "metrics/conversion_rate",
+      "name": "Conversion Rate",
+      "type": "decimal",
+      "title": "Conversion Rate",
+      "description": "Order conversion rate"
+    },
+    {
+      "id": "metrics/revenue",
+      "name": "Revenue",
+      "type": "currency",
+      "title": "Revenue",
+      "description": "Total revenue amount"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "dimensions/page",
+      "name": "Page",
+      "type": "string",
+      "title": "Page",
+      "description": "Page URL path"
+    },
+    {
+      "id": "dimensions/device_type",
+      "name": "Device Type",
+      "type": "string",
+      "title": "Device Type",
+      "description": "Device category (mobile, desktop, tablet)"
+    },
+    {
+      "id": "dimensions/campaign",
+      "name": "Campaign",
+      "type": "string",
+      "title": "Campaign",
+      "description": "Marketing campaign identifier"
+    },
+    {
+      "id": "dimensions/referrer",
+      "name": "Referrer",
+      "type": "string",
+      "title": "Referrer",
+      "description": "Referring URL"
+    }
+  ],
+  "metadata": {
+    "tool_version": "3.0.9",
+    "metrics_count": 5,
+    "dimensions_count": 4
+  }
+}

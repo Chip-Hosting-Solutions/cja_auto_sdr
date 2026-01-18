@@ -659,3 +659,51 @@ class TestValidateConfigFlag:
             # Should parse without error even though no data view is provided
             args = parse_arguments()
             assert args.validate_config is True
+
+
+class TestFormatValidation:
+    """Test output format validation"""
+
+    def test_format_console_valid_for_diff(self):
+        """Test that console format is accepted for diff mode"""
+        test_args = ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--format', 'console']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.format == 'console'
+            assert args.diff is True
+
+    def test_format_console_parsed_for_sdr(self):
+        """Test that console format is parsed (validation happens at runtime)"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345', '--format', 'console']
+        with patch.object(sys, 'argv', test_args):
+            # Argparse allows console as a choice, runtime validation catches it
+            args = parse_arguments()
+            assert args.format == 'console'
+
+    def test_format_excel_valid_for_sdr(self):
+        """Test that excel format is valid for SDR"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345', '--format', 'excel']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.format == 'excel'
+
+    def test_format_all_valid_for_sdr(self):
+        """Test that all format is valid for SDR"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345', '--format', 'all']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.format == 'all'
+
+    def test_format_json_valid_for_both(self):
+        """Test that json format is valid for both SDR and diff"""
+        # SDR mode
+        test_args = ['cja_sdr_generator.py', 'dv_12345', '--format', 'json']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.format == 'json'
+
+        # Diff mode
+        test_args = ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--format', 'json']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.format == 'json'

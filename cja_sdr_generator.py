@@ -6,7 +6,10 @@ import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
-from typing import Dict, List, Tuple, Optional, Callable, Any
+from typing import (
+    Dict, List, Tuple, Optional, Callable, Any, Union,
+    TypeVar, Protocol, runtime_checkable
+)
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from tqdm import tqdm
@@ -16,7 +19,7 @@ import argparse
 import os
 import random
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import tempfile
 import atexit
 import uuid
@@ -41,23 +44,312 @@ except ImportError:
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.9"
+__version__ = "3.0.10"
+
+# ==================== CUSTOM EXCEPTIONS ====================
+
+
+class CJASDRError(Exception):
+    """Base exception for all CJA SDR errors."""
+
+    def __init__(self, message: str, details: Optional[str] = None):
+        self.message = message
+        self.details = details
+        super().__init__(self.message)
+
+    def __str__(self) -> str:
+        if self.details:
+            return f"{self.message}: {self.details}"
+        return self.message
+
+
+class ConfigurationError(CJASDRError):
+    """Exception raised for configuration-related errors.
+
+    Examples:
+        - Missing config file
+        - Invalid JSON in config file
+        - Missing required credentials
+        - Invalid credential format
+    """
+
+    def __init__(self, message: str, config_file: Optional[str] = None,
+                 field: Optional[str] = None, details: Optional[str] = None):
+        self.config_file = config_file
+        self.field = field
+        super().__init__(message, details)
+
+
+class APIError(CJASDRError):
+    """Exception raised for API communication failures.
+
+    Wraps HTTP errors and network failures with context about
+    the operation that failed.
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None,
+                 operation: Optional[str] = None, details: Optional[str] = None,
+                 original_error: Optional[Exception] = None):
+        self.status_code = status_code
+        self.operation = operation
+        self.original_error = original_error
+        super().__init__(message, details)
+
+    def __str__(self) -> str:
+        parts = [self.message]
+        if self.status_code:
+            parts.append(f"HTTP {self.status_code}")
+        if self.operation:
+            parts.append(f"during {self.operation}")
+        if self.details:
+            parts.append(self.details)
+        return " - ".join(parts)
+
+
+class ValidationError(CJASDRError):
+    """Exception raised for data quality validation failures.
+
+    Used when validation encounters critical issues that prevent
+    further processing.
+    """
+
+    def __init__(self, message: str, item_type: Optional[str] = None,
+                 issue_count: int = 0, details: Optional[str] = None):
+        self.item_type = item_type
+        self.issue_count = issue_count
+        super().__init__(message, details)
+
+
+class OutputError(CJASDRError):
+    """Exception raised for file writing failures.
+
+    Examples:
+        - Permission denied
+        - Disk full
+        - Invalid path
+        - Serialization error
+    """
+
+    def __init__(self, message: str, output_path: Optional[str] = None,
+                 output_format: Optional[str] = None, details: Optional[str] = None,
+                 original_error: Optional[Exception] = None):
+        self.output_path = output_path
+        self.output_format = output_format
+        self.original_error = original_error
+        super().__init__(message, details)
+
+
+# ==================== CONFIGURATION DATACLASSES ====================
+
+
+@dataclass
+class RetryConfig:
+    """Configuration for retry logic with exponential backoff.
+
+    Attributes:
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Initial delay in seconds (default: 1.0)
+        max_delay: Maximum delay cap in seconds (default: 30.0)
+        exponential_base: Multiplier for exponential backoff (default: 2)
+        jitter: Add randomization to delays (default: True)
+    """
+    max_retries: int = 3
+    base_delay: float = 1.0
+    max_delay: float = 30.0
+    exponential_base: int = 2
+    jitter: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for backward compatibility."""
+        return {
+            'max_retries': self.max_retries,
+            'base_delay': self.base_delay,
+            'max_delay': self.max_delay,
+            'exponential_base': self.exponential_base,
+            'jitter': self.jitter,
+        }
+
+
+@dataclass
+class CacheConfig:
+    """Configuration for validation result caching.
+
+    Attributes:
+        enabled: Whether caching is enabled (default: False)
+        max_size: Maximum number of cached entries (default: 1000)
+        ttl_seconds: Time-to-live in seconds (default: 3600 = 1 hour)
+    """
+    enabled: bool = False
+    max_size: int = 1000
+    ttl_seconds: int = 3600
+
+
+@dataclass
+class LogConfig:
+    """Configuration for logging behavior.
+
+    Attributes:
+        level: Logging level string (default: "INFO")
+        file_max_bytes: Maximum size per log file (default: 10MB)
+        file_backup_count: Number of backup log files (default: 5)
+    """
+    level: str = "INFO"
+    file_max_bytes: int = 10 * 1024 * 1024  # 10MB
+    file_backup_count: int = 5
+
+
+@dataclass
+class WorkerConfig:
+    """Configuration for parallel processing workers.
+
+    Attributes:
+        api_fetch_workers: Concurrent API fetch threads (default: 3)
+        validation_workers: Concurrent validation threads (default: 2)
+        batch_workers: Batch processing workers (default: 4)
+        max_batch_workers: Maximum allowed batch workers (default: 256)
+    """
+    api_fetch_workers: int = 3
+    validation_workers: int = 2
+    batch_workers: int = 4
+    max_batch_workers: int = 256
+
+
+@dataclass
+class SDRConfig:
+    """Master configuration for SDR generation.
+
+    Centralizes all configuration options in a single, testable dataclass.
+
+    Attributes:
+        retry: Retry configuration
+        cache: Cache configuration
+        log: Logging configuration
+        workers: Worker configuration
+        output_format: Output format (excel, csv, json, html, markdown, all)
+        output_dir: Output directory path
+        skip_validation: Skip data quality validation
+        max_issues: Maximum issues to report (0 = all)
+        quiet: Suppress non-error output
+    """
+    retry: RetryConfig = field(default_factory=RetryConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    log: LogConfig = field(default_factory=LogConfig)
+    workers: WorkerConfig = field(default_factory=WorkerConfig)
+    output_format: str = "excel"
+    output_dir: str = "."
+    skip_validation: bool = False
+    max_issues: int = 0
+    quiet: bool = False
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> 'SDRConfig':
+        """Create configuration from parsed command-line arguments."""
+        return cls(
+            retry=RetryConfig(
+                max_retries=getattr(args, 'max_retries', 3),
+                base_delay=getattr(args, 'retry_base_delay', 1.0),
+                max_delay=getattr(args, 'retry_max_delay', 30.0),
+            ),
+            cache=CacheConfig(
+                enabled=getattr(args, 'enable_cache', False),
+                max_size=getattr(args, 'cache_size', 1000),
+                ttl_seconds=getattr(args, 'cache_ttl', 3600),
+            ),
+            log=LogConfig(
+                level=getattr(args, 'log_level', 'INFO'),
+            ),
+            workers=WorkerConfig(
+                batch_workers=getattr(args, 'workers', 4),
+            ),
+            output_format=getattr(args, 'format', 'excel'),
+            output_dir=getattr(args, 'output_dir', '.'),
+            skip_validation=getattr(args, 'skip_validation', False),
+            max_issues=getattr(args, 'max_issues', 0),
+            quiet=getattr(args, 'quiet', False),
+        )
+
+
+# ==================== OUTPUT WRITER PROTOCOL ====================
+
+
+@runtime_checkable
+class OutputWriter(Protocol):
+    """Protocol defining the interface for output format writers.
+
+    All output writers should implement this interface to ensure
+    consistent behavior and enable easy addition of new formats.
+
+    Example implementation:
+        class CSVWriter:
+            def write(
+                self,
+                metrics_df: pd.DataFrame,
+                dimensions_df: pd.DataFrame,
+                dataview_info: dict,
+                output_path: Path,
+                quality_results: Optional[List[Dict]] = None
+            ) -> str:
+                # Write CSV files and return output path
+                ...
+    """
+
+    def write(
+        self,
+        metrics_df: pd.DataFrame,
+        dimensions_df: pd.DataFrame,
+        dataview_info: Dict[str, Any],
+        output_path: Path,
+        quality_results: Optional[List[Dict[str, Any]]] = None
+    ) -> str:
+        """Write output in the implemented format.
+
+        Args:
+            metrics_df: DataFrame containing metrics data
+            dimensions_df: DataFrame containing dimensions data
+            dataview_info: Dictionary with data view metadata
+            output_path: Base path for output files
+            quality_results: Optional list of data quality issues
+
+        Returns:
+            Path to the created output file(s)
+
+        Raises:
+            OutputError: If writing fails
+        """
+        ...
+
+
+# Type alias for validation issues
+ValidationIssue = Dict[str, Any]
+
+# Type variable for generic return types
+T = TypeVar('T')
+
 
 # ==================== DEFAULT CONSTANTS ====================
+# Note: These module-level constants are maintained for backward compatibility.
+# New code should use the corresponding dataclass configurations (SDRConfig,
+# RetryConfig, CacheConfig, LogConfig, WorkerConfig) for better type safety.
 
 # Worker thread/process limits
-DEFAULT_API_FETCH_WORKERS = 3      # Concurrent API fetch threads
-DEFAULT_VALIDATION_WORKERS = 2     # Concurrent validation threads
-DEFAULT_BATCH_WORKERS = 4          # Default batch processing workers
-MAX_BATCH_WORKERS = 256            # Maximum allowed batch workers
+DEFAULT_API_FETCH_WORKERS: int = 3      # Concurrent API fetch threads
+DEFAULT_VALIDATION_WORKERS: int = 2     # Concurrent validation threads
+DEFAULT_BATCH_WORKERS: int = 4          # Default batch processing workers
+MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
 
 # Cache defaults
-DEFAULT_CACHE_SIZE = 1000          # Maximum cached validation results
-DEFAULT_CACHE_TTL = 3600           # Cache TTL in seconds (1 hour)
+DEFAULT_CACHE_SIZE: int = 1000          # Maximum cached validation results
+DEFAULT_CACHE_TTL: int = 3600           # Cache TTL in seconds (1 hour)
 
 # Logging defaults
-LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10MB max per log file
-LOG_FILE_BACKUP_COUNT = 5              # Number of backup log files to keep
+LOG_FILE_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB max per log file
+LOG_FILE_BACKUP_COUNT: int = 5              # Number of backup log files to keep
+
+# Default configuration instances (use these for consistent defaults)
+DEFAULT_RETRY = RetryConfig()
+DEFAULT_CACHE = CacheConfig()
+DEFAULT_LOG = LogConfig()
+DEFAULT_WORKERS = WorkerConfig()
 
 # ==================== VALIDATION SCHEMA ====================
 
@@ -169,14 +461,9 @@ class ConsoleColors:
 
 # ==================== RETRY CONFIGURATION ====================
 
-# Default retry settings
-DEFAULT_RETRY_CONFIG = {
-    'max_retries': 3,           # Maximum number of retry attempts
-    'base_delay': 1.0,          # Initial delay in seconds
-    'max_delay': 30.0,          # Maximum delay between retries
-    'exponential_base': 2,      # Exponential backoff multiplier
-    'jitter': True,             # Add randomization to prevent thundering herd
-}
+# Default retry settings (dict format for backward compatibility)
+# New code should use DEFAULT_RETRY (RetryConfig dataclass) instead
+DEFAULT_RETRY_CONFIG: Dict[str, Any] = DEFAULT_RETRY.to_dict()
 
 # ==================== ENHANCED ERROR MESSAGES ====================
 
@@ -575,14 +862,14 @@ RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def retry_with_backoff(
-    max_retries: int = None,
-    base_delay: float = None,
-    max_delay: float = None,
-    exponential_base: int = None,
-    jitter: bool = None,
-    retryable_exceptions: tuple = None,
-    logger: logging.Logger = None
-) -> Callable:
+    max_retries: Optional[int] = None,
+    base_delay: Optional[float] = None,
+    max_delay: Optional[float] = None,
+    exponential_base: Optional[int] = None,
+    jitter: Optional[bool] = None,
+    retryable_exceptions: Optional[Tuple[type, ...]] = None,
+    logger: Optional[logging.Logger] = None
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """
     Decorator that implements retry logic with exponential backoff.
 
@@ -683,12 +970,12 @@ def retry_with_backoff(
 
 
 def make_api_call_with_retry(
-    api_func: Callable,
-    *args,
-    logger: logging.Logger = None,
+    api_func: Callable[..., T],
+    *args: Any,
+    logger: Optional[logging.Logger] = None,
     operation_name: str = "API call",
-    **kwargs
-) -> Any:
+    **kwargs: Any
+) -> T:
     """
     Execute an API call with retry logic.
 
@@ -811,6 +1098,667 @@ class ProcessingResult:
         """Return human-readable file size (e.g., '1.5 MB', '256 KB')."""
         return format_file_size(self.file_size_bytes)
 
+
+# ==================== DIFF COMPARISON DATA STRUCTURES ====================
+
+from enum import Enum
+
+
+class ChangeType(Enum):
+    """Types of changes detected in diff comparison"""
+    ADDED = "added"
+    REMOVED = "removed"
+    MODIFIED = "modified"
+    UNCHANGED = "unchanged"
+
+
+@dataclass
+class ComponentDiff:
+    """Represents a diff for a single component (metric or dimension)"""
+    id: str
+    name: str
+    change_type: ChangeType
+    source_data: Optional[Dict] = None  # Full data from source
+    target_data: Optional[Dict] = None  # Full data from target
+    changed_fields: Optional[Dict[str, Tuple[Any, Any]]] = None  # field -> (source_value, target_value)
+
+    def __post_init__(self):
+        if self.changed_fields is None:
+            self.changed_fields = {}
+
+
+@dataclass
+class MetadataDiff:
+    """Represents changes to data view metadata"""
+    source_name: str
+    target_name: str
+    source_id: str
+    target_id: str
+    source_owner: str = ""
+    target_owner: str = ""
+    source_description: str = ""
+    target_description: str = ""
+    changed_fields: Optional[Dict[str, Tuple[str, str]]] = None
+
+    def __post_init__(self):
+        if self.changed_fields is None:
+            self.changed_fields = {}
+
+
+@dataclass
+class DiffSummary:
+    """Summary statistics for a diff operation"""
+    source_metrics_count: int = 0
+    target_metrics_count: int = 0
+    source_dimensions_count: int = 0
+    target_dimensions_count: int = 0
+    metrics_added: int = 0
+    metrics_removed: int = 0
+    metrics_modified: int = 0
+    metrics_unchanged: int = 0
+    dimensions_added: int = 0
+    dimensions_removed: int = 0
+    dimensions_modified: int = 0
+    dimensions_unchanged: int = 0
+
+    @property
+    def has_changes(self) -> bool:
+        """Returns True if any changes were detected"""
+        return (self.metrics_added > 0 or self.metrics_removed > 0 or
+                self.metrics_modified > 0 or self.dimensions_added > 0 or
+                self.dimensions_removed > 0 or self.dimensions_modified > 0)
+
+    @property
+    def total_changes(self) -> int:
+        """Total number of changed items"""
+        return (self.metrics_added + self.metrics_removed + self.metrics_modified +
+                self.dimensions_added + self.dimensions_removed + self.dimensions_modified)
+
+    @property
+    def metrics_changed(self) -> int:
+        """Total metrics that changed (added + removed + modified)"""
+        return self.metrics_added + self.metrics_removed + self.metrics_modified
+
+    @property
+    def dimensions_changed(self) -> int:
+        """Total dimensions that changed (added + removed + modified)"""
+        return self.dimensions_added + self.dimensions_removed + self.dimensions_modified
+
+    @property
+    def metrics_change_percent(self) -> float:
+        """Percentage of metrics that changed (based on max of source/target count)"""
+        total = max(self.source_metrics_count, self.target_metrics_count)
+        if total == 0:
+            return 0.0
+        return (self.metrics_changed / total) * 100
+
+    @property
+    def dimensions_change_percent(self) -> float:
+        """Percentage of dimensions that changed (based on max of source/target count)"""
+        total = max(self.source_dimensions_count, self.target_dimensions_count)
+        if total == 0:
+            return 0.0
+        return (self.dimensions_changed / total) * 100
+
+    @property
+    def natural_language_summary(self) -> str:
+        """Human-readable summary of changes for PRs, tickets, messages."""
+        parts = []
+
+        # Metrics changes
+        metric_parts = []
+        if self.metrics_added:
+            metric_parts.append(f"{self.metrics_added} added")
+        if self.metrics_removed:
+            metric_parts.append(f"{self.metrics_removed} removed")
+        if self.metrics_modified:
+            metric_parts.append(f"{self.metrics_modified} modified")
+        if metric_parts:
+            parts.append(f"Metrics: {', '.join(metric_parts)}")
+
+        # Dimensions changes
+        dim_parts = []
+        if self.dimensions_added:
+            dim_parts.append(f"{self.dimensions_added} added")
+        if self.dimensions_removed:
+            dim_parts.append(f"{self.dimensions_removed} removed")
+        if self.dimensions_modified:
+            dim_parts.append(f"{self.dimensions_modified} modified")
+        if dim_parts:
+            parts.append(f"Dimensions: {', '.join(dim_parts)}")
+
+        if not parts:
+            return "No changes detected"
+
+        return "; ".join(parts)
+
+
+@dataclass
+class DiffResult:
+    """Complete result of a diff comparison"""
+    summary: DiffSummary
+    metadata_diff: MetadataDiff
+    metric_diffs: List[ComponentDiff]
+    dimension_diffs: List[ComponentDiff]
+    source_label: str = "Source"
+    target_label: str = "Target"
+    generated_at: str = ""
+    tool_version: str = ""
+
+    def __post_init__(self):
+        if not self.generated_at:
+            self.generated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if not self.tool_version:
+            self.tool_version = __version__
+
+
+@dataclass
+class DataViewSnapshot:
+    """A point-in-time snapshot of a data view for comparison"""
+    snapshot_version: str = "1.0"
+    created_at: str = ""
+    data_view_id: str = ""
+    data_view_name: str = ""
+    owner: str = ""
+    description: str = ""
+    metrics: List[Dict] = None  # Full metric data from API
+    dimensions: List[Dict] = None  # Full dimension data from API
+    metadata: Dict = None  # Tool version, counts, etc.
+
+    def __post_init__(self):
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+        if self.metrics is None:
+            self.metrics = []
+        if self.dimensions is None:
+            self.dimensions = []
+        if self.metadata is None:
+            self.metadata = {
+                'tool_version': __version__,
+                'metrics_count': len(self.metrics) if self.metrics else 0,
+                'dimensions_count': len(self.dimensions) if self.dimensions else 0
+            }
+
+    def to_dict(self) -> Dict:
+        """Convert snapshot to dictionary for JSON serialization"""
+        return {
+            'snapshot_version': self.snapshot_version,
+            'created_at': self.created_at,
+            'data_view_id': self.data_view_id,
+            'data_view_name': self.data_view_name,
+            'owner': self.owner,
+            'description': self.description,
+            'metrics': self.metrics,
+            'dimensions': self.dimensions,
+            'metadata': {
+                'tool_version': self.metadata.get('tool_version', __version__),
+                'metrics_count': len(self.metrics),
+                'dimensions_count': len(self.dimensions)
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DataViewSnapshot':
+        """Create snapshot from dictionary (loaded from JSON)"""
+        return cls(
+            snapshot_version=data.get('snapshot_version', '1.0'),
+            created_at=data.get('created_at', ''),
+            data_view_id=data.get('data_view_id', ''),
+            data_view_name=data.get('data_view_name', ''),
+            owner=data.get('owner', ''),
+            description=data.get('description', ''),
+            metrics=data.get('metrics', []),
+            dimensions=data.get('dimensions', []),
+            metadata=data.get('metadata', {})
+        )
+
+
+# ==================== SNAPSHOT MANAGER ====================
+
+class SnapshotManager:
+    """
+    Manages data view snapshot lifecycle.
+
+    Handles creating snapshots from live data views, saving/loading to JSON files,
+    and listing available snapshots.
+    """
+
+    def __init__(self, logger: logging.Logger = None):
+        self.logger = logger or logging.getLogger(__name__)
+
+    def create_snapshot(self, cja, data_view_id: str, quiet: bool = False) -> DataViewSnapshot:
+        """
+        Create a snapshot from a live data view.
+
+        Args:
+            cja: Initialized cjapy.CJA instance
+            data_view_id: The data view ID to snapshot
+            quiet: Suppress progress output
+
+        Returns:
+            DataViewSnapshot with current state of data view
+        """
+        self.logger.info(f"Creating snapshot for data view: {data_view_id}")
+
+        # Fetch data view info
+        dv_info = cja.getDataView(data_view_id)
+        if not dv_info:
+            raise ValueError(f"Failed to fetch data view info for {data_view_id}")
+
+        dv_name = dv_info.get('name', 'Unknown')
+        dv_owner = dv_info.get('owner', {})
+        owner_name = dv_owner.get('name', '') if isinstance(dv_owner, dict) else str(dv_owner)
+        dv_description = dv_info.get('description', '')
+
+        # Fetch metrics
+        self.logger.info("Fetching metrics...")
+        metrics_df = cja.getMetrics(data_view_id, inclType=True, full=True)
+        metrics_list = []
+        if metrics_df is not None and not metrics_df.empty:
+            metrics_list = metrics_df.to_dict('records')
+        self.logger.info(f"  Fetched {len(metrics_list)} metrics")
+
+        # Fetch dimensions
+        self.logger.info("Fetching dimensions...")
+        dimensions_df = cja.getDimensions(data_view_id, inclType=True, full=True)
+        dimensions_list = []
+        if dimensions_df is not None and not dimensions_df.empty:
+            dimensions_list = dimensions_df.to_dict('records')
+        self.logger.info(f"  Fetched {len(dimensions_list)} dimensions")
+
+        snapshot = DataViewSnapshot(
+            data_view_id=data_view_id,
+            data_view_name=dv_name,
+            owner=owner_name,
+            description=dv_description,
+            metrics=metrics_list,
+            dimensions=dimensions_list
+        )
+
+        self.logger.info(f"Snapshot created: {len(metrics_list)} metrics, {len(dimensions_list)} dimensions")
+        return snapshot
+
+    def save_snapshot(self, snapshot: DataViewSnapshot, filepath: str) -> str:
+        """
+        Save a snapshot to a JSON file.
+
+        Args:
+            snapshot: The snapshot to save
+            filepath: Output file path
+
+        Returns:
+            Absolute path to saved file
+        """
+        filepath = os.path.abspath(filepath)
+        os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(snapshot.to_dict(), f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"Snapshot saved to: {filepath}")
+        return filepath
+
+    def load_snapshot(self, filepath: str) -> DataViewSnapshot:
+        """
+        Load a snapshot from a JSON file.
+
+        Args:
+            filepath: Path to snapshot file
+
+        Returns:
+            DataViewSnapshot loaded from file
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            json.JSONDecodeError: If file is not valid JSON
+            ValueError: If file is not a valid snapshot
+        """
+        filepath = os.path.abspath(filepath)
+
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Snapshot file not found: {filepath}")
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Validate it's a snapshot file
+        if 'snapshot_version' not in data:
+            raise ValueError(f"Invalid snapshot file: {filepath} (missing snapshot_version)")
+
+        snapshot = DataViewSnapshot.from_dict(data)
+        self.logger.info(f"Loaded snapshot: {snapshot.data_view_name} ({snapshot.data_view_id})")
+        self.logger.info(f"  Created: {snapshot.created_at}")
+        self.logger.info(f"  Metrics: {len(snapshot.metrics)}, Dimensions: {len(snapshot.dimensions)}")
+
+        return snapshot
+
+    def list_snapshots(self, directory: str) -> List[Dict]:
+        """
+        List available snapshots in a directory.
+
+        Args:
+            directory: Directory to search for snapshots
+
+        Returns:
+            List of snapshot metadata dictionaries
+        """
+        snapshots = []
+        directory = os.path.abspath(directory)
+
+        if not os.path.exists(directory):
+            return snapshots
+
+        for filename in os.listdir(directory):
+            if filename.endswith('.json'):
+                filepath = os.path.join(directory, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if 'snapshot_version' in data:
+                        snapshots.append({
+                            'filename': filename,
+                            'filepath': filepath,
+                            'data_view_id': data.get('data_view_id', ''),
+                            'data_view_name': data.get('data_view_name', ''),
+                            'created_at': data.get('created_at', ''),
+                            'metrics_count': len(data.get('metrics', [])),
+                            'dimensions_count': len(data.get('dimensions', []))
+                        })
+                except (json.JSONDecodeError, IOError):
+                    continue
+
+        return sorted(snapshots, key=lambda x: x.get('created_at', ''), reverse=True)
+
+
+# ==================== DATA VIEW COMPARATOR ====================
+
+class DataViewComparator:
+    """
+    Compares two data view snapshots and produces a DiffResult.
+
+    Supports comparing:
+    - Two live data views
+    - A live data view against a saved snapshot
+    - Two saved snapshots
+
+    Features:
+    - Matches components by ID
+    - Detects additions, removals, and modifications
+    - Configurable field comparison
+    - Field ignore list support
+    - Extended field comparison including attribution, format settings
+    """
+
+    # Default fields to compare for change detection (basic set)
+    DEFAULT_COMPARE_FIELDS = ['name', 'title', 'description', 'type', 'schemaPath']
+
+    # Extended fields for comprehensive comparison (includes configuration settings)
+    EXTENDED_COMPARE_FIELDS = [
+        # Basic identification
+        'name', 'title', 'description', 'type', 'schemaPath',
+        # Component configuration
+        'hidden', 'hideFromReporting', 'precision', 'format',
+        # Behavioral settings
+        'segmentable', 'reportable', 'componentType',
+        # Attribution settings (for metrics)
+        'attribution', 'attributionModel', 'lookbackWindow',
+        # Data settings
+        'dataType', 'hasData', 'approved',
+        # Bucketing (for dimensions)
+        'bucketing', 'bucketingSetting',
+        # Persistence
+        'persistence', 'persistenceSetting', 'allocation',
+        # Derived/calculated
+        'formula', 'isCalculated', 'derivedFieldId',
+    ]
+
+    def __init__(self, logger: logging.Logger = None, ignore_fields: List[str] = None,
+                 compare_fields: List[str] = None, use_extended_fields: bool = False,
+                 show_only: Optional[List[str]] = None, metrics_only: bool = False,
+                 dimensions_only: bool = False):
+        """
+        Initialize the comparator.
+
+        Args:
+            logger: Logger instance
+            ignore_fields: Fields to ignore during comparison
+            compare_fields: Fields to compare (overrides default)
+            use_extended_fields: Use extended field set for comprehensive comparison
+            show_only: Filter to show only specific change types ('added', 'removed', 'modified', 'unchanged')
+            metrics_only: Only include metrics in comparison
+            dimensions_only: Only include dimensions in comparison
+        """
+        self.logger = logger or logging.getLogger(__name__)
+        self.ignore_fields = set(ignore_fields or [])
+        if compare_fields:
+            self.compare_fields = compare_fields
+        elif use_extended_fields:
+            self.compare_fields = self.EXTENDED_COMPARE_FIELDS
+        else:
+            self.compare_fields = self.DEFAULT_COMPARE_FIELDS
+        self.show_only = set(show_only) if show_only else None
+        self.metrics_only = metrics_only
+        self.dimensions_only = dimensions_only
+
+    def compare(self, source: DataViewSnapshot, target: DataViewSnapshot,
+                source_label: str = "Source", target_label: str = "Target") -> DiffResult:
+        """
+        Compare two data view snapshots.
+
+        Args:
+            source: Source snapshot (baseline)
+            target: Target snapshot (current state)
+            source_label: Label for source in output
+            target_label: Label for target in output
+
+        Returns:
+            DiffResult with all differences
+        """
+        self.logger.info(f"Comparing data views:")
+        self.logger.info(f"  {source_label}: {source.data_view_name} ({source.data_view_id})")
+        self.logger.info(f"  {target_label}: {target.data_view_name} ({target.data_view_id})")
+
+        # Compare metrics (unless dimensions_only is set)
+        if self.dimensions_only:
+            metric_diffs = []
+        else:
+            metric_diffs = self._compare_components(
+                source.metrics, target.metrics, "metrics"
+            )
+            # Apply show_only filter if set
+            metric_diffs = self._apply_show_only_filter(metric_diffs)
+
+        # Compare dimensions (unless metrics_only is set)
+        if self.metrics_only:
+            dimension_diffs = []
+        else:
+            dimension_diffs = self._compare_components(
+                source.dimensions, target.dimensions, "dimensions"
+            )
+            # Apply show_only filter if set
+            dimension_diffs = self._apply_show_only_filter(dimension_diffs)
+
+        # Build metadata diff
+        metadata_diff = self._build_metadata_diff(source, target)
+
+        # Build summary (use original lists for accurate counts)
+        summary = self._build_summary(source, target, metric_diffs, dimension_diffs)
+
+        self.logger.info(f"Comparison complete:")
+        self.logger.info(f"  Metrics: +{summary.metrics_added} -{summary.metrics_removed} ~{summary.metrics_modified}")
+        self.logger.info(f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}")
+
+        return DiffResult(
+            summary=summary,
+            metadata_diff=metadata_diff,
+            metric_diffs=metric_diffs,
+            dimension_diffs=dimension_diffs,
+            source_label=source_label,
+            target_label=target_label
+        )
+
+    def _apply_show_only_filter(self, diffs: List[ComponentDiff]) -> List[ComponentDiff]:
+        """Apply show_only filter to diff results."""
+        if not self.show_only:
+            return diffs
+
+        # Map show_only strings to ChangeType enum values
+        type_map = {
+            'added': ChangeType.ADDED,
+            'removed': ChangeType.REMOVED,
+            'modified': ChangeType.MODIFIED,
+            'unchanged': ChangeType.UNCHANGED,
+        }
+
+        allowed_types = {type_map[t] for t in self.show_only if t in type_map}
+
+        return [d for d in diffs if d.change_type in allowed_types]
+
+    def _compare_components(self, source_list: List[Dict], target_list: List[Dict],
+                           component_type: str) -> List[ComponentDiff]:
+        """Compare two lists of components by ID"""
+        diffs = []
+
+        # Build lookup maps by ID
+        source_map = {item.get('id'): item for item in source_list if item.get('id')}
+        target_map = {item.get('id'): item for item in target_list if item.get('id')}
+
+        all_ids = set(source_map.keys()) | set(target_map.keys())
+
+        for item_id in sorted(all_ids):
+            source_item = source_map.get(item_id)
+            target_item = target_map.get(item_id)
+
+            if source_item and not target_item:
+                # Removed
+                diffs.append(ComponentDiff(
+                    id=item_id,
+                    name=source_item.get('name', source_item.get('title', 'Unknown')),
+                    change_type=ChangeType.REMOVED,
+                    source_data=source_item,
+                    target_data=None
+                ))
+            elif target_item and not source_item:
+                # Added
+                diffs.append(ComponentDiff(
+                    id=item_id,
+                    name=target_item.get('name', target_item.get('title', 'Unknown')),
+                    change_type=ChangeType.ADDED,
+                    source_data=None,
+                    target_data=target_item
+                ))
+            else:
+                # Both exist - check for modifications
+                changed_fields = self._find_changed_fields(source_item, target_item)
+                if changed_fields:
+                    diffs.append(ComponentDiff(
+                        id=item_id,
+                        name=target_item.get('name', target_item.get('title', 'Unknown')),
+                        change_type=ChangeType.MODIFIED,
+                        source_data=source_item,
+                        target_data=target_item,
+                        changed_fields=changed_fields
+                    ))
+                else:
+                    diffs.append(ComponentDiff(
+                        id=item_id,
+                        name=target_item.get('name', target_item.get('title', 'Unknown')),
+                        change_type=ChangeType.UNCHANGED,
+                        source_data=source_item,
+                        target_data=target_item
+                    ))
+
+        return diffs
+
+    def _find_changed_fields(self, source: Dict, target: Dict) -> Dict[str, Tuple[Any, Any]]:
+        """Find fields that differ between source and target, including nested structures."""
+        changed = {}
+
+        for field in self.compare_fields:
+            if field in self.ignore_fields:
+                continue
+
+            source_val = source.get(field)
+            target_val = target.get(field)
+
+            # Normalize for comparison (handle None vs empty string, nested dicts)
+            source_normalized = self._normalize_value(source_val)
+            target_normalized = self._normalize_value(target_val)
+
+            if source_normalized != target_normalized:
+                changed[field] = (source_val, target_val)
+
+        return changed
+
+    def _normalize_value(self, value: Any) -> Any:
+        """Normalize a value for comparison, handling nested structures."""
+        if value is None:
+            return ''
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            # Recursively normalize dict values and sort keys for consistent comparison
+            return self._normalize_dict(value)
+        if isinstance(value, list):
+            # Normalize list items
+            return [self._normalize_value(v) for v in value]
+        return value
+
+    def _normalize_dict(self, d: Dict) -> Dict:
+        """Normalize a dictionary for comparison."""
+        if not d:
+            return {}
+        result = {}
+        for k, v in sorted(d.items()):
+            normalized = self._normalize_value(v)
+            # Skip empty values for cleaner comparison
+            if normalized != '' and normalized != {} and normalized != []:
+                result[k] = normalized
+        return result
+
+    def _build_metadata_diff(self, source: DataViewSnapshot, target: DataViewSnapshot) -> MetadataDiff:
+        """Build metadata diff between snapshots"""
+        changed_fields = {}
+
+        if source.data_view_name != target.data_view_name:
+            changed_fields['name'] = (source.data_view_name, target.data_view_name)
+        if source.owner != target.owner:
+            changed_fields['owner'] = (source.owner, target.owner)
+        if source.description != target.description:
+            changed_fields['description'] = (source.description, target.description)
+
+        return MetadataDiff(
+            source_name=source.data_view_name,
+            target_name=target.data_view_name,
+            source_id=source.data_view_id,
+            target_id=target.data_view_id,
+            source_owner=source.owner,
+            target_owner=target.owner,
+            source_description=source.description,
+            target_description=target.description,
+            changed_fields=changed_fields
+        )
+
+    def _build_summary(self, source: DataViewSnapshot, target: DataViewSnapshot,
+                       metric_diffs: List[ComponentDiff],
+                       dimension_diffs: List[ComponentDiff]) -> DiffSummary:
+        """Build summary statistics from diffs"""
+        return DiffSummary(
+            source_metrics_count=len(source.metrics),
+            target_metrics_count=len(target.metrics),
+            source_dimensions_count=len(source.dimensions),
+            target_dimensions_count=len(target.dimensions),
+            metrics_added=sum(1 for d in metric_diffs if d.change_type == ChangeType.ADDED),
+            metrics_removed=sum(1 for d in metric_diffs if d.change_type == ChangeType.REMOVED),
+            metrics_modified=sum(1 for d in metric_diffs if d.change_type == ChangeType.MODIFIED),
+            metrics_unchanged=sum(1 for d in metric_diffs if d.change_type == ChangeType.UNCHANGED),
+            dimensions_added=sum(1 for d in dimension_diffs if d.change_type == ChangeType.ADDED),
+            dimensions_removed=sum(1 for d in dimension_diffs if d.change_type == ChangeType.REMOVED),
+            dimensions_modified=sum(1 for d in dimension_diffs if d.change_type == ChangeType.MODIFIED),
+            dimensions_unchanged=sum(1 for d in dimension_diffs if d.change_type == ChangeType.UNCHANGED)
+        )
+
+
 # ==================== LOGGING SETUP ====================
 
 # Module-level tracking to prevent duplicate logger initialization
@@ -818,8 +1766,20 @@ _logging_initialized = False
 _current_log_file = None
 _atexit_registered = False
 
-def setup_logging(data_view_id: str = None, batch_mode: bool = False, log_level: str = None) -> logging.Logger:
-    """Setup logging to both file and console
+def setup_logging(
+    data_view_id: Optional[str] = None,
+    batch_mode: bool = False,
+    log_level: Optional[str] = None
+) -> logging.Logger:
+    """Setup logging to both file and console.
+
+    Args:
+        data_view_id: Data view ID for log file naming
+        batch_mode: Whether running in batch mode
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+    Returns:
+        Configured logger instance
 
     Priority: 1) Passed parameter, 2) Environment variable LOG_LEVEL, 3) Default INFO
     """
@@ -1311,7 +2271,10 @@ def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
 
 # ==================== CJA INITIALIZATION ====================
 
-def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
+def validate_config_file(
+    config_file: Union[str, Path],
+    logger: logging.Logger
+) -> bool:
     """
     Validate configuration file exists and has required structure.
 
@@ -1329,6 +2292,9 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
 
     Returns:
         True if validation passes, False otherwise
+
+    Raises:
+        ConfigurationError: If validation fails (when exceptions are preferred)
     """
     validation_errors = []
     validation_warnings = []
@@ -1456,12 +2422,26 @@ def validate_config_file(config_file: str, logger: logging.Logger) -> bool:
         logger.error(f"Unexpected error validating config file ({type(e).__name__}): {str(e)}")
         return False
 
-def initialize_cja(config_file: str = "config.json", logger: logging.Logger = None) -> Optional[cjapy.CJA]:
-    """Initialize CJA connection with comprehensive error handling
+def initialize_cja(
+    config_file: Union[str, Path] = "config.json",
+    logger: Optional[logging.Logger] = None
+) -> Optional[cjapy.CJA]:
+    """Initialize CJA connection with comprehensive error handling.
 
     Credential Loading Priority:
         1. Environment variables (ORG_ID, CLIENT_ID, SECRET, etc.)
         2. Configuration file (config.json)
+
+    Args:
+        config_file: Path to CJA configuration file
+        logger: Logger instance (uses module logger if None)
+
+    Returns:
+        Initialized CJA instance, or None if initialization fails
+
+    Raises:
+        ConfigurationError: If credentials are invalid or missing
+        APIError: If API connection fails
     """
     try:
         logger.info("=" * 60)
@@ -1598,8 +2578,21 @@ def initialize_cja(config_file: str = "config.json", logger: logging.Logger = No
 
 # ==================== DATA VIEW VALIDATION ====================
 
-def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger) -> bool:
-    """Validate that the data view exists and is accessible with detailed error reporting"""
+def validate_data_view(
+    cja: cjapy.CJA,
+    data_view_id: str,
+    logger: logging.Logger
+) -> bool:
+    """Validate that the data view exists and is accessible.
+
+    Args:
+        cja: Initialized CJA instance
+        data_view_id: Data view ID to validate
+        logger: Logger instance
+
+    Returns:
+        True if data view is valid and accessible, False otherwise
+    """
     try:
         logger.info("=" * 60)
         logger.info("VALIDATING DATA VIEW")
@@ -2668,8 +3661,12 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger):
 
 # ==================== OUTPUT FORMAT WRITERS ====================
 
-def write_csv_output(data_dict: Dict[str, pd.DataFrame], base_filename: str,
-                    output_dir: str, logger: logging.Logger) -> str:
+def write_csv_output(
+    data_dict: Dict[str, pd.DataFrame],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
     """
     Write data to CSV files (one per sheet)
 
@@ -2711,8 +3708,13 @@ def write_csv_output(data_dict: Dict[str, pd.DataFrame], base_filename: str,
         raise
 
 
-def write_json_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
-                     base_filename: str, output_dir: str, logger: logging.Logger) -> str:
+def write_json_output(
+    data_dict: Dict[str, pd.DataFrame],
+    metadata_dict: Dict[str, Any],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
     """
     Write data to JSON format with hierarchical structure
 
@@ -2779,8 +3781,13 @@ def write_json_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         raise
 
 
-def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
-                     base_filename: str, output_dir: str, logger: logging.Logger) -> str:
+def write_html_output(
+    data_dict: Dict[str, pd.DataFrame],
+    metadata_dict: Dict[str, Any],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
     """
     Write data to HTML format with professional styling
 
@@ -3014,8 +4021,13 @@ def write_html_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
         raise
 
 
-def write_markdown_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dict,
-                          base_filename: str, output_dir: str, logger: logging.Logger) -> str:
+def write_markdown_output(
+    data_dict: Dict[str, pd.DataFrame],
+    metadata_dict: Dict[str, Any],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
     """
     Write data to Markdown format for GitHub, Confluence, and other platforms
 
@@ -3156,14 +4168,1330 @@ def write_markdown_output(data_dict: Dict[str, pd.DataFrame], metadata_dict: Dic
         raise
 
 
+# ==================== DIFF COMPARISON OUTPUT WRITERS ====================
+
+# ANSI color codes for terminal output
+class ANSIColors:
+    """ANSI escape codes for colored terminal output."""
+    GREEN = '\033[92m'   # Added
+    RED = '\033[91m'     # Removed
+    YELLOW = '\033[93m'  # Modified
+    CYAN = '\033[96m'    # Info/headers
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
+    @classmethod
+    def green(cls, text: str, enabled: bool = True) -> str:
+        return f"{cls.GREEN}{text}{cls.RESET}" if enabled else text
+
+    @classmethod
+    def red(cls, text: str, enabled: bool = True) -> str:
+        return f"{cls.RED}{text}{cls.RESET}" if enabled else text
+
+    @classmethod
+    def yellow(cls, text: str, enabled: bool = True) -> str:
+        return f"{cls.YELLOW}{text}{cls.RESET}" if enabled else text
+
+    @classmethod
+    def cyan(cls, text: str, enabled: bool = True) -> str:
+        return f"{cls.CYAN}{text}{cls.RESET}" if enabled else text
+
+    @classmethod
+    def bold(cls, text: str, enabled: bool = True) -> str:
+        return f"{cls.BOLD}{text}{cls.RESET}" if enabled else text
+
+
+def write_diff_console_output(diff_result: DiffResult, changes_only: bool = False,
+                               summary_only: bool = False, side_by_side: bool = False,
+                               use_color: bool = True) -> str:
+    """
+    Write diff comparison to console with color-coded output.
+
+    Args:
+        diff_result: The DiffResult to output
+        changes_only: Only show changed items (hide unchanged)
+        summary_only: Only show summary statistics
+        side_by_side: Show side-by-side comparison for modified items
+        use_color: Use ANSI color codes in output (default: True)
+
+    Returns:
+        Formatted string for console output
+    """
+    lines = []
+    summary = diff_result.summary
+    meta = diff_result.metadata_diff
+    c = use_color  # Shorthand for color enabled flag
+
+    # Header
+    lines.append("=" * 80)
+    lines.append(ANSIColors.bold("DATA VIEW COMPARISON REPORT", c))
+    lines.append("=" * 80)
+    lines.append(f"{diff_result.source_label}: {meta.source_name} ({meta.source_id})")
+    lines.append(f"{diff_result.target_label}: {meta.target_name} ({meta.target_id})")
+    lines.append(f"Generated: {diff_result.generated_at}")
+    lines.append("=" * 80)
+
+    # Summary table with percentages
+    lines.append("")
+    lines.append(ANSIColors.bold("SUMMARY", c))
+    lines.append(f"{'':20s} {diff_result.source_label:>12s} {diff_result.target_label:>12s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Changed':>12s}")
+    lines.append("-" * 92)
+
+    # Metrics row with percentage
+    metrics_pct = f"({summary.metrics_change_percent:.1f}%)"
+    added_str = ANSIColors.green(f"+{summary.metrics_added}", c) if summary.metrics_added else f"+{summary.metrics_added}"
+    removed_str = ANSIColors.red(f"-{summary.metrics_removed}", c) if summary.metrics_removed else f"-{summary.metrics_removed}"
+    modified_str = ANSIColors.yellow(f"~{summary.metrics_modified}", c) if summary.metrics_modified else f"~{summary.metrics_modified}"
+    lines.append(f"{'Metrics':20s} {summary.source_metrics_count:12d} {summary.target_metrics_count:12d} "
+                f"{added_str:>10s} {removed_str:>10s} {modified_str:>10s} {metrics_pct:>12s}")
+
+    # Dimensions row with percentage
+    dims_pct = f"({summary.dimensions_change_percent:.1f}%)"
+    added_str = ANSIColors.green(f"+{summary.dimensions_added}", c) if summary.dimensions_added else f"+{summary.dimensions_added}"
+    removed_str = ANSIColors.red(f"-{summary.dimensions_removed}", c) if summary.dimensions_removed else f"-{summary.dimensions_removed}"
+    modified_str = ANSIColors.yellow(f"~{summary.dimensions_modified}", c) if summary.dimensions_modified else f"~{summary.dimensions_modified}"
+    lines.append(f"{'Dimensions':20s} {summary.source_dimensions_count:12d} {summary.target_dimensions_count:12d} "
+                f"{added_str:>10s} {removed_str:>10s} {modified_str:>10s} {dims_pct:>12s}")
+    lines.append("-" * 92)
+
+    if summary_only:
+        lines.append("")
+        if summary.has_changes:
+            lines.append(f"Total changes: {summary.total_changes}")
+            lines.append(f"Summary: {summary.natural_language_summary}")
+        else:
+            lines.append(ANSIColors.green("No differences found.", c))
+        lines.append("=" * 80)
+        return "\n".join(lines)
+
+    # Metrics changes
+    metric_changes = [d for d in diff_result.metric_diffs if d.change_type != ChangeType.UNCHANGED]
+    if metric_changes or not changes_only:
+        lines.append("")
+        change_count = len(metric_changes)
+        lines.append(ANSIColors.bold(f"METRICS CHANGES ({change_count})", c))
+        if metric_changes:
+            for diff in metric_changes:
+                symbol = _get_change_symbol(diff.change_type)
+                colored_symbol = _get_colored_symbol(diff.change_type, c)
+                lines.append(f"  [{colored_symbol}] {diff.id:40s} \"{diff.name}\"")
+                if side_by_side and diff.change_type == ChangeType.MODIFIED:
+                    # Side-by-side view for modified items
+                    sbs_lines = _format_side_by_side(
+                        diff, diff_result.source_label, diff_result.target_label
+                    )
+                    lines.extend(sbs_lines)
+                else:
+                    detail = _get_change_detail(diff)
+                    if detail:
+                        lines.append(f"      {detail}")
+        else:
+            lines.append("  No changes")
+
+    # Dimensions changes
+    dim_changes = [d for d in diff_result.dimension_diffs if d.change_type != ChangeType.UNCHANGED]
+    if dim_changes or not changes_only:
+        lines.append("")
+        change_count = len(dim_changes)
+        lines.append(ANSIColors.bold(f"DIMENSIONS CHANGES ({change_count})", c))
+        if dim_changes:
+            for diff in dim_changes:
+                symbol = _get_change_symbol(diff.change_type)
+                colored_symbol = _get_colored_symbol(diff.change_type, c)
+                lines.append(f"  [{colored_symbol}] {diff.id:40s} \"{diff.name}\"")
+                if side_by_side and diff.change_type == ChangeType.MODIFIED:
+                    # Side-by-side view for modified items
+                    sbs_lines = _format_side_by_side(
+                        diff, diff_result.source_label, diff_result.target_label
+                    )
+                    lines.extend(sbs_lines)
+                else:
+                    detail = _get_change_detail(diff)
+                    if detail:
+                        lines.append(f"      {detail}")
+        else:
+            lines.append("  No changes")
+
+    # Footer with natural language summary
+    lines.append("")
+    lines.append("=" * 80)
+    if summary.has_changes:
+        lines.append(ANSIColors.cyan(f"Summary: {summary.natural_language_summary}", c))
+    else:
+        lines.append(ANSIColors.green("✓ No differences found", c))
+    lines.append("=" * 80)
+
+    return "\n".join(lines)
+
+
+def _get_change_symbol(change_type: ChangeType) -> str:
+    """Get symbol for change type"""
+    symbols = {
+        ChangeType.ADDED: "+",
+        ChangeType.REMOVED: "-",
+        ChangeType.MODIFIED: "~",
+        ChangeType.UNCHANGED: " "
+    }
+    return symbols.get(change_type, "?")
+
+
+def _get_colored_symbol(change_type: ChangeType, use_color: bool = True) -> str:
+    """Get color-coded symbol for change type"""
+    symbol = _get_change_symbol(change_type)
+    if not use_color:
+        return symbol
+    if change_type == ChangeType.ADDED:
+        return ANSIColors.green(symbol, use_color)
+    elif change_type == ChangeType.REMOVED:
+        return ANSIColors.red(symbol, use_color)
+    elif change_type == ChangeType.MODIFIED:
+        return ANSIColors.yellow(symbol, use_color)
+    return symbol
+
+
+def _get_change_detail(diff: ComponentDiff, truncate: bool = True) -> str:
+    """Get detail string for a component diff"""
+    if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+        changes = []
+        for field, (old_val, new_val) in diff.changed_fields.items():
+            if truncate:
+                old_str = str(old_val)[:30] if old_val else "(empty)"
+                new_str = str(new_val)[:30] if new_val else "(empty)"
+            else:
+                old_str = str(old_val) if old_val else "(empty)"
+                new_str = str(new_val) if new_val else "(empty)"
+            changes.append(f"{field}: '{old_str}' -> '{new_str}'")
+        return "; ".join(changes)
+    return ""
+
+
+def _format_side_by_side(
+    diff: ComponentDiff,
+    source_label: str,
+    target_label: str,
+    col_width: int = 35
+) -> List[str]:
+    """
+    Format a component diff as a side-by-side comparison table.
+
+    Args:
+        diff: The ComponentDiff to format
+        source_label: Label for source side
+        target_label: Label for target side
+        col_width: Width of each column
+
+    Returns:
+        List of formatted lines for the side-by-side view
+    """
+    lines = []
+    if diff.change_type != ChangeType.MODIFIED or not diff.changed_fields:
+        return lines
+
+    # Header for this component
+    lines.append(f"    ┌{'─' * (col_width + 2)}┬{'─' * (col_width + 2)}┐")
+    lines.append(f"    │ {source_label:<{col_width}} │ {target_label:<{col_width}} │")
+    lines.append(f"    ├{'─' * (col_width + 2)}┼{'─' * (col_width + 2)}┤")
+
+    # Changed fields
+    for field, (old_val, new_val) in diff.changed_fields.items():
+        old_str = str(old_val) if old_val is not None else "(empty)"
+        new_str = str(new_val) if new_val is not None else "(empty)"
+
+        # Truncate if needed
+        if len(old_str) > col_width - 2:
+            old_str = old_str[:col_width - 5] + "..."
+        if len(new_str) > col_width - 2:
+            new_str = new_str[:col_width - 5] + "..."
+
+        lines.append(f"    │ {field}:")
+        lines.append(f"    │   {old_str:<{col_width - 2}} │   {new_str:<{col_width - 2}} │")
+
+    lines.append(f"    └{'─' * (col_width + 2)}┴{'─' * (col_width + 2)}┘")
+
+    return lines
+
+
+def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool = True) -> str:
+    """
+    Write diff output grouped by changed field instead of by component.
+
+    Args:
+        diff_result: The DiffResult to output
+        use_color: Use ANSI color codes
+
+    Returns:
+        Formatted string for console output
+    """
+    lines = []
+    summary = diff_result.summary
+    meta = diff_result.metadata_diff
+    c = use_color
+
+    # Header
+    lines.append("=" * 80)
+    lines.append(ANSIColors.bold("DATA VIEW COMPARISON - GROUPED BY FIELD", c))
+    lines.append("=" * 80)
+    lines.append(f"{diff_result.source_label}: {meta.source_name}")
+    lines.append(f"{diff_result.target_label}: {meta.target_name}")
+    lines.append(f"Generated: {diff_result.generated_at}")
+    lines.append("=" * 80)
+
+    # Collect all changed fields across all components
+    field_changes: Dict[str, List[Tuple[str, str, Any, Any]]] = {}  # field -> [(id, name, old, new), ...]
+
+    # Also track breaking changes (type or schemaPath changes)
+    breaking_changes = []
+
+    all_diffs = diff_result.metric_diffs + diff_result.dimension_diffs
+    for diff in all_diffs:
+        if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+            for field, (old_val, new_val) in diff.changed_fields.items():
+                if field not in field_changes:
+                    field_changes[field] = []
+                field_changes[field].append((diff.id, diff.name, old_val, new_val))
+
+                # Track breaking changes
+                if field in ('type', 'schemaPath'):
+                    breaking_changes.append((diff.id, diff.name, field, old_val, new_val))
+
+    # Summary
+    lines.append("")
+    lines.append(ANSIColors.bold("SUMMARY", c))
+    lines.append(f"Total components changed: {summary.total_changes}")
+    lines.append(f"  Added: {ANSIColors.green(str(summary.metrics_added + summary.dimensions_added), c)}")
+    lines.append(f"  Removed: {ANSIColors.red(str(summary.metrics_removed + summary.dimensions_removed), c)}")
+    lines.append(f"  Modified: {ANSIColors.yellow(str(summary.metrics_modified + summary.dimensions_modified), c)}")
+    lines.append(f"Fields with changes: {len(field_changes)}")
+
+    # Breaking changes warning
+    if breaking_changes:
+        lines.append("")
+        lines.append(ANSIColors.red("⚠️  BREAKING CHANGES DETECTED", c))
+        lines.append("-" * 40)
+        for comp_id, comp_name, field, old_val, new_val in breaking_changes:
+            lines.append(f"  {comp_id}: {field} changed")
+            lines.append(f"    '{old_val}' → '{new_val}'")
+
+    # Group by field
+    lines.append("")
+    lines.append(ANSIColors.bold("CHANGES BY FIELD", c))
+    lines.append("-" * 80)
+
+    for field in sorted(field_changes.keys()):
+        changes = field_changes[field]
+        lines.append("")
+        lines.append(f"{ANSIColors.cyan(field, c)} ({len(changes)} component{'s' if len(changes) != 1 else ''}):")
+
+        for comp_id, comp_name, old_val, new_val in changes[:10]:  # Limit to 10 per field
+            old_str = str(old_val)[:30] if old_val else "(empty)"
+            new_str = str(new_val)[:30] if new_val else "(empty)"
+            lines.append(f"  {comp_id}: '{old_str}' → '{new_str}'")
+
+        if len(changes) > 10:
+            lines.append(f"  ... and {len(changes) - 10} more")
+
+    # Added/removed summary
+    added = [d for d in all_diffs if d.change_type == ChangeType.ADDED]
+    removed = [d for d in all_diffs if d.change_type == ChangeType.REMOVED]
+
+    if added:
+        lines.append("")
+        lines.append(ANSIColors.green(f"ADDED ({len(added)})", c))
+        for diff in added[:10]:
+            lines.append(f"  [+] {diff.id}")
+        if len(added) > 10:
+            lines.append(f"  ... and {len(added) - 10} more")
+
+    if removed:
+        lines.append("")
+        lines.append(ANSIColors.red(f"REMOVED ({len(removed)})", c))
+        for diff in removed[:10]:
+            lines.append(f"  [-] {diff.id}")
+        if len(removed) > 10:
+            lines.append(f"  ... and {len(removed) - 10} more")
+
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append(ANSIColors.cyan(f"Summary: {summary.natural_language_summary}", c))
+    lines.append("=" * 80)
+
+    return "\n".join(lines)
+
+
+def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = False) -> str:
+    """
+    Write diff output in GitHub/GitLab PR comment format with collapsible details.
+
+    Args:
+        diff_result: The DiffResult to output
+        changes_only: Only include changed items
+
+    Returns:
+        Markdown formatted string optimized for PR comments
+    """
+    lines = []
+    summary = diff_result.summary
+    meta = diff_result.metadata_diff
+
+    # Header
+    lines.append("### 📊 Data View Comparison")
+    lines.append("")
+    lines.append(f"**{diff_result.source_label}** → **{diff_result.target_label}**")
+    lines.append("")
+
+    # Summary table
+    lines.append("| Component | Source | Target | Added | Removed | Modified | Changed |")
+    lines.append("|-----------|-------:|-------:|------:|--------:|---------:|--------:|")
+    lines.append(f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
+                f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} | "
+                f"{summary.metrics_change_percent:.1f}% |")
+    lines.append(f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
+                f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
+                f"{summary.dimensions_change_percent:.1f}% |")
+    lines.append("")
+
+    # Breaking changes warning
+    breaking_changes = []
+    all_diffs = diff_result.metric_diffs + diff_result.dimension_diffs
+    for diff in all_diffs:
+        if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+            for field in diff.changed_fields:
+                if field in ('type', 'schemaPath'):
+                    old_val, new_val = diff.changed_fields[field]
+                    breaking_changes.append((diff.id, field, old_val, new_val))
+
+    if breaking_changes:
+        lines.append("#### ⚠️ Breaking Changes Detected")
+        lines.append("")
+        lines.append("| Component | Field | Before | After |")
+        lines.append("|-----------|-------|--------|-------|")
+        for comp_id, field, old_val, new_val in breaking_changes[:10]:
+            lines.append(f"| `{comp_id}` | {field} | `{old_val}` | `{new_val}` |")
+        if len(breaking_changes) > 10:
+            lines.append(f"| ... | | | +{len(breaking_changes) - 10} more |")
+        lines.append("")
+
+    # Natural language summary
+    lines.append(f"**Summary:** {summary.natural_language_summary}")
+    lines.append("")
+
+    # Collapsible details
+    metric_changes = [d for d in diff_result.metric_diffs if d.change_type != ChangeType.UNCHANGED]
+    dim_changes = [d for d in diff_result.dimension_diffs if d.change_type != ChangeType.UNCHANGED]
+
+    if metric_changes:
+        lines.append("<details>")
+        lines.append(f"<summary>📈 Metrics Changes ({len(metric_changes)})</summary>")
+        lines.append("")
+        lines.append("| Change | ID | Name |")
+        lines.append("|--------|----|----- |")
+        for diff in metric_changes[:25]:
+            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(diff.change_type, "")
+            lines.append(f"| {symbol} | `{diff.id}` | {diff.name} |")
+        if len(metric_changes) > 25:
+            lines.append(f"| ... | | +{len(metric_changes) - 25} more |")
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
+    if dim_changes:
+        lines.append("<details>")
+        lines.append(f"<summary>📏 Dimensions Changes ({len(dim_changes)})</summary>")
+        lines.append("")
+        lines.append("| Change | ID | Name |")
+        lines.append("|--------|----|----- |")
+        for diff in dim_changes[:25]:
+            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(diff.change_type, "")
+            lines.append(f"| {symbol} | `{diff.id}` | {diff.name} |")
+        if len(dim_changes) > 25:
+            lines.append(f"| ... | | +{len(dim_changes) - 25} more |")
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append(f"*Generated by CJA SDR Generator v{diff_result.tool_version}*")
+
+    return "\n".join(lines)
+
+
+def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
+    """
+    Detect breaking changes in a diff result.
+
+    Breaking changes include:
+    - Changes to 'type' field (data type changes)
+    - Changes to 'schemaPath' field (schema mapping changes)
+    - Removal of existing components
+
+    Args:
+        diff_result: The DiffResult to analyze
+
+    Returns:
+        List of breaking change dictionaries with details
+    """
+    breaking_changes = []
+
+    all_diffs = diff_result.metric_diffs + diff_result.dimension_diffs
+
+    for diff in all_diffs:
+        # Removed components are breaking
+        if diff.change_type == ChangeType.REMOVED:
+            breaking_changes.append({
+                'component_id': diff.id,
+                'component_name': diff.name,
+                'change_type': 'removed',
+                'severity': 'high',
+                'description': f"Component '{diff.name}' was removed"
+            })
+
+        # Check for type or schema changes
+        elif diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+            for field, (old_val, new_val) in diff.changed_fields.items():
+                if field == 'type':
+                    breaking_changes.append({
+                        'component_id': diff.id,
+                        'component_name': diff.name,
+                        'change_type': 'type_changed',
+                        'field': field,
+                        'old_value': old_val,
+                        'new_value': new_val,
+                        'severity': 'high',
+                        'description': f"Data type changed from '{old_val}' to '{new_val}'"
+                    })
+                elif field == 'schemaPath':
+                    breaking_changes.append({
+                        'component_id': diff.id,
+                        'component_name': diff.name,
+                        'change_type': 'schema_changed',
+                        'field': field,
+                        'old_value': old_val,
+                        'new_value': new_val,
+                        'severity': 'medium',
+                        'description': f"Schema path changed from '{old_val}' to '{new_val}'"
+                    })
+
+    return breaking_changes
+
+
+def write_diff_json_output(
+    diff_result: DiffResult,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False
+) -> str:
+    """
+    Write diff comparison to JSON format.
+
+    Args:
+        diff_result: The DiffResult to output
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+
+    Returns:
+        Path to JSON output file
+    """
+    try:
+        logger.info("Generating diff JSON output...")
+
+        summary = diff_result.summary
+        meta = diff_result.metadata_diff
+
+        def serialize_component_diff(d: ComponentDiff) -> Dict:
+            return {
+                "id": d.id,
+                "name": d.name,
+                "change_type": d.change_type.value,
+                "changed_fields": {k: {"source": v[0], "target": v[1]}
+                                   for k, v in (d.changed_fields or {}).items()},
+                "source_data": d.source_data,
+                "target_data": d.target_data
+            }
+
+        # Filter diffs if changes_only
+        metric_diffs = diff_result.metric_diffs
+        dimension_diffs = diff_result.dimension_diffs
+        if changes_only:
+            metric_diffs = [d for d in metric_diffs if d.change_type != ChangeType.UNCHANGED]
+            dimension_diffs = [d for d in dimension_diffs if d.change_type != ChangeType.UNCHANGED]
+
+        json_data = {
+            "metadata": {
+                "generated_at": diff_result.generated_at,
+                "tool_version": diff_result.tool_version,
+                "source_label": diff_result.source_label,
+                "target_label": diff_result.target_label
+            },
+            "source": {
+                "id": meta.source_id,
+                "name": meta.source_name,
+                "owner": meta.source_owner,
+                "description": meta.source_description
+            },
+            "target": {
+                "id": meta.target_id,
+                "name": meta.target_name,
+                "owner": meta.target_owner,
+                "description": meta.target_description
+            },
+            "summary": {
+                "source_metrics_count": summary.source_metrics_count,
+                "target_metrics_count": summary.target_metrics_count,
+                "source_dimensions_count": summary.source_dimensions_count,
+                "target_dimensions_count": summary.target_dimensions_count,
+                "metrics_added": summary.metrics_added,
+                "metrics_removed": summary.metrics_removed,
+                "metrics_modified": summary.metrics_modified,
+                "dimensions_added": summary.dimensions_added,
+                "dimensions_removed": summary.dimensions_removed,
+                "dimensions_modified": summary.dimensions_modified,
+                "has_changes": summary.has_changes,
+                "total_changes": summary.total_changes
+            },
+            "metric_diffs": [serialize_component_diff(d) for d in metric_diffs],
+            "dimension_diffs": [serialize_component_diff(d) for d in dimension_diffs]
+        }
+
+        json_file = os.path.join(output_dir, f"{base_filename}.json")
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Diff JSON file created: {json_file}")
+        return json_file
+
+    except Exception as e:
+        logger.error(_format_error_msg("creating diff JSON file", error=e))
+        raise
+
+
+def write_diff_markdown_output(
+    diff_result: DiffResult,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False,
+    side_by_side: bool = False
+) -> str:
+    """
+    Write diff comparison to Markdown format.
+
+    Args:
+        diff_result: The DiffResult to output
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+        side_by_side: Show side-by-side comparison for modified items
+
+    Returns:
+        Path to Markdown output file
+    """
+    try:
+        logger.info("Generating diff Markdown output...")
+
+        summary = diff_result.summary
+        meta = diff_result.metadata_diff
+        md_parts = []
+
+        # Title
+        md_parts.append("# Data View Comparison Report\n")
+
+        # Metadata
+        md_parts.append("## Comparison Details\n")
+        md_parts.append(f"**{diff_result.source_label}:** {meta.source_name} (`{meta.source_id}`)")
+        md_parts.append(f"**{diff_result.target_label}:** {meta.target_name} (`{meta.target_id}`)")
+        md_parts.append(f"**Generated:** {diff_result.generated_at}")
+        md_parts.append(f"**Tool Version:** {diff_result.tool_version}\n")
+
+        # Summary table
+        md_parts.append("## Summary\n")
+        md_parts.append(f"| Component | {diff_result.source_label} | {diff_result.target_label} | Added | Removed | Modified |")
+        md_parts.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        md_parts.append(f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
+                       f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} |")
+        md_parts.append(f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
+                       f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} |")
+        md_parts.append("")
+
+        if not summary.has_changes:
+            md_parts.append("**No differences found.**\n")
+        else:
+            md_parts.append(f"**Total changes:** {summary.total_changes}\n")
+
+        # Metrics changes
+        metric_changes = [d for d in diff_result.metric_diffs if d.change_type != ChangeType.UNCHANGED]
+        if metric_changes or not changes_only:
+            md_parts.append("## Metrics Changes\n")
+            if metric_changes:
+                md_parts.append("| Status | ID | Name | Details |")
+                md_parts.append("| --- | --- | --- | --- |")
+                for diff in metric_changes:
+                    symbol = _get_change_emoji(diff.change_type)
+                    detail = _get_change_detail(diff).replace("|", "\\|")
+                    md_parts.append(f"| {symbol} | `{diff.id}` | {diff.name} | {detail} |")
+
+                # Add side-by-side detail for modified items
+                if side_by_side:
+                    modified = [d for d in metric_changes if d.change_type == ChangeType.MODIFIED]
+                    if modified:
+                        md_parts.append("\n### Modified Metrics - Side by Side\n")
+                        for diff in modified:
+                            md_parts.extend(_format_markdown_side_by_side(
+                                diff, diff_result.source_label, diff_result.target_label
+                            ))
+            else:
+                md_parts.append("*No changes*")
+            md_parts.append("")
+
+        # Dimensions changes
+        dim_changes = [d for d in diff_result.dimension_diffs if d.change_type != ChangeType.UNCHANGED]
+        if dim_changes or not changes_only:
+            md_parts.append("## Dimensions Changes\n")
+            if dim_changes:
+                md_parts.append("| Status | ID | Name | Details |")
+                md_parts.append("| --- | --- | --- | --- |")
+                for diff in dim_changes:
+                    symbol = _get_change_emoji(diff.change_type)
+                    detail = _get_change_detail(diff).replace("|", "\\|")
+                    md_parts.append(f"| {symbol} | `{diff.id}` | {diff.name} | {detail} |")
+
+                # Add side-by-side detail for modified items
+                if side_by_side:
+                    modified = [d for d in dim_changes if d.change_type == ChangeType.MODIFIED]
+                    if modified:
+                        md_parts.append("\n### Modified Dimensions - Side by Side\n")
+                        for diff in modified:
+                            md_parts.extend(_format_markdown_side_by_side(
+                                diff, diff_result.source_label, diff_result.target_label
+                            ))
+            else:
+                md_parts.append("*No changes*")
+            md_parts.append("")
+
+        md_parts.append("---")
+        md_parts.append("*Generated by CJA Auto SDR Generator*")
+
+        markdown_file = os.path.join(output_dir, f"{base_filename}.md")
+        with open(markdown_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(md_parts))
+
+        logger.info(f"Diff Markdown file created: {markdown_file}")
+        return markdown_file
+
+    except Exception as e:
+        logger.error(_format_error_msg("creating diff Markdown file", error=e))
+        raise
+
+
+def _get_change_emoji(change_type: ChangeType) -> str:
+    """Get emoji for change type"""
+    emojis = {
+        ChangeType.ADDED: "+",
+        ChangeType.REMOVED: "-",
+        ChangeType.MODIFIED: "~",
+        ChangeType.UNCHANGED: ""
+    }
+    return emojis.get(change_type, "")
+
+
+def _format_markdown_side_by_side(
+    diff: ComponentDiff,
+    source_label: str,
+    target_label: str
+) -> List[str]:
+    """
+    Format a component diff as a side-by-side markdown table.
+
+    Args:
+        diff: The ComponentDiff to format
+        source_label: Label for source side
+        target_label: Label for target side
+
+    Returns:
+        List of markdown lines for the side-by-side view
+    """
+    lines = []
+    if diff.change_type != ChangeType.MODIFIED or not diff.changed_fields:
+        return lines
+
+    # Component header
+    lines.append(f"\n**`{diff.id}`** - {diff.name}\n")
+
+    # Side-by-side table
+    lines.append(f"| Field | {source_label} | {target_label} |")
+    lines.append("| --- | --- | --- |")
+
+    for field, (old_val, new_val) in diff.changed_fields.items():
+        old_str = str(old_val).replace("|", "\\|") if old_val is not None else "*(empty)*"
+        new_str = str(new_val).replace("|", "\\|") if new_val is not None else "*(empty)*"
+
+        # Truncate very long values
+        if len(old_str) > 50:
+            old_str = old_str[:47] + "..."
+        if len(new_str) > 50:
+            new_str = new_str[:47] + "..."
+
+        lines.append(f"| `{field}` | {old_str} | {new_str} |")
+
+    lines.append("")
+    return lines
+
+
+def write_diff_html_output(
+    diff_result: DiffResult,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False
+) -> str:
+    """
+    Write diff comparison to HTML format with professional styling.
+
+    Args:
+        diff_result: The DiffResult to output
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+
+    Returns:
+        Path to HTML output file
+    """
+    try:
+        logger.info("Generating diff HTML output...")
+
+        summary = diff_result.summary
+        meta = diff_result.metadata_diff
+        html_parts = []
+
+        # HTML header with CSS
+        html_parts.append('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data View Comparison Report</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        .metadata {
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .summary-table th, .summary-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .summary-table th {
+            background-color: #3498db;
+            color: white;
+        }
+        .diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .diff-table th {
+            background-color: #34495e;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        .diff-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        .row-added {
+            background-color: #d4edda !important;
+        }
+        .row-removed {
+            background-color: #f8d7da !important;
+        }
+        .row-modified {
+            background-color: #fff3cd !important;
+        }
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .badge-added { background-color: #28a745; color: white; }
+        .badge-removed { background-color: #dc3545; color: white; }
+        .badge-modified { background-color: #ffc107; color: black; }
+        .no-changes {
+            color: #28a745;
+            font-weight: bold;
+            font-size: 18px;
+            text-align: center;
+            padding: 20px;
+        }
+        .total-changes {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+        code {
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Data View Comparison Report</h1>
+''')
+
+        # Metadata section
+        html_parts.append(f'''
+        <div class="metadata">
+            <p><strong>{diff_result.source_label}:</strong> {meta.source_name} (<code>{meta.source_id}</code>)</p>
+            <p><strong>{diff_result.target_label}:</strong> {meta.target_name} (<code>{meta.target_id}</code>)</p>
+            <p><strong>Generated:</strong> {diff_result.generated_at}</p>
+        </div>
+''')
+
+        # Summary table
+        html_parts.append(f'''
+        <h2>Summary</h2>
+        <table class="summary-table">
+            <tr>
+                <th>Component</th>
+                <th>{diff_result.source_label}</th>
+                <th>{diff_result.target_label}</th>
+                <th>Added</th>
+                <th>Removed</th>
+                <th>Modified</th>
+            </tr>
+            <tr>
+                <td>Metrics</td>
+                <td>{summary.source_metrics_count}</td>
+                <td>{summary.target_metrics_count}</td>
+                <td><span class="badge badge-added">+{summary.metrics_added}</span></td>
+                <td><span class="badge badge-removed">-{summary.metrics_removed}</span></td>
+                <td><span class="badge badge-modified">~{summary.metrics_modified}</span></td>
+            </tr>
+            <tr>
+                <td>Dimensions</td>
+                <td>{summary.source_dimensions_count}</td>
+                <td>{summary.target_dimensions_count}</td>
+                <td><span class="badge badge-added">+{summary.dimensions_added}</span></td>
+                <td><span class="badge badge-removed">-{summary.dimensions_removed}</span></td>
+                <td><span class="badge badge-modified">~{summary.dimensions_modified}</span></td>
+            </tr>
+        </table>
+''')
+
+        if not summary.has_changes:
+            html_parts.append('<p class="no-changes">No differences found.</p>')
+        else:
+            html_parts.append(f'<p class="total-changes">Total changes: {summary.total_changes}</p>')
+
+        # Helper function to generate diff table
+        def generate_diff_table(diffs: List[ComponentDiff], title: str):
+            changes = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+            if not changes and changes_only:
+                return ""
+
+            html = f"<h2>{title}</h2>\n"
+            if not changes:
+                html += "<p><em>No changes</em></p>\n"
+                return html
+
+            html += '''<table class="diff-table">
+                <tr>
+                    <th>Status</th>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Details</th>
+                </tr>'''
+
+            for diff in changes:
+                row_class = f"row-{diff.change_type.value}"
+                badge_class = f"badge-{diff.change_type.value}"
+                badge_text = diff.change_type.value.upper()
+                detail = _get_change_detail(diff)
+                detail_escaped = detail.replace('<', '&lt;').replace('>', '&gt;')
+
+                html += f'''
+                <tr class="{row_class}">
+                    <td><span class="badge {badge_class}">{badge_text}</span></td>
+                    <td><code>{diff.id}</code></td>
+                    <td>{diff.name}</td>
+                    <td>{detail_escaped}</td>
+                </tr>'''
+
+            html += "</table>\n"
+            return html
+
+        html_parts.append(generate_diff_table(diff_result.metric_diffs, "Metrics Changes"))
+        html_parts.append(generate_diff_table(diff_result.dimension_diffs, "Dimensions Changes"))
+
+        # Footer
+        html_parts.append(f'''
+        <div class="footer">
+            <p>Generated by CJA SDR Generator v{diff_result.tool_version}</p>
+        </div>
+    </div>
+</body>
+</html>
+''')
+
+        html_file = os.path.join(output_dir, f"{base_filename}.html")
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(html_parts))
+
+        logger.info(f"Diff HTML file created: {html_file}")
+        return html_file
+
+    except Exception as e:
+        logger.error(_format_error_msg("creating diff HTML file", error=e))
+        raise
+
+
+def write_diff_excel_output(
+    diff_result: DiffResult,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False
+) -> str:
+    """
+    Write diff comparison to Excel format with color-coded rows.
+
+    Args:
+        diff_result: The DiffResult to output
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+
+    Returns:
+        Path to Excel output file
+    """
+    try:
+        logger.info("Generating diff Excel output...")
+
+        summary = diff_result.summary
+        meta = diff_result.metadata_diff
+        excel_file = os.path.join(output_dir, f"{base_filename}.xlsx")
+
+        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+            workbook = writer.book
+
+            # Define formats
+            header_format = workbook.add_format({
+                'bold': True, 'bg_color': '#3498db', 'font_color': 'white',
+                'border': 1, 'align': 'center'
+            })
+            added_format = workbook.add_format({'bg_color': '#d4edda', 'border': 1})
+            removed_format = workbook.add_format({'bg_color': '#f8d7da', 'border': 1})
+            modified_format = workbook.add_format({'bg_color': '#fff3cd', 'border': 1})
+            normal_format = workbook.add_format({'border': 1})
+
+            # Summary sheet
+            summary_data = {
+                'Component': ['Metrics', 'Dimensions'],
+                diff_result.source_label: [summary.source_metrics_count, summary.source_dimensions_count],
+                diff_result.target_label: [summary.target_metrics_count, summary.target_dimensions_count],
+                'Added': [summary.metrics_added, summary.dimensions_added],
+                'Removed': [summary.metrics_removed, summary.dimensions_removed],
+                'Modified': [summary.metrics_modified, summary.dimensions_modified]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+            # Metadata sheet
+            metadata_data = {
+                'Property': ['Source ID', 'Source Name', 'Target ID', 'Target Name',
+                           'Generated At', 'Has Changes', 'Total Changes'],
+                'Value': [meta.source_id, meta.source_name, meta.target_id, meta.target_name,
+                         diff_result.generated_at, str(summary.has_changes), summary.total_changes]
+            }
+            metadata_df = pd.DataFrame(metadata_data)
+            metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
+
+            # Helper function to write diff sheet
+            def write_diff_sheet(diffs: List[ComponentDiff], sheet_name: str):
+                if changes_only:
+                    diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+
+                if not diffs:
+                    df = pd.DataFrame({'Message': ['No changes']})
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    return
+
+                rows = []
+                for diff in diffs:
+                    rows.append({
+                        'Status': diff.change_type.value.upper(),
+                        'ID': diff.id,
+                        'Name': diff.name,
+                        'Details': _get_change_detail(diff)
+                    })
+
+                df = pd.DataFrame(rows)
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                # Apply color formatting
+                worksheet = writer.sheets[sheet_name]
+                for row_idx, diff in enumerate(diffs, start=1):
+                    if diff.change_type == ChangeType.ADDED:
+                        fmt = added_format
+                    elif diff.change_type == ChangeType.REMOVED:
+                        fmt = removed_format
+                    elif diff.change_type == ChangeType.MODIFIED:
+                        fmt = modified_format
+                    else:
+                        fmt = normal_format
+
+                    for col_idx in range(len(df.columns)):
+                        worksheet.write(row_idx, col_idx, df.iloc[row_idx-1, col_idx], fmt)
+
+            write_diff_sheet(diff_result.metric_diffs, 'Metrics Diff')
+            write_diff_sheet(diff_result.dimension_diffs, 'Dimensions Diff')
+
+        logger.info(f"Diff Excel file created: {excel_file}")
+        return excel_file
+
+    except Exception as e:
+        logger.error(_format_error_msg("creating diff Excel file", error=e))
+        raise
+
+
+def write_diff_csv_output(
+    diff_result: DiffResult,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False
+) -> str:
+    """
+    Write diff comparison to CSV files.
+
+    Args:
+        diff_result: The DiffResult to output
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+
+    Returns:
+        Path to output directory containing CSV files
+    """
+    try:
+        logger.info("Generating diff CSV output...")
+
+        summary = diff_result.summary
+        meta = diff_result.metadata_diff
+
+        # Create subdirectory for CSV files
+        csv_dir = os.path.join(output_dir, f"{base_filename}_csv")
+        os.makedirs(csv_dir, exist_ok=True)
+
+        # Summary CSV
+        summary_data = {
+            'Component': ['Metrics', 'Dimensions'],
+            'Source_Count': [summary.source_metrics_count, summary.source_dimensions_count],
+            'Target_Count': [summary.target_metrics_count, summary.target_dimensions_count],
+            'Added': [summary.metrics_added, summary.dimensions_added],
+            'Removed': [summary.metrics_removed, summary.dimensions_removed],
+            'Modified': [summary.metrics_modified, summary.dimensions_modified]
+        }
+        pd.DataFrame(summary_data).to_csv(
+            os.path.join(csv_dir, 'summary.csv'), index=False
+        )
+        logger.info("  Created: summary.csv")
+
+        # Metadata CSV
+        metadata_data = {
+            'Property': ['source_id', 'source_name', 'target_id', 'target_name',
+                        'generated_at', 'has_changes', 'total_changes'],
+            'Value': [meta.source_id, meta.source_name, meta.target_id, meta.target_name,
+                     diff_result.generated_at, str(summary.has_changes), summary.total_changes]
+        }
+        pd.DataFrame(metadata_data).to_csv(
+            os.path.join(csv_dir, 'metadata.csv'), index=False
+        )
+        logger.info("  Created: metadata.csv")
+
+        # Helper function to write diff CSV
+        def write_diff_csv(diffs: List[ComponentDiff], filename: str):
+            if changes_only:
+                diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+
+            rows = []
+            for diff in diffs:
+                rows.append({
+                    'status': diff.change_type.value,
+                    'id': diff.id,
+                    'name': diff.name,
+                    'details': _get_change_detail(diff)
+                })
+
+            pd.DataFrame(rows).to_csv(
+                os.path.join(csv_dir, filename), index=False
+            )
+            logger.info(f"  Created: {filename}")
+
+        write_diff_csv(diff_result.metric_diffs, 'metrics_diff.csv')
+        write_diff_csv(diff_result.dimension_diffs, 'dimensions_diff.csv')
+
+        logger.info(f"Diff CSV files created in: {csv_dir}")
+        return csv_dir
+
+    except Exception as e:
+        logger.error(_format_error_msg("creating diff CSV files", error=e))
+        raise
+
+
+def write_diff_output(
+    diff_result: DiffResult,
+    output_format: str,
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger,
+    changes_only: bool = False,
+    summary_only: bool = False,
+    side_by_side: bool = False,
+    use_color: bool = True,
+    group_by_field: bool = False
+) -> Optional[str]:
+    """
+    Write diff comparison output in specified format(s).
+
+    Args:
+        diff_result: The DiffResult to output
+        output_format: Output format ('console', 'json', 'markdown', 'html', 'excel', 'csv', 'all', 'pr-comment')
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+        changes_only: Only include changed items
+        summary_only: Only show summary (console only)
+        side_by_side: Show side-by-side comparison for modified items
+        use_color: Use ANSI color codes in console output
+        group_by_field: Group changes by field name instead of component
+
+    Returns:
+        Console output string (for console/pr-comment format) or None
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_files = []
+    console_output = None
+
+    # Handle group-by-field output mode
+    if group_by_field and output_format in ['console', 'all']:
+        console_output = write_diff_grouped_by_field_output(diff_result, use_color)
+        print(console_output)
+        if output_format == 'console':
+            return console_output
+
+    # Handle PR comment format
+    if output_format == 'pr-comment':
+        console_output = write_diff_pr_comment_output(diff_result, changes_only)
+        print(console_output)
+        return console_output
+
+    if output_format in ['console', 'all'] and not group_by_field:
+        console_output = write_diff_console_output(diff_result, changes_only, summary_only, side_by_side, use_color)
+        print(console_output)
+
+    if output_format == 'console':
+        return console_output
+
+    if output_format in ['json', 'all']:
+        output_files.append(write_diff_json_output(
+            diff_result, base_filename, output_dir, logger, changes_only
+        ))
+
+    if output_format in ['markdown', 'all']:
+        output_files.append(write_diff_markdown_output(
+            diff_result, base_filename, output_dir, logger, changes_only, side_by_side
+        ))
+
+    if output_format in ['html', 'all']:
+        output_files.append(write_diff_html_output(
+            diff_result, base_filename, output_dir, logger, changes_only
+        ))
+
+    if output_format in ['excel', 'all']:
+        output_files.append(write_diff_excel_output(
+            diff_result, base_filename, output_dir, logger, changes_only
+        ))
+
+    if output_format in ['csv', 'all']:
+        output_files.append(write_diff_csv_output(
+            diff_result, base_filename, output_dir, logger, changes_only
+        ))
+
+    return console_output
+
+
 # ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
 
-def process_single_dataview(data_view_id: str, config_file: str = "config.json",
-                           output_dir: str = ".", log_level: str = "INFO",
-                           output_format: str = "excel", enable_cache: bool = False,
-                           cache_size: int = 1000, cache_ttl: int = 3600,
-                           quiet: bool = False, skip_validation: bool = False,
-                           max_issues: int = 0, clear_cache: bool = False) -> ProcessingResult:
+def process_single_dataview(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_dir: Union[str, Path] = ".",
+    log_level: str = "INFO",
+    output_format: str = "excel",
+    enable_cache: bool = False,
+    cache_size: int = 1000,
+    cache_ttl: int = 3600,
+    quiet: bool = False,
+    skip_validation: bool = False,
+    max_issues: int = 0,
+    clear_cache: bool = False
+) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
 
@@ -4131,9 +6459,36 @@ Examples:
   # Validate only (alias for --dry-run)
   python cja_sdr_generator.py dv_12345 --validate-only
 
+  # --- Data View Comparison (Diff) ---
+
+  # Compare two live data views
+  python cja_sdr_generator.py --diff dv_prod_12345 dv_staging_67890
+  python cja_sdr_generator.py --diff "Production Analytics" "Staging Analytics"
+
+  # Save a snapshot for later comparison
+  python cja_sdr_generator.py dv_12345 --snapshot ./snapshots/baseline.json
+
+  # Compare current state against a saved snapshot
+  python cja_sdr_generator.py dv_12345 --diff-snapshot ./snapshots/baseline.json
+
+  # Diff output options
+  python cja_sdr_generator.py --diff dv_A dv_B --format html --output-dir ./reports
+  python cja_sdr_generator.py --diff dv_A dv_B --format all
+  python cja_sdr_generator.py --diff dv_A dv_B --changes-only
+  python cja_sdr_generator.py --diff dv_A dv_B --summary
+
+  # Advanced diff options
+  python cja_sdr_generator.py --diff dv_A dv_B --ignore-fields description,title
+  python cja_sdr_generator.py --diff dv_A dv_B --diff-labels Production Staging
+
 Note:
   At least one data view ID must be provided (except for --list-dataviews, --sample-config).
   Use 'python cja_sdr_generator.py --help' to see all options.
+
+Exit Codes:
+  0 - Success (diff: no differences found)
+  1 - Error occurred
+  2 - Success with differences found (diff mode only)
 
 Requirements:
   Python 3.14 or higher required. Verify with: python --version
@@ -4253,9 +6608,9 @@ Requirements:
     parser.add_argument(
         '--format',
         type=str,
-        default='excel',
-        choices=['excel', 'csv', 'json', 'html', 'markdown', 'all'],
-        help='Output format: excel (default), csv, json, html, markdown, or all (generates all formats simultaneously)'
+        default=None,
+        choices=['console', 'excel', 'csv', 'json', 'html', 'markdown', 'all'],
+        help='Output format: console, excel, csv, json, html, markdown, or all. Default: excel for SDR generation, console for diff'
     )
 
     parser.add_argument(
@@ -4301,6 +6656,133 @@ Requirements:
         default=0,
         metavar='N',
         help='Limit data quality issues to top N by severity (0 = show all, default: 0)'
+    )
+
+    # ==================== DIFF COMPARISON ARGUMENTS ====================
+
+    diff_group = parser.add_argument_group('Diff Comparison', 'Options for comparing data views')
+
+    diff_group.add_argument(
+        '--diff',
+        action='store_true',
+        help='Compare two data views. Provide exactly 2 data view IDs/names as positional arguments'
+    )
+
+    diff_group.add_argument(
+        '--snapshot',
+        type=str,
+        metavar='FILE',
+        help='Save a snapshot of the data view to a JSON file (use with single data view)'
+    )
+
+    diff_group.add_argument(
+        '--diff-snapshot',
+        type=str,
+        metavar='FILE',
+        help='Compare data view against a saved snapshot file'
+    )
+
+    diff_group.add_argument(
+        '--changes-only',
+        action='store_true',
+        help='Only show changed items in diff output (hide unchanged)'
+    )
+
+    diff_group.add_argument(
+        '--summary',
+        action='store_true',
+        help='Show summary statistics only (no detailed changes)'
+    )
+
+    diff_group.add_argument(
+        '--ignore-fields',
+        type=str,
+        metavar='FIELDS',
+        help='Comma-separated list of fields to ignore during comparison (e.g., "description,title")'
+    )
+
+    diff_group.add_argument(
+        '--diff-labels',
+        nargs=2,
+        metavar=('SOURCE', 'TARGET'),
+        help='Custom labels for the two sides of the comparison (default: Source, Target)'
+    )
+
+    diff_group.add_argument(
+        '--show-only',
+        type=str,
+        metavar='TYPES',
+        help='Filter diff output to show only specific change types. '
+             'Comma-separated list: added,removed,modified,unchanged (e.g., "added,modified")'
+    )
+
+    diff_group.add_argument(
+        '--metrics-only',
+        action='store_true',
+        help='Only compare metrics (exclude dimensions from diff)'
+    )
+
+    diff_group.add_argument(
+        '--dimensions-only',
+        action='store_true',
+        help='Only compare dimensions (exclude metrics from diff)'
+    )
+
+    diff_group.add_argument(
+        '--extended-fields',
+        action='store_true',
+        help='Use extended field comparison including attribution, format, bucketing, '
+             'persistence settings (default: basic fields only)'
+    )
+
+    diff_group.add_argument(
+        '--side-by-side',
+        action='store_true',
+        help='Show side-by-side comparison view for modified items (console and markdown)'
+    )
+
+    diff_group.add_argument(
+        '--no-color',
+        action='store_true',
+        help='Disable ANSI color codes in console output'
+    )
+
+    diff_group.add_argument(
+        '--quiet-diff',
+        action='store_true',
+        help='Suppress diff output, only return exit code (0=no changes, 2=changes found)'
+    )
+
+    diff_group.add_argument(
+        '--reverse-diff',
+        action='store_true',
+        help='Reverse the comparison direction (swap source and target)'
+    )
+
+    diff_group.add_argument(
+        '--warn-threshold',
+        type=float,
+        metavar='PERCENT',
+        help='Exit with code 3 if change percentage exceeds threshold (e.g., --warn-threshold 10)'
+    )
+
+    diff_group.add_argument(
+        '--group-by-field',
+        action='store_true',
+        help='Group changes by field name instead of by component'
+    )
+
+    diff_group.add_argument(
+        '--diff-output',
+        type=str,
+        metavar='FILE',
+        help='Write diff output directly to file instead of stdout'
+    )
+
+    diff_group.add_argument(
+        '--format-pr-comment',
+        action='store_true',
+        help='Output in GitHub/GitLab PR comment format (markdown with collapsible details)'
     )
 
     # Enable shell tab-completion if argcomplete is installed
@@ -4758,6 +7240,336 @@ def validate_config_only(config_file: str = "config.json") -> bool:
     return all_passed
 
 
+# ==================== DIFF AND SNAPSHOT COMMAND HANDLERS ====================
+
+def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: str = "config.json",
+                            quiet: bool = False) -> bool:
+    """
+    Handle the --snapshot command to save a data view snapshot.
+
+    Args:
+        data_view_id: The data view ID to snapshot
+        snapshot_file: Path to save the snapshot
+        config_file: Path to CJA configuration file
+        quiet: Suppress progress output
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if not quiet:
+            print()
+            print("=" * 60)
+            print("CREATING DATA VIEW SNAPSHOT")
+            print("=" * 60)
+            print(f"Data View: {data_view_id}")
+            print(f"Output: {snapshot_file}")
+            print()
+
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO if not quiet else logging.WARNING)
+
+        # Initialize CJA
+        cjapy.importConfigFile(config_file)
+        cja = cjapy.CJA()
+
+        # Create and save snapshot
+        snapshot_manager = SnapshotManager(logger)
+        snapshot = snapshot_manager.create_snapshot(cja, data_view_id, quiet)
+        saved_path = snapshot_manager.save_snapshot(snapshot, snapshot_file)
+
+        if not quiet:
+            print()
+            print("=" * 60)
+            print(ConsoleColors.success("SNAPSHOT CREATED SUCCESSFULLY"))
+            print("=" * 60)
+            print(f"Data View: {snapshot.data_view_name} ({snapshot.data_view_id})")
+            print(f"Metrics: {len(snapshot.metrics)}")
+            print(f"Dimensions: {len(snapshot.dimensions)}")
+            print(f"Saved to: {saved_path}")
+            print("=" * 60)
+
+        return True
+
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {str(e)}"), file=sys.stderr)
+        return False
+
+
+def handle_diff_command(source_id: str, target_id: str, config_file: str = "config.json",
+                        output_format: str = "console", output_dir: str = ".",
+                        changes_only: bool = False, summary_only: bool = False,
+                        ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
+                        quiet: bool = False, show_only: Optional[List[str]] = None,
+                        metrics_only: bool = False, dimensions_only: bool = False,
+                        extended_fields: bool = False, side_by_side: bool = False,
+                        no_color: bool = False, quiet_diff: bool = False,
+                        reverse_diff: bool = False, warn_threshold: Optional[float] = None,
+                        group_by_field: bool = False, diff_output: Optional[str] = None,
+                        format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+    """
+    Handle the --diff command to compare two data views.
+
+    Args:
+        source_id: Source data view ID
+        target_id: Target data view ID
+        config_file: Path to CJA configuration file
+        output_format: Output format
+        output_dir: Output directory
+        changes_only: Only show changed items
+        summary_only: Only show summary
+        ignore_fields: Fields to ignore
+        labels: Custom labels (source_label, target_label)
+        quiet: Suppress progress output
+        show_only: Filter to show only specific change types
+        metrics_only: Only compare metrics
+        dimensions_only: Only compare dimensions
+        extended_fields: Use extended field comparison
+        side_by_side: Show side-by-side comparison view
+        no_color: Disable ANSI color codes
+        quiet_diff: Suppress output, only return exit code
+        reverse_diff: Swap source and target
+        warn_threshold: Exit with code 3 if change % exceeds threshold
+        group_by_field: Group changes by field name
+        diff_output: Write output to file instead of stdout
+        format_pr_comment: Output in PR comment format
+
+    Returns:
+        Tuple of (success, has_changes, exit_code_override)
+        exit_code_override is 3 if warn_threshold exceeded, None otherwise
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO if not quiet else logging.WARNING)
+
+        # Handle reverse diff - swap source and target
+        if reverse_diff:
+            source_id, target_id = target_id, source_id
+
+        if not quiet and not quiet_diff:
+            print()
+            print("=" * 60)
+            print("COMPARING DATA VIEWS")
+            print("=" * 60)
+            print(f"Source: {source_id}")
+            print(f"Target: {target_id}")
+            if reverse_diff:
+                print("(Reversed comparison)")
+            print()
+
+        # Initialize CJA
+        cjapy.importConfigFile(config_file)
+        cja = cjapy.CJA()
+
+        # Create snapshots from live data views
+        snapshot_manager = SnapshotManager(logger)
+
+        if not quiet and not quiet_diff:
+            print("Fetching source data view...")
+        source_snapshot = snapshot_manager.create_snapshot(cja, source_id, quiet or quiet_diff)
+
+        if not quiet and not quiet_diff:
+            print("Fetching target data view...")
+        target_snapshot = snapshot_manager.create_snapshot(cja, target_id, quiet or quiet_diff)
+
+        # Compare
+        source_label = labels[0] if labels else source_snapshot.data_view_name
+        target_label = labels[1] if labels else target_snapshot.data_view_name
+
+        comparator = DataViewComparator(
+            logger,
+            ignore_fields=ignore_fields,
+            use_extended_fields=extended_fields,
+            show_only=show_only,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only
+        )
+        diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
+
+        # Check warn threshold
+        exit_code_override = None
+        if warn_threshold is not None:
+            max_change_pct = max(
+                diff_result.summary.metrics_change_percent,
+                diff_result.summary.dimensions_change_percent
+            )
+            if max_change_pct > warn_threshold:
+                exit_code_override = 3
+                if not quiet_diff:
+                    print(ConsoleColors.warning(
+                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                    ), file=sys.stderr)
+
+        # Generate output (unless quiet_diff is set)
+        if not quiet_diff:
+            # Determine effective format
+            effective_format = 'pr-comment' if format_pr_comment else output_format
+
+            base_filename = f"diff_{source_id}_{target_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_content = write_diff_output(
+                diff_result, effective_format, base_filename, output_dir, logger,
+                changes_only, summary_only, side_by_side, use_color=not no_color,
+                group_by_field=group_by_field
+            )
+
+            # Handle --diff-output flag
+            if diff_output and output_content:
+                with open(diff_output, 'w', encoding='utf-8') as f:
+                    f.write(output_content)
+                if not quiet:
+                    print(f"Diff output written to: {diff_output}")
+
+            if not quiet and output_format != 'console':
+                print()
+                print(ConsoleColors.success("Diff report generated successfully"))
+
+        return True, diff_result.summary.has_changes, exit_code_override
+
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to compare data views: {str(e)}"), file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return False, False, None
+
+
+def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_file: str = "config.json",
+                                  output_format: str = "console", output_dir: str = ".",
+                                  changes_only: bool = False, summary_only: bool = False,
+                                  ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
+                                  quiet: bool = False, show_only: Optional[List[str]] = None,
+                                  metrics_only: bool = False, dimensions_only: bool = False,
+                                  extended_fields: bool = False, side_by_side: bool = False,
+                                  no_color: bool = False, quiet_diff: bool = False,
+                                  reverse_diff: bool = False, warn_threshold: Optional[float] = None,
+                                  group_by_field: bool = False, diff_output: Optional[str] = None,
+                                  format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+    """
+    Handle the --diff-snapshot command to compare a data view against a saved snapshot.
+
+    Args:
+        data_view_id: The current data view ID to compare
+        snapshot_file: Path to the saved snapshot file
+        config_file: Path to CJA configuration file
+        output_format: Output format
+        output_dir: Output directory
+        changes_only: Only show changed items
+        summary_only: Only show summary
+        ignore_fields: Fields to ignore
+        labels: Custom labels (source_label, target_label)
+        quiet: Suppress progress output
+        show_only: Filter to show only specific change types
+        metrics_only: Only compare metrics
+        dimensions_only: Only compare dimensions
+        extended_fields: Use extended field comparison
+        side_by_side: Show side-by-side comparison view
+        no_color: Disable ANSI color codes
+        quiet_diff: Suppress output, only return exit code
+        reverse_diff: Swap source and target
+        warn_threshold: Exit with code 3 if change % exceeds threshold
+        group_by_field: Group changes by field name
+        diff_output: Write output to file instead of stdout
+        format_pr_comment: Output in PR comment format
+
+    Returns:
+        Tuple of (success, has_changes, exit_code_override)
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO if not quiet else logging.WARNING)
+
+        if not quiet and not quiet_diff:
+            print()
+            print("=" * 60)
+            print("COMPARING DATA VIEW AGAINST SNAPSHOT")
+            print("=" * 60)
+            print(f"Data View: {data_view_id}")
+            print(f"Snapshot: {snapshot_file}")
+            if reverse_diff:
+                print("(Reversed comparison)")
+            print()
+
+        # Load the saved snapshot (source/baseline)
+        snapshot_manager = SnapshotManager(logger)
+        source_snapshot = snapshot_manager.load_snapshot(snapshot_file)
+
+        # Initialize CJA and create current snapshot (target)
+        cjapy.importConfigFile(config_file)
+        cja = cjapy.CJA()
+
+        if not quiet and not quiet_diff:
+            print("Fetching current data view state...")
+        target_snapshot = snapshot_manager.create_snapshot(cja, data_view_id, quiet or quiet_diff)
+
+        # Handle reverse_diff - swap source and target
+        if reverse_diff:
+            source_snapshot, target_snapshot = target_snapshot, source_snapshot
+
+        # Compare (snapshot is baseline/source, current state is target)
+        source_label = labels[0] if labels else f"Snapshot ({source_snapshot.created_at[:10]})"
+        target_label = labels[1] if labels else "Current"
+
+        comparator = DataViewComparator(
+            logger,
+            ignore_fields=ignore_fields,
+            use_extended_fields=extended_fields,
+            show_only=show_only,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only
+        )
+        diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
+
+        # Check warn threshold
+        exit_code_override = None
+        if warn_threshold is not None:
+            max_change_pct = max(
+                diff_result.summary.metrics_change_percent,
+                diff_result.summary.dimensions_change_percent
+            )
+            if max_change_pct > warn_threshold:
+                exit_code_override = 3
+                if not quiet_diff:
+                    print(ConsoleColors.warning(
+                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                    ), file=sys.stderr)
+
+        # Generate output (unless quiet_diff is set)
+        if not quiet_diff:
+            # Determine effective format
+            effective_format = 'pr-comment' if format_pr_comment else output_format
+
+            base_filename = f"diff_{data_view_id}_snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_content = write_diff_output(
+                diff_result, effective_format, base_filename, output_dir, logger,
+                changes_only, summary_only, side_by_side, use_color=not no_color,
+                group_by_field=group_by_field
+            )
+
+            # Handle --diff-output flag
+            if diff_output and output_content:
+                with open(diff_output, 'w', encoding='utf-8') as f:
+                    f.write(output_content)
+                if not quiet:
+                    print(f"Diff output written to: {diff_output}")
+
+            if not quiet and output_format != 'console':
+                print()
+                print(ConsoleColors.success("Diff report generated successfully"))
+
+        return True, diff_result.summary.has_changes, exit_code_override
+
+    except FileNotFoundError as e:
+        print(ConsoleColors.error(f"ERROR: Snapshot file not found: {snapshot_file}"), file=sys.stderr)
+        return False, False, None
+    except ValueError as e:
+        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {str(e)}"), file=sys.stderr)
+        return False, False, None
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {str(e)}"), file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return False, False, None
+
+
 # ==================== MAIN FUNCTION ====================
 
 def main():
@@ -4820,6 +7632,163 @@ def main():
 
     # Get data views from arguments
     data_view_inputs = args.data_views
+
+    # Parse ignore_fields if provided
+    ignore_fields = None
+    if hasattr(args, 'ignore_fields') and args.ignore_fields:
+        ignore_fields = [f.strip() for f in args.ignore_fields.split(',')]
+
+    # Parse show_only filter if provided
+    show_only = None
+    if hasattr(args, 'show_only') and args.show_only:
+        show_only = [t.strip().lower() for t in args.show_only.split(',')]
+        valid_types = {'added', 'removed', 'modified', 'unchanged'}
+        invalid = set(show_only) - valid_types
+        if invalid:
+            print(ConsoleColors.error(f"ERROR: Invalid --show-only types: {invalid}"), file=sys.stderr)
+            print(f"Valid types: {', '.join(valid_types)}", file=sys.stderr)
+            sys.exit(1)
+
+    # Parse labels if provided
+    labels = None
+    if hasattr(args, 'diff_labels') and args.diff_labels:
+        labels = tuple(args.diff_labels)
+
+    # Handle --diff mode (compare two data views)
+    if hasattr(args, 'diff') and args.diff:
+        if len(data_view_inputs) != 2:
+            print(ConsoleColors.error("ERROR: --diff requires exactly 2 data view IDs or names"), file=sys.stderr)
+            print("Usage: cja_auto_sdr --diff DATA_VIEW_A DATA_VIEW_B", file=sys.stderr)
+            sys.exit(1)
+
+        # Check for conflicting options
+        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+            print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
+            sys.exit(1)
+
+        # Resolve names to IDs if needed
+        temp_logger = logging.getLogger('name_resolution')
+        temp_logger.setLevel(logging.WARNING)
+        resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
+
+        if len(resolved_ids) < 2:
+            print(ConsoleColors.error("ERROR: Could not resolve both data view identifiers"), file=sys.stderr)
+            sys.exit(1)
+
+        # Default to console for diff commands
+        diff_format = args.format if args.format else 'console'
+        success, has_changes, exit_code_override = handle_diff_command(
+            source_id=resolved_ids[0],
+            target_id=resolved_ids[1],
+            config_file=args.config_file,
+            output_format=diff_format,
+            output_dir=args.output_dir,
+            changes_only=getattr(args, 'changes_only', False),
+            summary_only=getattr(args, 'summary', False),
+            ignore_fields=ignore_fields,
+            labels=labels,
+            quiet=args.quiet,
+            show_only=show_only,
+            metrics_only=getattr(args, 'metrics_only', False),
+            dimensions_only=getattr(args, 'dimensions_only', False),
+            extended_fields=getattr(args, 'extended_fields', False),
+            side_by_side=getattr(args, 'side_by_side', False),
+            no_color=getattr(args, 'no_color', False),
+            quiet_diff=getattr(args, 'quiet_diff', False),
+            reverse_diff=getattr(args, 'reverse_diff', False),
+            warn_threshold=getattr(args, 'warn_threshold', None),
+            group_by_field=getattr(args, 'group_by_field', False),
+            diff_output=getattr(args, 'diff_output', None),
+            format_pr_comment=getattr(args, 'format_pr_comment', False)
+        )
+
+        # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
+        if success:
+            if exit_code_override is not None:
+                sys.exit(exit_code_override)
+            sys.exit(2 if has_changes else 0)
+        else:
+            sys.exit(1)
+
+    # Handle --snapshot mode (save a data view snapshot)
+    if hasattr(args, 'snapshot') and args.snapshot:
+        if len(data_view_inputs) != 1:
+            print(ConsoleColors.error("ERROR: --snapshot requires exactly 1 data view ID or name"), file=sys.stderr)
+            print("Usage: cja_auto_sdr DATA_VIEW --snapshot ./snapshots/baseline.json", file=sys.stderr)
+            sys.exit(1)
+
+        # Resolve name to ID if needed
+        temp_logger = logging.getLogger('name_resolution')
+        temp_logger.setLevel(logging.WARNING)
+        resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
+
+        if not resolved_ids:
+            print(ConsoleColors.error("ERROR: Could not resolve data view identifier"), file=sys.stderr)
+            sys.exit(1)
+
+        success = handle_snapshot_command(
+            data_view_id=resolved_ids[0],
+            snapshot_file=args.snapshot,
+            config_file=args.config_file,
+            quiet=args.quiet
+        )
+        sys.exit(0 if success else 1)
+
+    # Handle --diff-snapshot mode (compare against a saved snapshot)
+    if hasattr(args, 'diff_snapshot') and args.diff_snapshot:
+        if len(data_view_inputs) != 1:
+            print(ConsoleColors.error("ERROR: --diff-snapshot requires exactly 1 data view ID or name"), file=sys.stderr)
+            print("Usage: cja_auto_sdr DATA_VIEW --diff-snapshot ./snapshots/baseline.json", file=sys.stderr)
+            sys.exit(1)
+
+        # Check for conflicting options
+        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+            print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
+            sys.exit(1)
+
+        # Resolve name to ID if needed
+        temp_logger = logging.getLogger('name_resolution')
+        temp_logger.setLevel(logging.WARNING)
+        resolved_ids, _ = resolve_data_view_names(data_view_inputs, args.config_file, temp_logger)
+
+        if not resolved_ids:
+            print(ConsoleColors.error("ERROR: Could not resolve data view identifier"), file=sys.stderr)
+            sys.exit(1)
+
+        # Default to console for diff commands
+        diff_format = args.format if args.format else 'console'
+        success, has_changes, exit_code_override = handle_diff_snapshot_command(
+            data_view_id=resolved_ids[0],
+            snapshot_file=args.diff_snapshot,
+            config_file=args.config_file,
+            output_format=diff_format,
+            output_dir=args.output_dir,
+            changes_only=getattr(args, 'changes_only', False),
+            summary_only=getattr(args, 'summary', False),
+            ignore_fields=ignore_fields,
+            labels=labels,
+            quiet=args.quiet,
+            show_only=show_only,
+            metrics_only=getattr(args, 'metrics_only', False),
+            dimensions_only=getattr(args, 'dimensions_only', False),
+            extended_fields=getattr(args, 'extended_fields', False),
+            side_by_side=getattr(args, 'side_by_side', False),
+            no_color=getattr(args, 'no_color', False),
+            quiet_diff=getattr(args, 'quiet_diff', False),
+            reverse_diff=getattr(args, 'reverse_diff', False),
+            warn_threshold=getattr(args, 'warn_threshold', None),
+            group_by_field=getattr(args, 'group_by_field', False),
+            diff_output=getattr(args, 'diff_output', None),
+            format_pr_comment=getattr(args, 'format_pr_comment', False)
+        )
+
+        # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
+        if success:
+            if exit_code_override is not None:
+                sys.exit(exit_code_override)
+            sys.exit(2 if has_changes else 0)
+        else:
+            sys.exit(1)
 
     # Validate that at least one data view is provided
     if not data_view_inputs:
@@ -4901,6 +7870,26 @@ def main():
         success = run_dry_run(data_views, args.config_file, logger)
         sys.exit(0 if success else 1)
 
+    # Default to excel for SDR generation
+    sdr_format = args.format if args.format else 'excel'
+
+    # Validate format - console is only supported for diff comparison
+    if sdr_format == 'console':
+        print(ConsoleColors.error("Error: Console format is only supported for diff comparison."))
+        print()
+        print("For SDR generation, use one of these formats:")
+        print("  --format excel     Excel workbook with multiple sheets (default)")
+        print("  --format csv       CSV files (one per data type)")
+        print("  --format json      JSON file with all data")
+        print("  --format html      HTML report")
+        print("  --format markdown  Markdown document")
+        print("  --format all       Generate all formats")
+        print()
+        print("For diff comparison, console is the default:")
+        print("  cja_auto_sdr --diff dv_A dv_B              # Console output")
+        print("  cja_auto_sdr --diff dv_A dv_B --format json  # JSON output")
+        sys.exit(1)
+
     # Process data views
     if args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
@@ -4914,7 +7903,7 @@ def main():
             workers=args.workers,
             continue_on_error=args.continue_on_error,
             log_level=effective_log_level,
-            output_format=args.format,
+            output_format=sdr_format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,
             cache_ttl=args.cache_ttl,
@@ -4946,7 +7935,7 @@ def main():
             config_file=args.config_file,
             output_dir=args.output_dir,
             log_level=effective_log_level,
-            output_format=args.format,
+            output_format=sdr_format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,
             cache_ttl=args.cache_ttl,

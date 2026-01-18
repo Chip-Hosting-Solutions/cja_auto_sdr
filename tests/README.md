@@ -27,16 +27,20 @@ tests/
 ├── test_retry.py                    # Retry with exponential backoff tests
 ├── test_utils.py                    # Utility function tests
 ├── test_validation_cache.py         # Validation caching tests
+├── test_diff_comparison.py          # Data view diff comparison tests
+├── test_edge_cases.py               # Edge cases and configuration tests
 └── README.md                        # This file
 ```
 
-**Total: 413 comprehensive tests**
+**Total: 551 comprehensive tests**
 
 ### Test Count Breakdown
 
 | Test File | Tests | Coverage Area |
 |-----------|-------|---------------|
+| `test_diff_comparison.py` | 94 | Data view diff comparison feature |
 | `test_cli.py` | 71 | Command-line interface and argument parsing |
+| `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
 | `test_output_formats.py` | 32 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 32 | CJA connection and configuration validation |
 | `test_utils.py` | 27 | Utility functions and helpers |
@@ -55,7 +59,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **413** | **100% pass rate** |
+| **Total** | **551** | **100% pass rate** |
 
 ## Running Tests
 
@@ -110,6 +114,12 @@ uv run pytest tests/test_env_credentials.py
 
 # Test enhanced error messages
 uv run pytest tests/test_error_messages.py
+
+# Test diff comparison feature
+uv run pytest tests/test_diff_comparison.py
+
+# Test edge cases, configuration dataclasses, and custom exceptions
+uv run pytest tests/test_edge_cases.py
 ```
 
 ### Run Specific Test Classes or Functions
@@ -277,6 +287,30 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 - **Connection testing**: Tests API connection verification
 - **Error scenarios**: Tests handling of invalid configs, missing credentials, and API failures
 
+### Diff Comparison Tests (`test_diff_comparison.py`)
+- **DataViewSnapshot**: Tests snapshot creation, serialization (to_dict), deserialization (from_dict)
+- **SnapshotManager**: Tests save, load, list snapshots, and error handling for invalid files
+- **DataViewComparator**: Tests comparison logic, change detection, custom labels, ignore fields
+- **DiffSummary**: Tests has_changes property, total_changes calculation
+- **DiffOutputWriters**: Tests all output formats (Console, JSON, Markdown, HTML, Excel, CSV)
+- **ComparisonFields**: Tests default field comparison (name, title, description, type, schemaPath)
+- **ID-based matching**: Tests that components are matched by ID, not by name
+- **Metadata comparison**: Tests data view metadata change tracking
+- **CLI arguments**: Tests parsing of --diff, --snapshot, --diff-snapshot, --changes-only, --summary, --ignore-fields, --diff-labels
+- **Edge cases**: Tests empty snapshots, all added/removed, special characters in names
+
+### Edge Cases Tests (`test_edge_cases.py`)
+- **Custom Exception Hierarchy**: Tests CJASDRError, ConfigurationError, APIError, ValidationError, OutputError
+- **Configuration Dataclasses**: Tests RetryConfig, CacheConfig, LogConfig, WorkerConfig, SDRConfig
+- **SDRConfig.from_args**: Tests configuration creation from command-line arguments
+- **Default Configuration Instances**: Tests DEFAULT_RETRY, DEFAULT_CACHE, DEFAULT_LOG, DEFAULT_WORKERS
+- **OutputWriter Protocol**: Tests Protocol implementation and runtime checking
+- **Retry Edge Cases**: Tests zero retries, zero delay, large exponential base
+- **Empty DataFrame Handling**: Tests validation cache and quality checker with empty DataFrames
+- **Cache Edge Cases**: Tests size=1, short TTL, identical DataFrame with different item types
+- **DataFrame Column Handling**: Tests missing/extra columns in validation
+- **Concurrent Access**: Tests cache operations under concurrent load
+
 ## Test Fixtures
 
 Test fixtures are defined in `conftest.py`:
@@ -408,7 +442,7 @@ uv run pytest
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (413 tests total)
+- [x] Comprehensive test coverage (457 tests total)
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
@@ -423,6 +457,8 @@ uv run pytest
 - [x] Excel formatting tests (test_excel_formatting.py)
 - [x] CJA initialization tests (test_cja_initialization.py)
 - [x] Name resolution tests (test_name_resolution.py)
+- [x] Data view diff comparison tests (test_diff_comparison.py) - 44 tests covering snapshots, comparison logic, output formats, CLI arguments
+- [x] Edge case tests (test_edge_cases.py) - 39 tests covering custom exceptions, configuration dataclasses, OutputWriter Protocol, boundary conditions
 
 ## Future Enhancements
 

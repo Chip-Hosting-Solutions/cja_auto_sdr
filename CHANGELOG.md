@@ -5,6 +5,172 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.10] - 2026-01-18
+
+### Highlights
+- **Data View Diff Comparison (New)** - Compare data views to identify added, removed, and modified components with 20+ CLI options
+- **Comprehensive Type Hints** - Full type annotations for improved IDE support and static analysis
+- **Configuration Dataclasses** - Centralized, testable configuration with `SDRConfig`, `RetryConfig`, `CacheConfig`, `LogConfig`, `WorkerConfig`
+- **Custom Exception Hierarchy** - Better error handling with `CJASDRError`, `ConfigurationError`, `APIError`, `ValidationError`, `OutputError`
+- **OutputWriter Protocol** - Standardized interface for output format writers
+- **Expanded Test Coverage** - 551 total tests (+138 new: 94 diff comparison + 39 edge cases + 5 format validation)
+
+This release introduces the **Data View Diff Comparison** feature for change tracking and CI/CD integration, plus **code maintainability** improvements (type hints, centralized configuration) and **developer experience** enhancements (better exceptions, standardized interfaces) while maintaining full backward compatibility.
+
+### Added
+
+#### Comprehensive Type Hints
+- **Function Signatures**: All key functions now have complete type annotations
+- **Return Types**: Explicit return types for better IDE autocompletion
+- **Complex Types**: Uses `typing` module for `Optional`, `Union`, `List`, `Dict`, `Callable`, `TypeVar`
+- **Path Types**: `Union[str, Path]` for flexible path handling
+- **Benefits**:
+  - Better IDE support (autocompletion, type checking)
+  - Catch bugs at development time
+  - Self-documenting code
+
+#### Configuration Dataclasses
+- **`RetryConfig`**: Retry settings (max_retries, base_delay, max_delay, exponential_base, jitter) with `to_dict()` method
+- **`CacheConfig`**: Cache settings (enabled, max_size, ttl_seconds)
+- **`LogConfig`**: Logging settings (level, file_max_bytes, file_backup_count)
+- **`WorkerConfig`**: Worker settings (api_fetch_workers, validation_workers, batch_workers, max_batch_workers)
+- **`SDRConfig`**: Master configuration combining all above with `from_args()` factory method
+- **Default Instances**: `DEFAULT_RETRY`, `DEFAULT_CACHE`, `DEFAULT_LOG`, `DEFAULT_WORKERS` for easy access
+- **Benefits**:
+  - Single source of truth for configuration
+  - Easy to pass configuration around
+  - Testable configuration
+  - Self-documenting with dataclass field defaults
+
+#### Custom Exception Hierarchy
+- **`CJASDRError`**: Base exception for all SDR errors with message and details
+- **`ConfigurationError`**: Invalid config, missing credentials (includes config_file, field context)
+- **`APIError`**: API communication failures (includes status_code, operation, original_error)
+- **`ValidationError`**: Data quality validation failures (includes item_type, issue_count)
+- **`OutputError`**: File writing failures (includes output_path, output_format, original_error)
+- **Benefits**:
+  - Catch specific error types for targeted handling
+  - Better error messages with context
+  - Cleaner exception handling code
+
+#### OutputWriter Protocol
+- **`OutputWriter`**: Runtime-checkable Protocol defining the interface for output format writers
+- **Standard Interface**: `write(metrics_df, dimensions_df, dataview_info, output_path, quality_results) -> str`
+- **Benefits**:
+  - Easy to add new output formats
+  - Improved testability with mock writers
+  - Clear contract for writer implementations
+
+#### Data View Diff Comparison (New Feature)
+
+Compare two data views or track changes over time with snapshots. This feature is entirely new in v3.0.10.
+
+**Core Functionality:**
+- **`--diff`**: Compare two live data views side-by-side
+- **`--snapshot`**: Save a data view state to JSON for later comparison
+- **`--diff-snapshot`**: Compare current data view against a saved snapshot
+- **Identified Changes**: Added, removed, and modified metrics/dimensions with field-level details
+- **Multiple Output Formats**: Console (default), JSON, HTML, Markdown, Excel, CSV
+- **CI/CD Integration**: Exit code 2 when differences found, exit code 3 when threshold exceeded
+
+**Display Options:**
+- **ANSI Color-Coded Diff Output**: Green for added `[+]`, red for removed `[-]`, yellow for modified `[~]`; use `--no-color` to disable
+- **Percentage Stats**: Shows change percentage for metrics and dimensions (e.g., "10.5% changed")
+- **Natural Language Summary**: Copy-paste friendly (e.g., "Metrics: 3 added, 2 removed; Dimensions: 1 modified")
+- **Side-by-Side View**: `--side-by-side` flag for visual comparison in console and markdown
+- **`--changes-only`**: Hide unchanged items, show only differences
+- **`--summary`**: Show summary statistics only
+
+**Filtering Options:**
+- **`--show-only TYPES`**: Filter by change type (added, removed, modified)
+- **`--metrics-only`**: Compare only metrics
+- **`--dimensions-only`**: Compare only dimensions
+- **`--ignore-fields FIELDS`**: Exclude specific fields from comparison
+- **`--extended-fields`**: Include 20+ additional fields (attribution, bucketing, persistence, etc.)
+
+**Advanced Options:**
+- **`--quiet-diff`**: Suppress all output, return only exit code (0=no changes, 2=changes, 3=threshold exceeded)
+- **`--reverse-diff`**: Swap source and target without reordering arguments
+- **`--warn-threshold PERCENT`**: Exit with code 3 if change percentage exceeds threshold
+- **Breaking Change Detection**: Automatically flags type/schemaPath changes and component removals
+- **`--group-by-field`**: Group changes by field name instead of component
+- **`--diff-output FILE`**: Write output directly to file instead of stdout
+- **`--format-pr-comment`**: GitHub/GitLab PR comment format with collapsible details
+- **`--diff-labels A B`**: Custom labels for source and target
+
+**Extended Field Comparison**: `--extended-fields` flag to compare 20+ additional fields:
+  - Attribution: `attribution`, `attributionModel`, `lookbackWindow`
+  - Formatting: `format`, `precision`
+  - Visibility: `hidden`, `hideFromReporting`
+  - Bucketing: `bucketing`, `bucketingSetting`
+  - Persistence: `persistence`, `persistenceSetting`, `allocation`
+  - Calculated: `formula`, `isCalculated`, `derivedFieldId`
+  - Other: `segmentable`, `reportable`, `componentType`, `dataType`, `hasData`, `approved`
+- **Filter by Change Type**: `--show-only` flag to filter results (added, removed, modified)
+- **Filter by Component Type**: `--metrics-only` and `--dimensions-only` flags
+- **Side-by-Side View**: `--side-by-side` flag for visual comparison in console and markdown
+- **New CLI Arguments**:
+  - `--show-only TYPES` - Filter by change type (comma-separated)
+  - `--metrics-only` - Compare only metrics
+  - `--dimensions-only` - Compare only dimensions
+  - `--extended-fields` - Use extended field comparison
+  - `--side-by-side` - Show side-by-side comparison view
+
+#### Edge Case Tests
+- **39 New Tests** in `tests/test_edge_cases.py`:
+  - Custom exception hierarchy (9 tests)
+  - Configuration dataclasses (9 tests)
+  - Default configuration instances (5 tests)
+  - OutputWriter Protocol (3 tests)
+  - Retry edge cases (3 tests)
+  - Empty DataFrame handling (3 tests)
+  - Cache edge cases (3 tests)
+  - DataFrame column handling (2 tests)
+  - Concurrent access edge cases (1 test)
+
+#### Diff Comparison Tests (New)
+- **94 New Tests** in `tests/test_diff_comparison.py`:
+  - Core comparison logic (12 tests)
+  - DiffSummary dataclass (8 tests)
+  - Console output formatting (6 tests)
+  - JSON/HTML/Markdown output (9 tests)
+  - Snapshot save/load (5 tests)
+  - CLI argument parsing (12 tests)
+  - Extended field comparison (3 tests)
+  - Show-only filter (3 tests)
+  - Metrics-only and dimensions-only (2 tests)
+  - Side-by-side output (3 tests)
+  - Large dataset performance (3 tests)
+  - Unicode edge cases (4 tests)
+  - Deeply nested structures (3 tests)
+  - Concurrent comparison thread safety (1 test)
+  - Snapshot version migration (3 tests)
+  - Percentage stats (5 tests)
+  - Colored console output (2 tests)
+  - Group-by-field output (1 test)
+  - PR comment output (2 tests)
+  - Breaking change detection (3 tests)
+  - New CLI flags (7 tests)
+- **5 New Tests** for format validation in `tests/test_cli.py`:
+  - Console format for diff mode
+  - Console format parsing for SDR (runtime validation)
+  - Excel/JSON/all format validation
+- **Total Test Count**: 413 (v3.0.9) → 551 (v3.0.10) = +138 tests (100% pass rate)
+
+### Changed
+- **DEFAULT_RETRY_CONFIG**: Now uses `DEFAULT_RETRY.to_dict()` for backward compatibility
+- **Type Annotations**: Added to all writer functions, core processing functions, retry functions
+- **Import Section**: Extended to include `TypeVar`, `Protocol`, `runtime_checkable`, `field`
+- **Format Validation**: `--format console` now shows clear error for SDR generation (console is diff-only)
+
+### Backward Compatibility
+- **Full Backward Compatibility**: All existing code continues to work unchanged
+- **No Breaking Changes**: All 551 tests pass
+- **DEFAULT_RETRY_CONFIG Dict**: Still available as a dict for legacy code
+- **Configuration Migration**: Existing configurations work without changes
+
+---
+
 ## [3.0.9] - 2026-01-16
 
 ### Highlights
@@ -179,7 +345,7 @@ This release focuses on **ease of use** (name support, Windows compatibility), *
 - **Full Backward Compatibility**: All existing commands and scripts continue to work
 - **ID-Based Commands**: All existing ID-based data view specifications work unchanged
 - **Config File Migration**: Users need to rename `myconfig.json` to `config.json` (simple `mv` command)
-- **No Breaking Changes**: All 413 tests pass, including legacy functionality
+- **No Breaking Changes**: All tests pass, including legacy functionality
 
 ## [3.0.8] - 2026-01-15
 
@@ -750,7 +916,7 @@ Batch Processing (10 data views):
 | Validation Caching | No | Yes (50-90% faster on cache hits) |
 | Early Exit Optimization | No | Yes (15-20% faster on errors) |
 | Logging Optimization | No | Yes (5-10% faster with --production) |
-| Tests | None | 413 comprehensive tests |
+| Tests | None | 496 comprehensive tests |
 | Documentation | Basic | 5 detailed guides |
 | Performance Tracking | No | Yes, built-in with cache statistics |
 | Parallel Processing | No | Yes, configurable workers + concurrent validation |
