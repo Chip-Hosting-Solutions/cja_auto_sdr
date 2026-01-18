@@ -1,7 +1,5 @@
 # Data View Comparison Guide
 
-> **New in v3.0.10:** The entire data view comparison feature is new in version 3.0.10. This functionality was not available in v3.0.9 or earlier versions.
-
 Compare two CJA data views to identify differences in metrics, dimensions, and metadata. This feature enables environment validation, migration verification, and change tracking over time.
 
 ## Overview

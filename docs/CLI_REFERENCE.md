@@ -30,8 +30,6 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 |----------|-------------|
 | `DATA_VIEW_ID_OR_NAME` | One or more data view IDs (e.g., `dv_12345`) or exact names (e.g., `"Production Analytics"`). If a name matches multiple data views, all will be processed. Use quotes for names with spaces. |
 
-**New in v3.0.9:** You can now specify data views by **name** in addition to ID. See [Data View Names Guide](DATA_VIEW_NAMES.md) for details.
-
 ## Options
 
 ### General
@@ -108,7 +106,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--retry-base-delay N` | Initial retry delay in seconds | 1.0 |
 | `--retry-max-delay N` | Maximum retry delay in seconds | 30.0 |
 
-### Diff Comparison (New in v3.0.10)
+### Diff Comparison
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -270,7 +268,7 @@ cja_auto_sdr dv_12345 \
 cja_auto_sdr --batch $(cat dataviews.txt)
 ```
 
-### Data View Comparison (Diff) - New in v3.0.10
+### Data View Comparison (Diff)
 
 ```bash
 # Compare two live data views (by ID)
@@ -311,18 +309,18 @@ cja_auto_sdr --diff dv_A dv_B --diff-labels Production Staging
 cja_auto_sdr --diff dv_prod dv_staging --changes-only --format json
 echo $?  # 0 = no differences, 2 = differences found, 1 = error
 
-# Filter by change type (v3.0.10+)
+# Filter by change type
 cja_auto_sdr --diff dv_A dv_B --show-only added
 cja_auto_sdr --diff dv_A dv_B --show-only removed,modified
 
-# Filter by component type (v3.0.10+)
+# Filter by component type
 cja_auto_sdr --diff dv_A dv_B --metrics-only
 cja_auto_sdr --diff dv_A dv_B --dimensions-only
 
-# Extended field comparison (v3.0.10+)
+# Extended field comparison
 cja_auto_sdr --diff dv_A dv_B --extended-fields
 
-# Side-by-side view (v3.0.10+)
+# Side-by-side view
 cja_auto_sdr --diff dv_A dv_B --side-by-side
 cja_auto_sdr --diff dv_A dv_B --side-by-side --format markdown
 
@@ -466,4 +464,4 @@ DEBUG  INFO  WARNING  ERROR  CRITICAL
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md)
 - [Output Formats](OUTPUT_FORMATS.md)
 - [Performance Guide](PERFORMANCE.md)
-- [Data View Comparison Guide](DIFF_COMPARISON.md) (v3.0.10)
+- [Data View Comparison Guide](DIFF_COMPARISON.md)
