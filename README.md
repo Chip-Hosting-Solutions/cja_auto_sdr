@@ -10,23 +10,30 @@ A **Solution Design Reference (SDR)** is the essential documentation that bridge
 
 **The Problem:** Manually documenting CJA implementations is time-consuming, error-prone, and quickly becomes outdated. Teams waste hours exporting data, formatting spreadsheets, and cross-referencing configurations—only to repeat the process when things change.
 
-**The Solution:** This tool connects directly to the CJA API, extracts your complete Data View configuration, validates data quality, and generates professionally formatted documentation in seconds.
+**The Solution:** This tool connects directly to the CJA API, extracts your complete Data View configuration, validates data quality, and generates professionally formatted documentation in seconds. It also tracks changes between data views over time with built-in diff comparison and snapshot capabilities.
 
-### Version 3.0: From Notebook to Enterprise Tool
+### Version 3.0.10: Enterprise-Grade SDR Automation
 
-This project evolved from a [Jupyter notebook proof-of-concept](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb) into a production-ready CLI application. Version 3.0 represents a complete rewrite focused on enterprise needs:
+This project evolved from a [Jupyter notebook proof-of-concept](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb) into a production-ready CLI application. Version 3.0.10 represents a complete platform for CJA documentation and change management:
 
-| Aspect | Original Notebook | Version 3.0 |
-|--------|------------------|-------------|
-| Execution | Interactive cells | CLI with full argument parsing |
-| Scale | Single Data View | Unlimited Data Views in parallel |
-| Speed | Sequential (~35s each) | 3-4x faster with batch processing |
-| Quality | Basic extraction | 8+ automated validation checks |
-| Reliability | Manual retry | Automatic retry with exponential backoff |
-| Output | Single Excel file | Excel, CSV, JSON, HTML, Markdown formats |
-| Automation | Copy-paste workflow | Cron, CI/CD, script-ready |
+| Capability | Original Notebook | Version 3.0.10 |
+|------------|------------------|----------------|
+| **Execution** | Interactive cells | Full CLI with 40+ options |
+| **Scale** | Single Data View | Unlimited Data Views in parallel |
+| **Speed** | Sequential (~35s each) | 3-4x faster with batch processing + caching |
+| **Quality** | Basic extraction | 8+ automated validation checks with severity levels |
+| **Reliability** | Manual retry | Automatic retry with exponential backoff + jitter |
+| **Output** | Single Excel file | Excel, CSV, JSON, HTML, Markdown, stdout |
+| **Change Tracking** | None | Full diff comparison with snapshots |
+| **Automation** | Copy-paste workflow | CI/CD ready with exit codes + webhooks |
+| **Developer UX** | N/A | `--open`, `--stats`, `--output -` for piping |
+| **Test Coverage** | None | 623 comprehensive tests |
 
-The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 is for teams that need scheduled automation, multi-environment processing, and enterprise-grade reliability.
+The notebook remains excellent for learning and ad-hoc exploration. Version 3.0.10 is for teams that need:
+- **Scheduled automation** with cron jobs or CI/CD pipelines
+- **Change tracking** to detect drift between environments (prod vs staging)
+- **Multi-environment processing** with parallel batch execution
+- **Scripting integration** with JSON/CSV output to stdout for Unix pipelines
 
 ### How It Works
 
@@ -35,21 +42,21 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 3. **Validates** data quality with 8+ automated checks (duplicates, missing fields, null values)
 4. **Generates** formatted documentation with color-coded quality indicators
 
-### Key Features (v3.0)
+### Key Features (v3.0.10)
 
 | Category | Feature | Benefit |
 |----------|---------|---------|
 | **Performance** | Parallel Batch Processing | Process multiple Data Views simultaneously (3-4x faster) |
 | | Validation Caching | 50-90% faster on repeated runs with intelligent result caching |
 | | Optimized Validation | Single-pass DataFrame scanning (30-50% faster) |
-| | Configurable Workers | Scale from 1-8+ parallel workers based on your infrastructure |
+| | Configurable Workers | Scale from 1-256 parallel workers based on your infrastructure |
 | **Quality** | 8+ Validation Checks | Detect duplicates, missing fields, null values, invalid IDs |
 | | Severity Classification | CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting |
 | | Quality Dashboard | Dedicated sheet with filtering, sorting, and actionable insights |
 | **Output** | Multiple Formats | Excel, CSV, JSON, HTML, Markdown—or generate all at once |
 | | Professional Excel | 5 formatted sheets with conditional formatting, frozen headers, auto-filtering |
-| | Markdown for GitHub/Confluence | Tables, TOC, collapsible sections, emoji indicators for documentation workflows |
-| | File Size Display | Human-readable output size (KB, MB) in success messages |
+| | Stdout Support | Pipe JSON/CSV output directly to other tools with `--output -` |
+| | Auto-Open Files | Open generated files immediately with `--open` flag |
 | **Reliability** | Automatic Retry | Exponential backoff with jitter for transient network failures |
 | | Continue-on-Error | Batch processing continues even if individual Data Views fail |
 | | Pre-flight Validation | Validates config and connectivity before processing |
@@ -59,10 +66,11 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0 
 | | Auto-Snapshot on Diff | Automatically save timestamped snapshots during comparisons for audit trails |
 | | CI/CD Integration | Exit codes for pipeline automation (2=changes found, 3=threshold exceeded) |
 | | Smart Name Resolution | Fuzzy matching suggestions for typos, interactive disambiguation for duplicates |
-| **Usability** | Dry-Run Mode | Test configuration without generating reports |
-| | Discovery Commands | `--list-dataviews` and `--sample-config` for easy setup |
+| **Developer UX** | Quick Stats Mode | Get metrics/dimensions count instantly with `--stats` (no full report) |
+| | Machine-Readable Discovery | `--list-dataviews --format json` for scripting integration |
+| | Dry-Run Mode | Test configuration without generating reports |
 | | Color-Coded Output | Green/yellow/red console feedback for instant status |
-| | Enhanced Error Messages | Contextual error messages with actionable fix suggestions and documentation links |
+| | Enhanced Error Messages | Contextual error messages with actionable fix suggestions |
 | | Comprehensive Logging | Timestamped logs with rotation for audit trails |
 
 ### Who It's For
@@ -202,26 +210,32 @@ python cja_sdr_generator.py "Production Analytics"
 
 | Task | Command |
 |------|---------|
+| **SDR Generation** | |
 | Single Data View (by ID) | `cja_auto_sdr dv_12345` |
 | Single Data View (by name) | `cja_auto_sdr "Production Analytics"` |
-| Batch processing (IDs) | `cja_auto_sdr dv_1 dv_2 dv_3` |
-| Batch processing (names) | `cja_auto_sdr "Prod" "Staging" "Test"` |
-| Mixed IDs and names | `cja_auto_sdr dv_12345 "Test Environment"` |
+| Generate and open file | `cja_auto_sdr dv_12345 --open` |
+| Batch processing | `cja_auto_sdr dv_1 dv_2 dv_3` |
 | Custom output location | `cja_auto_sdr dv_12345 --output-dir ./reports` |
-| Validate only (no report) | `cja_auto_sdr dv_12345 --dry-run` |
 | Skip validation (faster) | `cja_auto_sdr dv_12345 --skip-validation` |
-| Export as Excel | `cja_auto_sdr dv_12345 --format excel` |
+| **Output Formats** | |
+| Export as Excel (default) | `cja_auto_sdr dv_12345 --format excel` |
 | Export as CSV | `cja_auto_sdr dv_12345 --format csv` |
 | Export as JSON | `cja_auto_sdr dv_12345 --format json` |
-| Export as HTML | `cja_auto_sdr dv_12345 --format html` |
-| Export as Markdown | `cja_auto_sdr dv_12345 --format markdown` |
 | Generate all formats | `cja_auto_sdr dv_12345 --format all` |
-| Compare Data Views (by ID) | `cja_auto_sdr --diff dv_1 dv_2` |
-| Compare Data Views (by name) | `cja_auto_sdr --diff "Production" "Staging"` |
+| **Quick Stats & Discovery** | |
+| Quick stats (no full report) | `cja_auto_sdr dv_12345 --stats` |
+| Stats as JSON | `cja_auto_sdr dv_12345 --stats --format json` |
+| List data views | `cja_auto_sdr --list-dataviews` |
+| List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
+| Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
+| Validate config only | `cja_auto_sdr --validate-config` |
+| **Diff Comparison** | |
+| Compare two Data Views | `cja_auto_sdr --diff dv_1 dv_2` |
+| Compare by name | `cja_auto_sdr --diff "Production" "Staging"` |
 | Save snapshot | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
 | Compare to snapshot | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
-| Auto-save snapshots on diff | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
+| Auto-save snapshots | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
 | With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
 
 ## Documentation
