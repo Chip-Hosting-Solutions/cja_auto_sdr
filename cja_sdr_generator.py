@@ -4356,19 +4356,24 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
         lines.append("=" * 80)
         return "\n".join(lines)
 
-    # Metrics changes
+    # Get changes for both metrics and dimensions
     metric_changes = [d for d in diff_result.metric_diffs if d.change_type != ChangeType.UNCHANGED]
+    dim_changes = [d for d in diff_result.dimension_diffs if d.change_type != ChangeType.UNCHANGED]
+
+    # Calculate global max ID width for consistent alignment across both sections
+    all_changes = metric_changes + dim_changes
+    global_max_id_len = max((len(d.id) for d in all_changes), default=0)
+
+    # Metrics changes
     if metric_changes or not changes_only:
         lines.append("")
         change_count = len(metric_changes)
         lines.append(ANSIColors.bold(f"METRICS CHANGES ({change_count})", c))
         if metric_changes:
-            # Calculate max ID width for alignment
-            max_id_len = max(len(d.id) for d in metric_changes)
             for diff in metric_changes:
                 symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
-                lines.append(f"  [{colored_symbol}] {diff.id:{max_id_len}s} \"{diff.name}\"")
+                lines.append(f"  [{colored_symbol}] {diff.id:{global_max_id_len}s} \"{diff.name}\"")
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
                     # Side-by-side view for modified items
                     sbs_lines = _format_side_by_side(
@@ -4383,18 +4388,15 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             lines.append("  No changes")
 
     # Dimensions changes
-    dim_changes = [d for d in diff_result.dimension_diffs if d.change_type != ChangeType.UNCHANGED]
     if dim_changes or not changes_only:
         lines.append("")
         change_count = len(dim_changes)
         lines.append(ANSIColors.bold(f"DIMENSIONS CHANGES ({change_count})", c))
         if dim_changes:
-            # Calculate max ID width for alignment
-            max_id_len = max(len(d.id) for d in dim_changes)
             for diff in dim_changes:
                 symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
-                lines.append(f"  [{colored_symbol}] {diff.id:{max_id_len}s} \"{diff.name}\"")
+                lines.append(f"  [{colored_symbol}] {diff.id:{global_max_id_len}s} \"{diff.name}\"")
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
                     # Side-by-side view for modified items
                     sbs_lines = _format_side_by_side(
