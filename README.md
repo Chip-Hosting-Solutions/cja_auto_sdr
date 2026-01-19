@@ -12,28 +12,7 @@ A **Solution Design Reference (SDR)** is the essential documentation that bridge
 
 **The Solution:** This tool connects directly to the CJA API, extracts your complete Data View configuration, validates data quality, and generates professionally formatted documentation in seconds. It also tracks changes between data views over time with built-in diff comparison and snapshot capabilities.
 
-### Version 3.0.10: Enterprise-Grade SDR Automation
-
-This project evolved from a [Jupyter notebook proof-of-concept](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb) into a production-ready CLI application. Version 3.0.10 represents a complete platform for CJA documentation and change management:
-
-| Capability | Original Notebook | Version 3.0.10 |
-|------------|------------------|----------------|
-| **Execution** | Interactive cells | Full CLI with 40+ options |
-| **Scale** | Single Data View | Unlimited Data Views in parallel |
-| **Speed** | Sequential (~35s each) | 3-4x faster with batch processing + caching |
-| **Quality** | Basic extraction | 8+ automated validation checks with severity levels |
-| **Reliability** | Manual retry | Automatic retry with exponential backoff + jitter |
-| **Output** | Single Excel file | Excel, CSV, JSON, HTML, Markdown, stdout |
-| **Change Tracking** | None | Full diff comparison with snapshots |
-| **Automation** | Copy-paste workflow | CI/CD ready with exit codes + webhooks |
-| **Developer UX** | N/A | `--open`, `--stats`, `--output -` for piping |
-| **Test Coverage** | None | 623 comprehensive tests |
-
-The notebook remains excellent for learning and ad-hoc exploration. Version 3.0.10 is for teams that need:
-- **Scheduled automation** with cron jobs or CI/CD pipelines
-- **Change tracking** to detect drift between environments (prod vs staging)
-- **Multi-environment processing** with parallel batch execution
-- **Scripting integration** with JSON/CSV output to stdout for Unix pipelines
+> **Origin:** This project evolved from a [Jupyter notebook proof-of-concept](https://github.com/pitchmuc/CJA_Summit_2025/blob/main/notebooks/06.%20CJA%20Data%20View%20Solution%20Design%20Reference%20Generator.ipynb) into a production-ready CLI. The notebook remains excellent for learning; this tool is for teams needing automation, change tracking, and enterprise-grade reliability.
 
 ### How It Works
 
@@ -42,7 +21,7 @@ The notebook remains excellent for learning and ad-hoc exploration. Version 3.0.
 3. **Validates** data quality with 8+ automated checks (duplicates, missing fields, null values)
 4. **Generates** formatted documentation with color-coded quality indicators
 
-### Key Features (v3.0.10)
+### Key Features
 
 | Category | Feature | Benefit |
 |----------|---------|---------|
