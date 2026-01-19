@@ -341,8 +341,128 @@ cja_auto_sdr "Production - North America" \
              "Production - APAC"
 ```
 
+## Using Names with Diff Comparison
+
+Data view names work with all diff comparison commands, with one key difference: **diff operations require exactly one match per name**.
+
+### Why Diff Requires Exact Matches
+
+Unlike SDR generation (where multiple matches are all processed), diff comparison needs to know exactly which two data views to compare. Ambiguity would make the comparison meaningless.
+
+| Mode | Multiple Matches Behavior |
+|------|--------------------------|
+| SDR Generation | All matching data views are processed |
+| Diff Comparison | Error with interactive disambiguation prompt |
+
+### Basic Diff with Names
+
+```bash
+# Compare two data views by name
+cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
+
+# Mix names and IDs
+cja_auto_sdr --diff "Production Analytics" dv_67890
+cja_auto_sdr --diff dv_12345 "Staging Analytics"
+```
+
+### Snapshots with Names
+
+```bash
+# Save a snapshot using data view name
+cja_auto_sdr "Production Analytics" --snapshot ./baseline.json
+
+# Compare current state to snapshot
+cja_auto_sdr "Production Analytics" --diff-snapshot ./baseline.json
+```
+
+### Handling Ambiguous Names in Diff Mode
+
+When a name matches multiple data views, you'll be prompted to choose:
+
+```
+$ cja_auto_sdr --diff "Analytics" "Test Environment"
+
+Multiple data views found matching 'Analytics':
+  1. dv_12345 - Analytics (Production)
+  2. dv_67890 - Analytics (Staging)
+  3. dv_abcde - Analytics (Test)
+
+Enter number to select (or 'q' to quit): 1
+
+Using dv_12345 for 'Analytics'
+Comparing data views...
+```
+
+**Note:** Interactive prompts only appear in TTY (terminal) mode. In non-interactive contexts (CI/CD, scripts), ambiguous names will cause an error:
+
+```
+ERROR: Data view name 'Analytics' matches multiple data views.
+       Diff operations require exactly one match per identifier.
+       Use --list-dataviews to find the specific ID, or use a more specific name.
+```
+
+### Fuzzy Matching for Typos
+
+If you mistype a name, the tool suggests similar names:
+
+```
+$ cja_auto_sdr --diff "Prodction Analytics" "Staging"
+
+No data view found with name 'Prodction Analytics'
+Did you mean one of these?
+  - Production Analytics (edit distance: 1)
+  - Production Analytics v2 (edit distance: 4)
+```
+
+### Diff Examples with Names
+
+**Compare environments:**
+```bash
+cja_auto_sdr --diff "Production" "Staging" --changes-only
+```
+
+**Track changes over time:**
+```bash
+# Save baseline
+cja_auto_sdr "Production Analytics" --snapshot ./snapshots/baseline.json
+
+# Later, compare against baseline
+cja_auto_sdr "Production Analytics" --diff-snapshot ./snapshots/baseline.json
+```
+
+**CI/CD validation:**
+```bash
+# Validate staging matches production before deployment
+cja_auto_sdr --diff "Production Analytics" "Staging Analytics" --warn-threshold 5
+```
+
+**Auto-snapshot with names:**
+```bash
+# Automatically save snapshots during comparison
+cja_auto_sdr --diff "Production" "Staging" --auto-snapshot --keep-last 10
+```
+
+### Best Practices for Diff with Names
+
+1. **Use unique, descriptive names** - Avoid generic names like "Analytics" that might match multiple data views
+
+2. **Use IDs in CI/CD** - For automated pipelines, prefer IDs to avoid disambiguation prompts:
+   ```yaml
+   # CI/CD - use IDs for reliability
+   run: cja_auto_sdr --diff dv_12345 dv_67890
+   ```
+
+3. **Use names for interactive work** - Names are more readable for manual comparisons:
+   ```bash
+   # Interactive - use names for clarity
+   cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
+   ```
+
+4. **Test name resolution first** - Use `--list-dataviews` to verify exact names before running diffs
+
 ## See Also
 
 - [CLI Reference](CLI_REFERENCE.md) - Complete command-line options
+- [Diff Comparison Guide](DIFF_COMPARISON.md) - Full diff comparison documentation
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Processing multiple data views
 - [Quick Start Guide](QUICKSTART_GUIDE.md) - Getting started
