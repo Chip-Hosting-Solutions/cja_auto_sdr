@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 import tempfile
 import atexit
 import uuid
+import textwrap
 
 # Attempt to load python-dotenv if available (optional dependency)
 _DOTENV_AVAILABLE = False
@@ -4478,7 +4479,8 @@ def _format_side_by_side(
     diff: ComponentDiff,
     source_label: str,
     target_label: str,
-    col_width: int = 35
+    col_width: int = 35,
+    max_col_width: int = 60
 ) -> List[str]:
     """
     Format a component diff as a side-by-side comparison table.
@@ -4487,7 +4489,8 @@ def _format_side_by_side(
         diff: The ComponentDiff to format
         source_label: Label for source side
         target_label: Label for target side
-        col_width: Base width of each column (will be expanded if labels are longer)
+        col_width: Base width of each column
+        max_col_width: Maximum width of each column (text will wrap)
 
     Returns:
         List of formatted lines for the side-by-side view
@@ -4496,30 +4499,40 @@ def _format_side_by_side(
     if diff.change_type != ChangeType.MODIFIED or not diff.changed_fields:
         return lines
 
-    # Calculate dynamic column width based on label lengths
+    # Pre-compute all display strings
+    field_displays = []
+    for field, (old_val, new_val) in diff.changed_fields.items():
+        old_str = _format_diff_value(old_val, truncate=False)
+        new_str = _format_diff_value(new_val, truncate=False)
+        old_display = f"{field}: {old_str}"
+        new_display = f"{field}: {new_str}"
+        field_displays.append((old_display, new_display))
+
+    # Calculate column width: expand to fit content but cap at max_col_width
     col_width = max(col_width, len(source_label) + 2, len(target_label) + 2)
+    for old_display, new_display in field_displays:
+        col_width = max(col_width, min(len(old_display), max_col_width), min(len(new_display), max_col_width))
+    col_width = min(col_width, max_col_width)
 
     # Header for this component
     lines.append(f"    ┌{'─' * (col_width + 2)}┬{'─' * (col_width + 2)}┐")
     lines.append(f"    │ {source_label:<{col_width}} │ {target_label:<{col_width}} │")
     lines.append(f"    ├{'─' * (col_width + 2)}┼{'─' * (col_width + 2)}┤")
 
-    # Changed fields
-    for field, (old_val, new_val) in diff.changed_fields.items():
-        old_str = _format_diff_value(old_val, truncate=False)
-        new_str = _format_diff_value(new_val, truncate=False)
+    # Changed fields with text wrapping
+    for old_display, new_display in field_displays:
+        # Wrap each side independently
+        old_wrapped = textwrap.wrap(old_display, width=col_width) or ['']
+        new_wrapped = textwrap.wrap(new_display, width=col_width) or ['']
 
-        # Format as "field: value"
-        old_display = f"{field}: {old_str}"
-        new_display = f"{field}: {new_str}"
+        # Pad to same number of lines
+        max_lines = max(len(old_wrapped), len(new_wrapped))
+        old_wrapped.extend([''] * (max_lines - len(old_wrapped)))
+        new_wrapped.extend([''] * (max_lines - len(new_wrapped)))
 
-        # Truncate if needed
-        if len(old_display) > col_width:
-            old_display = old_display[:col_width - 3] + "..."
-        if len(new_display) > col_width:
-            new_display = new_display[:col_width - 3] + "..."
-
-        lines.append(f"    │ {old_display:<{col_width}} │ {new_display:<{col_width}} │")
+        # Output each line
+        for old_line, new_line in zip(old_wrapped, new_wrapped):
+            lines.append(f"    │ {old_line:<{col_width}} │ {new_line:<{col_width}} │")
 
     lines.append(f"    └{'─' * (col_width + 2)}┴{'─' * (col_width + 2)}┘")
 
