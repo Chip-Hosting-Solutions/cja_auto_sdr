@@ -141,14 +141,18 @@ Before comparison, values are normalized to ensure accurate detection:
 | Original Value | Normalized Value | Purpose |
 |---------------|------------------|---------|
 | `None` | `""` (empty string) | Treat null and empty consistently |
+| `NaN` (float/pandas) | `""` (empty string) | Treat NaN values as empty |
 | `"  text  "` | `"text"` | Ignore leading/trailing whitespace |
 | `{"b": 2, "a": 1}` | `{"a": 1, "b": 2}` | Sort dict keys for consistent comparison |
 | `[item1, item2]` | Recursively normalized | Handle nested arrays |
 
 This normalization ensures that:
 - `description: null` equals `description: ""`
+- `description: NaN` equals `description: ""` (both are treated as empty)
 - `name: "Page Views "` equals `name: "Page Views"`
 - Nested objects with different key ordering compare correctly
+
+**Display Format:** Empty/null/NaN values are displayed as `(empty)` in diff output for clarity.
 
 ### Modified Output Formats
 
@@ -157,17 +161,19 @@ This normalization ensures that:
 Modified items display the changed field with before/after values:
 
 ```
-METRICS CHANGES (3)
+METRICS CHANGES (4)
   [~] metrics/pageviews                    description: 'Old description' -> 'New description'
-  [~] metrics/bounce_rate                  name: 'Bounce Rate' -> 'Bounce %', type: 'decimal' -> 'int'
+  [~] metrics/bounce_rate                  name: 'Bounce Rate' -> 'Bounce %'; type: 'decimal' -> 'int'
   [~] metrics/conversion                   title: 'Conv Rate' -> 'Conversion Rate'
+  [~] metrics/sessions                     description: '(empty)' -> 'Session count metric'
 ```
 
 Key elements:
 - `[~]` - Modified indicator (yellow in colored output)
 - Component ID and name
 - Changed fields with `'old value' -> 'new value'` format
-- Multiple field changes shown comma-separated
+- Multiple field changes shown semicolon-separated
+- Empty/null/NaN values displayed as `(empty)`
 
 #### Side-by-Side Output (`--side-by-side`)
 
@@ -325,6 +331,23 @@ $ cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side --show-only modified
 │ precision: 2                        │ precision: 1                        │
 └─────────────────────────────────────┴─────────────────────────────────────┘
 ```
+
+**Example 4: Empty/null value changes**
+
+When descriptions or other fields change from empty/null to having a value (or vice versa), the diff clearly shows `(empty)`:
+
+```bash
+$ cja_auto_sdr --diff "Production" "Staging" --show-only modified
+
+METRICS CHANGES (2)
+  [~] metrics/first_time_sessions    description: '(empty)' -> 'n/a'
+  [~] metrics/return_sessions        description: '(empty)' -> 'Returning visitor sessions'
+
+DIMENSIONS CHANGES (1)
+  [~] variables/session_type         description: '(empty)' -> 'First-time vs Return'
+```
+
+This makes it clear when fields are being populated with values that were previously undefined, which is common during documentation improvements or environment synchronization.
 
 ## Quick Start
 

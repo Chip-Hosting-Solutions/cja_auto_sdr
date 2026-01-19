@@ -215,6 +215,12 @@ Compare two data views or track changes over time with snapshots. This feature i
 
 ### Fixed
 
+#### Diff Comparison NaN Handling
+- **False Positive Fix**: Components with identical null/NaN values no longer incorrectly flagged as "modified"
+- **Proper NaN Detection**: Added `pd.isna()` check in value normalization to treat NaN same as null/empty
+- **Clearer Display**: Empty/null/NaN values now display as `(empty)` instead of `nan` in diff output
+- **Consistent Formatting**: Applied across console, markdown, side-by-side, and breaking changes output
+
 #### Ambiguous Name Resolution in Diff Mode
 - **Separate Resolution**: Source and target identifiers are now resolved independently for diff operations
 - **Exact Match Validation**: Diff operations (`--diff`, `--snapshot`, `--diff-snapshot`) now require exactly one data view match per identifier

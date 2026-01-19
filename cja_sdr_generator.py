@@ -1751,6 +1751,14 @@ class DataViewComparator:
         """Normalize a value for comparison, handling nested structures."""
         if value is None:
             return ''
+        # Handle NaN values (pandas/numpy NaN, float nan)
+        # Must check before string since pd.isna works on scalars
+        try:
+            if pd.isna(value):
+                return ''
+        except (TypeError, ValueError):
+            # pd.isna can fail on some types like dicts/lists
+            pass
         if isinstance(value, str):
             return value.strip()
         if isinstance(value, dict):
@@ -4437,17 +4445,28 @@ def _get_colored_symbol(change_type: ChangeType, use_color: bool = True) -> str:
     return symbol
 
 
+def _format_diff_value(val: Any, truncate: bool = True, max_len: int = 30) -> str:
+    """Format a value for diff display, handling None and NaN."""
+    if val is None:
+        return "(empty)"
+    try:
+        if pd.isna(val):
+            return "(empty)"
+    except (TypeError, ValueError):
+        pass
+    result = str(val)
+    if truncate and len(result) > max_len:
+        result = result[:max_len]
+    return result
+
+
 def _get_change_detail(diff: ComponentDiff, truncate: bool = True) -> str:
     """Get detail string for a component diff"""
     if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
         changes = []
         for field, (old_val, new_val) in diff.changed_fields.items():
-            if truncate:
-                old_str = str(old_val)[:30] if old_val else "(empty)"
-                new_str = str(new_val)[:30] if new_val else "(empty)"
-            else:
-                old_str = str(old_val) if old_val else "(empty)"
-                new_str = str(new_val) if new_val else "(empty)"
+            old_str = _format_diff_value(old_val, truncate)
+            new_str = _format_diff_value(new_val, truncate)
             changes.append(f"{field}: '{old_str}' -> '{new_str}'")
         return "; ".join(changes)
     return ""
@@ -4485,8 +4504,8 @@ def _format_side_by_side(
 
     # Changed fields
     for field, (old_val, new_val) in diff.changed_fields.items():
-        old_str = str(old_val) if old_val is not None else "(empty)"
-        new_str = str(new_val) if new_val is not None else "(empty)"
+        old_str = _format_diff_value(old_val, truncate=False)
+        new_str = _format_diff_value(new_val, truncate=False)
 
         # Format as "field: value"
         old_display = f"{field}: {old_str}"
@@ -4564,7 +4583,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("-" * 40)
         for comp_id, comp_name, field, old_val, new_val in breaking_changes:
             lines.append(f"  {comp_id}: {field} changed")
-            lines.append(f"    '{old_val}' → '{new_val}'")
+            lines.append(f"    '{_format_diff_value(old_val, truncate=False)}' → '{_format_diff_value(new_val, truncate=False)}'")
 
     # Group by field
     lines.append("")
@@ -4577,8 +4596,8 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append(f"{ANSIColors.cyan(field, c)} ({len(changes)} component{'s' if len(changes) != 1 else ''}):")
 
         for comp_id, comp_name, old_val, new_val in changes[:10]:  # Limit to 10 per field
-            old_str = str(old_val)[:30] if old_val else "(empty)"
-            new_str = str(new_val)[:30] if new_val else "(empty)"
+            old_str = _format_diff_value(old_val, truncate=True)
+            new_str = _format_diff_value(new_val, truncate=True)
             lines.append(f"  {comp_id}: '{old_str}' → '{new_str}'")
 
         if len(changes) > 10:
@@ -4660,7 +4679,7 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
         lines.append("| Component | Field | Before | After |")
         lines.append("|-----------|-------|--------|-------|")
         for comp_id, field, old_val, new_val in breaking_changes[:10]:
-            lines.append(f"| `{comp_id}` | {field} | `{old_val}` | `{new_val}` |")
+            lines.append(f"| `{comp_id}` | {field} | `{_format_diff_value(old_val, truncate=False)}` | `{_format_diff_value(new_val, truncate=False)}` |")
         if len(breaking_changes) > 10:
             lines.append(f"| ... | | | +{len(breaking_changes) - 10} more |")
         lines.append("")
@@ -4752,7 +4771,7 @@ def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
                         'old_value': old_val,
                         'new_value': new_val,
                         'severity': 'high',
-                        'description': f"Data type changed from '{old_val}' to '{new_val}'"
+                        'description': f"Data type changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'"
                     })
                 elif field == 'schemaPath':
                     breaking_changes.append({
@@ -4763,7 +4782,7 @@ def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
                         'old_value': old_val,
                         'new_value': new_val,
                         'severity': 'medium',
-                        'description': f"Schema path changed from '{old_val}' to '{new_val}'"
+                        'description': f"Schema path changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'"
                     })
 
     return breaking_changes
@@ -5026,8 +5045,11 @@ def _format_markdown_side_by_side(
     lines.append("| --- | --- | --- |")
 
     for field, (old_val, new_val) in diff.changed_fields.items():
-        old_str = str(old_val).replace("|", "\\|") if old_val is not None else "*(empty)*"
-        new_str = str(new_val).replace("|", "\\|") if new_val is not None else "*(empty)*"
+        old_formatted = _format_diff_value(old_val, truncate=False)
+        new_formatted = _format_diff_value(new_val, truncate=False)
+        # Use italic for empty values in markdown
+        old_str = "*(empty)*" if old_formatted == "(empty)" else old_formatted.replace("|", "\\|")
+        new_str = "*(empty)*" if new_formatted == "(empty)" else new_formatted.replace("|", "\\|")
 
         # Truncate very long values
         if len(old_str) > 50:
