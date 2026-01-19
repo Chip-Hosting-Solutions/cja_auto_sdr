@@ -4359,12 +4359,16 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
     lines.append("")
     lines.append(ANSIColors.bold("SUMMARY", c))
 
-    # Calculate dynamic column widths based on label lengths
-    src_width = max(8, len(diff_result.source_label))  # Min 8 for "Source"
-    tgt_width = max(8, len(diff_result.target_label))  # Min 8 for "Target"
+    # Build full header labels with data view name and ID
+    src_header = f"{diff_result.source_label}: {meta.source_name} ({meta.source_id})"
+    tgt_header = f"{diff_result.target_label}: {meta.target_name} ({meta.target_id})"
+
+    # Calculate dynamic column widths based on full header lengths
+    src_width = max(8, len(src_header))
+    tgt_width = max(8, len(tgt_header))
     total_width = 20 + src_width + tgt_width + 10 + 10 + 10 + 12 + 12 + 7  # +7 for spacing
 
-    lines.append(f"{'':20s} {diff_result.source_label:>{src_width}s} {diff_result.target_label:>{tgt_width}s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Unchanged':>12s} {'Changed':>12s}")
+    lines.append(f"{'':20s} {src_header:>{src_width}s} {tgt_header:>{tgt_width}s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Unchanged':>12s} {'Changed':>12s}")
     lines.append("-" * total_width)
 
     # Metrics row with percentage (using ANSI-aware padding for colored strings)
