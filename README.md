@@ -210,9 +210,11 @@ python cja_sdr_generator.py "Production Analytics"
 | List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
 | Validate config only | `cja_auto_sdr --validate-config` |
-| **Diff Comparison** | |
+| **Diff Comparison** (default: console output) | |
 | Compare two Data Views | `cja_auto_sdr --diff dv_1 dv_2` |
 | Compare by name | `cja_auto_sdr --diff "Production" "Staging"` |
+| Diff as Markdown | `cja_auto_sdr --diff dv_1 dv_2 --format markdown` |
+| Diff as JSON | `cja_auto_sdr --diff dv_1 dv_2 --format json` |
 | Save snapshot | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
 | Compare to snapshot | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
