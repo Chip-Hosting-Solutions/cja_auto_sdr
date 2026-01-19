@@ -234,7 +234,7 @@ Compare two data views or track changes over time with snapshots. This feature i
 
 ### Backward Compatibility
 - **Full Backward Compatibility**: All existing code continues to work unchanged
-- **No Breaking Changes**: All 580 tests pass
+- **No Breaking Changes**: All 596 tests pass
 - **DEFAULT_RETRY_CONFIG Dict**: Still available as a dict for legacy code
 - **Configuration Migration**: Existing configurations work without changes
 

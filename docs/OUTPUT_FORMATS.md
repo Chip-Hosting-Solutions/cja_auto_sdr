@@ -10,6 +10,7 @@ Version 3.0 supports multiple output formats beyond Excel, providing flexible in
 | **CSV** | Individual CSV files for each section | Data processing, spreadsheet import, automation |
 | **JSON** | Hierarchical structured data | APIs, automation, integration with tools |
 | **HTML** | Professional web-ready report | Web viewing, sharing, presentations |
+| **Markdown** (.md) | GitHub/Confluence compatible tables | Documentation, version control, PRs |
 | **All** | Generate all formats simultaneously | Complete documentation package |
 
 ---
@@ -30,6 +31,9 @@ cja_auto_sdr dv_12345 --format json
 
 # HTML format
 cja_auto_sdr dv_12345 --format html
+
+# Markdown format
+cja_auto_sdr dv_12345 --format markdown
 
 # All formats at once
 cja_auto_sdr dv_12345 --format all
@@ -248,7 +252,77 @@ start CJA_DataView_myview_SDR.html  # Windows
 
 ---
 
-### 5. All Formats
+### 5. Markdown Format (.md)
+
+**Output:**
+- Single file: `{base_name}.md`
+- GitHub-flavored markdown with tables
+
+**Features:**
+- Table of contents with navigation links
+- Component tables with all fields
+- Data quality section with severity indicators
+- Collapsible sections for large data
+- Metadata header with generation info
+- Compatible with GitHub, GitLab, Confluence
+
+**Structure:**
+```markdown
+# SDR: Data View Name
+
+## Table of Contents
+- [Metadata](#metadata)
+- [Data Quality](#data-quality)
+- [Metrics](#metrics)
+- [Dimensions](#dimensions)
+
+## Metadata
+| Field | Value |
+|-------|-------|
+| Data View Name | Production Analytics |
+| ID | dv_12345 |
+...
+
+## Data Quality
+| Severity | Category | Type | Issue |
+|----------|----------|------|-------|
+| HIGH | Duplicates | Metrics | ... |
+...
+
+## Metrics (150 total)
+| ID | Name | Description | Type |
+|----|------|-------------|------|
+...
+
+## Dimensions (75 total)
+| ID | Name | Description | Schema Path |
+|----|------|-------------|-------------|
+...
+```
+
+**Best for:**
+- Documentation repositories
+- GitHub/GitLab wikis
+- Confluence pages
+- Version control tracking
+- Pull request attachments
+- Technical documentation
+
+**Example:**
+```bash
+# Generate markdown report
+cja_auto_sdr dv_12345 --format markdown
+
+# View in terminal
+cat CJA_DataView_myview_SDR.md
+
+# Convert to PDF with pandoc (if installed)
+pandoc CJA_DataView_myview_SDR.md -o report.pdf
+```
+
+---
+
+### 6. All Formats
 
 Generate all output formats in a single run for complete documentation packages.
 
@@ -257,6 +331,7 @@ Generate all output formats in a single run for complete documentation packages.
 - `CJA_DataView_{name}_SDR_csv/` (CSV directory)
 - `CJA_DataView_{name}_SDR.json` (JSON)
 - `CJA_DataView_{name}_SDR.html` (HTML)
+- `CJA_DataView_{name}_SDR.md` (Markdown)
 
 **Example:**
 ```bash
@@ -403,7 +478,8 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 | CSV | 0.3s | 0.25x |
 | JSON | 0.2s | 0.17x |
 | HTML | 0.4s | 0.33x |
-| All | 2.1s | 1.75x |
+| Markdown | 0.3s | 0.25x |
+| All | 2.4s | 2.0x |
 
 ### Batch Processing (10 Data Views, 4 workers)
 
@@ -413,7 +489,8 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 | CSV | 25s | 2.5s |
 | JSON | 22s | 2.2s |
 | HTML | 28s | 2.8s |
-| All | 45s | 4.5s |
+| Markdown | 26s | 2.6s |
+| All | 50s | 5.0s |
 
 ---
 
@@ -451,6 +528,15 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 - Quick browser access
 - Documentation portals
 
+### Markdown - When to Use
+
+- Documentation repositories (GitHub, GitLab)
+- Confluence/wiki pages
+- Version control tracking
+- Pull request attachments
+- Technical documentation
+- Text-based archival
+
 ### All - When to Use
 
 - Comprehensive documentation
@@ -462,11 +548,12 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 
 ## Testing
 
-The implementation includes 20 comprehensive tests covering:
+The implementation includes 32 comprehensive tests covering:
 
 - CSV file generation and data integrity
 - JSON structure and validity
 - HTML generation and styling
+- Markdown table formatting and TOC generation
 - Cross-format data consistency
 - Edge cases (empty data, Unicode, special characters)
 - Large dataset handling
@@ -481,6 +568,7 @@ uv run pytest tests/test_output_formats.py -v
 uv run pytest tests/test_output_formats.py::TestCSVOutput -v
 uv run pytest tests/test_output_formats.py::TestJSONOutput -v
 uv run pytest tests/test_output_formats.py::TestHTMLOutput -v
+uv run pytest tests/test_output_formats.py::TestMarkdownOutput -v
 ```
 
 ---
@@ -506,6 +594,7 @@ cja_auto_sdr dv_12345 --format excel
 cja_auto_sdr dv_12345 --format csv
 cja_auto_sdr dv_12345 --format json
 cja_auto_sdr dv_12345 --format html
+cja_auto_sdr dv_12345 --format markdown
 cja_auto_sdr dv_12345 --format all
 ```
 
@@ -553,11 +642,11 @@ df.to_csv(csv_file, index=False, encoding='latin1')  # or other encoding
 
 Output format flexibility provides:
 
-- **Multiple Format Options:** Excel, CSV, JSON, HTML, or all
+- **Multiple Format Options:** Excel, CSV, JSON, HTML, Markdown, or all
 - **Easy CLI Selection:** Simple `--format` flag
 - **Consistent Data:** Same data in all formats
 - **Optimized for Use Cases:** Right format for the right purpose
-- **Fully Tested:** 20 comprehensive tests
+- **Fully Tested:** 32 comprehensive tests
 - **Production Ready:** Zero breaking changes
 
-**Result:** Flexible integration options for automation, APIs, web viewing, and traditional reporting.
+**Result:** Flexible integration options for automation, APIs, web viewing, documentation, and traditional reporting.
