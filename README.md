@@ -252,14 +252,19 @@ python cja_sdr_generator.py "Production Analytics"
 
 ```
 cja_auto_sdr/
-├── cja_sdr_generator.py     # Main script
+├── cja_sdr_generator.py     # Main script (single-file application)
 ├── pyproject.toml           # Project configuration and dependencies
-├── config.json            # Your credentials (DO NOT COMMIT)
-├── config.json.example    # Config file template
+├── uv.lock                  # Dependency lock file for reproducible builds
+├── README.md                # This file
+├── CHANGELOG.md             # Version history and release notes
+├── LICENSE                  # License file
+├── config.json              # Your credentials (DO NOT COMMIT)
+├── config.json.example      # Config file template
 ├── .env.example             # Environment variable template
-├── docs/                    # Documentation
+├── docs/                    # Documentation (14 guides)
 │   ├── QUICKSTART_GUIDE.md  # Getting started guide
 │   ├── CLI_REFERENCE.md     # Command-line reference
+│   ├── DIFF_COMPARISON.md   # Data view comparison guide
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
 ├── tests/                   # Test suite (596 tests)
