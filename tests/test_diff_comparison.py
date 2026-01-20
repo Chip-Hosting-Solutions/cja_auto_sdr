@@ -1888,6 +1888,143 @@ class TestGroupByFieldOutput:
         assert "CHANGES BY FIELD" in output
         assert "description" in output.lower()
 
+    def test_grouped_by_field_limit_default(self, logger):
+        """Test that default limit of 10 truncates output"""
+        from cja_sdr_generator import (
+            write_diff_grouped_by_field_output, DataViewSnapshot,
+            DataViewComparator
+        )
+
+        # Create 15 metrics with description changes to exceed the default limit of 10
+        source_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
+            for i in range(15)
+        ]
+        target_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
+            for i in range(15)
+        ]
+
+        source = DataViewSnapshot(
+            data_view_id="dv_1", data_view_name="Source",
+            metrics=source_metrics, dimensions=[]
+        )
+        target = DataViewSnapshot(
+            data_view_id="dv_2", data_view_name="Target",
+            metrics=target_metrics, dimensions=[]
+        )
+
+        comparator = DataViewComparator(logger)
+        result = comparator.compare(source, target)
+
+        # Default limit=10 should show truncation message
+        output = write_diff_grouped_by_field_output(result, use_color=False, limit=10)
+        assert "... and 5 more" in output
+
+    def test_grouped_by_field_limit_zero_shows_all(self, logger):
+        """Test that limit=0 shows all items without truncation"""
+        from cja_sdr_generator import (
+            write_diff_grouped_by_field_output, DataViewSnapshot,
+            DataViewComparator
+        )
+
+        # Create 15 metrics with description changes
+        source_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
+            for i in range(15)
+        ]
+        target_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
+            for i in range(15)
+        ]
+
+        source = DataViewSnapshot(
+            data_view_id="dv_1", data_view_name="Source",
+            metrics=source_metrics, dimensions=[]
+        )
+        target = DataViewSnapshot(
+            data_view_id="dv_2", data_view_name="Target",
+            metrics=target_metrics, dimensions=[]
+        )
+
+        comparator = DataViewComparator(logger)
+        result = comparator.compare(source, target)
+
+        # limit=0 should show all items without truncation
+        output = write_diff_grouped_by_field_output(result, use_color=False, limit=0)
+        assert "... and" not in output
+        # All 15 metrics should be shown
+        for i in range(15):
+            assert f"m{i}" in output
+
+    def test_grouped_by_field_limit_custom(self, logger):
+        """Test that custom limit value works correctly"""
+        from cja_sdr_generator import (
+            write_diff_grouped_by_field_output, DataViewSnapshot,
+            DataViewComparator
+        )
+
+        # Create 20 metrics with description changes
+        source_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
+            for i in range(20)
+        ]
+        target_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
+            for i in range(20)
+        ]
+
+        source = DataViewSnapshot(
+            data_view_id="dv_1", data_view_name="Source",
+            metrics=source_metrics, dimensions=[]
+        )
+        target = DataViewSnapshot(
+            data_view_id="dv_2", data_view_name="Target",
+            metrics=target_metrics, dimensions=[]
+        )
+
+        comparator = DataViewComparator(logger)
+        result = comparator.compare(source, target)
+
+        # limit=5 should show "... and 15 more"
+        output = write_diff_grouped_by_field_output(result, use_color=False, limit=5)
+        assert "... and 15 more" in output
+
+    def test_grouped_by_field_limit_added_removed(self, logger):
+        """Test that limit applies to ADDED and REMOVED sections too"""
+        from cja_sdr_generator import (
+            write_diff_grouped_by_field_output, DataViewSnapshot,
+            DataViewComparator
+        )
+
+        # Source has 15 metrics, target has none (all removed)
+        source_metrics = [
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Desc {i}", "type": "int"}
+            for i in range(15)
+        ]
+
+        source = DataViewSnapshot(
+            data_view_id="dv_1", data_view_name="Source",
+            metrics=source_metrics, dimensions=[]
+        )
+        target = DataViewSnapshot(
+            data_view_id="dv_2", data_view_name="Target",
+            metrics=[], dimensions=[]
+        )
+
+        comparator = DataViewComparator(logger)
+        result = comparator.compare(source, target)
+
+        # Default limit=10 should truncate removed list
+        output_limited = write_diff_grouped_by_field_output(result, use_color=False, limit=10)
+        assert "REMOVED (15)" in output_limited
+        assert "... and 5 more" in output_limited
+
+        # limit=0 should show all
+        output_unlimited = write_diff_grouped_by_field_output(result, use_color=False, limit=0)
+        assert "REMOVED (15)" in output_unlimited
+        assert "... and" not in output_unlimited
+
 
 class TestPRCommentOutput:
     """Tests for --format-pr-comment output"""
@@ -2085,6 +2222,38 @@ class TestNewCLIFlags:
             sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field']
             args = parse_arguments()
             assert args.group_by_field is True
+        finally:
+            sys.argv = original_argv
+
+    def test_parse_group_by_field_limit_flag(self):
+        """Test that --group-by-field-limit flag is parsed correctly"""
+        from cja_sdr_generator import parse_arguments
+        import sys
+
+        original_argv = sys.argv
+        try:
+            # Test custom value
+            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field', '--group-by-field-limit', '25']
+            args = parse_arguments()
+            assert args.group_by_field_limit == 25
+
+            # Test zero (unlimited)
+            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field', '--group-by-field-limit', '0']
+            args = parse_arguments()
+            assert args.group_by_field_limit == 0
+        finally:
+            sys.argv = original_argv
+
+    def test_parse_group_by_field_limit_default(self):
+        """Test that --group-by-field-limit defaults to 10"""
+        from cja_sdr_generator import parse_arguments
+        import sys
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field']
+            args = parse_arguments()
+            assert args.group_by_field_limit == 10
         finally:
             sys.argv = original_argv
 

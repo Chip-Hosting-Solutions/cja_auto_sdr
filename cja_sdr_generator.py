@@ -5069,13 +5069,14 @@ def _format_side_by_side(
     return lines
 
 
-def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool = True) -> str:
+def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool = True, limit: int = 10) -> str:
     """
     Write diff output grouped by changed field instead of by component.
 
     Args:
         diff_result: The DiffResult to output
         use_color: Use ANSI color codes
+        limit: Max items per section (0 = unlimited)
 
     Returns:
         Formatted string for console output
@@ -5140,13 +5141,14 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("")
         lines.append(f"{ANSIColors.cyan(field, c)} ({len(changes)} component{'s' if len(changes) != 1 else ''}):")
 
-        for comp_id, comp_name, old_val, new_val in changes[:10]:  # Limit to 10 per field
+        items_to_show = changes if limit == 0 else changes[:limit]
+        for comp_id, comp_name, old_val, new_val in items_to_show:
             old_str = _format_diff_value(old_val, truncate=True)
             new_str = _format_diff_value(new_val, truncate=True)
             lines.append(f"  {comp_id}: '{old_str}' → '{new_str}'")
 
-        if len(changes) > 10:
-            lines.append(f"  ... and {len(changes) - 10} more")
+        if limit > 0 and len(changes) > limit:
+            lines.append(f"  ... and {len(changes) - limit} more")
 
     # Added/removed summary
     added = [d for d in all_diffs if d.change_type == ChangeType.ADDED]
@@ -5155,18 +5157,20 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
     if added:
         lines.append("")
         lines.append(ANSIColors.green(f"ADDED ({len(added)})", c))
-        for diff in added[:10]:
+        added_to_show = added if limit == 0 else added[:limit]
+        for diff in added_to_show:
             lines.append(f"  [+] {diff.id}")
-        if len(added) > 10:
-            lines.append(f"  ... and {len(added) - 10} more")
+        if limit > 0 and len(added) > limit:
+            lines.append(f"  ... and {len(added) - limit} more")
 
     if removed:
         lines.append("")
         lines.append(ANSIColors.red(f"REMOVED ({len(removed)})", c))
-        for diff in removed[:10]:
+        removed_to_show = removed if limit == 0 else removed[:limit]
+        for diff in removed_to_show:
             lines.append(f"  [-] {diff.id}")
-        if len(removed) > 10:
-            lines.append(f"  ... and {len(removed) - 10} more")
+        if limit > 0 and len(removed) > limit:
+            lines.append(f"  ... and {len(removed) - limit} more")
 
     lines.append("")
     lines.append("=" * 80)
@@ -6081,7 +6085,8 @@ def write_diff_output(
     summary_only: bool = False,
     side_by_side: bool = False,
     use_color: bool = True,
-    group_by_field: bool = False
+    group_by_field: bool = False,
+    group_by_field_limit: int = 10
 ) -> Optional[str]:
     """
     Write diff comparison output in specified format(s).
@@ -6097,6 +6102,7 @@ def write_diff_output(
         side_by_side: Show side-by-side comparison for modified items
         use_color: Use ANSI color codes in console output
         group_by_field: Group changes by field name instead of component
+        group_by_field_limit: Max items per section in group-by-field output (0 = unlimited)
 
     Returns:
         Console output string (for console/pr-comment format) or None
@@ -6107,7 +6113,7 @@ def write_diff_output(
 
     # Handle group-by-field output mode
     if group_by_field and output_format in ['console', 'all']:
-        console_output = write_diff_grouped_by_field_output(diff_result, use_color)
+        console_output = write_diff_grouped_by_field_output(diff_result, use_color, group_by_field_limit)
         print(console_output)
         if output_format == 'console':
             return console_output
@@ -7507,6 +7513,14 @@ Requirements:
     )
 
     diff_group.add_argument(
+        '--group-by-field-limit',
+        type=int,
+        default=10,
+        metavar='N',
+        help='Max items per section in --group-by-field output (default: 10, 0 = unlimited)'
+    )
+
+    diff_group.add_argument(
         '--diff-output',
         type=str,
         metavar='FILE',
@@ -8545,7 +8559,8 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
                         extended_fields: bool = False, side_by_side: bool = False,
                         no_color: bool = False, quiet_diff: bool = False,
                         reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                        group_by_field: bool = False, diff_output: Optional[str] = None,
+                        group_by_field: bool = False, group_by_field_limit: int = 10,
+                        diff_output: Optional[str] = None,
                         format_pr_comment: bool = False, auto_snapshot: bool = False,
                         snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
     """
@@ -8572,6 +8587,7 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
         reverse_diff: Swap source and target
         warn_threshold: Exit with code 3 if change % exceeds threshold
         group_by_field: Group changes by field name
+        group_by_field_limit: Max items per section in group-by-field output (0 = unlimited)
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
         auto_snapshot: Automatically save snapshots during diff
@@ -8691,7 +8707,7 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
             output_content = write_diff_output(
                 diff_result, effective_format, base_filename, output_dir, logger,
                 changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field
+                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
             )
 
             # Handle --diff-output flag
@@ -8723,7 +8739,8 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
                                   extended_fields: bool = False, side_by_side: bool = False,
                                   no_color: bool = False, quiet_diff: bool = False,
                                   reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                                  group_by_field: bool = False, diff_output: Optional[str] = None,
+                                  group_by_field: bool = False, group_by_field_limit: int = 10,
+                                  diff_output: Optional[str] = None,
                                   format_pr_comment: bool = False, auto_snapshot: bool = False,
                                   snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
     """
@@ -8750,6 +8767,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         reverse_diff: Swap source and target
         warn_threshold: Exit with code 3 if change % exceeds threshold
         group_by_field: Group changes by field name
+        group_by_field_limit: Max items per section in group-by-field output (0 = unlimited)
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
         auto_snapshot: Automatically save snapshot of current data view state
@@ -8852,7 +8870,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             output_content = write_diff_output(
                 diff_result, effective_format, base_filename, output_dir, logger,
                 changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field
+                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
             )
 
             # Handle --diff-output flag
@@ -8890,7 +8908,8 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
                                       extended_fields: bool = False, side_by_side: bool = False,
                                       no_color: bool = False, quiet_diff: bool = False,
                                       reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                                      group_by_field: bool = False, diff_output: Optional[str] = None,
+                                      group_by_field: bool = False, group_by_field_limit: int = 10,
+                                      diff_output: Optional[str] = None,
                                       format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --compare-snapshots command to compare two snapshot files directly.
@@ -8920,6 +8939,7 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
         reverse_diff: Swap source and target
         warn_threshold: Exit with code 3 if change % exceeds threshold
         group_by_field: Group changes by field name
+        group_by_field_limit: Max items per section in group-by-field output (0 = unlimited)
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
 
@@ -9007,7 +9027,7 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
             output_content = write_diff_output(
                 diff_result, effective_format, base_filename, output_dir, logger,
                 changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field
+                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
             )
 
             # Handle --diff-output flag
@@ -9220,6 +9240,7 @@ def main():
             reverse_diff=getattr(args, 'reverse_diff', False),
             warn_threshold=getattr(args, 'warn_threshold', None),
             group_by_field=getattr(args, 'group_by_field', False),
+            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
             diff_output=getattr(args, 'diff_output', None),
             format_pr_comment=getattr(args, 'format_pr_comment', False)
         )
@@ -9321,6 +9342,7 @@ def main():
             reverse_diff=getattr(args, 'reverse_diff', False),
             warn_threshold=getattr(args, 'warn_threshold', None),
             group_by_field=getattr(args, 'group_by_field', False),
+            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
             diff_output=getattr(args, 'diff_output', None),
             format_pr_comment=getattr(args, 'format_pr_comment', False),
             auto_snapshot=getattr(args, 'auto_snapshot', False),
@@ -9436,6 +9458,7 @@ def main():
             reverse_diff=getattr(args, 'reverse_diff', False),
             warn_threshold=getattr(args, 'warn_threshold', None),
             group_by_field=getattr(args, 'group_by_field', False),
+            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
             diff_output=getattr(args, 'diff_output', None),
             format_pr_comment=getattr(args, 'format_pr_comment', False),
             auto_snapshot=getattr(args, 'auto_snapshot', False),

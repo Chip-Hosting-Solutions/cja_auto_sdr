@@ -310,6 +310,16 @@ name (2 changes):
   - dimensions/page: 'Page' -> 'Page URL'
 ```
 
+By default, each section shows up to 10 items with a "... and N more" message for larger lists. Use `--group-by-field-limit` to adjust:
+
+```bash
+# Show all items (no truncation)
+cja_auto_sdr --diff dv_12345 dv_67890 --group-by-field --group-by-field-limit 0
+
+# Show first 25 items per section
+cja_auto_sdr --diff dv_12345 dv_67890 --group-by-field --group-by-field-limit 25
+```
+
 This view is particularly useful when:
 
 - You want to see all `type` changes together (potential breaking changes)
@@ -581,6 +591,7 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--reverse-diff` | Swap source and target comparison direction. |
 | `--warn-threshold PERCENT` | Exit with code 3 if change percentage exceeds threshold. |
 | `--group-by-field` | Group changes by field name instead of by component. |
+| `--group-by-field-limit N` | Max items per section in --group-by-field output (default: 10, 0=unlimited). |
 | `--diff-output FILE` | Write diff output directly to file instead of stdout. |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format with collapsible details. |
 | `--auto-snapshot` | Automatically save snapshots during diff for audit trail. |
@@ -1112,10 +1123,10 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestNewCLIArguments` | 5 | CLI flags |
 | `TestDiffSummaryPercentages` | 5 | Percentage stats, natural language summary |
 | `TestColoredConsoleOutput` | 2 | ANSI color codes, --no-color flag |
-| `TestGroupByFieldOutput` | 1 | --group-by-field output mode |
+| `TestGroupByFieldOutput` | 5 | --group-by-field output mode, --group-by-field-limit |
 | `TestPRCommentOutput` | 2 | --format-pr-comment output |
 | `TestBreakingChangeDetection` | 3 | Type changes, removals detection |
-| `TestNewCLIFlags` | 7 | All new CLI flags |
+| `TestNewCLIFlags` | 9 | All new CLI flags |
 | `TestAmbiguousNameResolution` | 6 | Ambiguous name handling in diff mode |
 | `TestLevenshteinDistance` | 4 | Edit distance algorithm accuracy |
 | `TestFindSimilarNames` | 5 | Fuzzy name matching suggestions |
@@ -1127,7 +1138,7 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestRetentionPolicy` | 5 | Keep all, delete old, per-data-view filtering |
 | `TestAutoSnapshotCLIArguments` | 7 | --auto-snapshot, --snapshot-dir, --keep-last |
 
-**Total: 139 tests**
+**Total: 145 tests**
 
 ### Running Tests
 

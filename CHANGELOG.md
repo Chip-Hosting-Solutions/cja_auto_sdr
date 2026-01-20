@@ -5,11 +5,12 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.11] - 2026-01-19
+## [3.0.11] - 2026-01-20
 
 ### Highlights
 - **Git Integration (New)** - Version-controlled SDR snapshots for audit trails, change tracking, and team collaboration
 - **Performance Optimizations** - Vectorized markdown table generation, Excel format caching, lazy logging
+- **`--group-by-field-limit`** - Control truncation in grouped diff output
 
 This release introduces **Git Integration** for maintaining a version-controlled history of data view configurations, plus performance optimizations for markdown generation, Excel formatting, and logging.
 
@@ -110,13 +111,36 @@ cja_auto_sdr dv_prod dv_staging dv_dev --git-commit
 - Added `logger.isEnabledFor()` checks before expensive log message construction in `ValidationCache` methods
 - Reduces logging overhead in production mode
 
+#### Diff Output Control
+
+**`--group-by-field-limit N`**: Control the number of items shown per section in `--group-by-field` output.
+- Default is 10 items per section
+- Use `--group-by-field-limit 0` for unlimited (no truncation)
+- Applies to CHANGES BY FIELD, ADDED, and REMOVED sections
+
+```bash
+# Show all items (no truncation)
+cja_auto_sdr --diff dv_12345 dv_67890 --group-by-field --group-by-field-limit 0
+
+# Show first 25 items per section
+cja_auto_sdr --diff dv_12345 dv_67890 --group-by-field --group-by-field-limit 25
+```
+
+**6 New Tests** for `--group-by-field-limit`:
+- `test_grouped_by_field_limit_default`: Verifies default limit of 10 truncates output
+- `test_grouped_by_field_limit_zero_shows_all`: Verifies limit=0 shows all items
+- `test_grouped_by_field_limit_custom`: Verifies custom limit values work correctly
+- `test_grouped_by_field_limit_added_removed`: Verifies limit applies to ADDED/REMOVED sections
+- `test_parse_group_by_field_limit_flag`: CLI argument parsing test
+- `test_parse_group_by_field_limit_default`: CLI default value test
+
 ### Changed
-- **Test Count**: 623 → 651 tests (+28 new Git integration tests)
+- **Test Count**: 623 → 658 tests (+28 Git integration tests, +6 group-by-field-limit tests)
 - **Documentation**: 14 → 15 guides (new Git Integration guide)
 
 ### Backward Compatibility
 - **Full Backward Compatibility**: All existing commands continue to work unchanged
-- **No Breaking Changes**: All 651 tests pass
+- **No Breaking Changes**: All 658 tests pass
 - **Git Integration Optional**: New Git features are opt-in via CLI flags
 
 ---

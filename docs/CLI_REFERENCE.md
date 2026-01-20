@@ -131,6 +131,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--reverse-diff` | Swap source and target comparison direction | False |
 | `--warn-threshold PERCENT` | Exit with code 3 if change % exceeds threshold | - |
 | `--group-by-field` | Group changes by field name instead of component | False |
+| `--group-by-field-limit N` | Max items per section in --group-by-field output (0=unlimited) | 10 |
 | `--diff-output FILE` | Write output to file instead of stdout | - |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format | False |
 | `--auto-snapshot` | Automatically save snapshots during diff for audit trail | False |
