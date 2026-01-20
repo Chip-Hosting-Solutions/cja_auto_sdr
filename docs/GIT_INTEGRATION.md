@@ -12,6 +12,18 @@ The Git integration feature allows you to automatically save SDR snapshots in a 
 - **PR-Based Review**: Review configuration changes through pull requests
 - **Compliance**: Evidence of configuration state at any point in time
 
+## Prerequisites
+
+- **Git installed**: Ensure Git is in your PATH
+  ```bash
+  git --version
+  ```
+- **Git identity configured**: Required for commits
+  ```bash
+  git config --global user.name "Your Name"
+  git config --global user.email "you@example.com"
+  ```
+
 ## Quick Start
 
 ```bash
