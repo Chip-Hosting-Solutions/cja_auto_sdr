@@ -212,10 +212,10 @@ jobs:
 
       - name: Generate SDR snapshot
         env:
-          CJA_CLIENT_ID: ${{ secrets.CJA_CLIENT_ID }}
-          CJA_CLIENT_SECRET: ${{ secrets.CJA_CLIENT_SECRET }}
-          CJA_ORG_ID: ${{ secrets.CJA_ORG_ID }}
-          CJA_TECHNICAL_ACCOUNT_ID: ${{ secrets.CJA_TECHNICAL_ACCOUNT_ID }}
+          ORG_ID: ${{ secrets.ORG_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          SECRET: ${{ secrets.SECRET }}
+          SCOPES: openid, AdobeID, additional_info.projectedProductContext
         run: |
           cja_auto_sdr dv_prod \
             --git-commit \
