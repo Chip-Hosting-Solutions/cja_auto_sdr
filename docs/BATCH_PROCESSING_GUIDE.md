@@ -229,6 +229,7 @@ Throughput: 4.8 data views per minute
 
 ```bash
 # Add to crontab (crontab -e)
+# Note: In crontab, % has special meaning (newline), so it must be escaped with \
 
 # Process all data views nightly at 2 AM
 0 2 * * * cd /path/to/project && cja_auto_sdr \

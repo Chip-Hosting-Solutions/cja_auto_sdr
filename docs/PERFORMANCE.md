@@ -2,6 +2,8 @@
 
 Technical details and optimization options for the CJA SDR Generator.
 
+> **Note:** Performance benchmarks in this guide were measured with v3.0.11. Actual performance may vary based on network conditions, API rate limits, and data view size.
+
 ## Performance Overview
 
 The generator includes multiple optimization features:
@@ -353,5 +355,3 @@ Total Execution Time               :  10.75s
 - [CLI Reference](CLI_REFERENCE.md) - Performance-related flags
 - [Data View Comparison Guide](DIFF_COMPARISON.md) - Diff, snapshots, and CI/CD integration
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Detailed batch documentation
-- [Optimization Summary](OPTIMIZATION_SUMMARY.md) - Technical implementation details
-- [Stress Test Results](STRESS_TEST_RESULTS.md) - Benchmark data

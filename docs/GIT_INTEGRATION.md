@@ -468,7 +468,7 @@ cja_auto_sdr dv_prod --format excel --git-commit
 
 ## Limitations
 
-1. **Read-Only**: Git integration provides audit/tracking capabilities only. The CJA API does not currently support write operations for data view components, so rollback must be done manually in the CJA UI.
+1. **Read-Only**: Git integration provides audit/tracking capabilities only. This tool reads from CJA and saves snapshots locally—it cannot push changes back to CJA. Any configuration changes must be made directly in the CJA UI.
 
 2. **Timestamp Changes**: The `metadata.json` file includes a `created_at` timestamp that changes with each snapshot. This means a new commit will be created even if metrics/dimensions are unchanged. The actual component files (`metrics.json`, `dimensions.json`) will show no diff if unchanged.
 

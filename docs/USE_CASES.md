@@ -232,6 +232,7 @@ crontab -e
 0 9 * * 1 cd /path/to/project && cja_auto_sdr dv_12345
 
 # Daily batch at 2 AM
+# Note: In crontab, % has special meaning (newline), so it must be escaped with \
 0 2 * * * cd /path/to/project && cja_auto_sdr \
   dv_12345 dv_67890 --output-dir /reports/$(date +\%Y\%m\%d) --continue-on-error
 ```
@@ -365,9 +366,9 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
@@ -387,7 +388,7 @@ jobs:
           SECRET: ${{ secrets.SECRET }}
           SCOPES: ${{ secrets.SCOPES }}
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: sdr-reports
           path: ./artifacts/*.xlsx
@@ -407,9 +408,9 @@ jobs:
   drift-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
@@ -432,7 +433,7 @@ jobs:
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && steps.drift.outputs.exit_code != '0'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
@@ -445,7 +446,7 @@ jobs:
             });
 
       - name: Upload snapshots
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: snapshots
           path: ./snapshots/*.json
