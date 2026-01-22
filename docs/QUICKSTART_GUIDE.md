@@ -28,14 +28,14 @@ Before starting, ensure you have:
 
 - [ ] **Adobe CJA Access** - An active CJA subscription with at least one Data View
 - [ ] **Adobe Developer Console Access** - Permission to create API integrations
-- [ ] **Python 3.14+** - Check with `python --version`
+- [ ] **Python 3.14+** - Check with `python3 --version`
 - [ ] **Terminal/Command Line** - Basic familiarity with running commands
 - [ ] **20 minutes** - Most time is spent on Adobe Developer Console setup
 
 ### Verify Python Installation
 
 ```bash
-python --version
+python3 --version
 # Output: Python 3.14.x or higher
 ```
 
