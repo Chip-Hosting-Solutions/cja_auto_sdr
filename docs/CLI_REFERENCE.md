@@ -501,8 +501,11 @@ Enable tab-completion for all CLI options using the `argcomplete` package.
 ### Installation
 
 ```bash
-# Install the completion optional dependency
-pip install cja-auto-sdr[completion]
+# Install the completion optional dependency (from project root)
+pip install .[completion]
+
+# Or with uv
+uv add argcomplete
 
 # Or install argcomplete directly
 pip install argcomplete

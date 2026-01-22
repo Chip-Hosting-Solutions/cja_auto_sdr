@@ -336,7 +336,7 @@ All dependencies are managed through `pyproject.toml`:
 
 ```toml
 [project]
-name = "cja_auto_sdr"
+name = "cja-auto-sdr"
 version = "3.0.11"
 requires-python = ">=3.14"
 dependencies = [
@@ -350,9 +350,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.4",
+    "pytest-cov>=4.1.0",
 ]
 env = [
     "python-dotenv>=1.0.0",
+]
+completion = [
+    "argcomplete>=3.0.0",
 ]
 ```
 
