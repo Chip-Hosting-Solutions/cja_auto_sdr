@@ -1063,7 +1063,7 @@ remote: Invalid username or token. Password authentication is not supported for 
 4. Copy the generated token
 5. When cloning, use the token as your password:
    ```bash
-   git clone https://github.com/your-org/cja_auto_sdr.git
+   git clone https://github.com/brian-a-au/cja_auto_sdr.git
    # Username: your-github-username
    # Password: paste-your-token-here
    ```
@@ -1077,7 +1077,7 @@ remote: Invalid username or token. Password authentication is not supported for 
 2. Add the public key to GitHub (Settings → SSH and GPG keys)
 3. Clone using SSH URL:
    ```bash
-   git clone git@github.com:your-org/cja_auto_sdr.git
+   git clone git@github.com:brian-a-au/cja_auto_sdr.git
    ```
 
 **Option 3: Use GitHub CLI**
@@ -1089,7 +1089,7 @@ remote: Invalid username or token. Password authentication is not supported for 
    ```
 3. Clone the repository:
    ```bash
-   gh repo clone your-org/cja_auto_sdr
+   gh repo clone brian-a-au/cja_auto_sdr
    ```
 
 **Windows-specific note:** If using Git Credential Manager, it should prompt you for authentication automatically and can store your PAT securely.

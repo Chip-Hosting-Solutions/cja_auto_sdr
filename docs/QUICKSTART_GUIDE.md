@@ -130,7 +130,7 @@ Choose where you want to install the tool (e.g., your home directory, a projects
 cd ~/projects  # or any directory you prefer
 
 # Clone the repository
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 
 # Enter the project directory
 cd cja_auto_sdr

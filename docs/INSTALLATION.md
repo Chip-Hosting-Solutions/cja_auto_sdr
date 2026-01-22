@@ -63,7 +63,7 @@ cd C:\projects                 # A dedicated projects folder
 **Step 2: Clone the repository**
 
 ```bash
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 cd cja_auto_sdr
 ```
 
@@ -114,7 +114,7 @@ For system-wide installation without cloning:
 
 ```bash
 # Clone first
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 cd cja_auto_sdr
 
 # Install globally (no venv needed after this)
@@ -128,7 +128,7 @@ cja_auto_sdr --version
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 cd cja_auto_sdr
 
 # Create virtual environment
@@ -166,7 +166,7 @@ python -c "import sys; print(sys.executable)"
 
 ```text
 # Clone the repository
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 cd cja_auto_sdr
 
 # Create virtual environment

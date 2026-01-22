@@ -68,7 +68,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/cja_auto_sdr.git
+git clone https://github.com/brian-a-au/cja_auto_sdr.git
 cd cja_auto_sdr
 ```
 

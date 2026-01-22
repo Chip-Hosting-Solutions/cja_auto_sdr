@@ -307,7 +307,7 @@ cja_auto_sdr --git-init --git-dir ./sdr-snapshots
 
 # Add remote
 cd sdr-snapshots
-git remote add origin git@github.com:your-org/cja-snapshots.git
+git remote add origin git@github.com:brian-a-au/cja-snapshots.git
 
 # Push initial commit
 git push -u origin main
@@ -396,7 +396,7 @@ For long-running repositories, consider:
 git rebase -i HEAD~100
 
 # Or use shallow clones for CI
-git clone --depth 10 git@github.com:your-org/cja-snapshots.git
+git clone --depth 10 git@github.com:brian-a-au/cja-snapshots.git
 ```
 
 ## Troubleshooting
@@ -433,7 +433,7 @@ sudo apt-get install git
 cd sdr-snapshots && git remote -v
 
 # Add remote if missing
-git remote add origin git@github.com:your-org/cja-snapshots.git
+git remote add origin git@github.com:brian-a-au/cja-snapshots.git
 
 # Check authentication
 ssh -T git@github.com
