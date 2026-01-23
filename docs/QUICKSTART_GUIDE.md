@@ -204,26 +204,7 @@ cja_auto_sdr --version
 
 You have two options for configuring credentials:
 
-### Option A: Environment Variables (Recommended for CI/CD)
-
-Create a `.env` file in the project root ([what are environment variables?](https://www.twilio.com/en-us/blog/how-to-set-environment-variables-html)):
-
-```bash
-ORG_ID=YOUR_ORG_ID@AdobeOrg
-CLIENT_ID=YOUR_CLIENT_ID
-SECRET=YOUR_CLIENT_SECRET
-SCOPES=openid, AdobeID, additional_info.projectedProductContext
-```
-
-To enable `.env` file loading:
-
-```bash
-uv add python-dotenv
-```
-
-### Option B: Configuration File
-
-#### 3.1 Create Configuration File
+### Option A: Configuration File (Quickest)
 
 Create a file named `config.json` in the project root directory:
 
@@ -246,8 +227,6 @@ Or create it manually ([JSON syntax guide](https://developer.mozilla.org/en-US/d
 }
 ```
 
-#### 3.2 Fill In Your Credentials
-
 Replace the placeholder values with the credentials from Step 1.5:
 
 ```json
@@ -259,18 +238,26 @@ Replace the placeholder values with the credentials from Step 1.5:
 }
 ```
 
-### 3.3 Secure Your Credentials
+> **Security:** The `config.json` file is already in `.gitignore`—it won't be committed to version control.
 
-Ensure credentials are not committed to version control:
+### Option B: Environment Variables (Recommended for CI/CD)
+
+For automated pipelines or shared environments, use a `.env` file ([what are environment variables?](https://www.twilio.com/en-us/blog/how-to-set-environment-variables-html)):
 
 ```bash
-# Check if it's ignored
-git check-ignore config.json
-# Should output: config.json
-
-# If not, add it
-echo "config.json" >> .gitignore
+ORG_ID=YOUR_ORG_ID@AdobeOrg
+CLIENT_ID=YOUR_CLIENT_ID
+SECRET=YOUR_CLIENT_SECRET
+SCOPES=openid, AdobeID, additional_info.projectedProductContext
 ```
+
+To enable `.env` file loading:
+
+```bash
+uv add python-dotenv
+```
+
+> **Note:** Environment variables take precedence over `config.json` if both are set.
 
 ---
 
@@ -278,21 +265,25 @@ echo "config.json" >> .gitignore
 
 Before generating reports, verify everything is configured correctly.
 
-### 4.1 Test API Connection
+### 4.1 Validate Configuration
 
-**macOS/Linux:**
+First, check that your credentials are valid:
+
+```bash
+uv run cja_auto_sdr --validate-config
+```
+
+This verifies your configuration without making API calls.
+
+### 4.2 Test API Connection
+
+List your accessible Data Views to confirm the API connection works:
+
 ```bash
 uv run cja_auto_sdr --list-dataviews
 ```
 
-**Windows (PowerShell):**
-```text
-# If uv run works:
-uv run cja_auto_sdr --list-dataviews
-
-# If not, use Python directly:
-python cja_sdr_generator.py --list-dataviews
-```
+> **Windows Users:** If `uv run` doesn't work, use `python cja_sdr_generator.py --list-dataviews` instead.
 
 **Successful output:**
 ```
@@ -321,29 +312,33 @@ Available Data Views:
 
 > **Tip:** For scripting, use `--format json` or `--output -` to get machine-readable output:
 > ```bash
-> cja_auto_sdr --list-dataviews --format json
-> cja_auto_sdr --list-dataviews --output - | jq '.dataViews[].id'
+> uv run cja_auto_sdr --list-dataviews --format json
+> uv run cja_auto_sdr --list-dataviews --output - | jq '.dataViews[].id'
 > ```
 
-### 4.2 Choose a Data View
+### 4.3 Choose a Data View
 
 From the list above, note the **ID** of the Data View you want to document. It looks like:
 ```
 dv_677ea9291244fd082f02dd42
 ```
 
-### 4.3 Dry Run (Optional)
+### 4.4 Quick Stats (Optional)
 
-Test without generating a report:
+Before generating a full report, you can quickly check what's in a data view:
 
-**macOS/Linux:**
 ```bash
-uv run cja_auto_sdr dv_YOUR_DATA_VIEW_ID --dry-run
+uv run cja_auto_sdr dv_677ea9291244fd082f02dd42 --stats
 ```
 
-**Windows (PowerShell):**
-```text
-python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID --dry-run
+This shows the number of metrics and dimensions without generating any files—useful for verifying access and checking data view size.
+
+### 4.5 Dry Run (Optional)
+
+Test the full process without generating a report:
+
+```bash
+uv run cja_auto_sdr dv_YOUR_DATA_VIEW_ID --dry-run
 ```
 
 **Expected output:**
@@ -448,36 +443,8 @@ Get-ChildItem *.xlsx
 
 > **Tip:** Use `--open` to automatically open the file after generation:
 > ```bash
-> cja_auto_sdr dv_677ea9291244fd082f02dd42 --open
+> uv run cja_auto_sdr dv_677ea9291244fd082f02dd42 --open
 > ```
-
-### 5.4 Quick Stats (Optional)
-
-Before generating a full report, you can quickly check what's in a data view:
-
-```bash
-cja_auto_sdr dv_677ea9291244fd082f02dd42 --stats
-```
-
-**Output:**
-```
-============================================================
-DATA VIEW STATISTICS
-============================================================
-
-ID                             Name                          Metrics     Dims    Total
-------------------------------------------------------------------------------------------
-dv_677ea9291244fd082f02dd42    Production Analytics               145      287      432
-------------------------------------------------------------------------------------------
-TOTAL                                                              145      287      432
-
-============================================================
-```
-
-This is useful for:
-- Quickly verifying you have access to a data view
-- Checking the size before generating a full report
-- Scripting (use `--format json --output -` for machine-readable output)
 
 ---
 
@@ -572,14 +539,14 @@ Now that you've generated your first SDR, here are common next steps:
 
 ```bash
 # Process all your Data Views at once
-cja_auto_sdr dv_id1 dv_id2 dv_id3
+uv run cja_auto_sdr dv_id1 dv_id2 dv_id3
 ```
 
 ### Generate All Formats
 
 ```bash
 # Excel, CSV, JSON, and HTML
-cja_auto_sdr dv_12345 --format all
+uv run cja_auto_sdr dv_12345 --format all
 ```
 
 ### Set Up Automation
@@ -601,10 +568,10 @@ For large Data Views, see the [Performance Guide](PERFORMANCE.md):
 Track changes between environments or over time with diff comparison:
 ```bash
 # Compare two data views
-cja_auto_sdr --diff dv_12345 dv_67890
+uv run cja_auto_sdr --diff dv_12345 dv_67890
 
 # Save a baseline snapshot
-cja_auto_sdr dv_12345 --snapshot ./baseline.json
+uv run cja_auto_sdr dv_12345 --snapshot ./baseline.json
 ```
 
 See [Data View Comparison](DIFF_COMPARISON.md) for more details.
