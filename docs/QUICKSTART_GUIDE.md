@@ -36,17 +36,13 @@ Before starting, ensure you have:
 
 **macOS/Linux:**
 ```bash
-python3 --version
-```
-```
+$ python3 --version
 Python 3.14.x
 ```
 
 **Windows (PowerShell):**
 ```powershell
-python --version
-```
-```
+> python --version
 Python 3.14.x
 ```
 
@@ -121,9 +117,7 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 Restart your terminal, then verify:
 ```bash
-uv --version
-```
-```
+$ uv --version
 uv 0.x.x
 ```
 
@@ -182,9 +176,7 @@ This command:
 `uv run` automatically uses the project's virtual environment—no activation needed:
 
 ```bash
-uv run cja_auto_sdr --version
-```
-```
+$ uv run cja_auto_sdr --version
 cja_auto_sdr 3.0.11
 ```
 
@@ -439,17 +431,13 @@ The generated file is in the current directory:
 
 **macOS/Linux:**
 ```bash
-ls -la *.xlsx
-```
-```
+$ ls -la *.xlsx
 CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
 ```
 
 **Windows (PowerShell):**
 ```powershell
-Get-ChildItem *.xlsx
-```
-```
+> Get-ChildItem *.xlsx
 CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
 ```
 
