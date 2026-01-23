@@ -173,37 +173,30 @@ This command:
 
 ### 2.4 Verify Installation
 
-**macOS/Linux:**
+`uv run` automatically uses the project's virtual environment—no activation needed:
+
 ```bash
-# Using uv run (works without activating venv)
 uv run cja_auto_sdr --version
 # Output: cja_auto_sdr 3.0.11
-
-# Or activate the virtual environment first (what's activating? see link above)
-source .venv/bin/activate
-cja_auto_sdr --version
-# Output: cja_auto_sdr 3.0.11
-```
-
-**Windows (PowerShell):**
-```text
-# Try uv run first
-uv run cja_auto_sdr --version
-
-# If that doesn't work, activate virtual environment
-.venv\Scripts\activate
-
-# Then run directly
-python cja_sdr_generator.py --version
-# Output: cja_auto_sdr 3.0.11
-
-# Or use the console script if it was installed
-cja_auto_sdr --version
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
 
-> **Windows Users:** If `uv run` or the console script doesn't work, always use `python cja_sdr_generator.py` instead. This is the most reliable method on Windows. See [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for troubleshooting.
+**Alternative: Manual activation**
+
+If you prefer traditional virtual environment activation:
+
+```bash
+# macOS/Linux
+source .venv/bin/activate
+cja_auto_sdr --version
+
+# Windows PowerShell
+.venv\Scripts\activate
+cja_auto_sdr --version
+```
+
+> **Windows Users:** If `uv run` doesn't work, use `python cja_sdr_generator.py` instead. This is the most reliable method on Windows. See [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for troubleshooting.
 
 ---
 
