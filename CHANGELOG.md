@@ -5,6 +5,129 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.12] - 2026-01-23
+
+### Highlights
+- **Auto-detect Workers** - Automatic optimal worker count based on CPU cores and workload
+- **Config Validation Helpers** - Better error messages with actionable fix suggestions
+- **Exit Code Reference** - New `--exit-codes` flag for CI/CD documentation
+- **Date-based Snapshot Retention** - New `--keep-since` option for time-based cleanup
+- **Unified Color Classes** - Consolidated ANSI color handling
+- **Conflicting Credentials Warning** - Alerts when both env vars and config.json exist
+
+This release focuses on developer experience improvements and CI/CD integration enhancements.
+
+### Added
+
+#### Auto-detect Workers (`--workers auto`)
+Automatically determines optimal parallel worker count based on system resources.
+
+```bash
+# Now the default - workers auto-detected based on CPU cores
+cja_auto_sdr --batch dv_1 dv_2 dv_3
+
+# Shows: "Auto-detected workers: 4 (based on 8 CPU cores, 3 data views)"
+```
+
+- **Smart Detection**: Uses CPU core count and data view complexity
+- **Memory Aware**: Reduces workers for large data views (>5000 components)
+- **Explicit Override**: Still supports `--workers N` for manual control
+
+#### Exit Code Reference (`--exit-codes`)
+New flag to display detailed exit code documentation for CI/CD integration.
+
+```bash
+cja_auto_sdr --exit-codes
+```
+
+Output includes:
+- Exit code meanings (0=success, 1=error, 2=changes found, 3=threshold exceeded)
+- CI/CD integration examples
+- Usage patterns for automation scripts
+
+#### Date-based Snapshot Retention (`--keep-since`)
+Delete snapshots older than a specified time period.
+
+```bash
+# Keep only snapshots from the last 7 days
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-since 7d
+
+# Keep snapshots from last 2 weeks
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-since 2w
+
+# Keep snapshots from last month
+cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-since 1m
+```
+
+- **Flexible Formats**: `7d` (days), `2w` (weeks), `1m` (months), or plain number
+- **Combinable**: Use with `--keep-last N` for both count and time-based retention
+- **Compliance Friendly**: Better data governance for audit trails
+
+#### Config Validation Helpers (`ConfigValidator` class)
+Enhanced validation with actionable error messages.
+
+**ORG_ID Validation:**
+```
+ORG_ID '123ABC' is missing '@AdobeOrg' suffix. Correct format: '123ABC@AdobeOrg'
+```
+
+**Scopes Validation:**
+```
+Missing required OAuth scopes: AdobeID, additional_info.projectedProductContext.
+Recommended: 'openid, AdobeID, additional_info.projectedProductContext'
+```
+
+- `ConfigValidator.validate_org_id()` - Detects missing `@AdobeOrg` suffix
+- `ConfigValidator.validate_scopes()` - Checks for required OAuth scopes
+- `ConfigValidator.validate_client_id()` - Format validation
+- `ConfigValidator.validate_secret()` - Length validation
+
+#### Conflicting Credentials Warning
+Alerts users when both environment variables AND config.json exist.
+
+```
+NOTICE: Both environment variables AND config file detected
+  Environment variables: ORG_ID, CLIENT_ID, SECRET, etc.
+  Config file: config.json
+  Using: ENVIRONMENT VARIABLES (takes precedence)
+
+To avoid confusion:
+  - Remove config.json if using environment variables
+  - Or unset env vars: unset ORG_ID CLIENT_ID SECRET SCOPES
+```
+
+### Changed
+
+#### Unified Color Classes
+- Enhanced `ConsoleColors` with all features from `ANSIColors`
+- `ANSIColors` now delegates to `ConsoleColors` to avoid code duplication
+- Added `visible_len()`, `rjust()`, `ljust()` utility methods
+- Better Windows terminal compatibility
+
+#### Workers Default
+- Default changed from `4` to `auto` for automatic detection
+- Existing `--workers N` syntax still works for explicit control
+
+### Fixed
+- No bug fixes in this release
+
+### Tests
+- **671 tests passing** (up from 643 in v3.0.11)
+- New tests for `ConfigValidator` class
+- New tests for `auto_detect_workers()` function
+- New tests for `parse_retention_period()` function
+- Updated tests for new `--workers auto` default
+
+### Documentation
+- Updated CLI reference with new `--exit-codes` and `--keep-since` flags
+- Added CI/CD examples for exit code handling
+- Updated troubleshooting guide with config validation suggestions
+
+### Release Notes
+See full release notes at: https://github.com/brian-a-au/cja_auto_sdr/releases/tag/v3.0.12
+
+---
+
 ## [3.0.11] - 2026-01-20
 
 ### Highlights

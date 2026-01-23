@@ -23,7 +23,7 @@ class TestCLIArguments:
             args = parse_arguments()
             assert args.data_views == ['dv_12345']
             assert args.batch is False
-            assert args.workers == 4
+            assert args.workers == 'auto'  # Default is now 'auto' for automatic detection
 
     def test_parse_multiple_data_views(self):
         """Test parsing multiple data view IDs"""
@@ -46,7 +46,7 @@ class TestCLIArguments:
         test_args = ['cja_sdr_generator.py', '--workers', '8', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
-            assert args.workers == 8
+            assert args.workers == '8'  # Now a string, parsed to int in main()
 
     def test_parse_output_dir(self):
         """Test parsing with custom output directory"""
@@ -90,7 +90,7 @@ class TestCLIArguments:
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
-            assert args.workers == 4
+            assert args.workers == 'auto'  # Default is now 'auto' for automatic detection
             assert args.output_dir == '.'
             assert args.config_file == 'config.json'
             assert args.continue_on_error is False
@@ -415,13 +415,12 @@ class TestCacheFlags:
 class TestConstants:
     """Test that constants are properly used in defaults"""
 
-    def test_workers_default_uses_constant(self):
-        """Test that workers default matches DEFAULT_BATCH_WORKERS constant"""
-        from cja_sdr_generator import DEFAULT_BATCH_WORKERS
+    def test_workers_default_uses_auto(self):
+        """Test that workers default is 'auto' for automatic detection"""
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
-            assert args.workers == DEFAULT_BATCH_WORKERS
+            assert args.workers == 'auto'  # Default is now 'auto' for automatic detection
 
     def test_cache_size_default_uses_constant(self):
         """Test that cache_size default matches DEFAULT_CACHE_SIZE constant"""

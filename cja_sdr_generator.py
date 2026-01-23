@@ -49,7 +49,7 @@ except ImportError:
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.11"
+__version__ = "3.0.12"
 
 # ==================== CUSTOM EXCEPTIONS ====================
 
@@ -341,6 +341,53 @@ DEFAULT_API_FETCH_WORKERS: int = 3      # Concurrent API fetch threads
 DEFAULT_VALIDATION_WORKERS: int = 2     # Concurrent validation threads
 DEFAULT_BATCH_WORKERS: int = 4          # Default batch processing workers
 MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
+AUTO_WORKERS_SENTINEL: int = 0          # Sentinel value to trigger auto-detection
+
+
+def auto_detect_workers(num_data_views: int = 1, total_components: int = 0) -> int:
+    """
+    Auto-detect optimal number of parallel workers based on system resources.
+
+    Uses a heuristic based on:
+    - CPU core count (primary factor)
+    - Number of data views to process
+    - Total component count (if known)
+
+    Args:
+        num_data_views: Number of data views to process
+        total_components: Optional total metrics + dimensions count
+
+    Returns:
+        Recommended number of workers (1 to MAX_BATCH_WORKERS)
+    """
+    # Get CPU count, default to 4 if detection fails
+    try:
+        cpu_count = os.cpu_count() or 4
+    except Exception:
+        cpu_count = 4
+
+    # Base workers on CPU count (leave some headroom for system)
+    base_workers = max(2, cpu_count - 1)
+
+    # For small jobs (1-2 data views), don't over-parallelize
+    if num_data_views <= 2:
+        workers = min(base_workers, num_data_views * 2)
+    else:
+        # Scale with data view count but cap at CPU-based limit
+        workers = min(base_workers, num_data_views)
+
+    # If we know component count, adjust based on complexity
+    # More components = more memory per worker, so use fewer workers
+    if total_components > 0:
+        # Large data views (>5000 components) - reduce workers to manage memory
+        if total_components > 5000:
+            workers = max(2, workers // 2)
+        # Very large (>10000 components) - be conservative
+        elif total_components > 10000:
+            workers = max(1, workers // 3)
+
+    # Ensure within bounds
+    return max(1, min(workers, MAX_BATCH_WORKERS))
 
 # Cache defaults
 DEFAULT_CACHE_SIZE: int = 1000          # Maximum cached validation results
@@ -445,7 +492,11 @@ def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
 # ==================== CONSOLE COLORS ====================
 
 class ConsoleColors:
-    """ANSI color codes for terminal output"""
+    """ANSI color codes for terminal output.
+
+    Auto-detects TTY support and handles Windows compatibility.
+    Use this class for general CLI output formatting.
+    """
     # Colors
     GREEN = '\033[92m'
     RED = '\033[91m'
@@ -454,9 +505,16 @@ class ConsoleColors:
     CYAN = '\033[96m'
     BOLD = '\033[1m'
     RESET = '\033[0m'
+    # Regex to strip ANSI escape codes for visible length calculation
+    ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
 
     # Disable colors if not a TTY or on Windows without ANSI support
     _enabled = sys.stdout.isatty() and (os.name != 'nt' or os.environ.get('TERM'))
+
+    @classmethod
+    def is_enabled(cls) -> bool:
+        """Check if colors are enabled."""
+        return cls._enabled
 
     @classmethod
     def success(cls, text: str) -> str:
@@ -465,12 +523,18 @@ class ConsoleColors:
             return f"{cls.GREEN}{text}{cls.RESET}"
         return text
 
+    # Alias for compatibility with ANSIColors
+    green = success
+
     @classmethod
     def error(cls, text: str) -> str:
         """Format text as error (red)"""
         if cls._enabled:
             return f"{cls.RED}{text}{cls.RESET}"
         return text
+
+    # Alias for compatibility with ANSIColors
+    red = error
 
     @classmethod
     def warning(cls, text: str) -> str:
@@ -479,12 +543,18 @@ class ConsoleColors:
             return f"{cls.YELLOW}{text}{cls.RESET}"
         return text
 
+    # Alias for compatibility with ANSIColors
+    yellow = warning
+
     @classmethod
     def info(cls, text: str) -> str:
         """Format text as info (cyan)"""
         if cls._enabled:
             return f"{cls.CYAN}{text}{cls.RESET}"
         return text
+
+    # Alias for compatibility with ANSIColors
+    cyan = info
 
     @classmethod
     def bold(cls, text: str) -> str:
@@ -497,6 +567,25 @@ class ConsoleColors:
     def status(cls, success: bool, text: str) -> str:
         """Format text based on success/failure status"""
         return cls.success(text) if success else cls.error(text)
+
+    @classmethod
+    def visible_len(cls, text: str) -> int:
+        """Return the visible length of a string, ignoring ANSI escape codes."""
+        return len(cls.ANSI_ESCAPE.sub('', text))
+
+    @classmethod
+    def rjust(cls, text: str, width: int) -> str:
+        """Right-justify a string accounting for ANSI escape codes."""
+        visible = cls.visible_len(text)
+        padding = max(0, width - visible)
+        return ' ' * padding + text
+
+    @classmethod
+    def ljust(cls, text: str, width: int) -> str:
+        """Left-justify a string accounting for ANSI escape codes."""
+        visible = cls.visible_len(text)
+        padding = max(0, width - visible)
+        return text + ' ' * padding
 
 # ==================== RETRY CONFIGURATION ====================
 
@@ -1597,6 +1686,58 @@ class SnapshotManager:
 
         return deleted
 
+    def apply_date_retention_policy(self, directory: str, data_view_id: str,
+                                     keep_since_days: Optional[int] = None,
+                                     delete_older_than_days: Optional[int] = None) -> List[str]:
+        """
+        Apply date-based retention policy by deleting snapshots outside the time window.
+
+        Args:
+            directory: Directory containing snapshots
+            data_view_id: Data view ID to filter snapshots (use '*' for all)
+            keep_since_days: Keep snapshots from the last N days (delete older ones)
+            delete_older_than_days: Alias for keep_since_days for clarity
+
+        Returns:
+            List of deleted file paths
+        """
+        # Handle alias
+        days = keep_since_days or delete_older_than_days
+        if not days or days <= 0:
+            return []
+
+        # Calculate cutoff date
+        cutoff_date = datetime.now() - __import__('datetime').timedelta(days=days)
+        cutoff_str = cutoff_date.isoformat()
+
+        # Get all snapshots
+        all_snapshots = self.list_snapshots(directory)
+
+        # Filter by data view if specified
+        if data_view_id and data_view_id != '*':
+            snapshots_to_check = [s for s in all_snapshots if s.get('data_view_id') == data_view_id]
+        else:
+            snapshots_to_check = all_snapshots
+
+        # Delete snapshots older than cutoff
+        deleted = []
+        for snapshot in snapshots_to_check:
+            created_at = snapshot.get('created_at', '')
+            if created_at and created_at < cutoff_str:
+                filepath = snapshot.get('filepath')
+                if filepath and os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                        self.logger.info(f"Date retention policy: Deleted snapshot older than {days} days: {filepath}")
+                        deleted.append(filepath)
+                    except OSError as e:
+                        self.logger.warning(f"Failed to delete snapshot {filepath}: {e}")
+
+        if deleted:
+            self.logger.info(f"Date retention: Deleted {len(deleted)} snapshot(s) older than {days} days")
+
+        return deleted
+
     def generate_snapshot_filename(self, data_view_id: str, data_view_name: str = None) -> str:
         """
         Generate a timestamped filename for auto-saved snapshots.
@@ -1615,6 +1756,45 @@ class SnapshotManager:
             safe_name = safe_name[:50]  # Limit length
             return f"{safe_name}_{data_view_id}_{timestamp}.json"
         return f"{data_view_id}_{timestamp}.json"
+
+
+def parse_retention_period(period_str: str) -> Optional[int]:
+    """
+    Parse a retention period string into days.
+
+    Supports formats:
+    - '7d' or '7D' - 7 days
+    - '2w' or '2W' - 2 weeks (14 days)
+    - '1m' or '1M' - 1 month (30 days)
+    - '30' - 30 days (plain number)
+
+    Args:
+        period_str: The period string to parse
+
+    Returns:
+        Number of days, or None if parsing fails
+    """
+    if not period_str:
+        return None
+
+    period_str = period_str.strip().lower()
+
+    # Plain number = days
+    if period_str.isdigit():
+        return int(period_str)
+
+    # Parse with suffix
+    try:
+        if period_str.endswith('d'):
+            return int(period_str[:-1])
+        elif period_str.endswith('w'):
+            return int(period_str[:-1]) * 7
+        elif period_str.endswith('m'):
+            return int(period_str[:-1]) * 30
+    except ValueError:
+        pass
+
+    return None
 
 
 # ==================== GIT INTEGRATION ====================
@@ -2769,6 +2949,173 @@ ENV_VAR_MAPPING = {
 # OUTPUT_DIR - Output directory for generated files (used by --output-dir)
 
 
+# ==================== CONFIG VALIDATION HELPERS ====================
+
+class ConfigValidator:
+    """Provides detailed validation and suggestions for configuration fields."""
+
+    # Required OAuth scopes for CJA API access
+    REQUIRED_SCOPES = {'openid', 'AdobeID', 'additional_info.projectedProductContext'}
+
+    @staticmethod
+    def validate_org_id(org_id: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate that ORG_ID has the correct format.
+
+        Args:
+            org_id: The organization ID to validate
+
+        Returns:
+            Tuple of (is_valid, error_message). error_message is None if valid.
+        """
+        if not org_id or not org_id.strip():
+            return False, "ORG_ID cannot be empty"
+
+        org_id = org_id.strip()
+
+        # Check for @AdobeOrg suffix
+        if not org_id.endswith('@AdobeOrg'):
+            # Try to be helpful by detecting common mistakes
+            if '@' in org_id:
+                return False, (
+                    f"ORG_ID '{org_id}' has incorrect suffix. "
+                    f"It must end with '@AdobeOrg', not '{org_id.split('@')[1]}'"
+                )
+            return False, (
+                f"ORG_ID '{org_id}' is missing '@AdobeOrg' suffix. "
+                f"Correct format: '{org_id}@AdobeOrg'"
+            )
+
+        # Check that there's something before the @AdobeOrg
+        org_prefix = org_id[:-9]  # Remove '@AdobeOrg'
+        if not org_prefix:
+            return False, "ORG_ID cannot be just '@AdobeOrg' - needs organization prefix"
+
+        return True, None
+
+    @staticmethod
+    def validate_scopes(scopes: str) -> Tuple[bool, Optional[str], List[str]]:
+        """
+        Validate OAuth scopes include required CJA API scopes.
+
+        Args:
+            scopes: Comma-separated scopes string
+
+        Returns:
+            Tuple of (is_valid, error_message, missing_scopes).
+            error_message and missing_scopes are empty/None if valid.
+        """
+        if not scopes or not scopes.strip():
+            return False, "SCOPES cannot be empty", list(ConfigValidator.REQUIRED_SCOPES)
+
+        # Parse scopes (handle both comma and space separation)
+        provided = set()
+        for scope in scopes.replace(',', ' ').split():
+            scope = scope.strip()
+            if scope:
+                provided.add(scope)
+
+        missing = ConfigValidator.REQUIRED_SCOPES - provided
+        if missing:
+            return False, (
+                f"Missing required OAuth scopes: {', '.join(sorted(missing))}. "
+                f"Recommended: 'openid, AdobeID, additional_info.projectedProductContext'"
+            ), list(missing)
+
+        return True, None, []
+
+    @staticmethod
+    def validate_client_id(client_id: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate client ID format.
+
+        Args:
+            client_id: The client ID to validate
+
+        Returns:
+            Tuple of (is_valid, error_message). error_message is None if valid.
+        """
+        if not client_id or not client_id.strip():
+            return False, "CLIENT_ID cannot be empty"
+
+        client_id = client_id.strip()
+
+        # Adobe client IDs are typically 32 hex characters
+        if len(client_id) < 16:
+            return False, (
+                f"CLIENT_ID '{client_id[:8]}...' appears too short. "
+                f"Adobe OAuth client IDs are typically 32 characters."
+            )
+
+        return True, None
+
+    @staticmethod
+    def validate_secret(secret: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate client secret format.
+
+        Args:
+            secret: The client secret to validate
+
+        Returns:
+            Tuple of (is_valid, error_message). error_message is None if valid.
+        """
+        if not secret or not secret.strip():
+            return False, "SECRET cannot be empty"
+
+        secret = secret.strip()
+
+        # Adobe secrets are typically longer
+        if len(secret) < 16:
+            return False, "SECRET appears too short. Adobe OAuth secrets are typically longer."
+
+        return True, None
+
+    @classmethod
+    def validate_all(cls, credentials: Dict[str, str], logger: logging.Logger) -> List[str]:
+        """
+        Run all validations and return list of issues.
+
+        Args:
+            credentials: Dictionary of credentials
+            logger: Logger instance
+
+        Returns:
+            List of validation issues (empty if all valid)
+        """
+        issues = []
+
+        # Validate ORG_ID
+        if 'org_id' in credentials:
+            valid, error = cls.validate_org_id(credentials['org_id'])
+            if not valid:
+                issues.append(error)
+                logger.warning(f"Configuration issue: {error}")
+
+        # Validate CLIENT_ID
+        if 'client_id' in credentials:
+            valid, error = cls.validate_client_id(credentials['client_id'])
+            if not valid:
+                issues.append(error)
+                logger.warning(f"Configuration issue: {error}")
+
+        # Validate SECRET
+        if 'secret' in credentials:
+            valid, error = cls.validate_secret(credentials['secret'])
+            if not valid:
+                issues.append(error)
+                logger.warning(f"Configuration issue: {error}")
+
+        # Validate SCOPES (warning only - not strictly required)
+        if 'scopes' in credentials:
+            valid, error, missing = cls.validate_scopes(credentials['scopes'])
+            if not valid:
+                logger.warning(f"Configuration warning: {error}")
+                # Don't add to issues - scopes are a warning, not an error
+
+        return issues
+
+
 def load_credentials_from_env() -> Optional[Dict[str, str]]:
     """
     Load Adobe API credentials from environment variables.
@@ -2800,6 +3147,8 @@ def validate_env_credentials(credentials: Dict[str, str], logger: logging.Logger
     """
     Validate that environment credentials have minimum required fields for OAuth.
 
+    Uses ConfigValidator for detailed validation with actionable suggestions.
+
     Args:
         credentials: Dictionary of credentials from environment
         logger: Logger instance
@@ -2814,9 +3163,19 @@ def validate_env_credentials(credentials: Dict[str, str], logger: logging.Logger
             logger.debug(f"Missing required environment variable: {ENV_VAR_MAPPING.get(field, field)}")
             return False
 
+    # Run detailed validation with ConfigValidator for better error messages
+    issues = ConfigValidator.validate_all(credentials, logger)
+    if issues:
+        # Log issues but don't fail - the API call will give the definitive answer
+        for issue in issues:
+            logger.warning(f"Configuration validation: {issue}")
+
     # Check for OAuth scopes (recommended but not strictly required)
     if 'scopes' not in credentials:
-        logger.warning("Environment credentials missing OAuth scopes - recommend setting SCOPES")
+        logger.warning(
+            "Environment credentials missing OAuth scopes - recommend setting SCOPES. "
+            "Example: export SCOPES='openid, AdobeID, additional_info.projectedProductContext'"
+        )
 
     return True
 
@@ -3049,12 +3408,27 @@ def initialize_cja(
         # Try environment variables first
         env_credentials = load_credentials_from_env()
         use_env_credentials = False
+        config_file_exists = Path(config_file).exists()
 
         if env_credentials:
             logger.info("Found environment variables with CJA credentials...")
             if validate_env_credentials(env_credentials, logger):
                 use_env_credentials = True
                 logger.info("Using credentials from environment variables")
+
+                # Warn if both sources exist to help users avoid confusion
+                if config_file_exists:
+                    logger.warning("=" * 60)
+                    logger.warning("NOTICE: Both environment variables AND config file detected")
+                    logger.warning(f"  Environment variables: ORG_ID, CLIENT_ID, SECRET, etc.")
+                    logger.warning(f"  Config file: {config_file}")
+                    logger.warning("  Using: ENVIRONMENT VARIABLES (takes precedence)")
+                    logger.warning("")
+                    logger.warning("To avoid confusion:")
+                    logger.warning("  - Remove config.json if using environment variables")
+                    logger.warning("  - Or unset env vars: unset ORG_ID CLIENT_ID SECRET SCOPES")
+                    logger.warning("  - Or explicitly set --config-file to use a specific file")
+                    logger.warning("=" * 60)
             else:
                 logger.info("Environment credentials incomplete, falling back to config file")
 
@@ -4817,17 +5191,23 @@ def write_markdown_output(
 
 # ==================== DIFF COMPARISON OUTPUT WRITERS ====================
 
-# ANSI color codes for terminal output
+# ANSIColors is an alias for diff output compatibility
+# It delegates to ConsoleColors but accepts an 'enabled' parameter for explicit control
 class ANSIColors:
-    """ANSI escape codes for colored terminal output."""
-    GREEN = '\033[92m'   # Added
-    RED = '\033[91m'     # Removed
-    YELLOW = '\033[93m'  # Modified
-    CYAN = '\033[96m'    # Info/headers
-    BOLD = '\033[1m'
-    RESET = '\033[0m'
-    # Regex to strip ANSI escape codes for visible length calculation
-    ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
+    """ANSI escape codes for colored terminal output.
+
+    This class provides the same functionality as ConsoleColors but with an
+    explicit 'enabled' parameter for cases where color control is needed
+    independent of TTY detection.
+    """
+    # Re-export constants from ConsoleColors
+    GREEN = ConsoleColors.GREEN
+    RED = ConsoleColors.RED
+    YELLOW = ConsoleColors.YELLOW
+    CYAN = ConsoleColors.CYAN
+    BOLD = ConsoleColors.BOLD
+    RESET = ConsoleColors.RESET
+    ANSI_ESCAPE = ConsoleColors.ANSI_ESCAPE
 
     @classmethod
     def green(cls, text: str, enabled: bool = True) -> str:
@@ -4849,24 +5229,10 @@ class ANSIColors:
     def bold(cls, text: str, enabled: bool = True) -> str:
         return f"{cls.BOLD}{text}{cls.RESET}" if enabled else text
 
-    @classmethod
-    def visible_len(cls, text: str) -> int:
-        """Return the visible length of a string, ignoring ANSI escape codes."""
-        return len(cls.ANSI_ESCAPE.sub('', text))
-
-    @classmethod
-    def rjust(cls, text: str, width: int) -> str:
-        """Right-justify a string accounting for ANSI escape codes."""
-        visible = cls.visible_len(text)
-        padding = max(0, width - visible)
-        return ' ' * padding + text
-
-    @classmethod
-    def ljust(cls, text: str, width: int) -> str:
-        """Left-justify a string accounting for ANSI escape codes."""
-        visible = cls.visible_len(text)
-        padding = max(0, width - visible)
-        return text + ' ' * padding
+    # Delegate utility methods to ConsoleColors
+    visible_len = ConsoleColors.visible_len
+    rjust = ConsoleColors.rjust
+    ljust = ConsoleColors.ljust
 
 
 def write_diff_console_output(diff_result: DiffResult, changes_only: bool = False,
@@ -7282,6 +7648,12 @@ Requirements:
     )
 
     parser.add_argument(
+        '--exit-codes',
+        action='store_true',
+        help='Display exit code reference and exit'
+    )
+
+    parser.add_argument(
         'data_views',
         nargs='*',
         metavar='DATA_VIEW_ID_OR_NAME',
@@ -7298,9 +7670,10 @@ Requirements:
 
     parser.add_argument(
         '--workers',
-        type=int,
-        default=DEFAULT_BATCH_WORKERS,
-        help=f'Number of parallel workers for batch mode (default: {DEFAULT_BATCH_WORKERS}, max: {MAX_BATCH_WORKERS})'
+        type=str,
+        default='auto',
+        help=f'Number of parallel workers for batch mode. Use "auto" for automatic detection '
+             f'based on CPU cores and workload (default: auto, max: {MAX_BATCH_WORKERS})'
     )
 
     parser.add_argument(
@@ -7631,6 +8004,16 @@ Requirements:
         metavar='N',
         help='Retention policy: keep only the last N snapshots per data view (0 = keep all). '
              'Used with --auto-snapshot'
+    )
+
+    diff_group.add_argument(
+        '--keep-since',
+        type=str,
+        default=None,
+        metavar='PERIOD',
+        help='Date-based retention: delete snapshots older than PERIOD. '
+             'Formats: 7d (7 days), 2w (2 weeks), 1m (1 month), 30 (30 days). '
+             'Used with --auto-snapshot. Can be combined with --keep-last.'
     )
 
     # ==================== GIT INTEGRATION ARGUMENTS ====================
@@ -8638,7 +9021,8 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
                         group_by_field: bool = False, group_by_field_limit: int = 10,
                         diff_output: Optional[str] = None,
                         format_pr_comment: bool = False, auto_snapshot: bool = False,
-                        snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
+                        snapshot_dir: str = "./snapshots", keep_last: int = 0,
+                        keep_since: Optional[str] = None) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff command to compare two data views.
 
@@ -8669,6 +9053,7 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
         auto_snapshot: Automatically save snapshots during diff
         snapshot_dir: Directory for auto-saved snapshots
         keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
+        keep_since: Date-based retention - delete snapshots older than this period (e.g., '7d', '2w', '1m')
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -8731,7 +9116,10 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
                 print(f"  - {source_filename}")
                 print(f"  - {target_filename}")
 
-            # Apply retention policy if configured
+            # Apply retention policies if configured
+            total_deleted = 0
+
+            # Count-based retention
             if keep_last > 0:
                 deleted_source = snapshot_manager.apply_retention_policy(
                     snapshot_dir, source_id, keep_last
@@ -8739,9 +9127,22 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
                 deleted_target = snapshot_manager.apply_retention_policy(
                     snapshot_dir, target_id, keep_last
                 )
-                total_deleted = len(deleted_source) + len(deleted_target)
-                if total_deleted > 0 and not quiet and not quiet_diff:
-                    print(f"  Retention policy: Deleted {total_deleted} old snapshot(s)")
+                total_deleted += len(deleted_source) + len(deleted_target)
+
+            # Date-based retention
+            if keep_since:
+                days = parse_retention_period(keep_since)
+                if days:
+                    deleted_source = snapshot_manager.apply_date_retention_policy(
+                        snapshot_dir, source_id, keep_since_days=days
+                    )
+                    deleted_target = snapshot_manager.apply_date_retention_policy(
+                        snapshot_dir, target_id, keep_since_days=days
+                    )
+                    total_deleted += len(deleted_source) + len(deleted_target)
+
+            if total_deleted > 0 and not quiet and not quiet_diff:
+                print(f"  Retention policy: Deleted {total_deleted} old snapshot(s)")
 
             if not quiet and not quiet_diff:
                 print()
@@ -8818,7 +9219,8 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
                                   group_by_field: bool = False, group_by_field_limit: int = 10,
                                   diff_output: Optional[str] = None,
                                   format_pr_comment: bool = False, auto_snapshot: bool = False,
-                                  snapshot_dir: str = "./snapshots", keep_last: int = 0) -> Tuple[bool, bool, Optional[int]]:
+                                  snapshot_dir: str = "./snapshots", keep_last: int = 0,
+                                  keep_since: Optional[str] = None) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
 
@@ -8849,6 +9251,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         auto_snapshot: Automatically save snapshot of current data view state
         snapshot_dir: Directory for auto-saved snapshots
         keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
+        keep_since: Date-based retention - delete snapshots older than this period (e.g., '7d', '2w', '1m')
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -8894,13 +9297,27 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             if not quiet and not quiet_diff:
                 print(f"Auto-saved current state to: {snapshot_dir}/{current_filename}")
 
-            # Apply retention policy if configured
+            # Apply retention policies if configured
+            total_deleted = 0
+
+            # Count-based retention
             if keep_last > 0:
                 deleted = snapshot_manager.apply_retention_policy(
                     snapshot_dir, data_view_id, keep_last
                 )
-                if deleted and not quiet and not quiet_diff:
-                    print(f"  Retention policy: Deleted {len(deleted)} old snapshot(s)")
+                total_deleted += len(deleted)
+
+            # Date-based retention
+            if keep_since:
+                days = parse_retention_period(keep_since)
+                if days:
+                    deleted = snapshot_manager.apply_date_retention_policy(
+                        snapshot_dir, data_view_id, keep_since_days=days
+                    )
+                    total_deleted += len(deleted)
+
+            if total_deleted > 0 and not quiet and not quiet_diff:
+                print(f"  Retention policy: Deleted {total_deleted} old snapshot(s)")
 
             if not quiet and not quiet_diff:
                 print()
@@ -9146,11 +9563,24 @@ def main():
         # Re-raise to maintain expected behavior
         raise
 
+    # Parse and validate --workers argument
+    workers_auto = False
+    if args.workers.lower() == 'auto':
+        workers_auto = True
+        # Will be set later based on data view count
+        args.workers = DEFAULT_BATCH_WORKERS  # Temporary default
+    else:
+        try:
+            args.workers = int(args.workers)
+        except ValueError:
+            print(ConsoleColors.error(f"ERROR: --workers must be 'auto' or an integer, got '{args.workers}'"), file=sys.stderr)
+            sys.exit(1)
+
     # Validate numeric parameter bounds
-    if args.workers < 1:
+    if not workers_auto and args.workers < 1:
         print(ConsoleColors.error("ERROR: --workers must be at least 1"), file=sys.stderr)
         sys.exit(1)
-    if args.workers > MAX_BATCH_WORKERS:
+    if not workers_auto and args.workers > MAX_BATCH_WORKERS:
         print(ConsoleColors.error(f"ERROR: --workers cannot exceed {MAX_BATCH_WORKERS}"), file=sys.stderr)
         sys.exit(1)
     if args.cache_size < 1:
@@ -9181,6 +9611,47 @@ def main():
     output_to_stdout = getattr(args, 'output', None) in ('-', 'stdout')
     if output_to_stdout:
         args.quiet = True
+
+    # Handle --exit-codes mode (no data view required)
+    if getattr(args, 'exit_codes', False):
+        print("=" * 60)
+        print("EXIT CODE REFERENCE")
+        print("=" * 60)
+        print()
+        print("  Code  Meaning")
+        print("  ----  " + "-" * 50)
+        print("    0   Success")
+        print("        - SDR generated successfully")
+        print("        - Diff comparison: no changes found")
+        print("        - Validation passed")
+        print()
+        print("    1   Error occurred")
+        print("        - Configuration error (invalid credentials, missing file)")
+        print("        - API error (network, authentication, rate limit)")
+        print("        - Validation failed")
+        print("        - File I/O error")
+        print()
+        print("    2   Diff: Changes found (not an error)")
+        print("        - Use for CI/CD gates to detect drift")
+        print("        - Example: cja_auto_sdr --diff dv_A dv_B && echo 'No changes'")
+        print()
+        print("    3   Diff: Warning threshold exceeded")
+        print("        - Triggered by --warn-threshold PERCENT")
+        print("        - Example: cja_auto_sdr --diff dv_A dv_B --warn-threshold 10")
+        print("        - Exits 3 if change percentage > threshold")
+        print()
+        print("=" * 60)
+        print("CI/CD Examples:")
+        print("=" * 60)
+        print()
+        print("  # Fail CI if any changes detected")
+        print("  cja_auto_sdr --diff dv_prod dv_staging --quiet")
+        print("  if [ $? -eq 2 ]; then echo 'Changes detected!'; exit 1; fi")
+        print()
+        print("  # Fail CI only if >10% changes")
+        print("  cja_auto_sdr --diff dv_A dv_B --warn-threshold 10 --quiet")
+        print()
+        sys.exit(0)
 
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
@@ -9423,7 +9894,8 @@ def main():
             format_pr_comment=getattr(args, 'format_pr_comment', False),
             auto_snapshot=getattr(args, 'auto_snapshot', False),
             snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
-            keep_last=getattr(args, 'keep_last', 0)
+            keep_last=getattr(args, 'keep_last', 0),
+            keep_since=getattr(args, 'keep_since', None)
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -9588,7 +10060,8 @@ def main():
             format_pr_comment=getattr(args, 'format_pr_comment', False),
             auto_snapshot=getattr(args, 'auto_snapshot', False),
             snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
-            keep_last=getattr(args, 'keep_last', 0)
+            keep_last=getattr(args, 'keep_last', 0),
+            keep_since=getattr(args, 'keep_since', None)
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -9702,6 +10175,14 @@ def main():
     # Process data views
     if args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
+
+        # Apply auto-detection for workers if requested
+        if workers_auto:
+            args.workers = auto_detect_workers(num_data_views=len(data_views))
+            if not args.quiet:
+                cpu_count = os.cpu_count() or 4
+                print(ConsoleColors.info(f"Auto-detected workers: {args.workers} (based on {cpu_count} CPU cores, {len(data_views)} data views)"))
+
         if not args.quiet:
             print(ConsoleColors.info(f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers..."))
             print()
