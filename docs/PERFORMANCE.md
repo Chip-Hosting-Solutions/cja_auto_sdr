@@ -33,8 +33,9 @@ Result:     4x faster (75% time savings)
 ### Configuring Workers
 
 ```bash
-# Default (4 workers)
+# Default (auto-detect based on CPU cores and workload)
 cja_auto_sdr dv_1 dv_2 dv_3
+# Shows: "Auto-detected workers: 4 (based on 8 CPU cores, 3 data views)"
 
 # Conservative (shared API, rate limits)
 cja_auto_sdr --batch dv_* --workers 2
@@ -42,6 +43,8 @@ cja_auto_sdr --batch dv_* --workers 2
 # Aggressive (dedicated infrastructure)
 cja_auto_sdr --batch dv_* --workers 8
 ```
+
+> **Note:** The default `--workers auto` intelligently selects worker count based on CPU cores, number of data views, and component complexity. It automatically reduces workers for large data views (>5000 components) to prevent memory exhaustion.
 
 ### Worker Optimization Guide
 
@@ -328,6 +331,24 @@ Generating Excel file              :   3.20s ( 29.8%)
 Total Execution Time               :  10.75s
 ============================================================
 ```
+
+### Enterprise Logging (JSON Format)
+
+For log aggregation systems (Splunk, ELK, CloudWatch), use structured JSON logging:
+
+```bash
+# Enable JSON logging
+cja_auto_sdr dv_12345 --log-format json
+
+# Output format (one JSON object per line):
+{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_sdr_generator", "message": "Processing data view", "module": "cja_sdr_generator", "function": "process_single_dataview", "line": 6683}
+```
+
+**Benefits:**
+- Machine-parseable log entries
+- Structured fields for filtering and alerting
+- Exception stack traces in dedicated `exception` field
+- Compatible with all major log aggregation platforms
 
 ## Technical Details
 

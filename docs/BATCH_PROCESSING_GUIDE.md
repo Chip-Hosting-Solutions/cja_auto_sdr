@@ -20,7 +20,7 @@ cja_auto_sdr dv_677ea9291244fd082f02dd42
 cja_auto_sdr dv_12345 dv_67890 dv_abcde
 ```
 
-**Note:** When you provide multiple data view IDs, the script automatically enables parallel processing with 4 workers by default. The `--batch` flag is optional.
+**Note:** When you provide multiple data view IDs, the script automatically enables parallel processing with auto-detected workers (based on CPU cores and workload). The `--batch` flag is optional.
 
 ### Batch Processing with Custom Configuration
 
@@ -40,7 +40,8 @@ cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde dv_11111 --workers 8
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--batch` | Explicitly enable batch mode (optional with multiple data views) | Auto-detect (parallel if multiple data views) |
-| `--workers N` | Number of parallel workers (1-256) | 4 |
+| `--workers N` | Number of parallel workers (1-256), or `auto` for intelligent detection | auto |
+| `--log-format FORMAT` | Log output format: `text` or `json` (for Splunk/ELK/CloudWatch) | text |
 | `--output-dir PATH` | Output directory for generated files | Current directory |
 | `--config-file PATH` | Path to CJA configuration file | config.json |
 | `--continue-on-error` | Continue processing if one data view fails | Stop on first error |

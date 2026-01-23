@@ -95,6 +95,8 @@ cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels "Before" "After"
 | `--stats` | Quick statistics only (no full report) | SDR |
 | `--config-file PATH` | Use custom config file (default: config.json) | Both |
 | `--log-level LEVEL` | Set logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` | Both |
+| `--log-format FORMAT` | Log output: `text` (default) or `json` (structured) | Both |
+| `--workers N` | Parallel workers: `auto` (default) or `1-256` | SDR only |
 | `--skip-validation` | Skip data quality checks (faster) | SDR only |
 | `--continue-on-error` | Don't stop on failures in batch mode | SDR only |
 
@@ -146,10 +148,13 @@ cja_auto_sdr dv_12345 --format all
 # Debug mode (verbose logging)
 cja_auto_sdr dv_12345 --log-level DEBUG
 
+# JSON logging (for Splunk, ELK, CloudWatch)
+cja_auto_sdr dv_12345 --log-format json
+
 # Dry run (validate only, no output)
 cja_auto_sdr dv_12345 --dry-run
 
-# Batch with custom parallelism
+# Batch with custom parallelism (default: auto-detect)
 cja_auto_sdr dv_* --workers 8 --continue-on-error
 
 # Production mode (minimal logging)

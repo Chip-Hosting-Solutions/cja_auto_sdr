@@ -9,15 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Highlights
 - **Auto-detect Workers** - Automatic optimal worker count based on CPU cores and workload
+- **JSON Structured Logging** - Enterprise-ready logging for Splunk, ELK, CloudWatch
 - **Config Validation Helpers** - Better error messages with actionable fix suggestions
 - **Exit Code Reference** - New `--exit-codes` flag for CI/CD documentation
 - **Date-based Snapshot Retention** - New `--keep-since` option for time-based cleanup
 - **Unified Color Classes** - Consolidated ANSI color handling
 - **Conflicting Credentials Warning** - Alerts when both env vars and config.json exist
 
-This release focuses on developer experience improvements and CI/CD integration enhancements.
+This release focuses on developer experience, enterprise observability, and CI/CD integration enhancements.
 
 ### Added
+
+#### JSON Structured Logging (`--log-format json`)
+Enterprise-ready structured logging for log aggregation systems.
+
+```bash
+# Enable JSON logging for Splunk, ELK, CloudWatch
+cja_auto_sdr dv_12345 --log-format json
+
+# Output format:
+# {"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_sdr_generator", "message": "Processing data view", "module": "cja_sdr_generator", "function": "process_single_dataview", "line": 6683}
+```
+
+- **Splunk/ELK/CloudWatch Compatible**: Each log line is valid JSON
+- **Structured Fields**: timestamp, level, logger, message, module, function, line
+- **Exception Support**: Stack traces included in `exception` field when errors occur
+- **Default**: `text` format unchanged for human-readable output
 
 #### Auto-detect Workers (`--workers auto`)
 Automatically determines optimal parallel worker count based on system resources.
@@ -108,8 +125,17 @@ To avoid confusion:
 - Default changed from `4` to `auto` for automatic detection
 - Existing `--workers N` syntax still works for explicit control
 
+#### Improved Debug Logging for File Operations
+- `open_file_in_default_app()` now logs failures with `logger.debug()` instead of silently swallowing exceptions
+- Helps troubleshoot `--open` flag issues on different platforms
+
+#### Enhanced Help Text
+- Improved `--workers` help text explaining auto-detection behavior
+- Added `--workers auto` example showing intelligent worker detection
+- Added JSON logging example in help epilog
+
 ### Fixed
-- No bug fixes in this release
+- Fixed `--workers` default documented as `4` instead of `auto` in CLI_REFERENCE.md
 
 ### Tests
 - **671 tests passing** (up from 643 in v3.0.11)

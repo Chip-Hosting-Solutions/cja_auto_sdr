@@ -469,6 +469,7 @@ def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
         True if successful, False otherwise
     """
     file_path = str(file_path)
+    logger = logging.getLogger(__name__)
     try:
         system = platform.system()
         if system == 'Darwin':  # macOS
@@ -478,14 +479,15 @@ def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
         else:  # Linux and others
             subprocess.run(['xdg-open', file_path], check=True)
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to open file with default app: {file_path} - {e}")
         # Fallback to webbrowser for HTML files
         if file_path.endswith('.html'):
             try:
                 webbrowser.open(f'file://{os.path.abspath(file_path)}')
                 return True
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug(f"Fallback webbrowser.open also failed: {e2}")
         return False
 
 
@@ -2515,6 +2517,38 @@ class DataViewComparator:
 
 # ==================== LOGGING SETUP ====================
 
+
+class JSONFormatter(logging.Formatter):
+    """
+    JSON formatter for structured logging output.
+
+    Produces JSON lines suitable for log aggregation systems (Splunk, ELK, CloudWatch).
+    Each log record is a single JSON object on one line.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_entry = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
+
+        # Add exception info if present
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        # Add any extra fields passed to the logger
+        if hasattr(record, 'extra_fields'):
+            log_entry.update(record.extra_fields)
+
+        return json.dumps(log_entry, default=str)
+
+
 # Module-level tracking to prevent duplicate logger initialization
 _logging_initialized = False
 _current_log_file = None
@@ -2523,7 +2557,8 @@ _atexit_registered = False
 def setup_logging(
     data_view_id: Optional[str] = None,
     batch_mode: bool = False,
-    log_level: Optional[str] = None
+    log_level: Optional[str] = None,
+    log_format: str = "text"
 ) -> logging.Logger:
     """Setup logging to both file and console.
 
@@ -2531,6 +2566,7 @@ def setup_logging(
         data_view_id: Data view ID for log file naming
         batch_mode: Whether running in batch mode
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_format: Output format - "text" (default) or "json" for structured logging
 
     Returns:
         Configured logger instance
@@ -2593,10 +2629,19 @@ def setup_logging(
             backupCount=LOG_FILE_BACKUP_COUNT
         ))
 
+    # Select formatter based on log_format
+    if log_format.lower() == "json":
+        formatter = JSONFormatter()
+    else:
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # Apply formatter to all handlers
+    for handler in handlers:
+        handler.setFormatter(formatter)
+
     # Configure logging
     logging.basicConfig(
         level=numeric_level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=handlers,
         force=True
     )
@@ -6602,6 +6647,7 @@ def process_single_dataview(
     config_file: str = "config.json",
     output_dir: Union[str, Path] = ".",
     log_level: str = "INFO",
+    log_format: str = "text",
     output_format: str = "excel",
     enable_cache: bool = False,
     cache_size: int = 1000,
@@ -6619,6 +6665,7 @@ def process_single_dataview(
         config_file: Path to CJA config file (default: 'config.json')
         output_dir: Directory to save output files (default: current directory)
         log_level: Logging level - one of DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+        log_format: Log output format - "text" (default) or "json" for structured logging
         output_format: Output format - one of excel, csv, json, html, markdown, all (default: excel)
         enable_cache: Enable validation result caching (default: False)
         cache_size: Maximum cached validation results, >= 1 (default: 1000)
@@ -6635,7 +6682,7 @@ def process_single_dataview(
     start_time = time.time()
 
     # Setup logging for this data view
-    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level)
+    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level, log_format=log_format)
     perf_tracker = PerformanceTracker(logger)
 
     try:
@@ -7073,14 +7120,14 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     Worker function for multiprocessing
 
     Args:
-        args: Tuple of (data_view_id, config_file, output_dir, log_level, output_format,
-                       enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues)
+        args: Tuple of (data_view_id, config_file, output_dir, log_level, log_format, output_format,
+                       enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache)
 
     Returns:
         ProcessingResult
     """
-    data_view_id, config_file, output_dir, log_level, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache = args
-    return process_single_dataview(data_view_id, config_file, output_dir, log_level, output_format,
+    data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache = args
+    return process_single_dataview(data_view_id, config_file, output_dir, log_level, log_format, output_format,
                                    enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache)
 
 # ==================== BATCH PROCESSOR CLASS ====================
@@ -7098,6 +7145,7 @@ class BatchProcessor:
         workers: Number of parallel workers, 1-256 (default: 4)
         continue_on_error: Continue if individual data views fail (default: False)
         log_level: Logging level - DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+        log_format: Log output format - "text" (default) or "json" for structured logging
         output_format: Output format - excel, csv, json, html, markdown, all (default: excel)
         enable_cache: Enable validation result caching (default: False)
         cache_size: Maximum cached validation results, >= 1 (default: 1000)
@@ -7110,7 +7158,7 @@ class BatchProcessor:
 
     def __init__(self, config_file: str = "config.json", output_dir: str = ".",
                  workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
-                 output_format: str = "excel", enable_cache: bool = False,
+                 log_format: str = "text", output_format: str = "excel", enable_cache: bool = False,
                  cache_size: int = 1000, cache_ttl: int = 3600, quiet: bool = False,
                  skip_validation: bool = False, max_issues: int = 0, clear_cache: bool = False):
         self.config_file = config_file
@@ -7119,6 +7167,7 @@ class BatchProcessor:
         self.workers = workers
         self.continue_on_error = continue_on_error
         self.log_level = log_level
+        self.log_format = log_format
         self.output_format = output_format
         self.enable_cache = enable_cache
         self.cache_size = cache_size
@@ -7127,7 +7176,7 @@ class BatchProcessor:
         self.skip_validation = skip_validation
         self.max_issues = max_issues
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
-        self.logger = setup_logging(batch_mode=True, log_level=log_level)
+        self.logger = setup_logging(batch_mode=True, log_level=log_level, log_format=log_format)
         self.logger.info(f"Batch ID: {self.batch_id}")
 
         # Create output directory if it doesn't exist
@@ -7173,9 +7222,9 @@ class BatchProcessor:
 
         # Prepare arguments for each worker
         worker_args = [
-            (dv_id, self.config_file, self.output_dir, self.log_level, self.output_format,
-             self.enable_cache, self.cache_size, self.cache_ttl, self.quiet, self.skip_validation,
-             self.max_issues, self.clear_cache)
+            (dv_id, self.config_file, self.output_dir, self.log_level, self.log_format,
+             self.output_format, self.enable_cache, self.cache_size, self.cache_ttl, self.quiet,
+             self.skip_validation, self.max_issues, self.clear_cache)
             for dv_id in data_view_ids
         ]
 
@@ -7534,7 +7583,10 @@ Examples:
   # Batch processing with explicit flag (same as above)
   cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde
 
-  # Custom workers
+  # Auto-detect optimal workers (default)
+  cja_auto_sdr --batch dv_12345 dv_67890 --workers auto
+
+  # Or specify explicit worker count
   cja_auto_sdr --batch dv_12345 dv_67890 --workers 2
 
   # Custom output directory
@@ -7545,6 +7597,9 @@ Examples:
 
   # With custom log level
   cja_auto_sdr --batch dv_* --log-level WARNING
+
+  # JSON structured logging (for Splunk, ELK, CloudWatch)
+  cja_auto_sdr dv_12345 --log-format json
 
   # Export as CSV files
   cja_auto_sdr dv_12345 --format csv
@@ -7672,8 +7727,10 @@ Requirements:
         '--workers',
         type=str,
         default='auto',
-        help=f'Number of parallel workers for batch mode. Use "auto" for automatic detection '
-             f'based on CPU cores and workload (default: auto, max: {MAX_BATCH_WORKERS})'
+        help=f'Number of parallel workers for batch mode (1-{MAX_BATCH_WORKERS}). '
+             f'Use "auto" (default) for intelligent detection based on CPU cores, '
+             f'data view count, and component complexity. Auto-reduces workers for '
+             f'large data views (>5K components) to prevent memory exhaustion'
     )
 
     parser.add_argument(
@@ -7702,6 +7759,15 @@ Requirements:
         default=os.environ.get('LOG_LEVEL', 'INFO'),
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         help='Logging level (default: INFO, or LOG_LEVEL environment variable)'
+    )
+
+    parser.add_argument(
+        '--log-format',
+        type=str,
+        default='text',
+        choices=['text', 'json'],
+        help='Log output format: "text" (default) for human-readable, '
+             '"json" for structured logging (Splunk, ELK, CloudWatch compatible)'
     )
 
     parser.add_argument(
@@ -10148,7 +10214,7 @@ def main():
 
     # Handle dry-run mode
     if args.dry_run:
-        logger = setup_logging(batch_mode=True, log_level='WARNING')
+        logger = setup_logging(batch_mode=True, log_level='WARNING', log_format=args.log_format)
         success = run_dry_run(data_views, args.config_file, logger)
         sys.exit(0 if success else 1)
 
@@ -10193,6 +10259,7 @@ def main():
             workers=args.workers,
             continue_on_error=args.continue_on_error,
             log_level=effective_log_level,
+            log_format=args.log_format,
             output_format=sdr_format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,
@@ -10241,6 +10308,7 @@ def main():
             config_file=args.config_file,
             output_dir=args.output_dir,
             log_level=effective_log_level,
+            log_format=args.log_format,
             output_format=sdr_format,
             enable_cache=args.enable_cache,
             cache_size=args.cache_size,

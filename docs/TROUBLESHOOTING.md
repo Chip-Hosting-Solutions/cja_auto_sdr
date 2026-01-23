@@ -1513,6 +1513,30 @@ uv run cja_auto_sdr dv_12345 --log-level DEBUG
 - Individual validation checks
 - API call details
 - Performance timing
+- File operation failures (e.g., `--open` flag issues)
+
+### Structured JSON Logging
+
+For enterprise environments or automated log analysis, use JSON format:
+
+```bash
+# JSON structured logging for Splunk, ELK, CloudWatch
+uv run cja_auto_sdr dv_12345 --log-format json
+
+# Combine with debug level for maximum detail
+uv run cja_auto_sdr dv_12345 --log-level DEBUG --log-format json
+```
+
+**JSON output format:**
+```json
+{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_sdr_generator", "message": "Processing data view", "module": "cja_sdr_generator", "function": "process_single_dataview", "line": 6683}
+```
+
+**Benefits:**
+- Machine-parseable for automated analysis
+- Easy filtering by level, module, or function
+- Stack traces in `exception` field for errors
+- Compatible with log aggregation systems
 
 ### Log File Locations
 

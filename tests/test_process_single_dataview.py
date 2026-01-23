@@ -557,6 +557,7 @@ class TestProcessSingleDataviewWorker:
             "config.json",   # config_file
             "/output",       # output_dir
             "INFO",          # log_level
+            "text",          # log_format
             "excel",         # output_format
             False,           # enable_cache
             1000,            # cache_size
@@ -571,7 +572,7 @@ class TestProcessSingleDataviewWorker:
 
         assert result == expected_result
         mock_process.assert_called_once_with(
-            "dv_test_12345", "config.json", "/output", "INFO", "excel",
+            "dv_test_12345", "config.json", "/output", "INFO", "text", "excel",
             False, 1000, 3600, False, False, 0, False
         )
 

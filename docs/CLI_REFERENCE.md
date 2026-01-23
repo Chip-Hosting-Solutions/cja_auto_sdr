@@ -46,7 +46,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--batch` | Enable parallel batch processing | Auto-detected |
-| `--workers N` | Number of parallel workers (1-256) | 4 |
+| `--workers N` | Number of parallel workers (1-256), or `auto` for automatic detection based on CPU cores and workload complexity | auto |
 | `--continue-on-error` | Continue if a data view fails | False |
 | `--skip-validation` | Skip data quality validation (20-30% faster) | False |
 
@@ -80,6 +80,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 |--------|-------------|---------|
 | `--config-file PATH` | Path to configuration file | config.json |
 | `--log-level LEVEL` | DEBUG, INFO, WARNING, ERROR, CRITICAL | INFO |
+| `--log-format FORMAT` | Log output format: `text` (human-readable) or `json` (structured logging for Splunk, ELK, CloudWatch) | text |
 | `--production` | Minimal logging for performance | False |
 
 ### Validation & Testing
