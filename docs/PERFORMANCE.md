@@ -307,7 +307,9 @@ Check validation timing:
 
 ```bash
 grep "Data Quality Validation completed" logs/*.log
-# Output: ⏱️  Data Quality Validation completed in 1.23s
+```
+```
+⏱️  Data Quality Validation completed in 1.23s
 ```
 
 ### Performance Summary

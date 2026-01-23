@@ -192,9 +192,13 @@ Use **auto-snapshot** to maintain automatic audit trails without manual interven
 ```bash
 # Auto-save snapshots during diff (creates timestamped files)
 cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot
-# Creates: ./snapshots/DataViewName_dv_12345_20260118_143022.json
-#          ./snapshots/DataViewName_dv_67890_20260118_143022.json
+```
 
+Creates:
+- `./snapshots/DataViewName_dv_12345_20260118_143022.json`
+- `./snapshots/DataViewName_dv_67890_20260118_143022.json`
+
+```bash
 # Custom snapshot directory
 cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --snapshot-dir ./audit-trail
 

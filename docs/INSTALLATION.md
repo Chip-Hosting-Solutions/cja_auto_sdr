@@ -374,8 +374,10 @@ completion = [
 ### Check Python Version
 
 ```bash
-python3 --version  # Should be 3.14 or higher
+python3 --version
 ```
+
+Expected output: `Python 3.14.x` or higher
 
 ### Check uv Installation
 
@@ -387,8 +389,9 @@ uv --version
 
 ```bash
 uv pip list
-# Should show cjapy, pandas, xlsxwriter, tqdm
 ```
+
+Expected packages: `cjapy`, `pandas`, `xlsxwriter`, `tqdm`
 
 ### Validate Configuration
 

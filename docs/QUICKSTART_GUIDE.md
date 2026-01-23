@@ -37,13 +37,17 @@ Before starting, ensure you have:
 **macOS/Linux:**
 ```bash
 python3 --version
-# Output: Python 3.14.x or higher
+```
+```
+Python 3.14.x
 ```
 
 **Windows (PowerShell):**
-```text
+```powershell
 python --version
-# Output: Python 3.14.x or higher
+```
+```
+Python 3.14.x
 ```
 
 > **Note:** On macOS and Linux, use `python3` to ensure you're using Python 3. On Windows, the command is typically just `python`. You can also use `py --version` on Windows if the Python Launcher is installed.
@@ -118,7 +122,9 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 Restart your terminal, then verify:
 ```bash
 uv --version
-# Output: uv 0.x.x
+```
+```
+uv 0.x.x
 ```
 
 ### 2.2 Clone the Repository
@@ -177,7 +183,9 @@ This command:
 
 ```bash
 uv run cja_auto_sdr --version
-# Output: cja_auto_sdr 3.0.11
+```
+```
+cja_auto_sdr 3.0.11
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
@@ -432,13 +440,17 @@ The generated file is in the current directory:
 **macOS/Linux:**
 ```bash
 ls -la *.xlsx
-# Output: CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
+```
+```
+CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
 ```
 
 **Windows (PowerShell):**
 ```powershell
 Get-ChildItem *.xlsx
-# Output: CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
+```
+```
+CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
 ```
 
 > **Tip:** Use `--open` to automatically open the file after generation:
@@ -593,7 +605,7 @@ Error: Configuration file 'config.json' not found
 **Solution:** Ensure `config.json` exists in the project root directory, not in a subdirectory.
 
 ```bash
-ls config.json  # Should show the file
+ls config.json
 ```
 
 ### "Authentication failed"
