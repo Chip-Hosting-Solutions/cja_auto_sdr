@@ -510,7 +510,7 @@ class ErrorMessageHelper:
     """Provides contextual error messages with actionable suggestions"""
 
     # Documentation links
-    DOCS_BASE = "https://github.com/your-org/cja_auto_sdr/blob/main/docs"
+    DOCS_BASE = "https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs"
     TROUBLESHOOTING_URL = f"{DOCS_BASE}/TROUBLESHOOTING.md"
     QUICKSTART_URL = f"{DOCS_BASE}/QUICKSTART_GUIDE.md"
 
@@ -3204,8 +3204,11 @@ def validate_data_view(
             dv_info = cja.getDataView(data_view_id)
         except AttributeError as e:
             logger.error("API method 'getDataView' not available")
-            logger.error("This may indicate an outdated version of cjapy")
-            logger.error("Please update cjapy: pip install --upgrade cjapy")
+            logger.error("Possible causes:")
+            logger.error("  1. Outdated cjapy version - try: pip install --upgrade cjapy")
+            logger.error("  2. CJA connection not properly initialized")
+            logger.error("  3. Authentication failed silently")
+            logger.debug(f"AttributeError details: {e}")
             return False
         except Exception as api_error:
             logger.error(f"API call failed: {str(api_error)}")
@@ -5188,7 +5191,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
     # Breaking changes warning
     if breaking_changes:
         lines.append("")
-        lines.append(ANSIColors.red("⚠️  BREAKING CHANGES DETECTED", c))
+        lines.append(ANSIColors.red("⚠  BREAKING CHANGES DETECTED", c))
         lines.append("-" * 40)
         for comp_id, comp_name, field, old_val, new_val in breaking_changes:
             lines.append(f"  {comp_id}: {field} changed")
@@ -5286,7 +5289,7 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
                     breaking_changes.append((diff.id, field, old_val, new_val))
 
     if breaking_changes:
-        lines.append("#### ⚠️ Breaking Changes Detected")
+        lines.append("#### ⚠ Breaking Changes Detected")
         lines.append("")
         lines.append("| Component | Field | Before | After |")
         lines.append("|-----------|-------|--------|-------|")
@@ -7157,109 +7160,109 @@ def parse_arguments() -> argparse.Namespace:
         epilog='''
 Examples:
   # Single data view
-  python cja_sdr_generator.py dv_12345
+  cja_auto_sdr dv_12345
 
   # Multiple data views (automatically triggers parallel processing)
-  python cja_sdr_generator.py dv_12345 dv_67890 dv_abcde
+  cja_auto_sdr dv_12345 dv_67890 dv_abcde
 
   # Batch processing with explicit flag (same as above)
-  python cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde
+  cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde
 
   # Custom workers
-  python cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 2
+  cja_auto_sdr --batch dv_12345 dv_67890 --workers 2
 
   # Custom output directory
-  python cja_sdr_generator.py dv_12345 --output-dir ./reports
+  cja_auto_sdr dv_12345 --output-dir ./reports
 
   # Continue on errors
-  python cja_sdr_generator.py --batch dv_* --continue-on-error
+  cja_auto_sdr --batch dv_* --continue-on-error
 
   # With custom log level
-  python cja_sdr_generator.py --batch dv_* --log-level WARNING
+  cja_auto_sdr --batch dv_* --log-level WARNING
 
   # Export as CSV files
-  python cja_sdr_generator.py dv_12345 --format csv
+  cja_auto_sdr dv_12345 --format csv
 
   # Export as JSON
-  python cja_sdr_generator.py dv_12345 --format json
+  cja_auto_sdr dv_12345 --format json
 
   # Export as HTML
-  python cja_sdr_generator.py dv_12345 --format html
+  cja_auto_sdr dv_12345 --format html
 
   # Export as Markdown (GitHub/Confluence)
-  python cja_sdr_generator.py dv_12345 --format markdown
+  cja_auto_sdr dv_12345 --format markdown
 
   # Export in all formats
-  python cja_sdr_generator.py dv_12345 --format all
+  cja_auto_sdr dv_12345 --format all
 
   # Dry-run to validate config and connectivity
-  python cja_sdr_generator.py dv_12345 --dry-run
+  cja_auto_sdr dv_12345 --dry-run
 
   # Quiet mode (errors only)
-  python cja_sdr_generator.py dv_12345 --quiet
+  cja_auto_sdr dv_12345 --quiet
 
   # List all accessible data views
-  python cja_sdr_generator.py --list-dataviews
+  cja_auto_sdr --list-dataviews
 
   # Skip data quality validation (faster processing)
-  python cja_sdr_generator.py dv_12345 --skip-validation
+  cja_auto_sdr dv_12345 --skip-validation
 
   # Generate sample configuration file
-  python cja_sdr_generator.py --sample-config
+  cja_auto_sdr --sample-config
 
   # Limit data quality issues to top 10 by severity
-  python cja_sdr_generator.py dv_12345 --max-issues 10
+  cja_auto_sdr dv_12345 --max-issues 10
 
   # Validate only (alias for --dry-run)
-  python cja_sdr_generator.py dv_12345 --validate-only
+  cja_auto_sdr dv_12345 --validate-only
 
   # --- Data View Comparison (Diff) ---
 
   # Compare two live data views
-  python cja_sdr_generator.py --diff dv_prod_12345 dv_staging_67890
-  python cja_sdr_generator.py --diff "Production Analytics" "Staging Analytics"
+  cja_auto_sdr --diff dv_prod_12345 dv_staging_67890
+  cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
 
   # Save a snapshot for later comparison
-  python cja_sdr_generator.py dv_12345 --snapshot ./snapshots/baseline.json
+  cja_auto_sdr dv_12345 --snapshot ./snapshots/baseline.json
 
   # Compare current state against a saved snapshot
-  python cja_sdr_generator.py dv_12345 --diff-snapshot ./snapshots/baseline.json
+  cja_auto_sdr dv_12345 --diff-snapshot ./snapshots/baseline.json
 
   # Diff output options
-  python cja_sdr_generator.py --diff dv_A dv_B --format html --output-dir ./reports
-  python cja_sdr_generator.py --diff dv_A dv_B --format all
-  python cja_sdr_generator.py --diff dv_A dv_B --changes-only
-  python cja_sdr_generator.py --diff dv_A dv_B --summary
+  cja_auto_sdr --diff dv_A dv_B --format html --output-dir ./reports
+  cja_auto_sdr --diff dv_A dv_B --format all
+  cja_auto_sdr --diff dv_A dv_B --changes-only
+  cja_auto_sdr --diff dv_A dv_B --summary
 
   # Advanced diff options
-  python cja_sdr_generator.py --diff dv_A dv_B --ignore-fields description,title
-  python cja_sdr_generator.py --diff dv_A dv_B --diff-labels Production Staging
+  cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
+  cja_auto_sdr --diff dv_A dv_B --diff-labels Production Staging
 
   # Auto-snapshot: automatically save snapshots during diff for audit trail
-  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot
-  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot --snapshot-dir ./history
-  python cja_sdr_generator.py --diff dv_A dv_B --auto-snapshot --keep-last 10
+  cja_auto_sdr --diff dv_A dv_B --auto-snapshot
+  cja_auto_sdr --diff dv_A dv_B --auto-snapshot --snapshot-dir ./history
+  cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-last 10
 
   # --- Quick UX Features ---
 
   # Quick stats without full report
-  python cja_sdr_generator.py dv_12345 --stats
-  python cja_sdr_generator.py dv_1 dv_2 dv_3 --stats
+  cja_auto_sdr dv_12345 --stats
+  cja_auto_sdr dv_1 dv_2 dv_3 --stats
 
   # Stats in JSON format for scripting
-  python cja_sdr_generator.py dv_12345 --stats --format json
-  python cja_sdr_generator.py dv_12345 --stats --output -    # Output to stdout
+  cja_auto_sdr dv_12345 --stats --format json
+  cja_auto_sdr dv_12345 --stats --output -    # Output to stdout
 
   # Open file after generation
-  python cja_sdr_generator.py dv_12345 --open
+  cja_auto_sdr dv_12345 --open
 
   # List data views in JSON format (for scripting/piping)
-  python cja_sdr_generator.py --list-dataviews --format json
-  python cja_sdr_generator.py --list-dataviews --output -    # JSON to stdout
+  cja_auto_sdr --list-dataviews --format json
+  cja_auto_sdr --list-dataviews --output -    # JSON to stdout
 
 Note:
   At least one data view ID must be provided (except for --list-dataviews, --sample-config, --stats).
-  Use 'python cja_sdr_generator.py --help' to see all options.
+  Use 'cja_auto_sdr --help' to see all options.
 
 Exit Codes:
   0 - Success (diff: no differences found)
@@ -8146,8 +8149,8 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
             print()
             print("=" * total_width)
             print("Usage:")
-            print("  python cja_sdr_generator.py <DATA_VIEW_ID>       # Use ID directly")
-            print("  python cja_sdr_generator.py \"<DATA_VIEW_NAME>\"   # Use exact name (quotes recommended)")
+            print("  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly")
+            print("  cja_auto_sdr \"<DATA_VIEW_NAME>\"   # Use exact name (quotes recommended)")
             print()
             print("Note: If multiple data views share the same name, all will be processed.")
             print("=" * total_width)
@@ -8162,7 +8165,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
             print()
             print("Generate a sample configuration file with:")
-            print("  python cja_sdr_generator.py --sample-config")
+            print("  cja_auto_sdr --sample-config")
         return False
 
     except (KeyboardInterrupt, SystemExit):
@@ -8218,7 +8221,7 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
         print("  2. Edit config.json with your Adobe Developer Console credentials")
         print()
         print("  3. Test your configuration:")
-        print("     python cja_sdr_generator.py --list-dataviews")
+        print("     cja_auto_sdr --list-dataviews")
         print()
         print("=" * 60)
 
@@ -8345,7 +8348,7 @@ def validate_config_only(config_file: str = "config.json") -> bool:
             print(f"  ✗ Config file not found: {config_file}")
             print()
             print("  To create a sample config file:")
-            print("    python cja_sdr_generator.py --sample-config")
+            print("    cja_auto_sdr --sample-config")
             print()
             print("  Or set environment variables:")
             print("    export ORG_ID=your_org_id@AdobeOrg")
@@ -9599,7 +9602,7 @@ def main():
     # Validate that at least one data view is provided
     if not data_view_inputs:
         print(ConsoleColors.error("ERROR: At least one data view ID or name is required"), file=sys.stderr)
-        print("Usage: python cja_sdr_generator.py DATA_VIEW_ID_OR_NAME [DATA_VIEW_ID_OR_NAME ...]", file=sys.stderr)
+        print("Usage: cja_auto_sdr DATA_VIEW_ID_OR_NAME [DATA_VIEW_ID_OR_NAME ...]", file=sys.stderr)
         print("       Use --help for more information", file=sys.stderr)
         sys.exit(1)
 
@@ -9640,7 +9643,7 @@ def main():
         print("  • Use quotes around names: cja_auto_sdr \"Production Analytics\"", file=sys.stderr)
         print("  • IDs start with 'dv_': cja_auto_sdr dv_12345", file=sys.stderr)
         print()
-        print("Try running: python cja_sdr_generator.py --list-dataviews", file=sys.stderr)
+        print("Try running: cja_auto_sdr --list-dataviews", file=sys.stderr)
         print("  to see all accessible data view IDs and names", file=sys.stderr)
         sys.exit(1)
 
