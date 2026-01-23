@@ -128,8 +128,7 @@ SCOPES=openid, AdobeID, additional_info.projectedProductContext
   "org_id": "ABC123DEF456@AdobeOrg",
   "client_id": "1234567890abcdef1234567890abcdef",
   "secret": "p8e-XXX...",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext",
-  "sandbox": "prod"
+  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
 }
 ```
 
@@ -141,7 +140,7 @@ SCOPES=openid, AdobeID, additional_info.projectedProductContext
 | `client_id` | **Yes** | string | OAuth Client ID from Developer Console. Typically 32 characters. |
 | `secret` | **Yes** | string | Client Secret from Developer Console. Keep confidential. |
 | `scopes` | **Yes**† | string | OAuth scopes for API access. Comma or space-separated. |
-| `sandbox` | No | string | Sandbox name for non-production environments. |
+| `sandbox` | No | string | Adobe Experience Platform sandbox name. Currently passed to cjapy but may not be utilized. |
 
 > †**Note on scopes:** While the config validator only warns if scopes are missing, OAuth authentication **will fail** without proper scopes. Always include them.
 
@@ -152,10 +151,11 @@ SCOPES=openid, AdobeID, additional_info.projectedProductContext
   "org_id": "ABC123DEF456789@AdobeOrg",
   "client_id": "1234567890abcdef1234567890abcdef",
   "secret": "p8e-XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext",
-  "sandbox": "dev"
+  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
 }
 ```
+
+> **Note:** The optional `sandbox` field exists for future AEP sandbox support but is not currently utilized by the CJA API.
 
 ### Generate a Template
 
