@@ -727,7 +727,7 @@ class ErrorMessageHelper:
                 "suggestions": [
                     "Create a configuration file:",
                     "  Option 1: cja_auto_sdr --sample-config",
-                    "  Option 2: cp .config.json.example config.json",
+                    "  Option 2: cp config.json.example config.json",
                     "",
                     "Or use environment variables instead:",
                     "  export ORG_ID='your_org_id@AdobeOrg'",
