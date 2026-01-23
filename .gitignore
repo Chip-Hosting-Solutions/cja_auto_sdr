@@ -21,3 +21,4 @@ logs/
 # Virtual environments
 .venv
 *.xlsx
+CLAUDE.md
