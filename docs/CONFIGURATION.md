@@ -8,9 +8,9 @@ Complete reference for configuring CJA SDR Generator authentication and settings
 
 1. [Quick Start](#quick-start)
 2. [Configuration Methods](#configuration-methods)
-3. [Profile Management](#profile-management) ← **Recommended for multiple organizations**
-4. [config.json Reference](#configjson-reference)
-5. [Environment Variables Reference](#environment-variables-reference)
+3. [config.json Reference](#configjson-reference)
+4. [Environment Variables Reference](#environment-variables-reference)
+5. [Profile Management](#profile-management) ← **Recommended for multiple organizations**
 6. [OAuth Scopes Explained](#oauth-scopes-explained)
 7. [Validation Rules](#validation-rules)
 8. [Configuration Precedence](#configuration-precedence)
@@ -29,18 +29,18 @@ Choose your configuration method:
 │                   Which method should I use?                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Multiple organizations? (agencies, multi-client, regional)     │
-│  ────────────────────────────────────────────────────────────   │
-│  → Use PROFILES (recommended) - see Profile Management section  │
-│    $ cja_auto_sdr --profile client-a --list-dataviews           │
-│                                                                  │
 │  Single organization, local development?                        │
 │  ─────────────────────────────────────────                      │
-│  → Use config.json (simpler setup)                              │
+│  → Use config.json (simplest setup)                             │
 │                                                                  │
 │  CI/CD, Docker, shared environments?                            │
 │  ────────────────────────────────────                           │
 │  → Use environment variables (more secure)                      │
+│                                                                  │
+│  Multiple organizations? (agencies, multi-client, regional)     │
+│  ────────────────────────────────────────────────────────────   │
+│  → Use PROFILES - see Profile Management section                │
+│    $ cja_auto_sdr --profile client-a --list-dataviews           │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -64,29 +64,11 @@ There are three main ways to configure credentials:
 
 | Method | Best For | Multiple Orgs |
 |--------|----------|---------------|
-| **Profiles** | Agencies, consultants, multi-org enterprises | **Recommended** |
 | **config.json** | Single org, simple local development | No |
 | **Environment Variables** | CI/CD, containers, automation | Via separate configs |
+| **Profiles** | Agencies, consultants, multi-org enterprises | **Recommended** |
 
-### Method 1: Profiles (Recommended for Multiple Organizations)
-
-If you work with multiple Adobe Organizations, profiles are the recommended approach. Each profile is a named directory under `~/.cja/orgs/` containing credentials that can be activated via CLI or environment variable.
-
-```bash
-# Create a profile interactively
-cja_auto_sdr --profile-add client-a
-
-# Use a profile
-cja_auto_sdr --profile client-a --list-dataviews
-
-# Or set as default
-export CJA_PROFILE=client-a
-cja_auto_sdr --list-dataviews
-```
-
-See [Profile Management](#profile-management) for full documentation.
-
-### Method 2: config.json File
+### Method 1: config.json File
 
 Create a `config.json` file in your working directory:
 
@@ -108,7 +90,7 @@ Create a `config.json` file in your working directory:
 - Risk of accidental commit to version control
 - Single environment only
 
-### Method 3: Environment Variables
+### Method 2: Environment Variables
 
 Set variables in your shell or `.env` file:
 
@@ -144,6 +126,24 @@ SCOPES=your_scopes_from_developer_console
 **Cons:**
 - Slightly more setup
 - Terminal-session specific (unless using `.env`)
+
+### Method 3: Profiles (Recommended for Multiple Organizations)
+
+If you work with multiple Adobe Organizations, profiles are the recommended approach. Each profile is a named directory under `~/.cja/orgs/` containing credentials that can be activated via CLI or environment variable.
+
+```bash
+# Create a profile interactively
+cja_auto_sdr --profile-add client-a
+
+# Use a profile
+cja_auto_sdr --profile client-a --list-dataviews
+
+# Or set as default
+export CJA_PROFILE=client-a
+cja_auto_sdr --list-dataviews
+```
+
+See [Profile Management](#profile-management) for full documentation
 
 ---
 
@@ -335,12 +335,20 @@ Invalid: abc123 (too short)
 | Not empty | Must contain scopes from your Adobe Developer Console project |
 | Separator | Comma or space-separated |
 
-### Validate Before Running
+### Checking and Validating Configuration
 
-Test your configuration without making API calls:
+There are two commands for checking your configuration:
+
+| Command | API Call | Best For |
+|---------|----------|----------|
+| `--config-status` | No | Quick troubleshooting—shows configuration source, fields, and masked credentials |
+| `--validate-config` | Yes | Full validation—tests API connectivity and authentication |
 
 ```bash
-# Validate config file
+# Quick check: Show configuration status without API call (fast)
+cja_auto_sdr --config-status
+
+# Full validation: Test config and API connectivity
 cja_auto_sdr --validate-config
 
 # Validate with specific config file
@@ -349,6 +357,10 @@ cja_auto_sdr --config-file /path/to/config.json --validate-config
 # Dry run (validates and shows what would happen)
 cja_auto_sdr --dry-run
 ```
+
+**When to use each:**
+- Use `--config-status` first for quick troubleshooting (no network required)
+- Use `--validate-config` to verify API connectivity and authentication
 
 ---
 
@@ -391,6 +403,11 @@ cja_auto_sdr --list-dataviews
 See which configuration source is being used:
 
 ```bash
+# Quick check without API call
+cja_auto_sdr --config-status
+# Shows: configuration source, all fields (masked), and validation status
+
+# Or with verbose output during a command
 cja_auto_sdr --list-dataviews --verbose
 # Output shows: "Using credentials from environment variables" or
 #              "Using credentials from config.json"
@@ -835,7 +852,10 @@ cja_auto_sdr --list-dataviews
 ### Validation Commands
 
 ```bash
-# Validate configuration only
+# Quick config check (no API call, shows source and masked credentials)
+cja_auto_sdr --config-status
+
+# Full validation (tests API connectivity)
 cja_auto_sdr --validate-config
 
 # Dry run (validate + simulate)

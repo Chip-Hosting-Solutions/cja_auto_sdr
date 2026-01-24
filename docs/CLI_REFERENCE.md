@@ -38,8 +38,10 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 |--------|-------------|---------|
 | `-h, --help` | Show help message and exit | - |
 | `--version` | Show program version and exit | - |
+| `--exit-codes` | Display exit code reference and exit | - |
 | `-q, --quiet` | Suppress output except errors | False |
 | `--open` | Open generated file(s) in default application after creation | False |
+| `--show-timings` | Display performance timing breakdown after processing | False |
 
 ### Processing
 
@@ -79,6 +81,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--config-file PATH` | Path to configuration file | config.json |
+| `--config-status` | Show configuration status (source, fields, masked credentials) without API call. Faster than `--validate-config` for quick troubleshooting | - |
 | `--log-level LEVEL` | DEBUG, INFO, WARNING, ERROR, CRITICAL | INFO |
 | `--log-format FORMAT` | Log output format: `text` (human-readable) or `json` (structured logging for Splunk, ELK, CloudWatch) | text |
 | `--production` | Minimal logging for performance | False |
@@ -174,6 +177,7 @@ cja_auto_sdr --list-dataviews
 | `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.) | False |
 | `--side-by-side` | Show side-by-side comparison view for modified items | False |
 | `--no-color` | Disable ANSI color codes in diff console output | False |
+| `--color-theme THEME` | Color theme for diff output: `default` (green/red) or `accessible` (blue/orange) | default |
 | `--quiet-diff` | Suppress output, only return exit code | False |
 | `--reverse-diff` | Swap source and target comparison direction | False |
 | `--warn-threshold PERCENT` | Exit with code 3 if change % exceeds threshold | - |
@@ -184,6 +188,7 @@ cja_auto_sdr --list-dataviews
 | `--auto-snapshot` | Automatically save snapshots during diff for audit trail | False |
 | `--snapshot-dir DIR` | Directory for auto-saved snapshots | ./snapshots |
 | `--keep-last N` | Retention: keep only last N snapshots per data view (0=all) | 0 |
+| `--keep-since PERIOD` | Date-based retention: delete snapshots older than PERIOD. Formats: `7d`, `2w`, `1m`, `30` (days) | - |
 
 ### Git Integration
 
@@ -213,6 +218,9 @@ cja_auto_sdr --list-dataviews
 |----------|-------------|
 | `LOG_LEVEL` | Default log level (overridden by --log-level) |
 | `OUTPUT_DIR` | Default output directory (overridden by --output-dir) |
+| `MAX_RETRIES` | Maximum API retry attempts (overridden by --max-retries) |
+| `RETRY_BASE_DELAY` | Initial retry delay in seconds (overridden by --retry-base-delay) |
+| `RETRY_MAX_DELAY` | Maximum retry delay in seconds (overridden by --retry-max-delay) |
 
 ## Usage Examples
 
@@ -261,6 +269,9 @@ cja_auto_sdr --batch "Prod" "Stage" "Test" --continue-on-error
 ### Discovery Commands
 
 ```bash
+# Quick check of configuration status (no API call, fast)
+cja_auto_sdr --config-status
+
 # Validate configuration and API connectivity (no data view needed)
 cja_auto_sdr --validate-config
 
@@ -275,6 +286,9 @@ cja_auto_sdr --list-dataviews --output - | jq '.dataViews[].id'
 
 # Generate sample configuration
 cja_auto_sdr --sample-config
+
+# Show exit code reference
+cja_auto_sdr --exit-codes
 
 # Validate config without generating report
 cja_auto_sdr dv_12345 --dry-run
@@ -347,6 +361,9 @@ cja_auto_sdr dv_12345 --enable-cache
 
 # Quiet mode
 cja_auto_sdr dv_12345 --quiet
+
+# Show performance timing breakdown
+cja_auto_sdr dv_12345 --show-timings
 ```
 
 ### Output Formats
@@ -452,6 +469,9 @@ cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields
 cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side
 cja_auto_sdr --diff dv_12345 dv_67890 --side-by-side --format markdown
 
+# Accessible color theme (colorblind-friendly)
+cja_auto_sdr --diff dv_12345 dv_67890 --color-theme accessible
+
 # Combined options
 cja_auto_sdr --diff dv_12345 dv_67890 --extended-fields --side-by-side --show-only modified --changes-only
 
@@ -463,6 +483,9 @@ cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --snapshot-dir ./history
 
 # With retention policy (keep last 10 snapshots per data view)
 cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-last 10
+
+# Time-based retention (delete snapshots older than 30 days)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-since 30d
 
 # Auto-snapshot works with diff-snapshot too (saves current state)
 cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
