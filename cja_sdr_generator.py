@@ -11343,7 +11343,6 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
 
 def main():
     """Main entry point for the script"""
-    main_start_time = time.time()
 
     # Parse arguments (will show error and help if no data views provided)
     try:
@@ -12047,7 +12046,9 @@ def main():
         print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
         sys.exit(1)
 
-    # Process data views
+    # Process data views - start timing here for accurate processing-only runtime
+    processing_start_time = time.time()
+
     if args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
 
@@ -12086,7 +12087,7 @@ def main():
         results = processor.process_batch(data_views)
 
         # Print total runtime
-        total_runtime = time.time() - main_start_time
+        total_runtime = time.time() - processing_start_time
         print()
         print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
@@ -12137,7 +12138,7 @@ def main():
         )
 
         # Print final status with color and total runtime
-        total_runtime = time.time() - main_start_time
+        total_runtime = time.time() - processing_start_time
         print()
         if result.success:
             print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
