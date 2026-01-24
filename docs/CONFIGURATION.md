@@ -52,7 +52,7 @@ You need these four values for OAuth authentication:
 | **Organization ID** | Developer Console → Project → Credentials → Organization ID |
 | **Client ID** | Developer Console → Project → Credentials → Client ID |
 | **Client Secret** | Developer Console → Project → Credentials → Client Secret |
-| **Scopes** | Use: `openid, AdobeID, additional_info.projectedProductContext` |
+| **Scopes** | Developer Console → Project → Credentials → Scopes (copy from your project) |
 
 ---
 
@@ -67,7 +67,7 @@ Create a `config.json` file in your working directory:
   "org_id": "ABC123DEF456@AdobeOrg",
   "client_id": "1234567890abcdef1234567890abcdef",
   "secret": "p8e-XXX...",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -88,7 +88,7 @@ Set variables in your shell or `.env` file:
 export ORG_ID="ABC123DEF456@AdobeOrg"
 export CLIENT_ID="1234567890abcdef1234567890abcdef"
 export SECRET="p8e-XXX..."
-export SCOPES="openid, AdobeID, additional_info.projectedProductContext"
+export SCOPES="your_scopes_from_developer_console"
 ```
 
 Or create a `.env` file (requires `python-dotenv`):
@@ -104,7 +104,7 @@ uv add python-dotenv
 ORG_ID=ABC123DEF456@AdobeOrg
 CLIENT_ID=1234567890abcdef1234567890abcdef
 SECRET=p8e-XXX...
-SCOPES=openid, AdobeID, additional_info.projectedProductContext
+SCOPES=your_scopes_from_developer_console
 ```
 
 **Pros:**
@@ -128,7 +128,7 @@ SCOPES=openid, AdobeID, additional_info.projectedProductContext
   "org_id": "ABC123DEF456@AdobeOrg",
   "client_id": "1234567890abcdef1234567890abcdef",
   "secret": "p8e-XXX...",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -151,7 +151,7 @@ SCOPES=openid, AdobeID, additional_info.projectedProductContext
   "org_id": "ABC123DEF456789@AdobeOrg",
   "client_id": "1234567890abcdef1234567890abcdef",
   "secret": "p8e-XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -196,7 +196,7 @@ cja_auto_sdr --sample-config
 export ORG_ID="ABC123DEF456@AdobeOrg"
 export CLIENT_ID="your_client_id"
 export SECRET="your_secret"
-export SCOPES="openid, AdobeID, additional_info.projectedProductContext"
+export SCOPES="your_scopes_from_developer_console"
 ```
 
 **macOS/Linux (persistent - add to ~/.bashrc or ~/.zshrc):**
@@ -210,7 +210,7 @@ source ~/.zshrc
 $env:ORG_ID = "ABC123DEF456@AdobeOrg"
 $env:CLIENT_ID = "your_client_id"
 $env:SECRET = "your_secret"
-$env:SCOPES = "openid, AdobeID, additional_info.projectedProductContext"
+$env:SCOPES = "your_scopes_from_developer_console"
 ```
 
 **Windows Command Prompt:**
@@ -229,7 +229,7 @@ Create a `.env` file in your project directory:
 ORG_ID=ABC123DEF456@AdobeOrg
 CLIENT_ID=1234567890abcdef1234567890abcdef
 SECRET=p8e-XXXXXXXXXXXXXXXXXXXXXXXXXXXX
-SCOPES=openid, AdobeID, additional_info.projectedProductContext
+SCOPES=your_scopes_from_developer_console
 
 # Optional
 # SANDBOX=dev
@@ -243,37 +243,18 @@ uv add python-dotenv
 
 ---
 
-## OAuth Scopes Explained
+## OAuth Scopes
 
-### Required Scopes
+OAuth scopes control which APIs your integration can access. The required scopes vary based on your Adobe Developer Console project configuration.
 
-The CJA API requires these three OAuth scopes:
+**To find your scopes:**
 
-| Scope | Purpose |
-|-------|---------|
-| `openid` | OpenID Connect authentication. Required for OAuth flow. |
-| `AdobeID` | Adobe Identity authentication. Validates your Adobe account. |
-| `additional_info.projectedProductContext` | Access to product-specific APIs including CJA. |
+1. Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+2. Open your project
+3. Navigate to **Credentials** → **OAuth Server-to-Server**
+4. Copy the scopes listed under **Scopes**
 
-### Recommended Scopes String
-
-```
-openid, AdobeID, additional_info.projectedProductContext
-```
-
-Both comma-separated and space-separated formats are accepted:
-```
-openid,AdobeID,additional_info.projectedProductContext
-openid AdobeID additional_info.projectedProductContext
-```
-
-### What Happens Without Proper Scopes
-
-| Missing Scope | Error |
-|---------------|-------|
-| `openid` | Authentication fails at token request |
-| `AdobeID` | Identity verification fails |
-| `additional_info.projectedProductContext` | API returns 403 Forbidden |
+For more information on OAuth authentication, see the [Adobe Developer Authentication Guide](https://developer.adobe.com/developer-console/docs/guides/authentication/).
 
 ---
 
@@ -323,7 +304,7 @@ Invalid: abc123 (too short)
 
 | Rule | Description |
 |------|-------------|
-| Required scopes | Must include: `openid`, `AdobeID`, `additional_info.projectedProductContext` |
+| Not empty | Must contain scopes from your Adobe Developer Console project |
 | Separator | Comma or space-separated |
 
 ### Validate Before Running
@@ -424,7 +405,7 @@ env:
   ORG_ID: ${{ secrets.ADOBE_ORG_ID }}
   CLIENT_ID: ${{ secrets.ADOBE_CLIENT_ID }}
   SECRET: ${{ secrets.ADOBE_SECRET }}
-  SCOPES: "openid, AdobeID, additional_info.projectedProductContext"
+  SCOPES: ${{ secrets.ADOBE_SCOPES }}
 
 steps:
   - name: Generate SDR
@@ -437,7 +418,7 @@ variables:
   ORG_ID: $ADOBE_ORG_ID
   CLIENT_ID: $ADOBE_CLIENT_ID
   SECRET: $ADOBE_SECRET
-  SCOPES: "openid, AdobeID, additional_info.projectedProductContext"
+  SCOPES: $ADOBE_SCOPES
 
 generate_sdr:
   script:
@@ -568,16 +549,16 @@ Warning: CLIENT_ID 'abc123...' appears too short
 
 **Solution:** Verify you copied the complete Client ID from Adobe Developer Console. It should be 32 characters.
 
-#### "Missing required OAuth scopes"
+#### "Missing OAuth scopes"
 
 ```
-Warning: Missing required OAuth scopes: AdobeID
+Warning: OAuth scopes not configured
 ```
 
-**Solution:** Add all required scopes:
+**Solution:** Copy scopes from your Adobe Developer Console project:
 ```json
 {
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -657,7 +638,7 @@ cja_auto_sdr --list-dataviews --log-level DEBUG
   "org_id": "YOUR_ORG_ID@AdobeOrg",
   "client_id": "YOUR_CLIENT_ID",
   "secret": "YOUR_SECRET",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -666,7 +647,7 @@ cja_auto_sdr --list-dataviews --log-level DEBUG
 export ORG_ID="YOUR_ORG_ID@AdobeOrg"
 export CLIENT_ID="YOUR_CLIENT_ID"
 export SECRET="YOUR_SECRET"
-export SCOPES="openid, AdobeID, additional_info.projectedProductContext"
+export SCOPES="your_scopes_from_developer_console"
 ```
 
 ### Validation Checklist
@@ -674,7 +655,7 @@ export SCOPES="openid, AdobeID, additional_info.projectedProductContext"
 - [ ] `org_id` ends with `@AdobeOrg`
 - [ ] `client_id` is 32 characters
 - [ ] `secret` is not empty
-- [ ] `scopes` includes all three required scopes
+- [ ] `scopes` copied from Adobe Developer Console
 - [ ] JSON syntax is valid (no trailing commas)
 - [ ] File is not committed to version control
 

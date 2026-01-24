@@ -227,7 +227,7 @@ jobs:
           ORG_ID: ${{ secrets.ORG_ID }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           SECRET: ${{ secrets.SECRET }}
-          SCOPES: openid, AdobeID, additional_info.projectedProductContext
+          SCOPES: ${{ secrets.SCOPES }}
         run: |
           cja_auto_sdr dv_prod \
             --git-commit \

@@ -170,7 +170,7 @@ CRITICAL - Empty value for required field: 'client_id'
   "org_id": "YOUR_ORG_ID@AdobeOrg",
   "client_id": "YOUR_CLIENT_ID",
   "secret": "YOUR_CLIENT_SECRET",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -232,7 +232,7 @@ Option 1: Export directly
 export ORG_ID=your_org_id@AdobeOrg
 export CLIENT_ID=your_client_id
 export SECRET=your_client_secret
-export SCOPES='openid, AdobeID, additional_info.projectedProductContext'
+export SCOPES='your_scopes_from_developer_console'
 ```
 
 Option 2: Use .env file (copy from .env.example)
@@ -297,7 +297,7 @@ Found JWT fields: 'tech_acct', 'private_key'...
      "org_id": "YOUR_ORG_ID@AdobeOrg",
      "client_id": "YOUR_CLIENT_ID",
      "secret": "YOUR_CLIENT_SECRET",
-     "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+     "scopes": "your_scopes_from_developer_console"
    }
    ```
 3. Remove deprecated fields: `tech_acct`, `private_key`, `pathToKey`

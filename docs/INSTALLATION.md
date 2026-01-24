@@ -241,7 +241,7 @@ Create a `.env` file in the project root (or set environment variables directly)
 ORG_ID=your_org_id@AdobeOrg
 CLIENT_ID=your_client_id
 SECRET=your_client_secret
-SCOPES=openid, AdobeID, additional_info.projectedProductContext
+SCOPES=your_scopes_from_developer_console
 
 # Optional
 # SANDBOX=your_sandbox_name
@@ -276,7 +276,7 @@ Then edit with your credentials:
   "org_id": "your_org_id@AdobeOrg",
   "client_id": "your_client_id",
   "secret": "your_client_secret",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 

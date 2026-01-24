@@ -174,7 +174,7 @@ cja_auto_sdr dv_12345 --output-dir ./reports/$(Get-Date -Format "yyyyMMdd")
 export ORG_ID=your_org_id@AdobeOrg
 export CLIENT_ID=your_client_id
 export SECRET=your_client_secret
-export SCOPES="openid,AdobeID,read_organizations"
+export SCOPES="your_scopes_from_developer_console"
 
 # Optional settings
 export OUTPUT_DIR=./reports

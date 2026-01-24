@@ -235,7 +235,7 @@ Or create it manually ([JSON syntax guide](https://developer.mozilla.org/en-US/d
   "org_id": "YOUR_ORG_ID@AdobeOrg",
   "client_id": "YOUR_CLIENT_ID",
   "secret": "YOUR_CLIENT_SECRET",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -246,7 +246,7 @@ Replace the placeholder values with the credentials from Step 1.5:
   "org_id": "ABC123DEF456@AdobeOrg",
   "client_id": "cm12345abcdef67890",
   "secret": "p8e-ABC123XYZ789_your_actual_secret",
-  "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+  "scopes": "your_scopes_from_developer_console"
 }
 ```
 
@@ -260,7 +260,7 @@ For automated pipelines or shared environments, use a `.env` file ([what are env
 ORG_ID=YOUR_ORG_ID@AdobeOrg
 CLIENT_ID=YOUR_CLIENT_ID
 SECRET=YOUR_CLIENT_SECRET
-SCOPES=openid, AdobeID, additional_info.projectedProductContext
+SCOPES=your_scopes_from_developer_console
 ```
 
 To enable `.env` file loading:
