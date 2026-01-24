@@ -52,7 +52,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Audit Trail | Full history of every Data View configuration change |
 | | Team Collaboration | Share snapshots via Git repositories with PR-based review workflows |
 | **Multi-Org** | Profile Management | Switch between Adobe Organizations with `--profile client-a` |
-| | Interactive Setup | Create profiles interactively with `--profile-add` |
+| | Interactive Profile Setup | Create profiles interactively with `--profile-add` |
 | | Profile Testing | Validate credentials with `--profile-test` before use |
 | **Developer UX** | Quick Stats Mode | Get metrics/dimensions count instantly with `--stats` (no full report) |
 | | Machine-Readable Discovery | `--list-dataviews --format json` for scripting integration |
@@ -219,7 +219,7 @@ python cja_sdr_generator.py "Production Analytics"
 | Stats as JSON | `cja_auto_sdr dv_12345 --stats --format json` |
 | List Data Views | `cja_auto_sdr --list-dataviews` |
 | List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
-| Interactive selection | `cja_auto_sdr --interactive` |
+| Interactive Data View selection | `cja_auto_sdr --interactive` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
 | Validate config only | `cja_auto_sdr --validate-config` |
 | **Diff Comparison** (default: console output) | |
