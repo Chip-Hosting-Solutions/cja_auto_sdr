@@ -242,7 +242,7 @@ python cja_sdr_generator.py "Production Analytics"
 | [Quick Reference](docs/QUICK_REFERENCE.md) | Single-page command cheat sheet |
 | [Extended Quick Start](docs/QUICKSTART_GUIDE.md) | Complete walkthrough from zero to first SDR |
 | [Installation Guide](docs/INSTALLATION.md) | Detailed setup instructions, authentication options |
-| [Configuration Guide](docs/CONFIGURATION.md) | config.json, environment variables, validation rules |
+| [Configuration Guide](docs/CONFIGURATION.md) | Profile management, config.json, environment variables |
 | [CLI Reference](docs/CLI_REFERENCE.md) | Complete command-line options and examples |
 | [Shell Completion](docs/SHELL_COMPLETION.md) | Enable tab-completion for bash/zsh |
 | [Data Quality](docs/DATA_QUALITY.md) | Validation checks, severity levels, understanding issues |
@@ -277,7 +277,7 @@ cja_auto_sdr/
 ├── .env.example             # Environment variable template
 ├── docs/                    # Documentation (14 guides)
 │   ├── QUICKSTART_GUIDE.md  # Getting started guide
-│   ├── CONFIGURATION.md     # config.json & env vars reference
+│   ├── CONFIGURATION.md     # Profiles, config.json & env vars
 │   ├── CLI_REFERENCE.md     # Command-line reference
 │   ├── DIFF_COMPARISON.md   # Data view comparison guide
 │   ├── GIT_INTEGRATION.md   # Git integration guide
