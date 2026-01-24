@@ -271,6 +271,8 @@ uv add python-dotenv
 
 > **Note:** Environment variables take precedence over `config.json` if both are set.
 
+For advanced configuration options, see [CONFIGURATION.md](CONFIGURATION.md).
+
 ---
 
 ## Step 4: Verify Your Setup
