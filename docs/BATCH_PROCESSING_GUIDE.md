@@ -58,6 +58,10 @@ cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde dv_11111 --workers 8
 | `--circuit-breaker` | Enable circuit breaker pattern | Disabled |
 | `--circuit-failure-threshold N` | Failures before opening circuit | 5 |
 | `--circuit-timeout N` | Recovery timeout in seconds | 30 |
+| `--include-segments` | Include segments inventory in output | Disabled |
+| `--include-derived` | Include derived fields inventory in output | Disabled |
+| `--include-calculated` | Include calculated metrics inventory in output | Disabled |
+| `--inventory-only` | Output only inventory sheets (requires `--include-*`) | Disabled |
 | `-h, --help` | Show help message and exit | - |
 
 ## Usage Examples
@@ -438,4 +442,7 @@ For issues, questions, or feature requests:
 - [CLI Reference](CLI_REFERENCE.md) - Complete command-line options
 - [Performance Guide](PERFORMANCE.md) - Optimization and caching
 - [Use Cases](USE_CASES.md) - Automation workflows
+- [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter documentation
+- [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field documentation
+- [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics documentation
 - [Troubleshooting](TROUBLESHOOTING.md) - Error resolution

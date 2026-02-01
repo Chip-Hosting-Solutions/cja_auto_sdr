@@ -33,41 +33,48 @@ tests/
 ├── test_api_tuning.py               # API worker auto-tuning tests
 ├── test_circuit_breaker.py          # Circuit breaker pattern tests
 ├── test_shared_cache.py             # Shared validation cache tests
+├── test_inventory_utils.py          # Inventory utilities tests
 └── README.md                        # This file
 ```
 
-**Total: 786 comprehensive tests**
+**Total: 1,017 comprehensive tests**
 
 ### Test Count Breakdown
 
 | Test File | Tests | Coverage Area |
 |-----------|-------|---------------|
-| `test_diff_comparison.py` | 159 | Data view diff comparison feature |
+| `test_diff_comparison.py` | 159 | Data view diff comparison feature with inventory support |
+| `test_ux_features.py` | 103 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_cli.py` | 76 | Command-line interface and argument parsing |
+| `test_profiles.py` | 43 | Multi-organization profile support |
+| `test_derived_inventory.py` | 43 | Derived fields inventory feature |
+| `test_inventory_utils.py` | 41 | Inventory utilities and helpers |
+| `test_segments_inventory.py` | 41 | Segments inventory feature |
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
+| `test_calculated_metrics_inventory.py` | 36 | Calculated metrics inventory feature |
+| `test_git_integration.py` | 33 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 32 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 32 | CJA connection and configuration validation |
 | `test_utils.py` | 27 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
 | `test_parallel_api_fetcher.py` | 24 | Parallel API data fetching |
+| `test_api_tuning.py` | 23 | API worker auto-tuning |
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
+| `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
 | `test_retry.py` | 21 | Retry with exponential backoff |
 | `test_batch_processor.py` | 20 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
 | `test_process_single_dataview.py` | 18 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 16 | Data view name to ID resolution |
+| `test_shared_cache.py` | 16 | Shared validation cache |
 | `test_logging_optimization.py` | 15 | Logging performance optimizations |
 | `test_env_credentials.py` | 13 | Environment variable credentials |
 | `test_dry_run.py` | 12 | Dry-run mode functionality |
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| `test_ux_features.py` | 27 | UX features: --open, --stats, --output, --list-dataviews formats |
-| `test_api_tuning.py` | 29 | API worker auto-tuning |
-| `test_circuit_breaker.py` | 27 | Circuit breaker pattern |
-| `test_shared_cache.py` | 16 | Shared validation cache |
-| **Total** | **786** | **100% pass rate** |
+| **Total** | **1,017** | **100% pass rate** |
 
 ## Running Tests
 
@@ -319,6 +326,13 @@ uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
 - **DataFrame Column Handling**: Tests missing/extra columns in validation
 - **Concurrent Access**: Tests cache operations under concurrent load
 
+### Inventory Utils Tests (`test_inventory_utils.py`)
+- **Utility functions**: Tests shared utility functions for inventory modules
+- **ID extraction**: Tests component ID extraction from various formats
+- **Field formatting**: Tests field formatting and normalization
+- **Error handling**: Tests graceful handling of invalid inputs
+- **Type validation**: Tests type checking and validation utilities
+
 ## Test Fixtures
 
 Test fixtures are defined in `conftest.py`:
@@ -450,11 +464,18 @@ uv run pytest
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (786 tests total)
-- [x] Profile management tests (test_profiles.py) - 43 tests
-- [x] API worker auto-tuning tests (test_api_tuning.py) - 29 tests
-- [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 27 tests
-- [x] Shared validation cache tests (test_shared_cache.py) - 16 tests
+- [x] Comprehensive test coverage (1,017 tests total)
+- [x] Profile management tests (test_profiles.py) - 44 tests
+- [x] API worker auto-tuning tests (test_api_tuning.py) - 24 tests
+- [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 23 tests
+- [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
+- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 37 tests
+- [x] Segments inventory tests (test_segments_inventory.py) - 42 tests
+- [x] Derived fields inventory tests (test_derived_inventory.py) - 44 tests
+- [x] Inventory utilities tests (test_inventory_utils.py) - 41 tests
+- [x] Git integration tests (test_git_integration.py) - 33 tests
+- [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 159 tests
+- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 103 tests
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)

@@ -1,9 +1,629 @@
 # Changelog
 
+<!-- markdownlint-disable -->
+
 All notable changes to the CJA SDR Generator project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [3.1.0] - 2026-01-30
+
+### Highlights
+- **Segments Inventory** - Document segment filters, complexity scores, and definition summaries with `--include-segments`
+- **Derived Fields Inventory** - Document derived field logic, complexity scores, and schema references with `--include-derived` (SDR only)
+- **Calculated Metrics Inventory** - Document calculated metric formulas, complexity, and references with `--include-calculated`
+- **Include All Inventory Shorthand** - Enable all inventory options with a single `--include-all-inventory` flag
+- **Inventory Diff Support** - Track calculated metrics and segments changes over time with snapshot comparisons for the same data view
+- **Inventory-Only Mode** - Generate only inventory sheets without standard SDR content with `--inventory-only`
+- **Inventory Summary Mode** - Quick inventory statistics without full output with `--inventory-summary`
+- **Inventory Output Ordering** - Inventory sections appear at the end of all SDR output formats, ordered by CLI argument order
+- **Snapshot Inventory Support** - Include calculated metrics and segments inventory in snapshots with `--snapshot --include-calculated --include-segments`
+- **Complexity Warnings at Completion** - SDR completion message now shows inventory statistics and warns about high-complexity items
+- **Inventory Statistics in Metadata** - Metadata sheet includes inventory counts and complexity statistics when inventory is enabled
+
+This release introduces **component inventory features** for SDR generation and snapshot diff comparisons. These features provide comprehensive documentation of segments, derived fields, and calculated metrics with complexity scoring for governance and review. Calculated metrics and segments inventory options work in both SDR mode and snapshot diff mode (for tracking changes to the same data view over time). Derived fields inventory is for SDR generation only since derived fields are already included in the standard metrics/dimensions output. The new `--inventory-only` flag allows generating focused inventory documentation without standard SDR sheets.
+
+Snapshots created with `--snapshot` or `--git-commit` can now optionally include calculated metrics and segments inventory data. This enables comprehensive change tracking when comparing snapshots over time. Git snapshots store inventory in separate files (`calculated-metrics.json`, `segments.json`) for clean diffs.
+
+> **Note:** Inventory diff is supported for calculated metrics (`--include-calculated`) and segments (`--include-segments`) for snapshot comparisons of the **same data view** only. Derived fields inventory (`--include-derived`) is for SDR generation only—derived field changes are captured in the standard Metrics/Dimensions diff. Cross-data-view comparisons (`--diff dv_A dv_B`) do not support inventory options because inventory IDs are data-view-scoped.
+
+### Added
+
+#### Segments Inventory (NEW)
+Document all segments (filters) associated with a Data View, including definition logic, complexity scores, and component references. Supports both SDR generation and snapshot diff comparisons.
+
+```bash
+# Include segments inventory in SDR output
+cja_auto_sdr dv_12345 --include-segments
+
+# Combine with other inventories
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
+```
+
+**Output Columns:**
+| Column | Description |
+|--------|-------------|
+| `segment_name` | Segment display name |
+| `segment_id` | Unique segment identifier |
+| `description` | User-provided description |
+| `owner` | Owner display name |
+| `owner_id` | Owner user ID |
+| `complexity_score` | Calculated complexity (0-100) |
+| `container_type` | Scope: hit, visit, or visitor |
+| `functions_used` | Human-readable function names (And, Or, Contains, etc.) |
+| `functions_used_internal` | Internal function identifiers |
+| `predicate_count` | Number of filter predicates |
+| `logic_operator_count` | Number of AND/OR operators |
+| `nesting_depth` | Maximum nesting level |
+| `container_count` | Number of container contexts |
+| `dimension_references` | Referenced dimension IDs |
+| `metric_references` | Referenced metric IDs |
+| `other_segment_references` | Referenced segment IDs |
+| `definition_summary` | Human-readable logic description |
+| `approved` | Approval status |
+| `favorite` | User favorite status |
+| `tags` | Organizational tags |
+| `created` | ISO 8601 creation timestamp |
+| `modified` | ISO 8601 last modified timestamp |
+| `shares` | Share recipient details |
+| `shared_to_count` | Number of users/groups shared with |
+| `data_view_id` | Associated data view ID |
+| `site_title` | Site/company title |
+| `definition_json` | Raw definition JSON for advanced analysis |
+| `summary` | Alias for `definition_summary` (cross-module compatibility) |
+
+**Complexity Score Factors:**
+| Factor | Weight | Max |
+|--------|--------|-----|
+| Predicates | 30% | 50 |
+| Logic operators | 20% | 20 |
+| Nesting depth | 20% | 8 |
+| Dimension refs | 10% | 15 |
+| Metric refs | 10% | 5 |
+| Regex patterns | 10% | 5 |
+
+**New CLI Argument:**
+- `--include-segments` - Include segments inventory in output (SDR and snapshot diff)
+
+#### Derived Fields Inventory (NEW)
+Document all derived fields within a Data View, including logic definitions, complexity scores, and schema field references. **For SDR generation only** (not snapshot diff, since derived fields are already included in the standard metrics/dimensions output).
+
+```bash
+# Include derived fields inventory in SDR output
+cja_auto_sdr dv_12345 --include-derived
+```
+
+**Output Columns:**
+| Column | Description |
+|--------|-------------|
+| `component_name` | Derived field display name |
+| `component_id` | Unique component identifier |
+| `component_type` | Type: Metric or Dimension |
+| `description` | User-provided description |
+| `complexity_score` | Calculated complexity (0-100) |
+| `functions_used` | Human-readable function names (Case When, Lowercase, etc.) |
+| `functions_used_internal` | Internal function identifiers |
+| `branch_count` | Number of conditional branches |
+| `nesting_depth` | Maximum nesting level |
+| `operator_count` | Number of operators in logic |
+| `schema_field_count` | Number of schema fields referenced |
+| `schema_fields` | Referenced schema field IDs |
+| `lookup_references` | Referenced lookup datasets |
+| `component_references` | Referenced component IDs |
+| `rule_names` | Named rules from definition |
+| `rule_descriptions` | Rule description annotations |
+| `logic_summary` | Human-readable logic description |
+| `inferred_output_type` | Output type: numeric, string, boolean, unknown |
+| `definition_json` | Raw fieldDefinition JSON for advanced analysis |
+| `summary` | Alias for `logic_summary` (cross-module compatibility) |
+
+**Complexity Score Factors:**
+| Factor | Weight | Max |
+|--------|--------|-----|
+| Operators | 30% | 200 |
+| Branches | 25% | 50 |
+| Nesting | 20% | 5 |
+| Functions | 10% | 20 |
+| Schema fields | 10% | 10 |
+| Regex patterns | 5% | 5 |
+
+**New CLI Argument:**
+- `--include-derived` - Include derived fields inventory in output (SDR only)
+
+#### Calculated Metrics Inventory (NEW)
+Document all calculated metrics associated with a Data View, including formula logic, complexity scores, and metric references. Supports both SDR generation and snapshot diff comparisons.
+
+```bash
+# Include calculated metrics inventory in SDR output
+cja_auto_sdr dv_12345 --include-calculated
+
+# Include both inventories (sheets appear in CLI argument order)
+cja_auto_sdr dv_12345 --include-derived --include-calculated
+```
+
+**Output Columns:**
+| Column | Description |
+|--------|-------------|
+| `metric_name` | Calculated metric display name |
+| `metric_id` | Unique metric identifier |
+| `description` | User-provided description |
+| `owner` | Owner display name |
+| `owner_id` | Owner user ID |
+| `complexity_score` | Calculated complexity (0-100) |
+| `functions_used` | Human-readable function names (Division, Segment Filter, etc.) |
+| `functions_used_internal` | Internal function identifiers |
+| `nesting_depth` | Maximum formula nesting level |
+| `operator_count` | Number of operators in formula |
+| `metric_references` | Referenced metric IDs |
+| `segment_references` | Referenced segment IDs |
+| `conditional_count` | Number of conditional expressions |
+| `formula_summary` | Human-readable formula description |
+| `polarity` | Value direction: positive, negative, neutral |
+| `metric_type` | Format: decimal, percent, currency, time, integer |
+| `precision` | Decimal precision |
+| `approved` | Approval status |
+| `favorite` | User favorite status |
+| `tags` | Organizational tags |
+| `created` | ISO 8601 creation timestamp |
+| `modified` | ISO 8601 last modified timestamp |
+| `shares` | Share recipient details |
+| `shared_to_count` | Number of users/groups shared with |
+| `data_view_id` | Associated data view ID |
+| `site_title` | Site/company title |
+| `definition_json` | Raw definition JSON for advanced analysis |
+| `summary` | Alias for `formula_summary` (cross-module compatibility) |
+
+**Complexity Score Factors:**
+| Factor | Weight | Max |
+|--------|--------|-----|
+| Operators | 25% | 50 |
+| Metric refs | 25% | 10 |
+| Nesting depth | 20% | 8 |
+| Functions | 15% | 15 |
+| Segments | 10% | 5 |
+| Conditionals | 5% | 5 |
+
+**New CLI Argument:**
+- `--include-calculated` - Include calculated metrics inventory in output (SDR and snapshot diff)
+
+#### Inventory-Only Mode (NEW)
+Generate output containing only inventory sheets, without standard SDR content (Metadata, Data Quality, DataView, Metrics, Dimensions).
+
+```bash
+# Generate ONLY segments inventory
+cja_auto_sdr dv_12345 --include-segments --inventory-only
+
+# Generate multiple inventories only
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived --inventory-only
+
+# Output in multiple formats
+cja_auto_sdr dv_12345 --include-segments --inventory-only -f all
+```
+
+**Use Cases:**
+- Focused component documentation without full SDR overhead
+- Governance audits targeting specific component types
+- Lightweight exports for dependency analysis
+- Quick inventory snapshots for review
+
+**New CLI Argument:**
+- `--inventory-only` - Output only inventory sheets; requires at least one `--include-*` flag
+
+#### Inventory Summary Mode (NEW)
+Display quick inventory statistics without generating full output files. Shows counts, complexity distribution, governance metadata, and highlights high-complexity items that may need review.
+
+```bash
+# Quick stats for all inventories
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived --inventory-summary
+
+# Summary for segments only
+cja_auto_sdr dv_12345 --include-segments --inventory-summary
+
+# Save summary to JSON
+cja_auto_sdr dv_12345 --include-segments --include-calculated --inventory-summary --format json
+```
+
+**Output includes:**
+- Total counts per inventory type
+- Governance stats (approved, shared, tagged counts)
+- Complexity distribution (average, max, high/elevated counts)
+- Container type breakdown (for segments)
+- High-complexity items list (complexity >= 70) with warnings
+
+**Example Console Output:**
+```
+Inventory Summary: Production Analytics
+Data View ID: dv_12345
+
+Derived Fields
+  Total:       42
+  Metrics:     15
+  Dimensions:  27
+  Complexity:  avg=35.2, max=82.0
+  High (>=75): 3
+
+Calculated Metrics
+  Total:       28
+  Approved:    18
+  Shared:      12
+  Tagged:      22
+  Complexity:  avg=28.5, max=65.0
+
+Segments
+  Total:       35
+  Approved:    25
+  Shared:      15
+  Tagged:      30
+  Containers:  visitor: 12, visit: 18, hit: 5
+  Complexity:  avg=32.1, max=78.0
+  High (>=75): 2
+
+High-Complexity Items (5):
+   82 Derived Field      Complex Attribution Logic
+       Case When with 12 branches...
+   78 Segment            Multi-Touch Attribution
+       visitor where (Page Views And...)
+   ...
+```
+
+**New CLI Argument:**
+- `--inventory-summary` - Display quick stats without full output; requires at least one `--include-*` flag; cannot be used with `--inventory-only`
+
+#### Include All Inventory Shorthand (NEW)
+Enable all applicable inventory options with a single flag. Automatically adjusts based on the mode.
+
+```bash
+# SDR mode: enables all three inventory options
+cja_auto_sdr dv_12345 --include-all-inventory
+
+# Equivalent to:
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
+
+# With snapshots: enables only segments and calculated metrics (derived not supported)
+cja_auto_sdr dv_12345 --snapshot ./snap.json --include-all-inventory
+
+# Equivalent to:
+cja_auto_sdr dv_12345 --snapshot ./snap.json --include-segments --include-calculated
+
+# Works with other inventory modes
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-only
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-summary
+```
+
+**Smart Behavior:**
+- In SDR mode: enables `--include-segments`, `--include-calculated`, and `--include-derived`
+- With `--snapshot`, `--git-commit`, or snapshot diff modes: enables only `--include-segments` and `--include-calculated` (derived fields are not supported in snapshots)
+
+**New CLI Argument:**
+- `--include-all-inventory` - Enable all applicable inventory options
+
+#### Complexity Warnings at SDR Completion (NEW)
+When generating SDR with inventory options enabled, the completion message now includes inventory statistics and warns about high-complexity items.
+
+**Example Output:**
+```
+SUCCESS: SDR generated for Production Analytics
+  Output: ./Production_Analytics_SDR.xlsx
+  Size: 2.4 MB
+  Metrics: 150, Dimensions: 85
+  Data Quality Issues: 12
+  Inventory: Segments: 35 (2 high-complexity), Calculated Metrics: 28, Derived Fields: 42 (3 high-complexity)
+  ⚠ 5 high-complexity items (≥75) - review recommended
+```
+
+This surfaces governance insights without requiring `--inventory-summary`, alerting users to potential issues at a glance.
+
+#### Inventory Statistics in Metadata Sheet (NEW)
+When inventory options are enabled, the Metadata sheet now includes inventory counts and complexity statistics.
+
+**Additional Metadata Properties:**
+| Property | Example Value |
+|----------|---------------|
+| --- Inventory Statistics --- | |
+| Segments Count | 35 |
+| Segments Complexity (Avg / Max) | 32.1 / 78.0 |
+| Segments High Complexity (≥75) | 2 |
+| Segments Elevated Complexity (50-74) | 5 |
+| Calculated Metrics Count | 28 |
+| Calculated Metrics Complexity (Avg / Max) | 28.5 / 65.0 |
+| Calculated Metrics High Complexity (≥75) | 0 |
+| Calculated Metrics Elevated Complexity (50-74) | 3 |
+| Derived Fields Count | 42 |
+| Derived Fields Breakdown | Metrics: 15, Dimensions: 27 |
+| Derived Fields Complexity (Avg / Max) | 35.2 / 82.0 |
+| Derived Fields High Complexity (≥75) | 3 |
+| Derived Fields Elevated Complexity (50-74) | 8 |
+
+This enables single-sheet summary for automated reporting and dashboards.
+
+#### Inventory Diff Support (NEW)
+Track changes to calculated metrics and segments over time using snapshot comparisons. This feature is limited to comparing the **same data view** across different points in time.
+
+> **Note:** Derived fields inventory (`--include-derived`) is for SDR generation only. Derived field changes are automatically captured in the standard Metrics/Dimensions diff since they're included in the metrics/dimensions API output.
+
+```bash
+# Create snapshot with inventory data
+cja_auto_sdr dv_12345 --snapshot ./baseline.json \
+  --include-calculated --include-segments
+
+# Compare against baseline (same data view)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json \
+  --include-calculated --include-segments
+
+# Compare two snapshots directly
+cja_auto_sdr --compare-snapshots ./before.json ./after.json \
+  --include-calculated --include-segments
+
+# Quick comparison against most recent snapshot
+cja_auto_sdr dv_12345 --compare-with-prev --include-calculated
+```
+
+**Why Same Data View Only? (Design Choice)**
+Calculated metrics and segments use data-view-scoped IDs that cannot be reliably matched across different data views.
+
+**CJA Auto SDR intentionally does not attempt name-based or formula-based fuzzy matching** for calculated metrics or segments across data views. This avoids false positives where two components with the same name or similar formula actually represent different business logic. ID-based matching within the same data view over time is reliable and meaningful.
+
+**Supported Scenarios:**
+| Scenario | Inventory Diff |
+|----------|----------------|
+| `--diff-snapshot` (same DV) | ✓ IDs match reliably |
+| `--compare-snapshots` (same DV) | ✓ IDs match reliably |
+| `--compare-with-prev` (same DV) | ✓ IDs match reliably |
+| `--diff dv_A dv_B` (cross-DV) | ✗ IDs cannot match meaningfully |
+
+**Output includes:**
+- Summary table with inventory change counts and percentages
+- Detailed change lists for each inventory type (added/removed/modified)
+- Changed field details showing before/after values
+- All output formats supported: Console, JSON, Markdown, HTML, Excel, CSV
+
+**Snapshot Version 2.0:**
+Snapshots with inventory data use version 2.0 format, which includes `calculated_metrics_inventory` and `segments_inventory` arrays. Derived fields inventory is not included in snapshots—derived field changes are captured in the standard Metrics/Dimensions diff.
+
+**Why No Derived Fields in Snapshots?**
+Derived fields already appear in the Metrics/Dimensions output, so their changes are captured automatically:
+- **Standard diff**: `name`, `title`, `description`, `type`, `schemaPath`
+- **Extended diff** (`--extended-fields`): `hidden`, `format`, `attribution`, `persistence`, `bucketing`, `derivedFieldId`, etc.
+
+Use `--include-derived` with SDR generation to get the full Derived Fields Inventory sheet with logic analysis, complexity scores, and schema field references.
+
+#### Inventory Output Ordering
+Inventory sections (Segments, Derived Fields, Calculated Metrics) appear at the end of all output formats in the order specified on the command line. This applies to both SDR generation and diff comparison outputs.
+
+**Format-Specific Placement:**
+| Format | Placement |
+|--------|-----------|
+| Excel | Additional sheets at end of workbook |
+| JSON | Additional sections in output object |
+| CSV | Separate `*_Segments.csv`, `*_derived_fields.csv`, `*_calculated_metrics.csv` files |
+| HTML | Additional sections at end of report |
+| Markdown | Additional `## Segments` / `## Derived Fields` / `## Calculated Metrics` sections |
+
+**Excel Sheet Order (Standard SDR Mode):**
+1. Metadata
+2. Data Quality
+3. DataView
+4. Metrics
+5. Dimensions
+6. Segments (if `--include-segments`)
+7. Derived Fields (if `--include-derived`)
+8. Calculated Metrics (if `--include-calculated`)
+
+**Excel Sheet Order (Inventory-Only Mode):**
+Only inventory sheets appear, in CLI argument order.
+
+**Note:** The order of inventory sections depends on CLI argument order:
+- `--include-segments --include-derived --include-calculated` → Segments, Derived Fields, Calculated Metrics
+- `--include-calculated --include-segments` → Calculated Metrics, Segments
+
+#### Snapshot Inventory Support (NEW)
+Snapshots created with `--snapshot` or `--git-commit` now support optional inclusion of calculated metrics and segments inventory data. This enables comprehensive change tracking when comparing snapshots over time.
+
+```bash
+# Create snapshot with calculated metrics inventory
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated
+
+# Create snapshot with segments inventory
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-segments
+
+# Create snapshot with both inventories
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments
+
+# Git commit with inventory data
+cja_auto_sdr dv_12345 --git-commit --include-calculated --include-segments
+```
+
+**Git-Friendly Snapshot Structure (Extended):**
+When inventory is included, Git snapshots store inventory in separate files for clean diffs:
+
+```
+sdr-snapshots/
+└── ProductionAnalytics_dv_12345/
+    ├── metrics.json              # All metrics, sorted by ID
+    ├── dimensions.json           # All dimensions, sorted by ID
+    ├── metadata.json             # Data view info, quality summary, inventory counts
+    ├── calculated-metrics.json   # Optional: calculated metrics inventory
+    └── segments.json             # Optional: segments inventory
+```
+
+**Snapshot Version:**
+Snapshots with inventory data are automatically upgraded to version 2.0 format.
+
+**Important: Derived Fields Not Supported in Snapshots or Snapshot Diffs**
+The `--include-derived` flag is only for SDR generation mode:
+- Derived fields inventory is computed from metrics/dimensions data
+- Use `--include-derived` with SDR generation to output the Derived Fields sheet
+- Derived field **changes** are captured in the standard Metrics/Dimensions diff (no special flag needed)
+
+```bash
+# This works: SDR generation with derived fields inventory
+cja_auto_sdr dv_12345 --include-derived
+
+# This errors: not supported with snapshots
+cja_auto_sdr dv_12345 --snapshot ./snap.json --include-derived
+# ERROR: --include-derived cannot be used with --snapshot
+```
+
+#### Derived Fields Description Support (NEW)
+Derived fields now include the `description` field from data view components when available. This field appears in both DataFrame output and JSON export, maintaining consistency with calculated metrics and segments which already included descriptions from their respective APIs.
+
+#### Additional Logic Summary Handlers (NEW)
+Derived fields inventory now generates detailed logic summaries for 7 additional function types:
+
+| Function | Summary Example |
+|----------|-----------------|
+| `typecast` | "Converts {field} to {target_type}" |
+| `datetime-bucket` | "Buckets {field} by {interval}" |
+| `datetime-slice` | "Extracts {component} from {field}" |
+| `timezone-shift` | "Shifts {field} from {src_tz} to {dst_tz}" |
+| `find-replace` | "Replaces {pattern} with {replacement} in {field}" |
+| `depth` | "Counts depth of {field}" |
+| `profile` | "References profile attribute {name}" |
+
+#### Standardized Summary Column (NEW)
+All three inventory modules now include a standardized `summary` column that aliases the module-specific summary column for cross-module queries:
+
+| Module | Original Column | Standard Alias |
+|--------|-----------------|----------------|
+| Calculated Metrics | `formula_summary` | `summary` |
+| Segments | `definition_summary` | `summary` |
+| Derived Fields | `logic_summary` | `summary` |
+
+This enables consistent queries across inventory types:
+```python
+# Find components mentioning "revenue" across all inventories
+for df in [calc_metrics_df, segments_df, derived_df]:
+    matches = df[df['summary'].str.contains('revenue', case=False, na=False)]
+```
+
+### New Files
+- `cja_segments_inventory.py` - Segments inventory module
+- `cja_derived_fields_inventory.py` - Derived fields inventory module
+- `cja_calculated_metrics_inventory.py` - Calculated metrics inventory module
+- `tests/test_segments_inventory.py` - 41 tests for segments inventory
+- `tests/test_derived_inventory.py` - 43 tests for derived fields inventory
+- `tests/test_calculated_metrics_inventory.py` - 36 tests for calculated metrics inventory
+- `docs/SEGMENTS_INVENTORY.md` - Segments inventory documentation
+- `docs/DERIVED_FIELDS_INVENTORY.md` - Derived fields documentation
+- `docs/CALCULATED_METRICS_INVENTORY.md` - Calculated metrics documentation
+- `docs/INVENTORY_OVERVIEW.md` - Unified inventory guide covering all three modules
+
+### Documentation Updates
+- Updated README.md with inventory commands and features
+- Updated README.md with AEP API requirement clarification (Adobe Developer Console projects need both CJA API and AEP API enabled for authentication)
+- Updated docs/QUICK_REFERENCE.md with inventory options
+- Updated docs/CLI_REFERENCE.md with Inventory Options section
+- Added table of contents navigation to docs/CLI_REFERENCE.md for easier reference
+- Updated docs/OUTPUT_FORMATS.md with sheet ordering details
+- Added docs/INVENTORY_OVERVIEW.md with unified inventory guide covering:
+  - When to use each inventory module
+  - Feature comparison table (governance metadata, complexity scoring, reference tracking)
+  - Cross-module complexity score comparison
+  - Combined workflows for governance audits and change tracking
+
+### Testing
+- **1,017 tests** (1,016 passing, 1 skipped) - up from 786 in v3.0.16
+- New test file: `tests/test_inventory_utils.py` with 41 tests for shared utility functions
+- New test file: `tests/test_segments_inventory.py` with 41 tests covering:
+  - Builder basic functionality and API calls
+  - Inventory dataframe/JSON output
+  - Complexity score calculation
+  - Definition summary generation
+  - Edge cases (empty definition, missing owner, API errors)
+  - Segment summary serialization
+  - Inventory property calculations
+- New test file: `tests/test_derived_inventory.py` with 43 tests for derived fields inventory
+- New test file: `tests/test_calculated_metrics_inventory.py` with 36 tests covering:
+  - Builder basic functionality
+  - Metric reference extraction
+  - Segment reference extraction
+  - Complexity score calculation
+  - Formula summary generation
+  - Edge cases
+- Updated `tests/test_process_single_dataview.py` for new parameters
+- Updated `tests/conftest.py` with inventory fixtures
+- Updated `tests/test_ux_features.py` with 103 tests (up from 83), including:
+  - `TestInventoryOptionsValidation` - 19 tests for flag registration and diff mode validation
+  - `TestIncludeAllInventory` - 4 tests for shorthand flag and smart mode detection
+  - `TestProcessingResultInventory` - 6 tests for inventory statistics in ProcessingResult
+  - `TestDisplayInventorySummary` - 5 tests for `--inventory-summary` output
+
+### Internal Improvements
+
+#### Inventory Code Consolidation
+Refactored inventory modules to reduce code duplication and improve maintainability:
+
+- **New shared utilities module** (`cja_inventory_utils.py`) consolidates common functionality:
+  - `format_iso_date()` - Consistent date formatting across all inventories
+  - `extract_owner()` - Standardized owner extraction from API responses
+  - `extract_tags()` - Standardized tags extraction
+  - `normalize_api_response()` - Unified DataFrame/list response handling
+  - `extract_short_name()` - Consistent reference name cleaning (e.g., `metrics/revenue` → `revenue`)
+  - `BatchProcessingStats` - Track processed/skipped items with visibility
+  - `validate_required_id()` - Fail-fast validation for missing critical IDs
+
+- **Improved logging visibility**:
+  - Skipped items now logged at WARNING level (previously DEBUG) for better visibility
+  - Batch processing summary shows processed vs. skipped counts with percentages
+  - Exception logging includes full stack traces for debugging
+
+- **Fail-fast ID validation**:
+  - Calculated metrics, segments, and derived fields now validate IDs before processing
+  - Missing or empty IDs are logged and skipped rather than creating invalid records
+
+- **Enhanced console formatting**:
+  - Added dim/gray text styling (`ConsoleColors.dim()`) for secondary information in inventory summary display
+  - Improves visual hierarchy when displaying complexity statistics and high-complexity item details
+
+#### Inventory Modules
+- Added `SegmentSummary` dataclass for segment filter data
+- Added `SegmentsInventory` class with DataFrame/JSON output
+- Added `SegmentsInventoryBuilder` for parsing segment definitions via `getFilters` API
+- Added `DerivedFieldSummary` dataclass for derived field data
+- Added `DerivedFieldsInventory` class with DataFrame/JSON output
+- Added `DerivedFieldsInventoryBuilder` for parsing field definitions
+- Added `CalculatedMetricSummary` dataclass for metric data
+- Added `CalculatedMetricsInventory` class with DataFrame/JSON output
+- Added `CalculatedMetricsInventoryBuilder` for parsing API responses
+- Added function display name constants for all inventory types (segments, derived fields, calculated metrics)
+- Added `inventory_order` parameter through processing chain
+- Added `inventory_only` parameter for focused inventory output
+- Modified `process_single_dataview` signature for inventory support
+- Modified Excel sheet writing to place inventories at end
+- Added `"Segments": "🎯"` to HTML section icons
+- Added validation and error messaging when inventory options are used with diff modes (`--diff`, `--diff-snapshot`, `--compare-snapshots`, `--compare-with-prev`)
+- Added validation requiring `--inventory-only` to be used with at least one `--include-*` flag
+
+#### Build Configuration
+- Added inventory modules to wheel and sdist build targets to ensure proper package distribution
+
+### API Impact
+Each inventory option has different API requirements:
+
+| Option | API Call | Impact |
+|--------|----------|--------|
+| `--include-segments` | `getFilters` | Additional API request |
+| `--include-calculated` | `getCalculatedMetrics` | Additional API request |
+| `--include-derived` | None | Parses existing data view response |
+
+### Backwards Compatibility
+- **Snapshot format v2.0** is fully backwards compatible with v1.0 snapshots
+- Existing v1.0 snapshots (without inventory data) continue to work unchanged
+- When loading a snapshot, the tool defaults to v1.0 if no version is specified
+- v2.0 snapshots are only created when inventory data (`--include-segments` or `--include-calculated`) is included
+
+### Upgrade Notes
+- **No migration required** - existing snapshots and CI/CD pipelines work without changes
+- Inventory diff features are additive; baseline snapshots without inventory data simply won't include inventory comparisons
+- To track inventory changes over time, regenerate baseline snapshots with `--include-segments` or `--include-calculated`
+
+### Dependencies
+- **cjapy** minimum version bumped from `>=0.2.4.post2` to `>=0.2.4.post3`
+  - Improved OAuth error handling: authentication failures now show the actual OAuth response (e.g., `invalid_client`, `invalid_scope`) instead of confusing downstream errors
+  - See [Troubleshooting: OAuth Token Retrieval Failed](docs/TROUBLESHOOTING.md#oauth-token-retrieval-failed-v310) for details
+
+---
 
 ## [3.0.16] - 2026-01-24
 
@@ -1810,7 +2430,7 @@ Batch Processing (10 data views):
 | Validation Caching | No | Yes (50-90% faster on cache hits) |
 | Early Exit Optimization | No | Yes (15-20% faster on errors) |
 | Logging Optimization | No | Yes (5-10% faster with --production) |
-| Tests | None | 786 comprehensive tests |
+| Tests | None | 929 comprehensive tests |
 | Documentation | Basic | 13 detailed guides |
 | Performance Tracking | No | Yes, built-in with cache statistics |
 | Parallel Processing | No | Yes, configurable workers + concurrent validation |

@@ -578,7 +578,9 @@ class TestProcessSingleDataviewWorker:
         mock_process.assert_called_once_with(
             "dv_test_12345", "config.json", "/output", "INFO", "text", "excel",
             False, 1000, 3600, False, False, 0, False, False, False, False,
-            profile=None, shared_cache=None, api_tuning_config=None, circuit_breaker_config=None
+            profile=None, shared_cache=None, api_tuning_config=None, circuit_breaker_config=None,
+            include_derived_inventory=False, include_calculated_metrics=False,
+            include_segments_inventory=False, inventory_only=False, inventory_order=None
         )
 
 

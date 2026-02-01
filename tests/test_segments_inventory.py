@@ -1,0 +1,870 @@
+"""
+Test suite for CJA Segments Inventory
+
+Tests cover:
+- Parsing segment definitions
+- Inventory generation
+- Complexity score calculation
+- Definition summary generation
+- DataFrame output
+"""
+
+import pytest
+import json
+import pandas as pd
+from unittest.mock import Mock, MagicMock
+
+from cja_segments_inventory import (
+    SegmentsInventoryBuilder,
+    SegmentsInventory,
+    SegmentSummary,
+    SEGMENT_FUNCTION_DISPLAY_NAMES,
+)
+
+
+# ==================== FIXTURES ====================
+
+
+@pytest.fixture
+def sample_simple_segment():
+    """Simple segment: Page URL contains 'checkout'"""
+    return {
+        "id": "s_checkout_pages",
+        "name": "Checkout Pages",
+        "description": "Pages in the checkout funnel",
+        "owner": {"name": "Test Owner"},
+        "definition": {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "contains",
+                "dimension": "variables/pageurl",
+                "val": "checkout"
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_complex_segment():
+    """Complex segment with multiple conditions"""
+    return {
+        "id": "s_high_value_mobile",
+        "name": "High Value Mobile Visitors",
+        "description": "Mobile visitors with revenue > 100 and orders >= 3",
+        "owner": {"name": "Analytics Team"},
+        "definition": {
+            "func": "container",
+            "context": "visitors",
+            "pred": {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "eq",
+                        "dimension": "variables/mobiledevicetype",
+                        "val": "Mobile Phone"
+                    },
+                    {
+                        "func": "gt",
+                        "metric": "metrics/revenue",
+                        "val": 100
+                    },
+                    {
+                        "func": "gte",
+                        "metric": "metrics/orders",
+                        "val": 3
+                    }
+                ]
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_nested_segment():
+    """Deeply nested segment for complexity testing"""
+    return {
+        "id": "s_complex_nested",
+        "name": "Complex Nested Segment",
+        "description": "Complex nested conditions",
+        "owner": {"name": "Data Team"},
+        "definition": {
+            "func": "container",
+            "context": "visits",
+            "pred": {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "or",
+                        "preds": [
+                            {
+                                "func": "eq",
+                                "dimension": "variables/channel",
+                                "val": "paid"
+                            },
+                            {
+                                "func": "eq",
+                                "dimension": "variables/channel",
+                                "val": "organic"
+                            }
+                        ]
+                    },
+                    {
+                        "func": "and",
+                        "preds": [
+                            {
+                                "func": "gt",
+                                "metric": "metrics/pageviews",
+                                "val": 5
+                            },
+                            {
+                                "func": "exists",
+                                "dimension": "variables/purchaseid"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_sequence_segment():
+    """Segment with sequential conditions"""
+    return {
+        "id": "s_checkout_sequence",
+        "name": "Checkout Funnel Sequence",
+        "description": "Users who went through checkout steps in order",
+        "owner": {"name": "Test User"},
+        "definition": {
+            "func": "container",
+            "context": "visitors",
+            "pred": {
+                "func": "sequence",
+                "checkpoints": [
+                    {
+                        "func": "container",
+                        "context": "hits",
+                        "pred": {
+                            "func": "eq",
+                            "dimension": "variables/pagename",
+                            "val": "Cart"
+                        }
+                    },
+                    {
+                        "func": "container",
+                        "context": "hits",
+                        "pred": {
+                            "func": "eq",
+                            "dimension": "variables/pagename",
+                            "val": "Checkout"
+                        }
+                    },
+                    {
+                        "func": "container",
+                        "context": "hits",
+                        "pred": {
+                            "func": "eq",
+                            "dimension": "variables/pagename",
+                            "val": "Thank You"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_exclude_segment():
+    """Segment with exclusion logic"""
+    return {
+        "id": "s_non_internal",
+        "name": "Non-Internal Traffic",
+        "description": "All traffic excluding internal IPs",
+        "owner": {"name": "Test"},
+        "definition": {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "exists",
+                        "dimension": "variables/pageurl"
+                    },
+                    {
+                        "func": "exclude",
+                        "container": {
+                            "func": "contains",
+                            "dimension": "variables/ipaddress",
+                            "val": "192.168"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_regex_segment():
+    """Segment with regex pattern matching"""
+    return {
+        "id": "s_product_pages",
+        "name": "Product Detail Pages",
+        "description": "Pages matching product URL pattern",
+        "owner": {"name": "Test"},
+        "definition": {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "matches",
+                "dimension": "variables/pageurl",
+                "val": "^/products/[a-z0-9-]+$"
+            }
+        }
+    }
+
+
+@pytest.fixture
+def mock_cja_instance(sample_simple_segment, sample_complex_segment):
+    """Create a mock CJA instance with segments"""
+    mock_cja = Mock()
+    mock_cja.getFilters.return_value = pd.DataFrame([
+        sample_simple_segment,
+        sample_complex_segment
+    ])
+    return mock_cja
+
+
+@pytest.fixture
+def mock_cja_instance_list_response(sample_simple_segment, sample_complex_segment):
+    """Create a mock CJA instance that returns a list (not DataFrame)"""
+    mock_cja = Mock()
+    mock_cja.getFilters.return_value = [
+        sample_simple_segment,
+        sample_complex_segment
+    ]
+    return mock_cja
+
+
+@pytest.fixture
+def mock_cja_instance_empty():
+    """Create a mock CJA instance with no segments"""
+    mock_cja = Mock()
+    mock_cja.getFilters.return_value = pd.DataFrame()
+    return mock_cja
+
+
+# ==================== BUILDER TESTS ====================
+
+
+class TestSegmentsInventoryBuilder:
+    """Tests for SegmentsInventoryBuilder class"""
+
+    def test_build_basic(self, mock_cja_instance):
+        """Test basic inventory building"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test View")
+
+        assert isinstance(inventory, SegmentsInventory)
+        assert inventory.data_view_id == "dv_test"
+        assert inventory.data_view_name == "Test View"
+        assert inventory.total_segments == 2
+
+    def test_build_from_list_response(self, mock_cja_instance_list_response):
+        """Test building when API returns a list instead of DataFrame"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance_list_response, "dv_test", "Test")
+
+        assert inventory.total_segments == 2
+
+    def test_build_empty(self, mock_cja_instance_empty):
+        """Test building with no segments"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance_empty, "dv_empty", "Empty")
+
+        assert inventory.total_segments == 0
+
+    def test_api_called_with_correct_params(self, mock_cja_instance):
+        """Test that API is called with correct parameters"""
+        builder = SegmentsInventoryBuilder()
+        builder.build(mock_cja_instance, "dv_abc123", "Test")
+
+        mock_cja_instance.getFilters.assert_called_once_with(
+            dataIds="dv_abc123",
+            full=True
+        )
+
+    def test_complexity_score_calculated(self, mock_cja_instance):
+        """Test that complexity scores are calculated"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+
+        for segment in inventory.segments:
+            assert 0 <= segment.complexity_score <= 100
+
+    def test_dimension_references_extracted(self, sample_simple_segment):
+        """Test that dimension references are extracted correctly"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert len(inventory.segments) == 1
+        segment = inventory.segments[0]
+        assert "pageurl" in segment.dimension_references
+
+    def test_metric_references_extracted(self, sample_complex_segment):
+        """Test that metric references are extracted correctly"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_complex_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert len(inventory.segments) == 1
+        segment = inventory.segments[0]
+        assert "revenue" in segment.metric_references
+        assert "orders" in segment.metric_references
+
+    def test_functions_extracted(self, sample_simple_segment):
+        """Test that functions are extracted correctly"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert "Contains" in segment.functions_used
+
+    def test_owner_extracted(self, sample_simple_segment):
+        """Test that owner is extracted from nested structure"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert segment.owner == "Test Owner"
+
+    def test_container_type_extracted(self, sample_simple_segment):
+        """Test that container type (context) is extracted"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert segment.container_type == "hits"
+
+    def test_missing_definition_skipped(self):
+        """Test that segments without definitions are skipped"""
+        segment_no_def = {
+            "id": "s_no_def",
+            "name": "No Definition",
+            "description": "",
+            "owner": {"name": "Test"},
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment_no_def]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 0
+
+
+# ==================== INVENTORY TESTS ====================
+
+
+class TestSegmentsInventory:
+    """Tests for SegmentsInventory class"""
+
+    def test_get_dataframe(self, mock_cja_instance):
+        """Test DataFrame output"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+
+        df = inventory.get_dataframe()
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == inventory.total_segments
+        assert "name" in df.columns
+        assert "complexity_score" in df.columns
+        assert "functions_used" in df.columns
+        assert "definition_summary" in df.columns
+        assert "container_type" in df.columns
+
+    def test_get_dataframe_sorted_by_complexity(self, mock_cja_instance):
+        """Test that DataFrame is sorted by complexity score descending"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+
+        df = inventory.get_dataframe()
+
+        scores = df["complexity_score"].tolist()
+        assert scores == sorted(scores, reverse=True)
+
+    def test_get_summary(self, mock_cja_instance):
+        """Test summary statistics"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+
+        summary = inventory.get_summary()
+
+        assert "data_view_id" in summary
+        assert "data_view_name" in summary
+        assert "total_segments" in summary
+        assert "complexity" in summary
+        assert "function_usage" in summary
+        assert "container_types" in summary
+
+    def test_to_json(self, mock_cja_instance):
+        """Test JSON export"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+
+        json_data = inventory.to_json()
+
+        assert "summary" in json_data
+        assert "segments" in json_data
+        assert len(json_data["segments"]) == inventory.total_segments
+
+    def test_empty_inventory_dataframe(self, mock_cja_instance_empty):
+        """Test DataFrame output for empty inventory"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance_empty, "dv_test", "Test")
+
+        df = inventory.get_dataframe()
+
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+        assert "name" in df.columns  # Columns should still be present
+
+
+# ==================== COMPLEXITY SCORE TESTS ====================
+
+
+class TestComplexityScore:
+    """Tests for complexity score calculation"""
+
+    def test_simple_segment_low_complexity(self, sample_simple_segment):
+        """Test that simple segments have low complexity"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert segment.complexity_score < 30  # Simple contains should be low
+
+    def test_nested_segment_higher_complexity(self, sample_nested_segment):
+        """Test that nested segments have higher complexity"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_nested_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert segment.complexity_score > 10  # Nested should be more complex
+
+    def test_sequence_segment_adds_complexity(self, sample_sequence_segment):
+        """Test that sequential segments add complexity"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_sequence_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Should have multiple predicates from sequence checkpoints
+        assert segment.predicate_count >= 3
+
+    def test_regex_segment_adds_complexity(self, sample_regex_segment):
+        """Test that regex patterns add complexity"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_regex_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Regex should be detected in functions
+        assert "Matches Regex" in segment.functions_used
+
+    def test_logic_operators_counted(self, sample_complex_segment):
+        """Test that logic operators are counted"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_complex_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        assert segment.logic_operator_count >= 1  # Has "and" operator
+
+
+# ==================== DEFINITION SUMMARY TESTS ====================
+
+
+class TestDefinitionSummary:
+    """Tests for definition summary generation"""
+
+    def test_contains_summary(self, sample_simple_segment):
+        """Test definition summary for contains condition"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_simple_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Should mention the dimension or contain keyword
+        assert ("pageurl" in segment.definition_summary.lower() or
+                "contains" in segment.definition_summary.lower() or
+                "checkout" in segment.definition_summary.lower())
+
+    def test_visitor_context_summary(self, sample_complex_segment):
+        """Test definition summary for visitor-level segment"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_complex_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Should use Person/Visitor for visitor context
+        assert ("person" in segment.definition_summary.lower() or
+                "visitor" in segment.definition_summary.lower() or
+                segment.container_type == "visitors")
+
+    def test_sequence_summary(self, sample_sequence_segment):
+        """Test definition summary for sequential segment"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_sequence_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Should mention sequence or steps
+        assert ("sequential" in segment.definition_summary.lower() or
+                "sequence" in segment.definition_summary.lower() or
+                "steps" in segment.definition_summary.lower())
+
+    def test_exclude_summary(self, sample_exclude_segment):
+        """Test definition summary for exclusion segment"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [sample_exclude_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        segment = inventory.segments[0]
+        # Should mention exclusion or contain relevant keywords
+        assert ("exclud" in segment.definition_summary.lower() or
+                "exist" in segment.definition_summary.lower() or
+                len(segment.definition_summary) > 0)
+
+
+# ==================== EDGE CASE TESTS ====================
+
+
+class TestEdgeCases:
+    """Tests for edge cases and error handling"""
+
+    def test_missing_owner(self):
+        """Test handling of missing owner"""
+        segment = {
+            "id": "s_test",
+            "name": "Test",
+            "description": "",
+            "definition": {
+                "func": "container",
+                "context": "hits",
+                "pred": {
+                    "func": "exists",
+                    "dimension": "variables/pageurl"
+                }
+            }
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert len(inventory.segments) == 1
+        assert inventory.segments[0].owner == ""
+
+    def test_owner_as_string(self):
+        """Test handling of owner as string instead of dict"""
+        segment = {
+            "id": "s_test",
+            "name": "Test",
+            "description": "",
+            "owner": "string_owner",
+            "definition": {
+                "func": "container",
+                "context": "hits",
+                "pred": {
+                    "func": "exists",
+                    "dimension": "variables/pageurl"
+                }
+            }
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.segments[0].owner == "string_owner"
+
+    def test_empty_definition(self):
+        """Test handling of empty definition"""
+        segment = {
+            "id": "s_test",
+            "name": "Test",
+            "description": "",
+            "definition": {}
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        # Empty definition should be skipped
+        assert inventory.total_segments == 0
+
+    def test_api_error_handling(self):
+        """Test handling of API errors"""
+        mock_cja = Mock()
+        mock_cja.getFilters.side_effect = Exception("API Error")
+
+        builder = SegmentsInventoryBuilder()
+
+        with pytest.raises(Exception) as exc_info:
+            builder.build(mock_cja, "dv_test", "Test")
+
+        assert "API Error" in str(exc_info.value)
+
+    def test_none_response(self):
+        """Test handling of None API response"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = None
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 0
+
+    def test_unexpected_response_type(self):
+        """Test handling of unexpected response type"""
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = "unexpected"
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 0
+
+
+# ==================== DATA CLASS TESTS ====================
+
+
+class TestSegmentSummary:
+    """Tests for SegmentSummary data class"""
+
+    def test_to_dict(self):
+        """Test conversion to dictionary"""
+        summary = SegmentSummary(
+            segment_id="s_test",
+            segment_name="Test Segment",
+            description="Test description",
+            owner="Test Owner",
+            complexity_score=45.5,
+            functions_used=["Contains", "And"],
+            functions_used_internal=["contains", "and"],
+            predicate_count=3,
+            logic_operator_count=1,
+            nesting_depth=2,
+            container_count=1,
+            dimension_references=["pageurl", "channel"],
+            metric_references=["revenue"],
+            other_segment_references=[],
+            definition_summary="Hit where pageurl contains 'checkout'",
+            container_type="hits",
+        )
+
+        d = summary.to_dict()
+
+        assert d["name"] == "Test Segment"
+        assert d["description"] == "Test description"
+        assert d["owner"] == "Test Owner"
+        assert d["complexity_score"] == 45.5
+        assert "Contains" in d["functions_used"]
+        assert "pageurl" in d["dimension_references"]
+        assert d["container_type"] == "Hits"
+
+    def test_to_full_dict(self):
+        """Test conversion to full dictionary"""
+        summary = SegmentSummary(
+            segment_id="s_test",
+            segment_name="Test",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=["Contains"],
+            functions_used_internal=["contains"],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=["pageurl"],
+            metric_references=[],
+            other_segment_references=["s_other"],
+            definition_summary="test",
+            container_type="hits",
+        )
+
+        d = summary.to_full_dict()
+
+        assert d["segment_id"] == "s_test"
+        assert d["nesting_depth"] == 1
+        assert d["other_segment_references"] == ["s_other"]
+        assert d["container_type"] == "hits"
+
+
+class TestSegmentsInventoryProperties:
+    """Tests for SegmentsInventory properties"""
+
+    def test_avg_complexity_empty(self):
+        """Test average complexity with no segments"""
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test"
+        )
+        assert inventory.avg_complexity == 0.0
+
+    def test_max_complexity_empty(self):
+        """Test max complexity with no segments"""
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test"
+        )
+        assert inventory.max_complexity == 0.0
+
+    def test_approved_count(self):
+        """Test approved count property"""
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test"
+        )
+        # Add some test segments manually
+        summary1 = SegmentSummary(
+            segment_id="s1", segment_name="S1", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", approved=True
+        )
+        summary2 = SegmentSummary(
+            segment_id="s2", segment_name="S2", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", approved=False
+        )
+        inventory.segments = [summary1, summary2]
+
+        assert inventory.approved_count == 1
+
+    def test_shared_count(self):
+        """Test shared count property"""
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test"
+        )
+        summary1 = SegmentSummary(
+            segment_id="s1", segment_name="S1", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", shared_to_count=2
+        )
+        summary2 = SegmentSummary(
+            segment_id="s2", segment_name="S2", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", shared_to_count=0
+        )
+        inventory.segments = [summary1, summary2]
+
+        assert inventory.shared_count == 1
+
+    def test_tagged_count(self):
+        """Test tagged count property"""
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test"
+        )
+        summary1 = SegmentSummary(
+            segment_id="s1", segment_name="S1", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", tags=["KPI", "Revenue"]
+        )
+        summary2 = SegmentSummary(
+            segment_id="s2", segment_name="S2", description="", owner="",
+            complexity_score=10.0, functions_used=[], functions_used_internal=[],
+            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
+            dimension_references=[], metric_references=[], other_segment_references=[],
+            definition_summary="", container_type="hits", tags=[]
+        )
+        inventory.segments = [summary1, summary2]
+
+        assert inventory.tagged_count == 1
+
+
+# ==================== SUMMARY COLUMN ALIAS TESTS ====================
+
+
+class TestSummaryColumnAlias:
+    """Tests for standardized summary column alias"""
+
+    def test_summary_column_exists(self, mock_cja_instance):
+        """Test that summary column exists in DataFrame"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+        df = inventory.get_dataframe()
+
+        assert "summary" in df.columns
+
+    def test_summary_equals_definition_summary(self, mock_cja_instance):
+        """Test that summary column equals definition_summary column"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance, "dv_test", "Test")
+        df = inventory.get_dataframe()
+
+        assert all(df["summary"] == df["definition_summary"])
+
+    def test_empty_dataframe_has_summary_column(self, mock_cja_instance_empty):
+        """Test that empty DataFrame still has summary column"""
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja_instance_empty, "dv_test", "Test")
+        df = inventory.get_dataframe()
+
+        assert "summary" in df.columns

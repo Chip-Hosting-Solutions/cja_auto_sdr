@@ -7,6 +7,7 @@ Compare two CJA data views to identify differences in metrics, dimensions, and m
 The diff comparison feature allows you to:
 - **Compare two live data views** (e.g., Production vs Staging)
 - **Compare against a saved snapshot** (track changes over time)
+- **Compare inventory items** in snapshot diffs for the same data view (calculated metrics, segments)
 - **Generate diff reports** in all supported output formats
 - **Integrate with CI/CD pipelines** using exit codes
 
@@ -834,7 +835,11 @@ The summary appears in all output formats with slight variations:
 
 ## Snapshot Format
 
-Snapshots are saved as JSON files with the following structure:
+Snapshots are saved as JSON files. The format version depends on whether inventory data is included.
+
+### Version 1.0 (Standard)
+
+Basic snapshot without inventory data:
 
 ```json
 {
@@ -851,12 +856,66 @@ Snapshots are saved as JSON files with the following structure:
     { "id": "dimensions/page", "name": "Page", "type": "string", ... }
   ],
   "metadata": {
-    "tool_version": "3.0.16",
+    "tool_version": "3.1.0",
     "metrics_count": 150,
     "dimensions_count": 75
   }
 }
 ```
+
+### Version 2.0 (With Inventory)
+
+When created with `--include-calculated`, `--include-segments`, or `--include-all-inventory`:
+
+```json
+{
+  "snapshot_version": "2.0",
+  "created_at": "2025-01-17T14:30:00.000000",
+  "data_view_id": "dv_12345",
+  "data_view_name": "Production Analytics",
+  "owner": "admin@example.com",
+  "description": "Main production data view",
+  "metrics": [...],
+  "dimensions": [...],
+  "calculated_metrics_inventory": [
+    {
+      "id": "cm_12345",
+      "name": "Revenue per Order",
+      "description": "Average revenue per order",
+      "owner": "Analytics Team",
+      "approved": true,
+      "complexity_score": 18.5,
+      "functions_used": ["Division", "Metric Reference"],
+      "formula_summary": "revenue / orders",
+      ...
+    }
+  ],
+  "segments_inventory": [
+    {
+      "id": "s_mobile",
+      "name": "Mobile Visitors",
+      "description": "All mobile device visitors",
+      "owner": "Analytics Team",
+      "approved": true,
+      "complexity_score": 12.0,
+      "container_type": "Person",
+      "definition_summary": "Person where device_type = 'mobile'",
+      ...
+    }
+  ],
+  "metadata": {
+    "tool_version": "3.1.0",
+    "metrics_count": 150,
+    "dimensions_count": 75,
+    "calculated_metrics_count": 25,
+    "segments_count": 18
+  }
+}
+```
+
+Inventory arrays are only present when the corresponding `--include-*` flag was used during snapshot creation. The `metadata` section includes counts for any included inventory types.
+
+> **Note:** Derived fields inventory (`--include-derived`) is for SDR generation only, not snapshot diff. Derived fields are already included in the standard metrics/dimensions output, so changes are automatically captured in the Metrics/Dimensions diff.
 
 ## CI/CD Integration
 
@@ -1117,6 +1176,190 @@ With `--extended-fields`, additional fields are compared:
 
 Use `--ignore-fields` to exclude any of these from comparison.
 
+## Inventory Diff (Snapshot Only)
+
+You can include inventory items (calculated metrics, segments) in snapshot-based diff comparisons. This allows you to track changes to these components over time for the **same data view**.
+
+> **Note:** Derived fields are not included in inventory diff since they're already captured in the standard metrics/dimensions diff. Use `--include-derived` for SDR generation only.
+
+> **Important:** Inventory diff is only supported for snapshot comparisons of the **same data view** over time. Cross-data-view comparisons (e.g., `--diff dv_12345 dv_67890`) do not support inventory options.
+
+### Why Same Data View Only? (Design Choice)
+
+Calculated metrics and segments use **data-view-scoped IDs**. A calculated metric `cm_12345` in Data View A is a completely different component than `cm_67890` in Data View B—even if they have the same name or identical formula.
+
+**CJA Auto SDR intentionally does not attempt name-based or formula-based fuzzy matching for calculated metrics or segments across data views.** This is a deliberate design choice to avoid false positives:
+
+| Matching Strategy | Problem |
+|-------------------|---------|
+| Name-based matching | Two metrics named "Conversion Rate" in different DVs may calculate completely different things |
+| Formula-based matching | Same formula structure may reference different underlying metrics with same names but different meanings |
+| ID-based matching | IDs are unique per component—cannot match across DVs |
+
+For reliable cross-DV comparison of calculated metrics or segments, manual review is recommended. The tool focuses on **same-data-view tracking over time**, where ID-based matching is reliable and meaningful.
+
+### Supported Scenarios
+
+| Scenario | Inventory Diff Support |
+|----------|----------------------|
+| `--diff-snapshot` (same data view) | **Yes** - IDs match reliably |
+| `--compare-snapshots` (same data view) | **Yes** - IDs match reliably |
+| `--compare-with-prev` (same data view) | **Yes** - IDs match reliably |
+| `--diff dv_A dv_B` (cross-data-view) | **No** - IDs cannot match meaningfully |
+
+### Creating Snapshots with Inventory Data
+
+When creating a snapshot, include inventory flags to capture that data:
+
+```bash
+# Create snapshot with all supported inventories (shorthand)
+# Note: --include-all-inventory auto-excludes --include-derived in snapshot mode
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory
+
+# Create snapshot with calculated metrics and segments inventory (longhand)
+cja_auto_sdr dv_12345 --snapshot ./baseline.json \
+  --include-calculated --include-segments
+
+# Create snapshot with specific inventory type
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated
+```
+
+Snapshots with inventory data use version 2.0 format and include the inventory arrays.
+
+> **Note:** `--include-derived` is not supported with `--snapshot`. Derived fields inventory is only available in SDR generation mode. Derived field changes are captured in the standard Metrics/Dimensions diff. The `--include-all-inventory` flag uses smart mode detection and automatically excludes derived fields when in snapshot mode.
+
+### Comparing Snapshots with Inventory
+
+When comparing against a snapshot, request the same inventory types that were captured:
+
+```bash
+# Compare with all inventory types (shorthand, auto-excludes derived)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-all-inventory
+
+# Compare with calculated metrics inventory
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated
+
+# Compare with calculated metrics and segments inventory
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json \
+  --include-calculated --include-segments
+
+# Compare two snapshot files directly
+cja_auto_sdr --compare-snapshots ./before.json ./after.json --include-all-inventory
+```
+
+### Inventory Validation
+
+If you request an inventory type that wasn't captured in the snapshot, you'll receive a helpful error:
+
+```text
+Error: Snapshot missing required inventory data.
+
+Requested: --include-calculated, --include-segments
+Snapshot contains:
+  - Calculated Metrics: No (not captured)
+  - Segments: No (not captured)
+
+To fix: Re-create the snapshot with the required --include-* flags.
+```
+
+### Inventory Diff Output
+
+When inventory diff is enabled, the output includes additional sections:
+
+**Console output:**
+
+```text
+SUMMARY
+                     Source: Snapshot (2025-01-15) Target: Current     Added    Removed   Modified   Unchanged     Changed
+-------------------------------------------------------------------------------------------------------------------------
+Metrics                                        150               148       +3         -5         ~7         145     (10.0%)
+Dimensions                                      75                78       +5         -2         ~4          68     (14.7%)
+Calc Metrics                                    25                27       +3         -1         ~2          22     (24.0%)
+Segments                                        18                20       +4         -2         ~1          15     (38.9%)
+-------------------------------------------------------------------------------------------------------------------------
+
+CALCULATED METRICS CHANGES (6)
+  [+] cm_new123                    "New Conversion Rate"
+  [-] cm_old456                    "Legacy Bounce Rate"
+  [~] cm_789                       name: 'Revenue Per Visit' -> 'RPV'; formula_summary changed
+
+SEGMENTS CHANGES (7)
+  [+] s_mobile_new                 "Mobile Visitors 2025"
+  [-] s_legacy                     "Old Campaign Segment"
+  [~] s_paid_traffic               description: 'Paid traffic' -> 'All paid traffic sources'
+```
+
+**Excel output:** Adds "Calc Metrics Diff" and "Segments Diff" sheets.
+
+**JSON output:** Includes `calc_metrics_diffs` and `segments_diffs` arrays.
+
+### Inventory Comparison Fields
+
+Each inventory type compares fields appropriate to its purpose:
+
+**Calculated Metrics** - Full governance and formula tracking:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Metric display name |
+| `description` | Metric description |
+| `owner` | Owner name |
+| `approved` | Approval status |
+| `tags` | Organizational tags |
+| `complexity_score` | Formula complexity (0-100) |
+| `functions_used` | Functions in formula |
+| `formula_summary` | Human-readable formula |
+| `metric_references` | Referenced base metrics |
+| `segment_references` | Referenced segments |
+| `nesting_depth` | Formula nesting level |
+
+**Segments** - Full governance and definition tracking:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Segment display name |
+| `description` | Segment description |
+| `owner` | Owner name |
+| `approved` | Approval status |
+| `tags` | Organizational tags |
+| `complexity_score` | Definition complexity (0-100) |
+| `functions_used` | Operators/functions used |
+| `definition_summary` | Human-readable definition |
+| `metric_references` | Referenced metrics |
+| `segment_references` | Referenced nested segments |
+| `dimension_references` | Referenced dimensions |
+| `nesting_depth` | Logic nesting level |
+
+### Use Cases for Inventory Diff
+
+1. **Track calculated metric changes over time**
+   ```bash
+   # Weekly snapshot with calculated metrics
+   cja_auto_sdr dv_12345 --snapshot ./weekly/$(date +%Y%m%d).json --include-calculated
+
+   # Compare against last week
+   cja_auto_sdr dv_12345 --compare-with-prev --include-calculated
+   ```
+
+2. **Audit segment modifications**
+   ```bash
+   # Before segment cleanup
+   cja_auto_sdr dv_12345 --snapshot ./pre-cleanup.json --include-segments
+
+   # After cleanup - see what changed
+   cja_auto_sdr dv_12345 --diff-snapshot ./pre-cleanup.json --include-segments --changes-only
+   ```
+
+3. **Track derived field changes via standard diff**
+   ```bash
+   # Quarterly snapshots for audit trail
+   cja_auto_sdr dv_12345 --snapshot ./q1-2025.json
+
+   # Compare Q1 to Q2 - derived field changes appear in Metrics/Dimensions diff
+   cja_auto_sdr --compare-snapshots ./q1-2025.json ./q2-2025.json
+   ```
+   > **Note:** Derived field changes are captured in the standard Metrics/Dimensions diff (they're part of the metrics/dimensions API data). Use `--include-derived` only in SDR generation mode to output the derived fields inventory sheet.
+
 ## Best Practices
 
 1. **Create baseline snapshots** before making changes to data views
@@ -1158,9 +1401,9 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 |------------|-------|----------|
 | `TestDataViewSnapshot` | 4 | Snapshot creation, serialization, deserialization |
 | `TestSnapshotManager` | 5 | Save, load, list snapshots, error handling |
-| `TestDataViewComparator` | 6 | Comparison logic, change detection, custom labels |
-| `TestDiffSummary` | 3 | Summary statistics, has_changes, total_changes |
-| `TestDiffOutputWriters` | 8 | Console, JSON, Markdown, HTML, Excel, CSV outputs |
+| `TestDataViewComparator` | 6 | Comparison logic, change detection, custom labels, inventory diff |
+| `TestDiffSummary` | 3 | Summary statistics, has_changes, total_changes, inventory counts |
+| `TestDiffOutputWriters` | 8 | Console, JSON, Markdown, HTML, Excel, CSV outputs with inventory |
 | `TestEdgeCases` | 4 | Empty snapshots, all added/removed, special characters |
 | `TestComparisonFields` | 5 | Default fields, ID matching, metadata, ignore fields |
 | `TestCLIArguments` | 6 | Argument parsing for all diff-related flags |
@@ -1175,7 +1418,7 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestConcurrentComparison` | 1 | Thread safety with parallel comparisons |
 | `TestSnapshotVersionMigration` | 3 | Version compatibility, future versions |
 | `TestNewCLIArguments` | 5 | CLI flags |
-| `TestDiffSummaryPercentages` | 5 | Percentage stats, natural language summary |
+| `TestDiffSummaryPercentages` | 11 | Percentage stats, natural language summary, inventory percentages |
 | `TestColoredConsoleOutput` | 2 | ANSI color codes, --no-color flag |
 | `TestGroupByFieldOutput` | 5 | --group-by-field output mode, --group-by-field-limit |
 | `TestPRCommentOutput` | 2 | --format-pr-comment output |
@@ -1190,9 +1433,10 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestNewFeatureCLIArguments` | 2 | --compare-snapshots CLI argument |
 | `TestAutoSnapshotFilenameGeneration` | 4 | Timestamped filename generation, sanitization |
 | `TestRetentionPolicy` | 5 | Keep all, delete old, per-data-view filtering |
-| `TestAutoSnapshotCLIArguments` | 7 | --auto-snapshot, --snapshot-dir, --keep-last |
+| `TestAutoSnapshotCLIArguments` | 10 | --auto-snapshot, --snapshot-dir, --keep-last |
+| `TestGetMostRecentSnapshot` | 5 | Most recent snapshot lookup, filtering |
 
-**Total: 145 tests**
+**Total: 159 tests**
 
 ### Running Tests
 
@@ -1218,7 +1462,7 @@ python -m pytest tests/test_diff_comparison.py --cov=cja_sdr_generator --cov-rep
 4. **Extended Fields** - Tests 20+ extended fields including attribution, format, bucketing
 5. **Ignore Fields** - Tests `--ignore-fields` functionality
 6. **Metadata Tracking** - Verifies data view metadata changes are tracked
-7. **Output Formats** - Validates all output formats produce correct structure
+7. **Output Formats** - Validates all output formats produce correct structure with inventory
 8. **CLI Parsing** - Tests all diff-related command-line arguments
 9. **Side-by-Side Output** - Tests console box-drawing and markdown table output
 10. **Large Datasets** - Performance tests with 500+ components
@@ -1232,10 +1476,15 @@ python -m pytest tests/test_diff_comparison.py --cov=cja_sdr_generator --cov-rep
 18. **Ambiguous Names** - Proper handling when names match multiple data views
 19. **Auto-Snapshot** - Automatic snapshot saving with timestamped filenames
 20. **Retention Policy** - Configurable snapshot retention per data view
+21. **Inventory Diff** - Calculated metrics, segments, and derived fields comparison in snapshots
+22. **Inventory Change Percentages** - Percentage calculations for inventory item changes
 
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - Environment variables for CI/CD pipelines
 - [CLI Reference](CLI_REFERENCE.md) - Complete command reference
 - [Output Formats](OUTPUT_FORMATS.md) - Detailed format documentation
+- [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment documentation (supports snapshot diff)
+- [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field documentation (SDR only)
+- [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics documentation (supports snapshot diff)
 - [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions

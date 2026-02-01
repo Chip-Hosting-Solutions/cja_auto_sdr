@@ -178,6 +178,115 @@ class TestSaveGitFriendlySnapshot:
         assert '<' not in parent_dir.name
         assert '>' not in parent_dir.name
 
+    def test_saves_calculated_metrics_inventory(self, tmp_path):
+        """Test that calculated metrics inventory is saved as separate file."""
+        snapshot = DataViewSnapshot(
+            data_view_id='dv_12345',
+            data_view_name='Test',
+            metrics=[{'id': 'cm1'}],
+            dimensions=[{'id': 'dim1'}],
+            calculated_metrics_inventory=[
+                {'id': 'calc_z', 'name': 'Z Calculated'},
+                {'id': 'calc_a', 'name': 'A Calculated'},
+            ]
+        )
+
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
+
+        assert 'calculated_metrics' in saved_files
+        assert saved_files['calculated_metrics'].exists()
+        assert saved_files['calculated_metrics'].name == 'calculated-metrics.json'
+
+        with open(saved_files['calculated_metrics']) as f:
+            calc_metrics = json.load(f)
+
+        # Should be sorted by ID
+        ids = [m['id'] for m in calc_metrics]
+        assert ids == ['calc_a', 'calc_z']
+
+    def test_saves_segments_inventory(self, tmp_path):
+        """Test that segments inventory is saved as separate file."""
+        snapshot = DataViewSnapshot(
+            data_view_id='dv_12345',
+            data_view_name='Test',
+            metrics=[],
+            dimensions=[],
+            segments_inventory=[
+                {'id': 'seg_z', 'name': 'Z Segment'},
+                {'id': 'seg_a', 'name': 'A Segment'},
+                {'id': 'seg_m', 'name': 'M Segment'},
+            ]
+        )
+
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
+
+        assert 'segments' in saved_files
+        assert saved_files['segments'].exists()
+        assert saved_files['segments'].name == 'segments.json'
+
+        with open(saved_files['segments']) as f:
+            segments = json.load(f)
+
+        # Should be sorted by ID
+        ids = [s['id'] for s in segments]
+        assert ids == ['seg_a', 'seg_m', 'seg_z']
+
+    def test_no_inventory_files_when_not_present(self, tmp_path):
+        """Test that inventory files are not created when data not present."""
+        snapshot = DataViewSnapshot(
+            data_view_id='dv_12345',
+            data_view_name='Test',
+            metrics=[{'id': 'cm1'}],
+            dimensions=[{'id': 'dim1'}]
+        )
+
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
+
+        assert 'calculated_metrics' not in saved_files
+        assert 'segments' not in saved_files
+
+        # Verify files don't exist
+        parent_dir = saved_files['metadata'].parent
+        assert not (parent_dir / 'calculated-metrics.json').exists()
+        assert not (parent_dir / 'segments.json').exists()
+
+    def test_metadata_includes_inventory_summary(self, tmp_path):
+        """Test that metadata includes inventory counts when present."""
+        snapshot = DataViewSnapshot(
+            data_view_id='dv_12345',
+            data_view_name='Test',
+            metrics=[{'id': 'cm1'}],
+            dimensions=[],
+            calculated_metrics_inventory=[{'id': 'calc1'}, {'id': 'calc2'}],
+            segments_inventory=[{'id': 'seg1'}]
+        )
+
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
+
+        with open(saved_files['metadata']) as f:
+            metadata = json.load(f)
+
+        assert 'inventory' in metadata
+        assert metadata['inventory']['calculated_metrics_count'] == 2
+        assert metadata['inventory']['segments_count'] == 1
+
+    def test_snapshot_version_upgraded_with_inventory(self, tmp_path):
+        """Test that snapshot version is 2.0 when inventory is included."""
+        snapshot = DataViewSnapshot(
+            data_view_id='dv_12345',
+            data_view_name='Test',
+            metrics=[],
+            dimensions=[],
+            calculated_metrics_inventory=[{'id': 'calc1'}]
+        )
+
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
+
+        with open(saved_files['metadata']) as f:
+            metadata = json.load(f)
+
+        assert metadata['snapshot_version'] == '2.0'
+
 
 class TestGenerateGitCommitMessage:
     """Tests for generate_git_commit_message function."""

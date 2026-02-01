@@ -75,7 +75,7 @@ The tool connects to CJA through Adobe's official API. You need to create an API
 3. Select **"Customer Journey Analytics"**
 4. Click **"Next"**
 
-### 1.4 Configure Authentication
+### 1.4 Configure CJA Authentication
 
 Choose **OAuth Server-to-Server** (recommended):
 
@@ -84,7 +84,33 @@ Choose **OAuth Server-to-Server** (recommended):
 3. Select a product profile that has access to your Data Views
 4. Click **"Save configured API"**
 
-### 1.5 Collect Your Credentials
+### 1.5 Add the Adobe Experience Platform (AEP) API
+
+> **Important:** The [Adobe Experience Platform API](https://developer.adobe.com/experience-platform-apis/) must be added to your project. This associates your service account with an Experience Platform product profile, which is required for CJA API authentication.
+
+1. In your project, click **"Add API"** again
+2. Search for **"Experience Platform API"** (under Adobe Experience Platform)
+3. Select **"Experience Platform API"**
+4. Click **"Next"**
+
+### 1.6 Configure AEP Authentication
+
+1. Select **"OAuth Server-to-Server"** (same as CJA)
+2. Click **"Next"**
+3. Select a product profile (this associates your service account with Experience Platform)
+4. Click **"Save configured API"**
+
+> **Note:** If you don't see any product profiles, contact your Adobe Admin Console administrator to ensure your user has been added to an AEP product profile.
+
+### 1.7 Verify Both APIs Are Added
+
+Your project should now show **two APIs** configured:
+- Customer Journey Analytics
+- Experience Platform API
+
+Both APIs will share the same OAuth credentials (Client ID and Secret).
+
+### 1.8 Collect Your Credentials
 
 After setup, you'll see your credentials. You need these four values:
 
@@ -177,7 +203,7 @@ This command:
 
 ```bash
 $ uv run cja_auto_sdr --version
-cja_auto_sdr 3.0.16
+cja_auto_sdr 3.1.0
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
@@ -239,7 +265,7 @@ Or create it manually ([JSON syntax guide](https://developer.mozilla.org/en-US/d
 }
 ```
 
-Replace the placeholder values with the credentials from Step 1.5:
+Replace the placeholder values with the credentials from Step 1.8:
 
 ```json
 {
@@ -402,9 +428,30 @@ Dry run complete. Remove --dry-run to generate the SDR.
 
 ## Step 5: Generate Your First SDR
 
-### 5.1 Run the Generator
+### 5.1 Option A: Interactive Mode (Recommended for First-Time Users)
 
-Replace `dv_YOUR_DATA_VIEW_ID` with your actual Data View ID:
+The easiest way to generate your first SDR is with interactive mode:
+
+```bash
+uv run cja_auto_sdr --interactive
+```
+
+Interactive mode guides you through:
+1. **Data View Selection** - Shows a numbered list of your accessible data views
+2. **Output Format** - Choose Excel, JSON, CSV, HTML, Markdown, or all formats
+3. **Inventory Options** - Optionally include segments, calculated metrics, or derived fields
+4. **Confirmation** - Review your selections before generating
+
+Selection syntax:
+- Single: `3` (selects item #3)
+- Multiple: `1,3,5` (selects items #1, #3, #5)
+- Range: `1-5` (selects items #1 through #5)
+- All: `all` or `a` (selects everything)
+- Cancel: `q` or `quit` (exit without generating)
+
+### 5.2 Option B: Direct Command
+
+If you prefer direct commands, replace `dv_YOUR_DATA_VIEW_ID` with your actual Data View ID:
 
 **macOS/Linux:**
 ```bash
@@ -416,7 +463,7 @@ uv run cja_auto_sdr dv_677ea9291244fd082f02dd42
 python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
 ```
 
-### 5.2 Watch the Progress
+### 5.3 Watch the Progress
 
 The tool displays real-time progress:
 
@@ -619,6 +666,22 @@ uv run cja_auto_sdr dv_12345 --snapshot ./baseline.json
 ```
 
 See [Data View Comparison](DIFF_COMPARISON.md) for more details.
+
+### Document Component Inventories
+
+Generate detailed documentation for segments, derived fields, and calculated metrics:
+```bash
+# Include segments inventory
+uv run cja_auto_sdr dv_12345 --include-segments
+
+# Include all component inventories
+uv run cja_auto_sdr dv_12345 --include-segments --include-derived --include-calculated
+
+# Generate only inventories (no standard SDR)
+uv run cja_auto_sdr dv_12345 --include-segments --inventory-only
+```
+
+See [Segments Inventory](SEGMENTS_INVENTORY.md), [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md), and [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) for details.
 
 ### Quick Reference
 
