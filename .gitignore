@@ -22,3 +22,6 @@ logs/
 .venv
 *.xlsx
 CLAUDE.md
+
+# Test output
+out.json
