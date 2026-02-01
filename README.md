@@ -33,7 +33,11 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Severity Classification | CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting |
 | | Quality Dashboard | Dedicated sheet with filtering, sorting, and actionable insights |
 | **Output** | Multiple Formats | Excel, CSV, JSON, HTML, Markdown—or generate all at once |
-| | Professional Excel | 5 formatted sheets with conditional formatting, frozen headers, auto-filtering |
+| | Professional Excel | Up to 8 formatted sheets with conditional formatting, frozen headers, auto-filtering |
+| | Segments Inventory | Document segment filters, complexity, and references with `--include-segments` (SDR + Diff) |
+| | Derived Field Inventory | Document derived field logic, complexity, and dependencies with `--include-derived` (SDR only) |
+| | Calculated Metrics Inventory | Document calculated metric formulas and references with `--include-calculated` (SDR + Diff) |
+| | Inventory-Only Mode | Generate only inventory sheets without standard SDR with `--inventory-only` |
 | | Stdout Support | Pipe JSON/CSV output directly to other tools with `--output -` |
 | | Auto-Open Files | Open generated files immediately with `--open` flag |
 | **Reliability** | Automatic Retry | Exponential backoff with jitter for transient network failures |
@@ -118,6 +122,8 @@ pip install -e .
 
 Get your credentials from [Adobe Developer Console](https://developer.adobe.com/console/) (see [QUICKSTART_GUIDE](docs/QUICKSTART_GUIDE.md) for detailed steps).
 
+> **Important:** Your Adobe Developer Console project must have **both** the CJA API **and** the AEP (Experience Platform) API added. The AEP API associates your service account with an Experience Platform product profile, which is required for CJA API authentication. See the [Quickstart Guide](docs/QUICKSTART_GUIDE.md#15-add-the-adobe-experience-platform-aep-api) for setup instructions.
+
 **Option A: Configuration File (Quickest)**
 
 Create a `config.json` file with your Adobe credentials:
@@ -158,7 +164,15 @@ SCOPES=your_scopes_from_developer_console
 
 ### 4. Verify Setup & Run
 
-**macOS/Linux:**
+**Interactive Mode (Recommended for First-Time Users):**
+```bash
+# Launch interactive mode - walks through all options step by step
+uv run cja_auto_sdr --interactive
+```
+
+Interactive mode guides you through data view selection, output format, and inventory options.
+
+**macOS/Linux (Direct Commands):**
 ```bash
 # Verify configuration and list available data views
 uv run cja_auto_sdr --validate-config
@@ -200,6 +214,9 @@ python cja_sdr_generator.py "Production Analytics"
 
 | Task | Command |
 |------|---------|
+| **Getting Started** | |
+| Interactive mode (guided) | `cja_auto_sdr --interactive` |
+| List available data views | `cja_auto_sdr --list-dataviews` |
 | **SDR Generation** | |
 | Single Data View (by ID) | `cja_auto_sdr dv_12345` |
 | Single Data View (by name) | `cja_auto_sdr "Production Analytics"` |
@@ -207,6 +224,11 @@ python cja_sdr_generator.py "Production Analytics"
 | Batch processing | `cja_auto_sdr dv_1 dv_2 dv_3` |
 | Custom output location | `cja_auto_sdr dv_12345 --output-dir ./reports` |
 | Skip validation (faster) | `cja_auto_sdr dv_12345 --skip-validation` |
+| Include segments inventory | `cja_auto_sdr dv_12345 --include-segments` |
+| Include derived fields (SDR only) | `cja_auto_sdr dv_12345 --include-derived` |
+| Include calculated metrics | `cja_auto_sdr dv_12345 --include-calculated` |
+| Include all inventories | `cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived` |
+| Inventory-only output | `cja_auto_sdr dv_12345 --include-segments --inventory-only` |
 | **Output Formats** | |
 | Export as Excel (default) | `cja_auto_sdr dv_12345 --format excel` |
 | Export as CSV | `cja_auto_sdr dv_12345 --format csv` |
@@ -232,6 +254,10 @@ python cja_sdr_generator.py "Production Analytics"
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
 | Auto-save snapshots | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
 | With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
+| **Inventory Diff** (same data view over time) | |
+| Snapshot with inventory | `cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments` |
+| Compare with inventory | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated` |
+| Full inventory diff | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated --include-segments` |
 | **Git Integration** | |
 | Initialize Git repo | `cja_auto_sdr --git-init --git-dir ./sdr-snapshots` |
 | Generate and commit | `cja_auto_sdr dv_12345 --git-commit` |
@@ -249,6 +275,10 @@ python cja_sdr_generator.py "Production Analytics"
 | [CLI Reference](docs/CLI_REFERENCE.md) | Complete command-line options and examples |
 | [Shell Completion](docs/SHELL_COMPLETION.md) | Enable tab-completion for bash/zsh |
 | [Data Quality](docs/DATA_QUALITY.md) | Validation checks, severity levels, understanding issues |
+| [Inventory Overview](docs/INVENTORY_OVERVIEW.md) | Unified guide to all component inventories |
+| [Derived Field Inventory](docs/DERIVED_FIELDS_INVENTORY.md) | Derived field analysis, complexity scores, logic summaries |
+| [Segments Inventory](docs/SEGMENTS_INVENTORY.md) | Segment filters, container types, definition summaries |
+| [Calculated Metrics Inventory](docs/CALCULATED_METRICS_INVENTORY.md) | Calculated metric formulas, complexity, references |
 | [Performance](docs/PERFORMANCE.md) | Optimization options, caching, batch processing |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common errors and solutions |
 | [Use Cases & Best Practices](docs/USE_CASES.md) | Automation, scheduling, workflows |
@@ -262,7 +292,7 @@ python cja_sdr_generator.py "Production Analytics"
 ## Requirements
 
 - Python 3.14+
-- Adobe I/O integration with CJA API access
+- Adobe I/O integration with CJA and AEP API access
 - Network connectivity to Adobe APIs
 
 ## Project Structure
@@ -278,7 +308,7 @@ cja_auto_sdr/
 ├── config.json              # Your credentials (DO NOT COMMIT)
 ├── config.json.example      # Config file template
 ├── .env.example             # Environment variable template
-├── docs/                    # Documentation (15 guides)
+├── docs/                    # Documentation (19 guides)
 │   ├── QUICKSTART_GUIDE.md  # Getting started guide
 │   ├── CONFIGURATION.md     # Profiles, config.json & env vars
 │   ├── CLI_REFERENCE.md     # Command-line reference
@@ -286,7 +316,7 @@ cja_auto_sdr/
 │   ├── GIT_INTEGRATION.md   # Git integration guide
 │   ├── INSTALLATION.md      # Setup instructions
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (786 tests)
+├── tests/                   # Test suite (1,017 tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output

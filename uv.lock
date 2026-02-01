@@ -80,7 +80,7 @@ wheels = [
 
 [[package]]
 name = "cja-auto-sdr"
-version = "3.0.16"
+version = "3.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cjapy" },
@@ -102,10 +102,15 @@ env = [
     { name = "python-dotenv" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest-cov" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argcomplete", marker = "extra == 'completion'", specifier = ">=3.0.0" },
-    { name = "cjapy", specifier = ">=0.2.4.post2" },
+    { name = "cjapy", specifier = ">=0.2.4.post3" },
     { name = "numpy", specifier = ">=2.2.0,!=2.4.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
@@ -116,9 +121,12 @@ requires-dist = [
 ]
 provides-extras = ["dev", "env", "completion"]
 
+[package.metadata.requires-dev]
+dev = [{ name = "pytest-cov", specifier = ">=7.0.0" }]
+
 [[package]]
 name = "cjapy"
-version = "0.2.4.post2"
+version = "0.2.4.post3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
@@ -128,9 +136,9 @@ dependencies = [
     { name = "pytest" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/ae/afff712264e2d241d002bbb1263fafef3429d27989eafc2257deec4409af/cjapy-0.2.4.post2.tar.gz", hash = "sha256:a936e80f0cf2266fd4f72f1f4c0364bb6b6ca407d2fc2e7403c0b69a632d30ba", size = 70302, upload-time = "2025-09-20T16:09:52.799Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/76/11faa67535c2a771c8ebe5ad571079313ad814a7a1bf6c192cf79875ecd8/cjapy-0.2.4.post3.tar.gz", hash = "sha256:6804f0f2703724da2ace2cd86619577b8c65e020023a497d156df4639631f6ae", size = 70372, upload-time = "2026-01-29T19:08:29.776Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/6a/53499e1b9f6a10ce29fa5af89b70475582b7460f55eaba35b6fff62f6b04/cjapy-0.2.4.post2-py3-none-any.whl", hash = "sha256:db349b072a1b99baf8ac5f8c940defdd709ca659d120e76a946f56e305ac1e87", size = 50714, upload-time = "2025-09-20T16:09:51.397Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/e5/b2d98b2548ae58f9d3aa372a7b5e5c4bba8aea1c486db4367632450e5252/cjapy-0.2.4.post3-py3-none-any.whl", hash = "sha256:d621906fcfcfbe6dcbadf3413af441afa1d5613a7b9858ca2cacd6a5e35994f0", size = 50772, upload-time = "2026-01-29T19:08:28.109Z" },
 ]
 
 [[package]]

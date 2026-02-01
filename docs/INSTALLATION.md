@@ -224,6 +224,12 @@ cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 
 ## Credential Configuration
 
+> **Important:** Your Adobe Developer Console project must have **both** APIs configured:
+> - **Customer Journey Analytics API** - Required for core SDR functionality
+> - **Experience Platform (AEP) API** - Associates your service account with an Experience Platform product profile (required for CJA API authentication)
+>
+> See the [Quickstart Guide](QUICKSTART_GUIDE.md#15-add-the-adobe-experience-platform-aep-api) for detailed setup instructions.
+
 You have two options for configuring credentials:
 
 ### Option 1: Environment Variables (Recommended for Production)
@@ -337,7 +343,7 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja-auto-sdr"
-version = "3.0.16"
+version = "3.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "cjapy>=0.2.4.post2",

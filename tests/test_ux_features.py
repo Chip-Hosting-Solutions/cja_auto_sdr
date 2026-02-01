@@ -337,10 +337,10 @@ class TestCombinedFeatures:
 class TestVersionUpdated:
     """Test that version is correct"""
 
-    def test_version_is_3_0_16(self):
-        """Test that version is 3.0.16"""
+    def test_version_is_3_1_0(self):
+        """Test that version is 3.1.0"""
         from cja_sdr_generator import __version__
-        assert __version__ == "3.0.16"
+        assert __version__ == "3.1.0"
 
 
 class TestFormatAutoDetection:
@@ -601,3 +601,472 @@ class TestShowTimingsFlag:
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
             args = parse_arguments()
             assert args.show_timings is False
+
+
+class TestInventoryOptionsValidation:
+    """Tests for inventory options (--include-derived, --include-calculated) validation"""
+
+    def test_include_derived_flag_registered(self):
+        """Test that --include-derived flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-derived']):
+            args = parse_arguments()
+            assert hasattr(args, 'include_derived_inventory')
+            assert args.include_derived_inventory is True
+
+    def test_include_derived_default_false(self):
+        """Test that --include-derived defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.include_derived_inventory is False
+
+    def test_include_calculated_flag_registered(self):
+        """Test that --include-calculated flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-calculated']):
+            args = parse_arguments()
+            assert hasattr(args, 'include_calculated_metrics')
+            assert args.include_calculated_metrics is True
+
+    def test_include_calculated_default_false(self):
+        """Test that --include-calculated defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.include_calculated_metrics is False
+
+    def test_both_inventory_flags_together(self):
+        """Test that both inventory flags can be used together"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-derived', '--include-calculated']):
+            args = parse_arguments()
+            assert args.include_derived_inventory is True
+            assert args.include_calculated_metrics is True
+
+    def test_include_derived_with_diff_errors(self):
+        """Test that --include-derived with --diff (cross-DV) produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-derived']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--include-derived cannot be used with --diff' in error_output
+                assert 'cross-data-view' in error_output.lower()
+
+    def test_include_calculated_with_diff_errors(self):
+        """Test that --include-calculated with --diff (cross-DV) produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-calculated']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--include-calculated cannot be used with --diff' in error_output
+                assert 'cross-data-view' in error_output.lower()
+
+    # Note: --include-* options ARE supported with --compare-snapshots for same-data-view comparisons
+    # The validation happens at runtime when snapshots are loaded (checking data_view_id match)
+
+    def test_include_segments_flag_registered(self):
+        """Test that --include-segments flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments']):
+            args = parse_arguments()
+            assert hasattr(args, 'include_segments_inventory')
+            assert args.include_segments_inventory is True
+
+    def test_include_segments_default_false(self):
+        """Test that --include-segments defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.include_segments_inventory is False
+
+    def test_all_three_inventory_flags_together(self):
+        """Test that all three inventory flags can be used together"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-derived', '--include-calculated', '--include-segments']):
+            args = parse_arguments()
+            assert args.include_derived_inventory is True
+            assert args.include_calculated_metrics is True
+            assert args.include_segments_inventory is True
+
+    def test_include_segments_with_diff_errors(self):
+        """Test that --include-segments with --diff (cross-DV) produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-segments']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--include-segments cannot be used with --diff' in error_output
+                assert 'cross-data-view' in error_output.lower()
+
+    # Note: --include-segments IS supported with --compare-snapshots for same-data-view comparisons
+    # The validation happens at runtime when snapshots are loaded (checking data_view_id match)
+
+    def test_inventory_only_flag_registered(self):
+        """Test that --inventory-only flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments', '--inventory-only']):
+            args = parse_arguments()
+            assert hasattr(args, 'inventory_only')
+            assert args.inventory_only is True
+
+    def test_inventory_only_default_false(self):
+        """Test that --inventory-only defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.inventory_only is False
+
+    def test_inventory_only_without_include_flag_errors(self):
+        """Test that --inventory-only without any --include-* flag produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--inventory-only']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--inventory-only requires at least one inventory flag' in error_output
+
+    def test_inventory_only_with_diff_errors(self):
+        """Test that --inventory-only with --diff produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--inventory-only']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--inventory-only is only available in SDR mode' in error_output
+                assert 'not with --diff' in error_output
+
+    def test_inventory_only_with_compare_snapshots_errors(self):
+        """Test that --inventory-only with --compare-snapshots produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', '--compare-snapshots', 'a.json', 'b.json', '--inventory-only']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--inventory-only is only available in SDR mode' in error_output
+                assert 'not with --compare-snapshots' in error_output
+
+    def test_include_derived_with_snapshot_errors(self):
+        """Test that --include-derived with --snapshot produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-derived']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--include-derived cannot be used with --snapshot' in error_output
+                assert 'SDR generation mode' in error_output
+
+    def test_include_derived_with_git_commit_errors(self):
+        """Test that --include-derived with --git-commit produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--git-commit', '--include-derived']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--include-derived cannot be used with --git-commit' in error_output
+                assert 'SDR generation mode' in error_output
+
+    def test_include_calculated_with_snapshot_allowed(self):
+        """Test that --include-calculated with --snapshot is allowed (no early validation error)"""
+        # This test verifies the flag combination passes validation
+        # It will fail later due to missing config, but that's expected
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-calculated']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit):
+                    main()
+                error_output = mock_stderr.getvalue()
+                # Should NOT contain the "cannot be used with --snapshot" error
+                assert '--include-calculated cannot be used with --snapshot' not in error_output
+
+    def test_include_segments_with_snapshot_allowed(self):
+        """Test that --include-segments with --snapshot is allowed (no early validation error)"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-segments']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit):
+                    main()
+                error_output = mock_stderr.getvalue()
+                # Should NOT contain the "cannot be used with --snapshot" error
+                assert '--include-segments cannot be used with --snapshot' not in error_output
+
+    # --inventory-summary tests
+
+    def test_inventory_summary_flag_registered(self):
+        """Test that --inventory-summary flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments', '--inventory-summary']):
+            args = parse_arguments()
+            assert hasattr(args, 'inventory_summary')
+            assert args.inventory_summary is True
+
+    def test_inventory_summary_default_false(self):
+        """Test that --inventory-summary defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.inventory_summary is False
+
+    def test_inventory_summary_without_include_flag_errors(self):
+        """Test that --inventory-summary without any --include-* flag produces error"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--inventory-summary']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--inventory-summary requires at least one inventory flag' in error_output
+
+    def test_inventory_summary_with_inventory_only_errors(self):
+        """Test that --inventory-summary with --inventory-only produces error (mutually exclusive)"""
+        from cja_sdr_generator import main
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments', '--inventory-summary', '--inventory-only']):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 1
+                error_output = mock_stderr.getvalue()
+                assert '--inventory-summary cannot be used with --inventory-only' in error_output
+
+    def test_inventory_summary_with_multiple_include_flags(self):
+        """Test that --inventory-summary works with multiple --include-* flags"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments', '--include-calculated', '--inventory-summary']):
+            args = parse_arguments()
+            assert args.inventory_summary is True
+            assert args.include_segments_inventory is True
+            assert args.include_calculated_metrics is True
+
+
+class TestDisplayInventorySummary:
+    """Tests for display_inventory_summary function."""
+
+    def test_summary_returns_dict(self, tmp_path):
+        """Test that display_inventory_summary returns a dictionary"""
+        from cja_sdr_generator import display_inventory_summary
+
+        result = display_inventory_summary(
+            data_view_id="dv_12345",
+            data_view_name="Test Data View",
+            output_format="console",
+            output_dir=str(tmp_path),
+            quiet=True,
+        )
+        assert isinstance(result, dict)
+        assert result["data_view_id"] == "dv_12345"
+        assert result["data_view_name"] == "Test Data View"
+        assert "timestamp" in result
+        assert "inventories" in result
+
+    def test_summary_with_no_inventories(self, tmp_path):
+        """Test summary with no inventory data"""
+        from cja_sdr_generator import display_inventory_summary
+
+        result = display_inventory_summary(
+            data_view_id="dv_test",
+            data_view_name="Empty Test",
+            output_format="console",
+            output_dir=str(tmp_path),
+            quiet=True,
+        )
+        assert result["inventories"] == {}
+        assert result["high_complexity_items"] == []
+
+    def test_summary_json_output(self, tmp_path):
+        """Test that JSON output is created when format is json"""
+        from cja_sdr_generator import display_inventory_summary
+        import json
+
+        result = display_inventory_summary(
+            data_view_id="dv_json_test",
+            data_view_name="JSON Test View",
+            output_format="json",
+            output_dir=str(tmp_path),
+            quiet=True,
+        )
+
+        # Check JSON file was created
+        json_files = list(tmp_path.glob("*_inventory_summary.json"))
+        assert len(json_files) == 1
+
+        # Verify JSON content
+        with open(json_files[0]) as f:
+            saved_data = json.load(f)
+        assert saved_data["data_view_id"] == "dv_json_test"
+        assert saved_data["data_view_name"] == "JSON Test View"
+
+    def test_summary_high_complexity_threshold(self, tmp_path):
+        """Test that high-complexity items are collected at threshold 70"""
+        from cja_sdr_generator import display_inventory_summary
+        from unittest.mock import MagicMock
+
+        # Create mock inventory with high-complexity item
+        mock_inventory = MagicMock()
+        mock_inventory.get_summary.return_value = {
+            "total_derived_fields": 2,
+            "metrics_count": 1,
+            "dimensions_count": 1,
+            "complexity": {"average": 50.0, "max": 85.0, "high_complexity_count": 1, "elevated_complexity_count": 1},
+        }
+
+        # Create mock fields
+        high_complexity_field = MagicMock()
+        high_complexity_field.complexity_score = 85
+        high_complexity_field.component_name = "Complex Field"
+        high_complexity_field.logic_summary = "Complex logic here"
+
+        low_complexity_field = MagicMock()
+        low_complexity_field.complexity_score = 30
+        low_complexity_field.component_name = "Simple Field"
+        low_complexity_field.logic_summary = "Simple logic"
+
+        mock_inventory.fields = [high_complexity_field, low_complexity_field]
+
+        result = display_inventory_summary(
+            data_view_id="dv_complexity",
+            data_view_name="Complexity Test",
+            derived_inventory=mock_inventory,
+            output_format="console",
+            output_dir=str(tmp_path),
+            quiet=True,
+        )
+
+        # Only the high-complexity item (>=70) should be in the list
+        assert len(result["high_complexity_items"]) == 1
+        assert result["high_complexity_items"][0]["name"] == "Complex Field"
+        assert result["high_complexity_items"][0]["complexity"] == 85
+
+    def test_summary_console_output_not_quiet(self, tmp_path, capsys):
+        """Test that console output is produced when not quiet"""
+        from cja_sdr_generator import display_inventory_summary
+
+        display_inventory_summary(
+            data_view_id="dv_console",
+            data_view_name="Console Test View",
+            output_format="console",
+            output_dir=str(tmp_path),
+            quiet=False,
+        )
+
+        captured = capsys.readouterr()
+        assert "Inventory Summary: Console Test View" in captured.out
+        assert "dv_console" in captured.out
+
+
+class TestIncludeAllInventory:
+    """Tests for --include-all-inventory flag."""
+
+    def test_include_all_inventory_flag_registered(self):
+        """Test that --include-all-inventory flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-all-inventory']):
+            args = parse_arguments()
+            assert hasattr(args, 'include_all_inventory')
+            assert args.include_all_inventory is True
+
+    def test_include_all_inventory_default_false(self):
+        """Test that --include-all-inventory defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert args.include_all_inventory is False
+
+    def test_include_all_inventory_with_inventory_only(self):
+        """Test that --include-all-inventory works with --inventory-only"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-all-inventory', '--inventory-only']):
+            args = parse_arguments()
+            assert args.include_all_inventory is True
+            assert args.inventory_only is True
+
+    def test_include_all_inventory_with_inventory_summary(self):
+        """Test that --include-all-inventory works with --inventory-summary"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-all-inventory', '--inventory-summary']):
+            args = parse_arguments()
+            assert args.include_all_inventory is True
+            assert args.inventory_summary is True
+
+
+class TestProcessingResultInventory:
+    """Tests for ProcessingResult inventory statistics."""
+
+    def test_has_inventory_false_when_empty(self):
+        """Test has_inventory is False when no inventory data"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0
+        )
+        assert result.has_inventory is False
+
+    def test_has_inventory_true_with_segments(self):
+        """Test has_inventory is True when segments count > 0"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            segments_count=10
+        )
+        assert result.has_inventory is True
+
+    def test_has_inventory_true_with_calculated_metrics(self):
+        """Test has_inventory is True when calculated metrics count > 0"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            calculated_metrics_count=5
+        )
+        assert result.has_inventory is True
+
+    def test_has_inventory_true_with_derived_fields(self):
+        """Test has_inventory is True when derived fields count > 0"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            derived_fields_count=15
+        )
+        assert result.has_inventory is True
+
+    def test_total_high_complexity(self):
+        """Test total_high_complexity sums all high-complexity counts"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            segments_high_complexity=2,
+            calculated_metrics_high_complexity=3,
+            derived_fields_high_complexity=1
+        )
+        assert result.total_high_complexity == 6
+
+    def test_total_high_complexity_zero_when_empty(self):
+        """Test total_high_complexity is 0 when no high-complexity items"""
+        from cja_sdr_generator import ProcessingResult
+
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0
+        )
+        assert result.total_high_complexity == 0

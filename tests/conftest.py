@@ -321,3 +321,177 @@ def clean_profile_env():
 
     for k, v in saved.items():
         os.environ[k] = v
+
+
+# ==================== DERIVED FIELD ANALYSIS FIXTURES ====================
+
+
+@pytest.fixture
+def sample_derived_metric():
+    """Create a sample derived metric definition"""
+    return {
+        "id": "metrics/bounces",
+        "name": "Bounces",
+        "description": "Session bounce count",
+        "sourceFieldType": "derived",
+        "type": "int",
+        "fieldDefinition": json.dumps([
+            {"func": "raw-field", "id": "adobe_sessionstarts", "label": "starts"},
+            {"func": "raw-field", "id": "adobe_sessionends", "label": "ends"},
+            {
+                "func": "match",
+                "field": "starts",
+                "branches": [
+                    {
+                        "pred": {
+                            "func": "and",
+                            "preds": [
+                                {"func": "isset", "field": "starts"},
+                                {"func": "isset", "field": "ends"}
+                            ]
+                        },
+                        "map-to": 1
+                    },
+                    {"pred": {"func": "true"}, "map-to": 0}
+                ],
+                "#rule_name": "Bounces",
+                "#rule_type": "caseWhen"
+            }
+        ]),
+        "dataSetType": "event"
+    }
+
+
+@pytest.fixture
+def sample_derived_dimension():
+    """Create a sample derived dimension definition"""
+    return {
+        "id": "dimensions/marketing_channel",
+        "name": "Marketing Channel",
+        "description": "Traffic source classification",
+        "sourceFieldType": "derived",
+        "type": "string",
+        "fieldDefinition": json.dumps([
+            {"func": "raw-field", "id": "web.referringDomain", "label": "referrer"},
+            {
+                "func": "match",
+                "field": "referrer",
+                "branches": [
+                    {"pred": {"func": "contains", "field": "referrer", "value": "google"}, "map-to": "Organic Search"},
+                    {"pred": {"func": "contains", "field": "referrer", "value": "facebook"}, "map-to": "Social"},
+                    {"pred": {"func": "true"}, "map-to": "Direct"}
+                ],
+                "#rule_name": "Channel Classification"
+            }
+        ]),
+        "dataSetType": "event"
+    }
+
+
+@pytest.fixture
+def sample_derived_metrics_df(sample_derived_metric):
+    """Create a DataFrame with derived metrics"""
+    return pd.DataFrame([
+        sample_derived_metric,
+        {
+            "id": "metrics/visitors",
+            "name": "People",
+            "description": "Unique visitors",
+            "sourceFieldType": "standard",
+            "type": "int",
+            "fieldDefinition": None,
+            "dataSetType": "event"
+        }
+    ])
+
+
+@pytest.fixture
+def sample_derived_dimensions_df(sample_derived_dimension):
+    """Create a DataFrame with derived dimensions"""
+    return pd.DataFrame([
+        sample_derived_dimension,
+        {
+            "id": "dimensions/page",
+            "name": "Page Name",
+            "description": "Page path",
+            "sourceFieldType": "custom",
+            "type": "string",
+            "fieldDefinition": None,
+            "dataSetType": "event"
+        }
+    ])
+
+
+# ==================== CALCULATED METRICS INVENTORY FIXTURES ====================
+
+
+@pytest.fixture
+def sample_simple_calculated_metric():
+    """Create a simple calculated metric definition (Revenue per Order)"""
+    return {
+        "id": "cm_revenue_per_order",
+        "name": "Revenue per Order",
+        "description": "Average revenue per order",
+        "owner": {"name": "Test Owner"},
+        "polarity": "positive",
+        "type": "currency",
+        "precision": 2,
+        "definition": {
+            "func": "calc-metric",
+            "version": [1, 0, 0],
+            "formula": {
+                "func": "divide",
+                "col1": {"func": "metric", "name": "metrics/revenue"},
+                "col2": {"func": "metric", "name": "metrics/orders"}
+            }
+        }
+    }
+
+
+@pytest.fixture
+def sample_complex_calculated_metric():
+    """Create a complex calculated metric with segment filter"""
+    return {
+        "id": "cm_mobile_conversion",
+        "name": "Mobile Conversion Rate",
+        "description": "Conversion rate for mobile visitors",
+        "owner": {"name": "Analytics Team"},
+        "polarity": "positive",
+        "type": "percent",
+        "precision": 2,
+        "definition": {
+            "func": "calc-metric",
+            "version": [1, 0, 0],
+            "formula": {
+                "func": "segment",
+                "segment_id": "s_mobile_visitors",
+                "metric": {
+                    "func": "divide",
+                    "col1": {"func": "metric", "name": "metrics/orders"},
+                    "col2": {"func": "metric", "name": "metrics/visits"}
+                }
+            }
+        }
+    }
+
+
+@pytest.fixture
+def mock_cja_with_calculated_metrics(sample_simple_calculated_metric, sample_complex_calculated_metric):
+    """Create a mock CJA instance that returns calculated metrics"""
+    mock_cja = Mock()
+
+    # Return calculated metrics as a DataFrame
+    mock_cja.getCalculatedMetrics.return_value = pd.DataFrame([
+        sample_simple_calculated_metric,
+        sample_complex_calculated_metric
+    ])
+
+    return mock_cja
+
+
+@pytest.fixture
+def mock_cja_with_no_calculated_metrics():
+    """Create a mock CJA instance with no calculated metrics"""
+    mock_cja = Mock()
+    mock_cja.getCalculatedMetrics.return_value = pd.DataFrame()
+    return mock_cja

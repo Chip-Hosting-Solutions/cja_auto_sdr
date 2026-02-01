@@ -1,11 +1,11 @@
 [project]
 name = "cja-auto-sdr"
-version = "3.0.16"
+version = "3.1.0"
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "cjapy>=0.2.4.post2",
+    "cjapy>=0.2.4.post3",
     "numpy>=2.2.0,!=2.4.0",
     "pandas>=2.3.3",
     "xlsxwriter>=3.2.9",
@@ -33,7 +33,29 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["cja_sdr_generator.py"]
+only-include = [
+    "cja_sdr_generator.py",
+    "cja_derived_analyzer.py",
+    "cja_calculated_metrics_inventory.py",
+    "cja_derived_fields_inventory.py",
+    "cja_segments_inventory.py",
+    "cja_inventory_utils.py",
+]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["cja_sdr_generator.py", "pyproject.toml", "README.md", "LICENSE"]
+only-include = [
+    "cja_sdr_generator.py",
+    "cja_derived_analyzer.py",
+    "cja_calculated_metrics_inventory.py",
+    "cja_derived_fields_inventory.py",
+    "cja_segments_inventory.py",
+    "cja_inventory_utils.py",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]

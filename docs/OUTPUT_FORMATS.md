@@ -76,12 +76,19 @@ cja_auto_sdr dv_12345 --stats --format csv --output stats.csv
 
 **Output:**
 - Single file: `CJA_DataView_{name}_SDR.xlsx`
-- Multiple sheets:
-  - Metadata
-  - Data Quality (color-coded by severity)
-  - DataView Details
-  - Metrics
-  - Dimensions
+- Multiple sheets (in order):
+  1. Metadata
+  2. Data Quality (color-coded by severity)
+  3. DataView Details
+  4. Metrics
+  5. Dimensions
+  6. Segments (if `--include-segments` specified)
+  7. Derived Fields (if `--include-derived` specified)
+  8. Calculated Metrics (if `--include-calculated` specified)
+
+> **Sheet Ordering:** Inventory sheets (Segments, Derived Fields, Calculated Metrics) appear at the end of the workbook. When multiple are enabled, they appear in the order specified on the command line. For example, `--include-calculated --include-segments` places Calculated Metrics before Segments.
+>
+> **Inventory-Only Mode:** When `--inventory-only` is used, only sheets 6-8 are generated (requires at least one `--include-*` flag).
 
 **Features:**
 - Conditional formatting for data quality issues
@@ -675,9 +682,90 @@ Output format flexibility provides:
 
 **Result:** Flexible integration options for automation, APIs, web viewing, documentation, and traditional reporting.
 
+---
+
+## Inventory Sheets
+
+### Segments Inventory
+
+When `--include-segments` is specified, a "Segments" sheet/section is added with:
+- Complexity scores (0-100)
+- Container types (Hit/Visit/Person)
+- Definition summaries (human-readable)
+- Dimension, metric, and segment references
+- Governance info (approved, tags, owner)
+
+```bash
+cja_auto_sdr dv_12345 --include-segments
+```
+
+See [Segments Inventory](SEGMENTS_INVENTORY.md) for detailed documentation.
+
+### Derived Field Inventory
+
+When `--include-derived` is specified, a "Derived Fields" sheet/section is added with:
+- Complexity scores (0-100)
+- Functions used
+- Schema field references
+- Logic summaries
+
+```bash
+cja_auto_sdr dv_12345 --include-derived
+```
+
+See [Derived Field Inventory](DERIVED_FIELDS_INVENTORY.md) for detailed documentation.
+
+### Calculated Metrics Inventory
+
+When `--include-calculated` is specified, a "Calculated Metrics" sheet/section is added with:
+- Complexity scores (0-100)
+- Formula summaries
+- Metric and segment references
+- Owner information
+
+```bash
+cja_auto_sdr dv_12345 --include-calculated
+```
+
+See [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) for detailed documentation.
+
+### Combining Inventories
+
+All three inventories can be included together. The sheets appear at the end of the output in CLI argument order:
+
+```bash
+# All three inventories (Segments first)
+cja_auto_sdr dv_12345 --include-segments --include-derived --include-calculated
+
+# Custom order (Calculated Metrics first)
+cja_auto_sdr dv_12345 --include-calculated --include-segments --include-derived
+```
+
+### Inventory-Only Mode
+
+Use `--inventory-only` to generate only inventory sheets without standard SDR content:
+
+```bash
+# Segments inventory only (no Metadata, Data Quality, etc.)
+cja_auto_sdr dv_12345 --include-segments --inventory-only
+
+# Multiple inventories only
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived --inventory-only
+
+# Output in multiple formats
+cja_auto_sdr dv_12345 --include-segments --inventory-only -f all
+```
+
+> **Note:** `--inventory-only` requires at least one `--include-*` flag.
+
+---
+
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - Setup and output directory options
 - [CLI Reference](CLI_REFERENCE.md) - Complete output options
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Multi-format batch output
 - [Data Quality Guide](DATA_QUALITY.md) - Understanding the Data Quality sheet
+- [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter analysis
+- [Derived Field Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field analysis
+- [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics analysis

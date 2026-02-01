@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.0.16.
+Single-page command cheat sheet for CJA SDR Generator v3.1.0.
 
 ## Two Main Modes
 
@@ -24,6 +24,20 @@ You have three equivalent options:
 | **Direct script** | `python cja_sdr_generator.py ...` | Most reliable on Windows |
 
 This guide uses `uv run`. Windows users should substitute with `python cja_sdr_generator.py`. The command examples below omit the prefix for brevity.
+
+## Interactive Mode (Recommended for New Users)
+
+```bash
+# Launch interactive mode - walks through all options step by step
+cja_auto_sdr --interactive
+# or
+cja_auto_sdr -i
+```
+
+Interactive mode guides you through:
+1. **Data View Selection** - Shows list of accessible data views
+2. **Output Format** - Excel, JSON, CSV, HTML, Markdown, or all
+3. **Inventory Options** - Segments, calculated metrics, derived fields
 
 ## Essential Commands (SDR Generation)
 
@@ -126,6 +140,14 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--workers N` | Parallel workers: `auto` (default) or `1-256` | SDR only |
 | `--skip-validation` | Skip data quality checks (faster) | SDR only |
 | `--continue-on-error` | Don't stop on failures in batch mode | SDR only |
+| `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
+| `--include-derived` | Add derived field inventory sheet/section | SDR only |
+| `--include-calculated` | Add calculated metrics inventory sheet/section | SDR + Snapshot Diff |
+| `--include-all-inventory` | Enable all inventory options (smart mode detection) | SDR + Snapshot Diff |
+| `--inventory-only` | Output only inventory sheets (requires `--include-*`) | SDR only |
+| `--inventory-summary` | Quick stats without full output (requires `--include-*`) | SDR only |
+
+> **Note:** `--include-derived` is for SDR generation only. Derived fields are already included in the standard metrics/dimensions output, so changes are captured in the Metrics/Dimensions diff.
 
 ### Diff-Specific Options
 
@@ -200,6 +222,47 @@ cja_auto_sdr dv_12345 --output-dir ./reports/$(date +%Y%m%d)
 
 # Custom output directory (Windows PowerShell)
 cja_auto_sdr dv_12345 --output-dir ./reports/$(Get-Date -Format "yyyyMMdd")
+
+# Include segments inventory
+cja_auto_sdr dv_12345 --include-segments
+
+# Include derived field inventory
+cja_auto_sdr dv_12345 --include-derived
+
+# Include calculated metrics inventory
+cja_auto_sdr dv_12345 --include-calculated
+
+# All three inventories (longhand)
+cja_auto_sdr dv_12345 --include-segments --include-derived --include-calculated
+
+# All inventories (shorthand - same as above)
+cja_auto_sdr dv_12345 --include-all-inventory
+
+# All inventories with inventory-only mode
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-only
+
+# All inventories with quick summary
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-summary
+
+# Inventory-only mode (no standard SDR sheets)
+cja_auto_sdr dv_12345 --include-segments --inventory-only
+
+# Multiple inventories only
+cja_auto_sdr dv_12345 --include-segments --include-calculated --inventory-only
+
+# Quick inventory stats (no file output)
+cja_auto_sdr dv_12345 --include-segments --include-calculated --inventory-summary
+
+# Save summary to JSON
+cja_auto_sdr dv_12345 --include-segments --inventory-summary --format json
+
+# --- Inventory Diff (same data view over time) ---
+
+# Create snapshot with inventory
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments
+
+# Compare against snapshot with inventory
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated --include-segments
 ```
 
 ## Environment Variables
@@ -241,6 +304,18 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 | HTML | `SDR_<name>_<date>.html` | Browser-viewable report |
 | Markdown | `SDR_<name>_<date>.md` | Documentation-ready format |
 
+**Excel Sheet Order:**
+1. Metadata
+2. Data Quality
+3. DataView
+4. Metrics
+5. Dimensions
+6. Segments (if `--include-segments`)
+7. Derived Fields (if `--include-derived`)
+8. Calculated Metrics (if `--include-calculated`)
+
+> **Note:** Inventory sheets appear at the end in CLI argument order. With `--inventory-only`, only sheets 6-8 are generated.
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -258,3 +333,5 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 - Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - Batch processing: [BATCH_PROCESSING_GUIDE.md](BATCH_PROCESSING_GUIDE.md)
 - Data quality: [DATA_QUALITY.md](DATA_QUALITY.md)
+- Derived fields: [DERIVED_FIELDS_INVENTORY.md](DERIVED_FIELDS_INVENTORY.md)
+- Calculated metrics: [CALCULATED_METRICS_INVENTORY.md](CALCULATED_METRICS_INVENTORY.md)

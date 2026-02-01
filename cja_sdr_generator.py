@@ -52,7 +52,7 @@ except ImportError:
 
 # ==================== VERSION ====================
 
-__version__ = "3.0.16"
+__version__ = "3.1.0"
 
 # ==================== FORMAT ALIASES ====================
 
@@ -687,6 +687,7 @@ class ConsoleColors:
     CYAN = '\033[96m'
     ORANGE = '\033[38;5;208m'  # Extended 256-color orange
     BOLD = '\033[1m'
+    DIM = '\033[90m'  # Bright black / dark gray for dimmed text
     RESET = '\033[0m'
     # Regex to strip ANSI escape codes for visible length calculation
     ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
@@ -769,6 +770,13 @@ class ConsoleColors:
         """Format text as bold"""
         if cls._enabled:
             return f"{cls.BOLD}{text}{cls.RESET}"
+        return text
+
+    @classmethod
+    def dim(cls, text: str) -> str:
+        """Format text as dim/gray"""
+        if cls._enabled:
+            return f"{cls.DIM}{text}{cls.RESET}"
         return text
 
     @classmethod
@@ -1701,11 +1709,32 @@ class ProcessingResult:
     output_file: str = ""
     error_message: str = ""
     file_size_bytes: int = 0
+    # Inventory statistics (populated when inventory options are used)
+    segments_count: int = 0
+    segments_high_complexity: int = 0
+    calculated_metrics_count: int = 0
+    calculated_metrics_high_complexity: int = 0
+    derived_fields_count: int = 0
+    derived_fields_high_complexity: int = 0
 
     @property
     def file_size_formatted(self) -> str:
         """Return human-readable file size (e.g., '1.5 MB', '256 KB')."""
         return format_file_size(self.file_size_bytes)
+
+    @property
+    def has_inventory(self) -> bool:
+        """Check if any inventory data was collected."""
+        return (self.segments_count > 0 or
+                self.calculated_metrics_count > 0 or
+                self.derived_fields_count > 0)
+
+    @property
+    def total_high_complexity(self) -> int:
+        """Total count of high-complexity items across all inventories."""
+        return (self.segments_high_complexity +
+                self.calculated_metrics_high_complexity +
+                self.derived_fields_high_complexity)
 
 
 # ==================== DIFF COMPARISON DATA STRUCTURES ====================
@@ -1769,13 +1798,34 @@ class DiffSummary:
     dimensions_removed: int = 0
     dimensions_modified: int = 0
     dimensions_unchanged: int = 0
+    # Inventory diff counts (optional)
+    source_calc_metrics_count: int = 0
+    target_calc_metrics_count: int = 0
+    calc_metrics_added: int = 0
+    calc_metrics_removed: int = 0
+    calc_metrics_modified: int = 0
+    calc_metrics_unchanged: int = 0
+    source_segments_count: int = 0
+    target_segments_count: int = 0
+    segments_added: int = 0
+    segments_removed: int = 0
+    segments_modified: int = 0
+    segments_unchanged: int = 0
 
     @property
     def has_changes(self) -> bool:
         """Returns True if any changes were detected"""
         return (self.metrics_added > 0 or self.metrics_removed > 0 or
                 self.metrics_modified > 0 or self.dimensions_added > 0 or
-                self.dimensions_removed > 0 or self.dimensions_modified > 0)
+                self.dimensions_removed > 0 or self.dimensions_modified > 0 or
+                self.has_inventory_changes)
+
+    @property
+    def has_inventory_changes(self) -> bool:
+        """Returns True if any inventory changes were detected"""
+        return (self.calc_metrics_added > 0 or self.calc_metrics_removed > 0 or
+                self.calc_metrics_modified > 0 or self.segments_added > 0 or
+                self.segments_removed > 0 or self.segments_modified > 0)
 
     @property
     def total_changes(self) -> int:
@@ -1810,6 +1860,33 @@ class DiffSummary:
         return (self.dimensions_changed / total) * 100
 
     @property
+    def calc_metrics_changed(self) -> int:
+        """Total calculated metrics that changed"""
+        return self.calc_metrics_added + self.calc_metrics_removed + self.calc_metrics_modified
+
+    @property
+    def calc_metrics_change_percent(self) -> float:
+        """Percentage of calculated metrics that changed"""
+        total = max(self.source_calc_metrics_count, self.target_calc_metrics_count)
+        if total == 0:
+            return 0.0
+        return (self.calc_metrics_changed / total) * 100
+
+    @property
+    def segments_changed(self) -> int:
+        """Total segments that changed"""
+        return self.segments_added + self.segments_removed + self.segments_modified
+
+    @property
+    def segments_change_percent(self) -> float:
+        """Percentage of segments that changed"""
+        total = max(self.source_segments_count, self.target_segments_count)
+        if total == 0:
+            return 0.0
+        return (self.segments_changed / total) * 100
+
+
+    @property
     def natural_language_summary(self) -> str:
         """Human-readable summary of changes for PRs, tickets, messages."""
         parts = []
@@ -1836,6 +1913,28 @@ class DiffSummary:
         if dim_parts:
             parts.append(f"Dimensions: {', '.join(dim_parts)}")
 
+        # Calculated metrics inventory changes
+        calc_parts = []
+        if self.calc_metrics_added:
+            calc_parts.append(f"{self.calc_metrics_added} added")
+        if self.calc_metrics_removed:
+            calc_parts.append(f"{self.calc_metrics_removed} removed")
+        if self.calc_metrics_modified:
+            calc_parts.append(f"{self.calc_metrics_modified} modified")
+        if calc_parts:
+            parts.append(f"Calculated Metrics: {', '.join(calc_parts)}")
+
+        # Segments inventory changes
+        seg_parts = []
+        if self.segments_added:
+            seg_parts.append(f"{self.segments_added} added")
+        if self.segments_removed:
+            seg_parts.append(f"{self.segments_removed} removed")
+        if self.segments_modified:
+            seg_parts.append(f"{self.segments_modified} modified")
+        if seg_parts:
+            parts.append(f"Segments: {', '.join(seg_parts)}")
+
         if not parts:
             return "No changes detected"
 
@@ -1844,17 +1943,20 @@ class DiffSummary:
     @property
     def total_added(self) -> int:
         """Total items added across all component types"""
-        return self.metrics_added + self.dimensions_added
+        return (self.metrics_added + self.dimensions_added +
+                self.calc_metrics_added + self.segments_added)
 
     @property
     def total_removed(self) -> int:
         """Total items removed across all component types"""
-        return self.metrics_removed + self.dimensions_removed
+        return (self.metrics_removed + self.dimensions_removed +
+                self.calc_metrics_removed + self.segments_removed)
 
     @property
     def total_modified(self) -> int:
         """Total items modified across all component types"""
-        return self.metrics_modified + self.dimensions_modified
+        return (self.metrics_modified + self.dimensions_modified +
+                self.calc_metrics_modified + self.segments_modified)
 
     @property
     def total_summary(self) -> str:
@@ -1874,6 +1976,22 @@ class DiffSummary:
 
 
 @dataclass
+class InventoryItemDiff:
+    """Represents a diff for a single inventory item (calculated metric or segment)"""
+    id: str
+    name: str
+    change_type: ChangeType
+    inventory_type: str  # 'calculated_metric' or 'segment'
+    source_data: Optional[Dict] = None
+    target_data: Optional[Dict] = None
+    changed_fields: Optional[Dict[str, Tuple[Any, Any]]] = None
+
+    def __post_init__(self):
+        if self.changed_fields is None:
+            self.changed_fields = {}
+
+
+@dataclass
 class DiffResult:
     """Complete result of a diff comparison"""
     summary: DiffSummary
@@ -1884,6 +2002,9 @@ class DiffResult:
     target_label: str = "Target"
     generated_at: str = ""
     tool_version: str = ""
+    # Inventory diffs (optional)
+    calc_metrics_diffs: Optional[List[InventoryItemDiff]] = None
+    segments_diffs: Optional[List[InventoryItemDiff]] = None
 
     def __post_init__(self):
         if not self.generated_at:
@@ -1891,10 +2012,24 @@ class DiffResult:
         if not self.tool_version:
             self.tool_version = __version__
 
+    @property
+    def has_inventory_diffs(self) -> bool:
+        """Check if any inventory diffs are included."""
+        return any([self.calc_metrics_diffs, self.segments_diffs])
+
 
 @dataclass
 class DataViewSnapshot:
-    """A point-in-time snapshot of a data view for comparison"""
+    """A point-in-time snapshot of a data view for comparison.
+
+    Supports both basic snapshots (metrics/dimensions only) and extended
+    snapshots that include inventory data for calculated metrics, segments,
+    and derived fields.
+
+    Snapshot versions:
+    - 1.0: Basic snapshot (metrics, dimensions)
+    - 2.0: Extended snapshot with optional inventory data
+    """
     snapshot_version: str = "1.0"
     created_at: str = ""
     data_view_id: str = ""
@@ -1904,6 +2039,9 @@ class DataViewSnapshot:
     metrics: List[Dict] = None  # Full metric data from API
     dimensions: List[Dict] = None  # Full dimension data from API
     metadata: Dict = None  # Tool version, counts, etc.
+    # Inventory data (optional, v2.0+)
+    calculated_metrics_inventory: Optional[List[Dict]] = None
+    segments_inventory: Optional[List[Dict]] = None
 
     def __post_init__(self):
         if not self.created_at:
@@ -1918,10 +2056,36 @@ class DataViewSnapshot:
                 'metrics_count': len(self.metrics) if self.metrics else 0,
                 'dimensions_count': len(self.dimensions) if self.dimensions else 0
             }
+        # Auto-upgrade version if inventory data is present
+        if any([self.calculated_metrics_inventory, self.segments_inventory]):
+            self.snapshot_version = "2.0"
+
+    @property
+    def has_calculated_metrics_inventory(self) -> bool:
+        """Check if snapshot contains calculated metrics inventory."""
+        return self.calculated_metrics_inventory is not None
+
+    @property
+    def has_segments_inventory(self) -> bool:
+        """Check if snapshot contains segments inventory."""
+        return self.segments_inventory is not None
+
+    def get_inventory_summary(self) -> Dict[str, Any]:
+        """Get summary of what inventory data is present in the snapshot."""
+        return {
+            'calculated_metrics': {
+                'present': self.has_calculated_metrics_inventory,
+                'count': len(self.calculated_metrics_inventory) if self.calculated_metrics_inventory else 0
+            },
+            'segments': {
+                'present': self.has_segments_inventory,
+                'count': len(self.segments_inventory) if self.segments_inventory else 0
+            }
+        }
 
     def to_dict(self) -> Dict:
         """Convert snapshot to dictionary for JSON serialization"""
-        return {
+        result = {
             'snapshot_version': self.snapshot_version,
             'created_at': self.created_at,
             'data_view_id': self.data_view_id,
@@ -1936,6 +2100,14 @@ class DataViewSnapshot:
                 'dimensions_count': len(self.dimensions)
             }
         }
+        # Include inventory data if present
+        if self.calculated_metrics_inventory is not None:
+            result['calculated_metrics_inventory'] = self.calculated_metrics_inventory
+            result['metadata']['calculated_metrics_count'] = len(self.calculated_metrics_inventory)
+        if self.segments_inventory is not None:
+            result['segments_inventory'] = self.segments_inventory
+            result['metadata']['segments_count'] = len(self.segments_inventory)
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'DataViewSnapshot':
@@ -1949,7 +2121,9 @@ class DataViewSnapshot:
             description=data.get('description', ''),
             metrics=data.get('metrics', []),
             dimensions=data.get('dimensions', []),
-            metadata=data.get('metadata', {})
+            metadata=data.get('metadata', {}),
+            calculated_metrics_inventory=data.get('calculated_metrics_inventory'),
+            segments_inventory=data.get('segments_inventory')
         )
 
 
@@ -1966,7 +2140,9 @@ class SnapshotManager:
     def __init__(self, logger: logging.Logger = None):
         self.logger = logger or logging.getLogger(__name__)
 
-    def create_snapshot(self, cja, data_view_id: str, quiet: bool = False) -> DataViewSnapshot:
+    def create_snapshot(self, cja, data_view_id: str, quiet: bool = False,
+                        include_calculated_metrics: bool = False,
+                        include_segments: bool = False) -> DataViewSnapshot:
         """
         Create a snapshot from a live data view.
 
@@ -1974,6 +2150,8 @@ class SnapshotManager:
             cja: Initialized cjapy.CJA instance
             data_view_id: The data view ID to snapshot
             quiet: Suppress progress output
+            include_calculated_metrics: Include calculated metrics inventory in snapshot
+            include_segments: Include segments inventory in snapshot
 
         Returns:
             DataViewSnapshot with current state of data view
@@ -2014,6 +2192,48 @@ class SnapshotManager:
             metrics=metrics_list,
             dimensions=dimensions_list
         )
+
+        # Fetch calculated metrics inventory if requested
+        if include_calculated_metrics:
+            if not quiet:
+                print("Fetching calculated metrics inventory...")
+            try:
+                from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+                builder = CalculatedMetricsInventoryBuilder(logger=self.logger)
+                inventory = builder.build(cja, data_view_id, dv_name)
+                snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
+                self.logger.info(f"  Fetched {len(snapshot.calculated_metrics_inventory)} calculated metrics")
+                if not quiet:
+                    print(f"  Calculated metrics: {len(snapshot.calculated_metrics_inventory)} items")
+            except ImportError as e:
+                self.logger.warning(f"Could not import calculated metrics inventory module: {e}")
+                if not quiet:
+                    print(ConsoleColors.warning("  Warning: Calculated metrics module not available"))
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch calculated metrics inventory: {e}")
+                if not quiet:
+                    print(ConsoleColors.warning(f"  Warning: Could not fetch calculated metrics: {e}"))
+
+        # Fetch segments inventory if requested
+        if include_segments:
+            if not quiet:
+                print("Fetching segments inventory...")
+            try:
+                from cja_segments_inventory import SegmentsInventoryBuilder
+                builder = SegmentsInventoryBuilder(logger=self.logger)
+                inventory = builder.build(cja, data_view_id, dv_name)
+                snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
+                self.logger.info(f"  Fetched {len(snapshot.segments_inventory)} segments")
+                if not quiet:
+                    print(f"  Segments: {len(snapshot.segments_inventory)} items")
+            except ImportError as e:
+                self.logger.warning(f"Could not import segments inventory module: {e}")
+                if not quiet:
+                    print(ConsoleColors.warning("  Warning: Segments module not available"))
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch segments inventory: {e}")
+                if not quiet:
+                    print(ConsoleColors.warning(f"  Warning: Could not fetch segments: {e}"))
 
         self.logger.info(f"Snapshot created: {len(metrics_list)} metrics, {len(dimensions_list)} dimensions")
         return snapshot
@@ -2346,6 +2566,8 @@ def save_git_friendly_snapshot(
     - metrics.json: Sorted list of metrics
     - dimensions.json: Sorted list of dimensions
     - metadata.json: Data view metadata and quality summary
+    - calculated-metrics.json: Optional, when snapshot includes calculated metrics inventory
+    - segments.json: Optional, when snapshot includes segments inventory
 
     Args:
         snapshot: DataViewSnapshot to save
@@ -2382,6 +2604,30 @@ def save_git_friendly_snapshot(
     saved_files['dimensions'] = dimensions_file
     logger.debug(f"Saved {len(dimensions_sorted)} dimensions to {dimensions_file}")
 
+    # Save calculated metrics inventory if present
+    if snapshot.calculated_metrics_inventory:
+        calc_metrics_sorted = sorted(
+            snapshot.calculated_metrics_inventory,
+            key=lambda x: x.get('id', x.get('metric_id', ''))
+        )
+        calc_metrics_file = dv_dir / "calculated-metrics.json"
+        with open(calc_metrics_file, 'w', encoding='utf-8') as f:
+            json.dump(calc_metrics_sorted, f, indent=2, ensure_ascii=False, default=str)
+        saved_files['calculated_metrics'] = calc_metrics_file
+        logger.debug(f"Saved {len(calc_metrics_sorted)} calculated metrics to {calc_metrics_file}")
+
+    # Save segments inventory if present
+    if snapshot.segments_inventory:
+        segments_sorted = sorted(
+            snapshot.segments_inventory,
+            key=lambda x: x.get('id', x.get('segment_id', ''))
+        )
+        segments_file = dv_dir / "segments.json"
+        with open(segments_file, 'w', encoding='utf-8') as f:
+            json.dump(segments_sorted, f, indent=2, ensure_ascii=False, default=str)
+        saved_files['segments'] = segments_file
+        logger.debug(f"Saved {len(segments_sorted)} segments to {segments_file}")
+
     # Create metadata file
     metadata = {
         'snapshot_version': snapshot.snapshot_version,
@@ -2397,6 +2643,14 @@ def save_git_friendly_snapshot(
             'total_components': len(snapshot.metrics) + len(snapshot.dimensions)
         }
     }
+
+    # Add inventory summary if present
+    if snapshot.calculated_metrics_inventory or snapshot.segments_inventory:
+        metadata['inventory'] = {}
+        if snapshot.calculated_metrics_inventory:
+            metadata['inventory']['calculated_metrics_count'] = len(snapshot.calculated_metrics_inventory)
+        if snapshot.segments_inventory:
+            metadata['inventory']['segments_count'] = len(snapshot.segments_inventory)
 
     # Add quality summary if provided
     if quality_issues:
@@ -2739,10 +2993,25 @@ class DataViewComparator:
         'formula', 'isCalculated', 'derivedFieldId',
     ]
 
+    # Fields to compare for calculated metrics inventory
+    CALC_METRICS_COMPARE_FIELDS = [
+        'name', 'description', 'owner', 'complexity_score', 'approved',
+        'functions_used', 'formula_summary', 'metric_references', 'segment_references',
+        'nesting_depth', 'tags',
+    ]
+
+    # Fields to compare for segments inventory
+    SEGMENTS_COMPARE_FIELDS = [
+        'name', 'description', 'owner', 'complexity_score', 'approved',
+        'functions_used', 'definition_summary', 'metric_references', 'segment_references',
+        'dimension_references', 'nesting_depth', 'tags',
+    ]
+
     def __init__(self, logger: logging.Logger = None, ignore_fields: List[str] = None,
                  compare_fields: List[str] = None, use_extended_fields: bool = False,
                  show_only: Optional[List[str]] = None, metrics_only: bool = False,
-                 dimensions_only: bool = False):
+                 dimensions_only: bool = False,
+                 include_calc_metrics: bool = False, include_segments: bool = False):
         """
         Initialize the comparator.
 
@@ -2754,6 +3023,8 @@ class DataViewComparator:
             show_only: Filter to show only specific change types ('added', 'removed', 'modified', 'unchanged')
             metrics_only: Only include metrics in comparison
             dimensions_only: Only include dimensions in comparison
+            include_calc_metrics: Include calculated metrics inventory in comparison
+            include_segments: Include segments inventory in comparison
         """
         self.logger = logger or logging.getLogger(__name__)
         self.ignore_fields = set(ignore_fields or [])
@@ -2766,6 +3037,8 @@ class DataViewComparator:
         self.show_only = set(show_only) if show_only else None
         self.metrics_only = metrics_only
         self.dimensions_only = dimensions_only
+        self.include_calc_metrics = include_calc_metrics
+        self.include_segments = include_segments
 
     def compare(self, source: DataViewSnapshot, target: DataViewSnapshot,
                 source_label: str = "Source", target_label: str = "Target") -> DiffResult:
@@ -2805,11 +3078,38 @@ class DataViewComparator:
             # Apply show_only filter if set
             dimension_diffs = self._apply_show_only_filter(dimension_diffs)
 
+        # Compare inventory items if requested
+        calc_metrics_diffs = None
+        segments_diffs = None
+
+        if self.include_calc_metrics:
+            calc_metrics_diffs = self._compare_inventory_items(
+                source.calculated_metrics_inventory or [],
+                target.calculated_metrics_inventory or [],
+                'calculated_metric',
+                id_field='metric_id',
+                name_field='metric_name'
+            )
+            self.logger.info(f"  Calculated Metrics: {self._count_changes(calc_metrics_diffs)}")
+
+        if self.include_segments:
+            segments_diffs = self._compare_inventory_items(
+                source.segments_inventory or [],
+                target.segments_inventory or [],
+                'segment',
+                id_field='segment_id',
+                name_field='segment_name'
+            )
+            self.logger.info(f"  Segments: {self._count_changes(segments_diffs)}")
+
         # Build metadata diff
         metadata_diff = self._build_metadata_diff(source, target)
 
         # Build summary (use original lists for accurate counts)
-        summary = self._build_summary(source, target, metric_diffs, dimension_diffs)
+        summary = self._build_summary(
+            source, target, metric_diffs, dimension_diffs,
+            calc_metrics_diffs, segments_diffs
+        )
 
         self.logger.info(f"Comparison complete:")
         self.logger.info(f"  Metrics: +{summary.metrics_added} -{summary.metrics_removed} ~{summary.metrics_modified}")
@@ -2821,8 +3121,125 @@ class DataViewComparator:
             metric_diffs=metric_diffs,
             dimension_diffs=dimension_diffs,
             source_label=source_label,
-            target_label=target_label
+            target_label=target_label,
+            calc_metrics_diffs=calc_metrics_diffs,
+            segments_diffs=segments_diffs
         )
+
+    def _count_changes(self, diffs: Optional[List[InventoryItemDiff]]) -> str:
+        """Format change counts for logging."""
+        if not diffs:
+            return "0 items"
+        added = sum(1 for d in diffs if d.change_type == ChangeType.ADDED)
+        removed = sum(1 for d in diffs if d.change_type == ChangeType.REMOVED)
+        modified = sum(1 for d in diffs if d.change_type == ChangeType.MODIFIED)
+        return f"+{added} -{removed} ~{modified}"
+
+    def _compare_inventory_items(
+        self,
+        source_list: List[Dict],
+        target_list: List[Dict],
+        inventory_type: str,
+        id_field: str = 'id',
+        name_field: str = 'name'
+    ) -> List[InventoryItemDiff]:
+        """Compare two lists of inventory items by ID."""
+        diffs = []
+
+        # Build lookup maps by ID
+        source_map = {item.get(id_field): item for item in source_list if item.get(id_field)}
+        target_map = {item.get(id_field): item for item in target_list if item.get(id_field)}
+
+        all_ids = set(source_map.keys()) | set(target_map.keys())
+
+        for item_id in sorted(all_ids):
+            source_item = source_map.get(item_id)
+            target_item = target_map.get(item_id)
+
+            if source_item and not target_item:
+                # Removed
+                diffs.append(InventoryItemDiff(
+                    id=item_id,
+                    name=source_item.get(name_field, 'Unknown'),
+                    change_type=ChangeType.REMOVED,
+                    inventory_type=inventory_type,
+                    source_data=source_item,
+                    target_data=None
+                ))
+            elif target_item and not source_item:
+                # Added
+                diffs.append(InventoryItemDiff(
+                    id=item_id,
+                    name=target_item.get(name_field, 'Unknown'),
+                    change_type=ChangeType.ADDED,
+                    inventory_type=inventory_type,
+                    source_data=None,
+                    target_data=target_item
+                ))
+            else:
+                # Both exist - check for modifications
+                changed_fields = self._find_inventory_changed_fields(source_item, target_item, inventory_type)
+                if changed_fields:
+                    diffs.append(InventoryItemDiff(
+                        id=item_id,
+                        name=target_item.get(name_field, 'Unknown'),
+                        change_type=ChangeType.MODIFIED,
+                        inventory_type=inventory_type,
+                        source_data=source_item,
+                        target_data=target_item,
+                        changed_fields=changed_fields
+                    ))
+                else:
+                    diffs.append(InventoryItemDiff(
+                        id=item_id,
+                        name=target_item.get(name_field, 'Unknown'),
+                        change_type=ChangeType.UNCHANGED,
+                        inventory_type=inventory_type,
+                        source_data=source_item,
+                        target_data=target_item
+                    ))
+
+        return diffs
+
+    def _find_inventory_changed_fields(self, source: Dict, target: Dict, inventory_type: str) -> Dict[str, Tuple[Any, Any]]:
+        """Find fields that differ between source and target inventory items.
+
+        Args:
+            source: Source inventory item dict
+            target: Target inventory item dict
+            inventory_type: Type of inventory ('calculated_metric', 'segment', 'derived_field')
+
+        Returns:
+            Dict mapping field names to (source_value, target_value) tuples
+        """
+        changed = {}
+
+        # Select appropriate field list based on inventory type
+        if inventory_type == 'calculated_metric':
+            compare_fields = self.CALC_METRICS_COMPARE_FIELDS
+        elif inventory_type == 'segment':
+            compare_fields = self.SEGMENTS_COMPARE_FIELDS
+        elif inventory_type == 'derived_field':
+            compare_fields = self.DERIVED_FIELDS_COMPARE_FIELDS
+        else:
+            # Fallback to calc metrics fields
+            compare_fields = self.CALC_METRICS_COMPARE_FIELDS
+
+        for field in compare_fields:
+            if field in self.ignore_fields:
+                continue
+
+            source_val = source.get(field)
+            target_val = target.get(field)
+
+            # Normalize for comparison
+            source_normalized = self._normalize_value(source_val)
+            target_normalized = self._normalize_value(target_val)
+
+            if source_normalized != target_normalized:
+                changed[field] = (source_val, target_val)
+
+        return changed
 
     def _apply_show_only_filter(self, diffs: List[ComponentDiff]) -> List[ComponentDiff]:
         """Apply show_only filter to diff results."""
@@ -2974,11 +3391,17 @@ class DataViewComparator:
             changed_fields=changed_fields
         )
 
-    def _build_summary(self, source: DataViewSnapshot, target: DataViewSnapshot,
-                       metric_diffs: List[ComponentDiff],
-                       dimension_diffs: List[ComponentDiff]) -> DiffSummary:
+    def _build_summary(
+        self,
+        source: DataViewSnapshot,
+        target: DataViewSnapshot,
+        metric_diffs: List[ComponentDiff],
+        dimension_diffs: List[ComponentDiff],
+        calc_metrics_diffs: Optional[List[InventoryItemDiff]] = None,
+        segments_diffs: Optional[List[InventoryItemDiff]] = None
+    ) -> DiffSummary:
         """Build summary statistics from diffs"""
-        return DiffSummary(
+        summary = DiffSummary(
             source_metrics_count=len(source.metrics),
             target_metrics_count=len(target.metrics),
             source_dimensions_count=len(source.dimensions),
@@ -2992,6 +3415,25 @@ class DataViewComparator:
             dimensions_modified=sum(1 for d in dimension_diffs if d.change_type == ChangeType.MODIFIED),
             dimensions_unchanged=sum(1 for d in dimension_diffs if d.change_type == ChangeType.UNCHANGED)
         )
+
+        # Add inventory counts if present
+        if calc_metrics_diffs is not None:
+            summary.source_calc_metrics_count = len(source.calculated_metrics_inventory or [])
+            summary.target_calc_metrics_count = len(target.calculated_metrics_inventory or [])
+            summary.calc_metrics_added = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.ADDED)
+            summary.calc_metrics_removed = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.REMOVED)
+            summary.calc_metrics_modified = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.MODIFIED)
+            summary.calc_metrics_unchanged = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.UNCHANGED)
+
+        if segments_diffs is not None:
+            summary.source_segments_count = len(source.segments_inventory or [])
+            summary.target_segments_count = len(target.segments_inventory or [])
+            summary.segments_added = sum(1 for d in segments_diffs if d.change_type == ChangeType.ADDED)
+            summary.segments_removed = sum(1 for d in segments_diffs if d.change_type == ChangeType.REMOVED)
+            summary.segments_modified = sum(1 for d in segments_diffs if d.change_type == ChangeType.MODIFIED)
+            summary.segments_unchanged = sum(1 for d in segments_diffs if d.change_type == ChangeType.UNCHANGED)
+
+        return summary
 
 
 # ==================== LOGGING SETUP ====================
@@ -6373,9 +6815,9 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
         if sheet_name == 'Data Quality' and 'Severity' in df.columns:
             summary_rows = 7  # Title + header + 5 severity levels + blank row
 
-        # Reorder columns for Metrics/Dimensions sheets (Name first for readability)
-        if sheet_name in ('Metrics', 'Dimensions') and 'name' in df.columns:
-            preferred_order = ['name', 'type', 'id', 'title', 'description']
+        # Reorder columns for component sheets (name first for readability)
+        if sheet_name in ('Metrics', 'Dimensions', 'Derived Fields', 'Calculated Metrics') and 'name' in df.columns:
+            preferred_order = ['name', 'type', 'id', 'description', 'title']
             existing_cols = [col for col in preferred_order if col in df.columns]
             other_cols = [col for col in df.columns if col not in preferred_order]
             df = df[existing_cols + other_cols]
@@ -6730,7 +7172,8 @@ def write_json_output(
     metadata_dict: Dict[str, Any],
     base_filename: str,
     output_dir: Union[str, Path],
-    logger: logging.Logger
+    logger: logging.Logger,
+    inventory_objects: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Write data to JSON format with hierarchical structure
@@ -6741,6 +7184,8 @@ def write_json_output(
         base_filename: Base filename without extension
         output_dir: Output directory path
         logger: Logger instance
+        inventory_objects: Optional dict with 'derived' and 'calculated' inventory objects
+                          for detailed JSON output using to_json()
 
     Returns:
         Path to JSON output file
@@ -6754,8 +7199,13 @@ def write_json_output(
             "data_view": {},
             "metrics": [],
             "dimensions": [],
-            "data_quality": []
+            "data_quality": [],
+            "derived_fields": {},
+            "calculated_metrics": {},
+            "segments": {}
         }
+
+        inventory_objects = inventory_objects or {}
 
         # Convert DataFrames to JSON-serializable format
         for sheet_name, df in data_dict.items():
@@ -6772,6 +7222,24 @@ def write_json_output(
             elif sheet_name == "DataView Details":
                 # For single-record sheets, store as object not array
                 json_data["data_view"] = records[0] if records else {}
+            elif sheet_name == "Derived Fields":
+                # Use inventory object's to_json() for detailed output if available
+                if 'derived' in inventory_objects and inventory_objects['derived']:
+                    json_data["derived_fields"] = inventory_objects['derived'].to_json()
+                else:
+                    json_data["derived_fields"] = {"fields": records}
+            elif sheet_name == "Calculated Metrics":
+                # Use inventory object's to_json() for detailed output if available
+                if 'calculated' in inventory_objects and inventory_objects['calculated']:
+                    json_data["calculated_metrics"] = inventory_objects['calculated'].to_json()
+                else:
+                    json_data["calculated_metrics"] = {"metrics": records}
+            elif sheet_name == "Segments":
+                # Use inventory object's to_json() for detailed output if available
+                if 'segments' in inventory_objects and inventory_objects['segments']:
+                    json_data["segments"] = inventory_objects['segments'].to_json()
+                else:
+                    json_data["segments"] = {"segments": records}
 
         # Write JSON file
         json_file = os.path.join(output_dir, f"{base_filename}.json")
@@ -6973,7 +7441,10 @@ def write_html_output(
             "Data Quality": "🔍",
             "DataView Details": "📊",
             "Metrics": "📈",
-            "Dimensions": "📐"
+            "Dimensions": "📐",
+            "Derived Fields": "🔧",
+            "Calculated Metrics": "🧮",
+            "Segments": "🎯"
         }
 
         for sheet_name, df in data_dict.items():
@@ -7298,6 +7769,28 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
     modified_str = ANSIColors.yellow(f"~{summary.dimensions_modified}", c) if summary.dimensions_modified else f"~{summary.dimensions_modified}"
     lines.append(f"{'Dimensions':20s} {summary.source_dimensions_count:{src_width}d} {summary.target_dimensions_count:{tgt_width}d} "
                 f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.dimensions_unchanged:>12d} {dims_pct:>12s}")
+
+    # Inventory rows (if present)
+    if summary.has_inventory_changes or (summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0):
+        lines.append("-" * total_width)
+        lines.append(ANSIColors.bold("INVENTORY", c))
+
+        # Calculated metrics row
+        if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+            added_str = ANSIColors.green(f"+{summary.calc_metrics_added}", c) if summary.calc_metrics_added else f"+{summary.calc_metrics_added}"
+            removed_str = ANSIColors.red(f"-{summary.calc_metrics_removed}", c) if summary.calc_metrics_removed else f"-{summary.calc_metrics_removed}"
+            modified_str = ANSIColors.yellow(f"~{summary.calc_metrics_modified}", c) if summary.calc_metrics_modified else f"~{summary.calc_metrics_modified}"
+            lines.append(f"{'Calc Metrics':20s} {summary.source_calc_metrics_count:{src_width}d} {summary.target_calc_metrics_count:{tgt_width}d} "
+                        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.calc_metrics_unchanged:>12d} {'':>12s}")
+
+        # Segments row
+        if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+            added_str = ANSIColors.green(f"+{summary.segments_added}", c) if summary.segments_added else f"+{summary.segments_added}"
+            removed_str = ANSIColors.red(f"-{summary.segments_removed}", c) if summary.segments_removed else f"-{summary.segments_removed}"
+            modified_str = ANSIColors.yellow(f"~{summary.segments_modified}", c) if summary.segments_modified else f"~{summary.segments_modified}"
+            lines.append(f"{'Segments':20s} {summary.source_segments_count:{src_width}d} {summary.target_segments_count:{tgt_width}d} "
+                        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.segments_unchanged:>12d} {'':>12s}")
+
     lines.append("-" * total_width)
 
     if summary_only:
@@ -7364,6 +7857,45 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
         else:
             lines.append("  No changes")
 
+    # Inventory changes (if present)
+    if diff_result.has_inventory_diffs:
+        lines.append("")
+        lines.append("-" * 80)
+        lines.append(ANSIColors.bold("INVENTORY CHANGES", c))
+        lines.append("-" * 80)
+
+        # Calculated metrics inventory changes
+        if diff_result.calc_metrics_diffs is not None:
+            calc_changes = [d for d in diff_result.calc_metrics_diffs if d.change_type != ChangeType.UNCHANGED]
+            lines.append("")
+            lines.append(ANSIColors.bold(f"CALCULATED METRICS ({len(calc_changes)} changes)", c))
+            if calc_changes:
+                for diff in calc_changes:
+                    colored_symbol = _get_colored_symbol(diff.change_type, c)
+                    lines.append(f"  [{colored_symbol}] {diff.id} \"{diff.name}\"")
+                    if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+                        detail = _get_inventory_change_detail(diff)
+                        if detail:
+                            lines.append(f"      {detail}")
+            else:
+                lines.append("  No changes")
+
+        # Segments inventory changes
+        if diff_result.segments_diffs is not None:
+            seg_changes = [d for d in diff_result.segments_diffs if d.change_type != ChangeType.UNCHANGED]
+            lines.append("")
+            lines.append(ANSIColors.bold(f"SEGMENTS ({len(seg_changes)} changes)", c))
+            if seg_changes:
+                for diff in seg_changes:
+                    colored_symbol = _get_colored_symbol(diff.change_type, c)
+                    lines.append(f"  [{colored_symbol}] {diff.id} \"{diff.name}\"")
+                    if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+                        detail = _get_inventory_change_detail(diff)
+                        if detail:
+                            lines.append(f"      {detail}")
+            else:
+                lines.append("  No changes")
+
     # Footer with total summary
     lines.append("")
     lines.append("=" * 80)
@@ -7380,6 +7912,12 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
         lines.append(ANSIColors.bold(f"Total: {total_line}", c))
         lines.append(f"  Metrics: {summary.metrics_added} added, {summary.metrics_removed} removed, {summary.metrics_modified} modified")
         lines.append(f"  Dimensions: {summary.dimensions_added} added, {summary.dimensions_removed} removed, {summary.dimensions_modified} modified")
+        # Add inventory summary lines if present
+        if summary.has_inventory_changes:
+            if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+                lines.append(f"  Calc Metrics: {summary.calc_metrics_added} added, {summary.calc_metrics_removed} removed, {summary.calc_metrics_modified} modified")
+            if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+                lines.append(f"  Segments: {summary.segments_added} added, {summary.segments_removed} removed, {summary.segments_modified} modified")
     else:
         lines.append(ANSIColors.green("✓ No differences found", c))
     lines.append("=" * 80)
@@ -7429,6 +7967,18 @@ def _format_diff_value(val: Any, truncate: bool = True, max_len: int = 30) -> st
 
 def _get_change_detail(diff: ComponentDiff, truncate: bool = True) -> str:
     """Get detail string for a component diff"""
+    if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
+        changes = []
+        for field, (old_val, new_val) in diff.changed_fields.items():
+            old_str = _format_diff_value(old_val, truncate)
+            new_str = _format_diff_value(new_val, truncate)
+            changes.append(f"{field}: '{old_str}' -> '{new_str}'")
+        return "; ".join(changes)
+    return ""
+
+
+def _get_inventory_change_detail(diff: InventoryItemDiff, truncate: bool = True) -> str:
+    """Get detail string for an inventory item diff"""
     if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
         changes = []
         for field, (old_val, new_val) in diff.changed_fields.items():
@@ -7808,6 +8358,18 @@ def write_diff_json_output(
                 "target_data": d.target_data
             }
 
+        def serialize_inventory_diff(d: InventoryItemDiff) -> Dict:
+            return {
+                "id": d.id,
+                "name": d.name,
+                "change_type": d.change_type.value,
+                "inventory_type": d.inventory_type,
+                "changed_fields": {k: {"source": v[0], "target": v[1]}
+                                   for k, v in (d.changed_fields or {}).items()},
+                "source_data": d.source_data,
+                "target_data": d.target_data
+            }
+
         # Filter diffs if changes_only
         metric_diffs = diff_result.metric_diffs
         dimension_diffs = diff_result.dimension_diffs
@@ -7859,6 +8421,41 @@ def write_diff_json_output(
             "metric_diffs": [serialize_component_diff(d) for d in metric_diffs],
             "dimension_diffs": [serialize_component_diff(d) for d in dimension_diffs]
         }
+
+        # Add inventory diffs if present
+        if diff_result.has_inventory_diffs:
+            inventory_summary = {}
+            if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+                inventory_summary["calculated_metrics"] = {
+                    "source_count": summary.source_calc_metrics_count,
+                    "target_count": summary.target_calc_metrics_count,
+                    "added": summary.calc_metrics_added,
+                    "removed": summary.calc_metrics_removed,
+                    "modified": summary.calc_metrics_modified,
+                    "unchanged": summary.calc_metrics_unchanged
+                }
+            if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+                inventory_summary["segments"] = {
+                    "source_count": summary.source_segments_count,
+                    "target_count": summary.target_segments_count,
+                    "added": summary.segments_added,
+                    "removed": summary.segments_removed,
+                    "modified": summary.segments_modified,
+                    "unchanged": summary.segments_unchanged
+                }
+            json_data["inventory_summary"] = inventory_summary
+
+            if diff_result.calc_metrics_diffs is not None:
+                calc_diffs = diff_result.calc_metrics_diffs
+                if changes_only:
+                    calc_diffs = [d for d in calc_diffs if d.change_type != ChangeType.UNCHANGED]
+                json_data["calculated_metrics_diffs"] = [serialize_inventory_diff(d) for d in calc_diffs]
+
+            if diff_result.segments_diffs is not None:
+                seg_diffs = diff_result.segments_diffs
+                if changes_only:
+                    seg_diffs = [d for d in seg_diffs if d.change_type != ChangeType.UNCHANGED]
+                json_data["segments_diffs"] = [serialize_inventory_diff(d) for d in seg_diffs]
 
         json_file = os.path.join(output_dir, f"{base_filename}.json")
         with open(json_file, 'w', encoding='utf-8') as f:
@@ -7921,6 +8518,17 @@ def write_diff_markdown_output(
         md_parts.append(f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
                        f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
                        f"{summary.dimensions_unchanged} | {summary.dimensions_change_percent:.1f}% |")
+
+        # Add inventory rows to summary if present
+        if diff_result.has_inventory_diffs:
+            if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+                md_parts.append(f"| **Calc Metrics** | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
+                               f"+{summary.calc_metrics_added} | -{summary.calc_metrics_removed} | ~{summary.calc_metrics_modified} | "
+                               f"{summary.calc_metrics_unchanged} | - |")
+            if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+                md_parts.append(f"| **Segments** | {summary.source_segments_count} | {summary.target_segments_count} | "
+                               f"+{summary.segments_added} | -{summary.segments_removed} | ~{summary.segments_modified} | "
+                               f"{summary.segments_unchanged} | - |")
         md_parts.append("")
 
         if not summary.has_changes:
@@ -7977,6 +8585,41 @@ def write_diff_markdown_output(
             else:
                 md_parts.append("*No changes*")
             md_parts.append("")
+
+        # Inventory changes (if present)
+        if diff_result.has_inventory_diffs:
+            md_parts.append("---\n")
+            md_parts.append("# Inventory Changes\n")
+
+            # Calculated metrics inventory changes
+            if diff_result.calc_metrics_diffs is not None:
+                calc_changes = [d for d in diff_result.calc_metrics_diffs if d.change_type != ChangeType.UNCHANGED]
+                md_parts.append(f"## Calculated Metrics Changes ({len(calc_changes)})\n")
+                if calc_changes:
+                    md_parts.append("| Status | ID | Name | Details |")
+                    md_parts.append("| --- | --- | --- | --- |")
+                    for diff in calc_changes:
+                        symbol = _get_change_emoji(diff.change_type)
+                        detail = _get_inventory_change_detail(diff).replace("|", "\\|")
+                        md_parts.append(f"| {symbol} | `{diff.id}` | {diff.name} | {detail} |")
+                else:
+                    md_parts.append("*No changes*")
+                md_parts.append("")
+
+            # Segments inventory changes
+            if diff_result.segments_diffs is not None:
+                seg_changes = [d for d in diff_result.segments_diffs if d.change_type != ChangeType.UNCHANGED]
+                md_parts.append(f"## Segments Changes ({len(seg_changes)})\n")
+                if seg_changes:
+                    md_parts.append("| Status | ID | Name | Details |")
+                    md_parts.append("| --- | --- | --- | --- |")
+                    for diff in seg_changes:
+                        symbol = _get_change_emoji(diff.change_type)
+                        detail = _get_inventory_change_detail(diff).replace("|", "\\|")
+                        md_parts.append(f"| {symbol} | `{diff.id}` | {diff.name} | {detail} |")
+                else:
+                    md_parts.append("*No changes*")
+                md_parts.append("")
 
         md_parts.append("---")
         md_parts.append("*Generated by CJA Auto SDR Generator*")
@@ -8246,6 +8889,37 @@ def write_diff_html_output(
         </table>
 ''')
 
+        # Add inventory rows to summary if present
+        if diff_result.has_inventory_diffs:
+            inv_rows = []
+            if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+                inv_rows.append(f'''
+            <tr>
+                <td><strong>Calc Metrics</strong></td>
+                <td>{summary.source_calc_metrics_count}</td>
+                <td>{summary.target_calc_metrics_count}</td>
+                <td><span class="badge badge-added">+{summary.calc_metrics_added}</span></td>
+                <td><span class="badge badge-removed">-{summary.calc_metrics_removed}</span></td>
+                <td><span class="badge badge-modified">~{summary.calc_metrics_modified}</span></td>
+                <td>{summary.calc_metrics_unchanged}</td>
+                <td>-</td>
+            </tr>''')
+            if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+                inv_rows.append(f'''
+            <tr>
+                <td><strong>Segments</strong></td>
+                <td>{summary.source_segments_count}</td>
+                <td>{summary.target_segments_count}</td>
+                <td><span class="badge badge-added">+{summary.segments_added}</span></td>
+                <td><span class="badge badge-removed">-{summary.segments_removed}</span></td>
+                <td><span class="badge badge-modified">~{summary.segments_modified}</span></td>
+                <td>{summary.segments_unchanged}</td>
+                <td>-</td>
+            </tr>''')
+            if inv_rows:
+                # Insert inventory rows before the closing </table> tag
+                html_parts[-1] = html_parts[-1].replace('</table>', ''.join(inv_rows) + '\n        </table>')
+
         if not summary.has_changes:
             html_parts.append('<p class="no-changes">No differences found.</p>')
         else:
@@ -8290,6 +8964,50 @@ def write_diff_html_output(
 
         html_parts.append(generate_diff_table(diff_result.metric_diffs, "Metrics Changes"))
         html_parts.append(generate_diff_table(diff_result.dimension_diffs, "Dimensions Changes"))
+
+        # Inventory diff sections (if present)
+        if diff_result.has_inventory_diffs:
+            def generate_inventory_diff_table(diffs: Optional[List[InventoryItemDiff]], title: str):
+                if diffs is None:
+                    return ""
+                changes = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+                if not changes and changes_only:
+                    return ""
+
+                html = f"<h2>{title}</h2>\n"
+                if not changes:
+                    html += "<p><em>No changes</em></p>\n"
+                    return html
+
+                html += '''<table class="diff-table">
+                    <tr>
+                        <th>Status</th>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Details</th>
+                    </tr>'''
+
+                for diff in changes:
+                    row_class = f"row-{diff.change_type.value}"
+                    badge_class = f"badge-{diff.change_type.value}"
+                    badge_text = diff.change_type.value.upper()
+                    detail = _get_inventory_change_detail(diff)
+                    detail_escaped = detail.replace('<', '&lt;').replace('>', '&gt;')
+
+                    html += f'''
+                    <tr class="{row_class}">
+                        <td><span class="badge {badge_class}">{badge_text}</span></td>
+                        <td><code>{diff.id}</code></td>
+                        <td>{diff.name}</td>
+                        <td>{detail_escaped}</td>
+                    </tr>'''
+
+                html += "</table>\n"
+                return html
+
+            html_parts.append("<h2 style='border-top: 2px solid #3498db; padding-top: 20px; margin-top: 30px;'>Inventory Changes</h2>")
+            html_parts.append(generate_inventory_diff_table(diff_result.calc_metrics_diffs, "Calculated Metrics Changes"))
+            html_parts.append(generate_inventory_diff_table(diff_result.segments_diffs, "Segments Changes"))
 
         # Footer
         html_parts.append(f'''
@@ -8353,18 +9071,55 @@ def write_diff_excel_output(
             modified_format = workbook.add_format({'bg_color': '#fff3cd', 'border': 1})
             normal_format = workbook.add_format({'border': 1})
 
-            # Summary sheet
-            summary_data = {
-                'Component': ['Metrics', 'Dimensions'],
-                diff_result.source_label: [summary.source_metrics_count, summary.source_dimensions_count],
-                diff_result.target_label: [summary.target_metrics_count, summary.target_dimensions_count],
-                'Added': [summary.metrics_added, summary.dimensions_added],
-                'Removed': [summary.metrics_removed, summary.dimensions_removed],
-                'Modified': [summary.metrics_modified, summary.dimensions_modified],
-                'Unchanged': [summary.metrics_unchanged, summary.dimensions_unchanged],
-                'Changed %': [f"{summary.metrics_change_percent:.1f}%", f"{summary.dimensions_change_percent:.1f}%"]
-            }
-            summary_df = pd.DataFrame(summary_data)
+            # Summary sheet - build rows dynamically
+            summary_rows = [
+                {
+                    'Component': 'Metrics',
+                    diff_result.source_label: summary.source_metrics_count,
+                    diff_result.target_label: summary.target_metrics_count,
+                    'Added': summary.metrics_added,
+                    'Removed': summary.metrics_removed,
+                    'Modified': summary.metrics_modified,
+                    'Unchanged': summary.metrics_unchanged,
+                    'Changed %': f"{summary.metrics_change_percent:.1f}%"
+                },
+                {
+                    'Component': 'Dimensions',
+                    diff_result.source_label: summary.source_dimensions_count,
+                    diff_result.target_label: summary.target_dimensions_count,
+                    'Added': summary.dimensions_added,
+                    'Removed': summary.dimensions_removed,
+                    'Modified': summary.dimensions_modified,
+                    'Unchanged': summary.dimensions_unchanged,
+                    'Changed %': f"{summary.dimensions_change_percent:.1f}%"
+                }
+            ]
+
+            # Add inventory rows if present (check for actual inventory diffs)
+            if diff_result.calc_metrics_diffs is not None:
+                summary_rows.append({
+                    'Component': 'Calc Metrics',
+                    diff_result.source_label: summary.source_calc_metrics_count,
+                    diff_result.target_label: summary.target_calc_metrics_count,
+                    'Added': summary.calc_metrics_added,
+                    'Removed': summary.calc_metrics_removed,
+                    'Modified': summary.calc_metrics_modified,
+                    'Unchanged': summary.calc_metrics_unchanged,
+                    'Changed %': f"{summary.calc_metrics_change_percent:.1f}%"
+                })
+            if diff_result.segments_diffs is not None:
+                summary_rows.append({
+                    'Component': 'Segments',
+                    diff_result.source_label: summary.source_segments_count,
+                    diff_result.target_label: summary.target_segments_count,
+                    'Added': summary.segments_added,
+                    'Removed': summary.segments_removed,
+                    'Modified': summary.segments_modified,
+                    'Unchanged': summary.segments_unchanged,
+                    'Changed %': f"{summary.segments_change_percent:.1f}%"
+                })
+
+            summary_df = pd.DataFrame(summary_rows)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
 
             # Metadata sheet
@@ -8417,6 +9172,52 @@ def write_diff_excel_output(
             write_diff_sheet(diff_result.metric_diffs, 'Metrics Diff')
             write_diff_sheet(diff_result.dimension_diffs, 'Dimensions Diff')
 
+            # Helper function to write inventory diff sheet
+            def write_inventory_diff_sheet(diffs: Optional[List[InventoryItemDiff]], sheet_name: str):
+                if diffs is None:
+                    return
+
+                if changes_only:
+                    diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+
+                if not diffs:
+                    df = pd.DataFrame({'Message': ['No changes']})
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    return
+
+                rows = []
+                for diff in diffs:
+                    rows.append({
+                        'Status': diff.change_type.value.upper(),
+                        'ID': diff.id,
+                        'Name': diff.name,
+                        'Details': _get_inventory_change_detail(diff)
+                    })
+
+                df = pd.DataFrame(rows)
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                # Apply color formatting
+                worksheet = writer.sheets[sheet_name]
+                for row_idx, diff in enumerate(diffs, start=1):
+                    if diff.change_type == ChangeType.ADDED:
+                        fmt = added_format
+                    elif diff.change_type == ChangeType.REMOVED:
+                        fmt = removed_format
+                    elif diff.change_type == ChangeType.MODIFIED:
+                        fmt = modified_format
+                    else:
+                        fmt = normal_format
+
+                    for col_idx in range(len(df.columns)):
+                        worksheet.write(row_idx, col_idx, df.iloc[row_idx-1, col_idx], fmt)
+
+            # Write inventory diff sheets if present
+            if diff_result.calc_metrics_diffs is not None:
+                write_inventory_diff_sheet(diff_result.calc_metrics_diffs, 'Calc Metrics Diff')
+            if diff_result.segments_diffs is not None:
+                write_inventory_diff_sheet(diff_result.segments_diffs, 'Segments Diff')
+
         logger.info(f"Diff Excel file created: {excel_file}")
         return excel_file
 
@@ -8455,18 +9256,55 @@ def write_diff_csv_output(
         csv_dir = os.path.join(output_dir, f"{base_filename}_csv")
         os.makedirs(csv_dir, exist_ok=True)
 
-        # Summary CSV
-        summary_data = {
-            'Component': ['Metrics', 'Dimensions'],
-            'Source_Count': [summary.source_metrics_count, summary.source_dimensions_count],
-            'Target_Count': [summary.target_metrics_count, summary.target_dimensions_count],
-            'Added': [summary.metrics_added, summary.dimensions_added],
-            'Removed': [summary.metrics_removed, summary.dimensions_removed],
-            'Modified': [summary.metrics_modified, summary.dimensions_modified],
-            'Unchanged': [summary.metrics_unchanged, summary.dimensions_unchanged],
-            'Changed_Percent': [summary.metrics_change_percent, summary.dimensions_change_percent]
-        }
-        pd.DataFrame(summary_data).to_csv(
+        # Summary CSV - build rows dynamically
+        summary_rows = [
+            {
+                'Component': 'Metrics',
+                'Source_Count': summary.source_metrics_count,
+                'Target_Count': summary.target_metrics_count,
+                'Added': summary.metrics_added,
+                'Removed': summary.metrics_removed,
+                'Modified': summary.metrics_modified,
+                'Unchanged': summary.metrics_unchanged,
+                'Changed_Percent': summary.metrics_change_percent
+            },
+            {
+                'Component': 'Dimensions',
+                'Source_Count': summary.source_dimensions_count,
+                'Target_Count': summary.target_dimensions_count,
+                'Added': summary.dimensions_added,
+                'Removed': summary.dimensions_removed,
+                'Modified': summary.dimensions_modified,
+                'Unchanged': summary.dimensions_unchanged,
+                'Changed_Percent': summary.dimensions_change_percent
+            }
+        ]
+
+        # Add inventory rows if present (check for actual inventory diffs)
+        if diff_result.calc_metrics_diffs is not None:
+            summary_rows.append({
+                'Component': 'Calc_Metrics',
+                'Source_Count': summary.source_calc_metrics_count,
+                'Target_Count': summary.target_calc_metrics_count,
+                'Added': summary.calc_metrics_added,
+                'Removed': summary.calc_metrics_removed,
+                'Modified': summary.calc_metrics_modified,
+                'Unchanged': summary.calc_metrics_unchanged,
+                'Changed_Percent': summary.calc_metrics_change_percent
+            })
+        if diff_result.segments_diffs is not None:
+            summary_rows.append({
+                'Component': 'Segments',
+                'Source_Count': summary.source_segments_count,
+                'Target_Count': summary.target_segments_count,
+                'Added': summary.segments_added,
+                'Removed': summary.segments_removed,
+                'Modified': summary.segments_modified,
+                'Unchanged': summary.segments_unchanged,
+                'Changed_Percent': summary.segments_change_percent
+            })
+
+        pd.DataFrame(summary_rows).to_csv(
             os.path.join(csv_dir, 'summary.csv'), index=False
         )
         logger.info("  Created: summary.csv")
@@ -8504,6 +9342,34 @@ def write_diff_csv_output(
 
         write_diff_csv(diff_result.metric_diffs, 'metrics_diff.csv')
         write_diff_csv(diff_result.dimension_diffs, 'dimensions_diff.csv')
+
+        # Helper function to write inventory diff CSV
+        def write_inventory_diff_csv(diffs: Optional[List[InventoryItemDiff]], filename: str):
+            if diffs is None:
+                return
+
+            if changes_only:
+                diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
+
+            rows = []
+            for diff in diffs:
+                rows.append({
+                    'status': diff.change_type.value,
+                    'id': diff.id,
+                    'name': diff.name,
+                    'details': _get_inventory_change_detail(diff)
+                })
+
+            pd.DataFrame(rows).to_csv(
+                os.path.join(csv_dir, filename), index=False
+            )
+            logger.info(f"  Created: {filename}")
+
+        # Write inventory diff CSVs if present
+        if diff_result.calc_metrics_diffs is not None:
+            write_inventory_diff_csv(diff_result.calc_metrics_diffs, 'calc_metrics_diff.csv')
+        if diff_result.segments_diffs is not None:
+            write_inventory_diff_csv(diff_result.segments_diffs, 'segments_diff.csv')
 
         logger.info(f"Diff CSV files created in: {csv_dir}")
         return csv_dir
@@ -8597,6 +9463,307 @@ def write_diff_output(
     return console_output
 
 
+# ==================== INVENTORY SUMMARY MODE ====================
+
+
+def display_inventory_summary(
+    data_view_id: str,
+    data_view_name: str,
+    derived_inventory: Optional[Any] = None,
+    calculated_inventory: Optional[Any] = None,
+    segments_inventory: Optional[Any] = None,
+    output_format: str = "console",
+    output_dir: Union[str, Path] = ".",
+    quiet: bool = False,
+    inventory_order: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Display inventory summary statistics without generating full inventory sheets.
+
+    Args:
+        data_view_id: The data view ID
+        data_view_name: Human-readable data view name
+        derived_inventory: DerivedFieldInventory object (optional)
+        calculated_inventory: CalculatedMetricsInventory object (optional)
+        segments_inventory: SegmentsInventory object (optional)
+        output_format: Output format - "console" or "json"
+        output_dir: Directory for JSON output
+        quiet: Suppress console output
+        inventory_order: Order of inventory types as specified in CLI (default: ['segments', 'calculated', 'derived'])
+
+    Returns:
+        Dictionary with summary statistics
+    """
+    summary = {
+        "data_view_id": data_view_id,
+        "data_view_name": data_view_name,
+        "timestamp": datetime.now().isoformat(),
+        "inventories": {},
+    }
+
+    high_complexity_items = []
+
+    # Process derived fields inventory
+    if derived_inventory:
+        derived_summary = derived_inventory.get_summary()
+        summary["inventories"]["derived_fields"] = derived_summary
+
+        # Collect high-complexity items (>=70)
+        for field in derived_inventory.fields:
+            if field.complexity_score >= 70:
+                high_complexity_items.append({
+                    "type": "Derived Field",
+                    "name": field.component_name,
+                    "complexity": field.complexity_score,
+                    "summary": field.logic_summary[:60] + "..." if len(field.logic_summary) > 60 else field.logic_summary,
+                })
+
+    # Process calculated metrics inventory
+    if calculated_inventory:
+        calc_summary = calculated_inventory.get_summary()
+        summary["inventories"]["calculated_metrics"] = calc_summary
+
+        # Collect high-complexity items (>=70)
+        for metric in calculated_inventory.metrics:
+            if metric.complexity_score >= 70:
+                high_complexity_items.append({
+                    "type": "Calculated Metric",
+                    "name": metric.metric_name,
+                    "complexity": metric.complexity_score,
+                    "summary": metric.formula_summary[:60] + "..." if len(metric.formula_summary) > 60 else metric.formula_summary,
+                })
+
+    # Process segments inventory
+    if segments_inventory:
+        seg_summary = segments_inventory.get_summary()
+        summary["inventories"]["segments"] = seg_summary
+
+        # Collect high-complexity items (>=70)
+        for segment in segments_inventory.segments:
+            if segment.complexity_score >= 70:
+                high_complexity_items.append({
+                    "type": "Segment",
+                    "name": segment.segment_name,
+                    "complexity": segment.complexity_score,
+                    "summary": segment.definition_summary[:60] + "..." if len(segment.definition_summary) > 60 else segment.definition_summary,
+                })
+
+    # Sort high-complexity items by score descending
+    high_complexity_items.sort(key=lambda x: x["complexity"], reverse=True)
+    summary["high_complexity_items"] = high_complexity_items
+
+    # Console output
+    if not quiet and output_format in ("console", "all"):
+        print()
+        print(ConsoleColors.bold(f"Inventory Summary: {data_view_name}"))
+        print(ConsoleColors.dim(f"Data View ID: {data_view_id}"))
+        print()
+
+        # Determine display order (default: segments, calculated, derived)
+        display_order = inventory_order if inventory_order else ['segments', 'calculated', 'derived']
+
+        # Helper functions for displaying each inventory type
+        def display_segments():
+            if "segments" not in summary["inventories"]:
+                return
+            ss = summary["inventories"]["segments"]
+            print(ConsoleColors.cyan("Segments"))
+            print(f"  Total:       {ss['total_segments']}")
+            gov = ss.get('governance', {})
+            if gov:
+                print(f"  Approved:    {gov.get('approved_count', 0)}")
+                print(f"  Shared:      {gov.get('shared_count', 0)}")
+                print(f"  Tagged:      {gov.get('tagged_count', 0)}")
+            containers = ss.get('container_types', {})
+            if containers:
+                container_str = ", ".join(f"{k}: {v}" for k, v in containers.items())
+                print(f"  Containers:  {container_str}")
+            print(f"  Complexity:  avg={ss['complexity']['average']:.1f}, max={ss['complexity']['max']:.1f}")
+            if ss['complexity']['high_complexity_count'] > 0:
+                print(ConsoleColors.warning(f"  High (>=75): {ss['complexity']['high_complexity_count']}"))
+            if ss['complexity']['elevated_complexity_count'] > 0:
+                print(ConsoleColors.dim(f"  Elevated (50-74): {ss['complexity']['elevated_complexity_count']}"))
+            print()
+
+        def display_calculated():
+            if "calculated_metrics" not in summary["inventories"]:
+                return
+            cs = summary["inventories"]["calculated_metrics"]
+            print(ConsoleColors.cyan("Calculated Metrics"))
+            print(f"  Total:       {cs['total_calculated_metrics']}")
+            gov = cs.get('governance', {})
+            if gov:
+                print(f"  Approved:    {gov.get('approved_count', 0)}")
+                print(f"  Shared:      {gov.get('shared_count', 0)}")
+                print(f"  Tagged:      {gov.get('tagged_count', 0)}")
+            print(f"  Complexity:  avg={cs['complexity']['average']:.1f}, max={cs['complexity']['max']:.1f}")
+            if cs['complexity']['high_complexity_count'] > 0:
+                print(ConsoleColors.warning(f"  High (>=75): {cs['complexity']['high_complexity_count']}"))
+            if cs['complexity']['elevated_complexity_count'] > 0:
+                print(ConsoleColors.dim(f"  Elevated (50-74): {cs['complexity']['elevated_complexity_count']}"))
+            print()
+
+        def display_derived():
+            if "derived_fields" not in summary["inventories"]:
+                return
+            ds = summary["inventories"]["derived_fields"]
+            print(ConsoleColors.cyan("Derived Fields"))
+            print(f"  Total:       {ds['total_derived_fields']}")
+            print(f"  Metrics:     {ds['metrics_count']}")
+            print(f"  Dimensions:  {ds['dimensions_count']}")
+            print(f"  Complexity:  avg={ds['complexity']['average']:.1f}, max={ds['complexity']['max']:.1f}")
+            if ds['complexity']['high_complexity_count'] > 0:
+                print(ConsoleColors.warning(f"  High (>=75): {ds['complexity']['high_complexity_count']}"))
+            if ds['complexity']['elevated_complexity_count'] > 0:
+                print(ConsoleColors.dim(f"  Elevated (50-74): {ds['complexity']['elevated_complexity_count']}"))
+            print()
+
+        # Display in specified order
+        display_funcs = {
+            'segments': display_segments,
+            'calculated': display_calculated,
+            'derived': display_derived,
+        }
+        for inv_type in display_order:
+            if inv_type in display_funcs:
+                display_funcs[inv_type]()
+
+        # High complexity warnings
+        if high_complexity_items:
+            print(ConsoleColors.warning(f"High-Complexity Items ({len(high_complexity_items)}):"))
+            for item in high_complexity_items[:10]:  # Show top 10
+                print(f"  {ConsoleColors.bold(f'{item["complexity"]:3}')} {item['type']:18} {item['name']}")
+                if item['summary']:
+                    print(f"       {ConsoleColors.dim(item['summary'])}")
+            if len(high_complexity_items) > 10:
+                print(ConsoleColors.dim(f"  ... and {len(high_complexity_items) - 10} more"))
+            print()
+
+    # JSON output
+    if output_format in ("json", "all"):
+        os.makedirs(output_dir, exist_ok=True)
+        safe_name = re.sub(r'[^\w\-]', '_', data_view_name)[:50]
+        json_path = Path(output_dir) / f"{safe_name}_inventory_summary.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2, default=str)
+        if not quiet:
+            print(f"Summary saved to: {json_path}")
+
+    return summary
+
+
+def process_inventory_summary(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_dir: Union[str, Path] = ".",
+    log_level: str = "INFO",
+    output_format: str = "console",
+    quiet: bool = False,
+    profile: Optional[str] = None,
+    include_derived: bool = False,
+    include_calculated: bool = False,
+    include_segments: bool = False,
+    inventory_order: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Process inventory summary mode - fetch inventory data and display statistics.
+
+    Args:
+        data_view_id: The data view ID to process
+        config_file: Path to CJA config file
+        output_dir: Directory for JSON output
+        log_level: Logging level
+        output_format: Output format - "console" or "json"
+        quiet: Suppress console output
+        profile: Config profile name
+        include_derived: Include derived fields inventory
+        include_calculated: Include calculated metrics inventory
+        include_segments: Include segments inventory
+        inventory_order: Order of inventory types as specified in CLI
+
+    Returns:
+        Dictionary with summary statistics
+    """
+    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level)
+
+    # Initialize CJA
+    cja = initialize_cja(config_file, logger, profile=profile)
+    if cja is None:
+        print(ConsoleColors.error("ERROR: Failed to initialize CJA connection"), file=sys.stderr)
+        return {"error": "CJA initialization failed"}
+
+    # Get data view info
+    try:
+        lookup_data = cja.dataviews.get_single(data_view_id)
+        dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
+        return {"error": str(e)}
+
+    if not quiet:
+        print(ConsoleColors.info(f"Fetching inventory data for: {dv_name}"))
+
+    derived_inventory = None
+    calculated_inventory = None
+    segments_inventory = None
+
+    # Fetch derived fields inventory
+    if include_derived:
+        try:
+            from cja_derived_fields_inventory import DerivedFieldInventoryBuilder
+
+            # Need metrics and dimensions for derived fields
+            metrics_data = cja.dataviews.get_metrics(data_view_id)
+            dimensions_data = cja.dataviews.get_dimensions(data_view_id)
+
+            metrics_df = pd.DataFrame(metrics_data) if metrics_data else pd.DataFrame()
+            dimensions_df = pd.DataFrame(dimensions_data) if dimensions_data else pd.DataFrame()
+
+            builder = DerivedFieldInventoryBuilder(logger=logger)
+            derived_inventory = builder.build(metrics_df, dimensions_df, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Derived fields: {derived_inventory.total_derived_fields}"))
+        except Exception as e:
+            logger.warning(f"Failed to build derived fields inventory: {e}")
+
+    # Fetch calculated metrics inventory
+    if include_calculated:
+        try:
+            from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+
+            builder = CalculatedMetricsInventoryBuilder(logger=logger)
+            calculated_inventory = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}"))
+        except Exception as e:
+            logger.warning(f"Failed to build calculated metrics inventory: {e}")
+
+    # Fetch segments inventory
+    if include_segments:
+        try:
+            from cja_segments_inventory import SegmentsInventoryBuilder
+
+            builder = SegmentsInventoryBuilder(logger=logger)
+            segments_inventory = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Segments: {segments_inventory.total_segments}"))
+        except Exception as e:
+            logger.warning(f"Failed to build segments inventory: {e}")
+
+    # Display summary
+    return display_inventory_summary(
+        data_view_id=data_view_id,
+        data_view_name=dv_name,
+        derived_inventory=derived_inventory,
+        calculated_inventory=calculated_inventory,
+        segments_inventory=segments_inventory,
+        output_format=output_format,
+        output_dir=output_dir,
+        quiet=quiet,
+        inventory_order=inventory_order,
+    )
+
+
 # ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
 
 def process_single_dataview(
@@ -8619,7 +9786,12 @@ def process_single_dataview(
     profile: Optional[str] = None,
     shared_cache: Optional[SharedValidationCache] = None,
     api_tuning_config: Optional[APITuningConfig] = None,
-    circuit_breaker_config: Optional[CircuitBreakerConfig] = None
+    circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+    include_derived_inventory: bool = False,
+    include_calculated_metrics: bool = False,
+    include_segments_inventory: bool = False,
+    inventory_only: bool = False,
+    inventory_order: Optional[List[str]] = None,
 ) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
@@ -8639,6 +9811,11 @@ def process_single_dataview(
         max_issues: Limit data quality issues to top N by severity, >= 0; 0 = all (default: 0)
         clear_cache: Clear validation cache before processing (default: False)
         show_timings: Display performance timing breakdown after processing (default: False)
+        include_derived_inventory: Include derived field inventory in output (default: False)
+        include_calculated_metrics: Include calculated metrics inventory in output (default: False)
+        include_segments_inventory: Include segments inventory in output (default: False)
+        inventory_only: Output only inventory sheets, skip standard SDR content (default: False)
+        inventory_order: Order of inventory sheets as they appear in CLI (default: ['derived', 'calculated', 'segments'])
 
     Returns:
         ProcessingResult with processing details including success status, metrics/dimensions count,
@@ -8806,6 +9983,88 @@ def process_single_dataview(
             # Get data quality issues dataframe (limited if max_issues > 0)
             data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
 
+        # Derived field inventory (if enabled)
+        derived_inventory_df = pd.DataFrame()
+        derived_inventory_obj = None  # Store inventory object for JSON output
+        if include_derived_inventory:
+            logger.info("=" * 60)
+            logger.info("Building derived field inventory")
+            logger.info("=" * 60)
+
+            try:
+                from cja_derived_fields_inventory import DerivedFieldInventoryBuilder
+
+                builder = DerivedFieldInventoryBuilder(logger=logger)
+                dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
+                derived_inventory_obj = builder.build(metrics, dimensions, data_view_id, dv_name)
+
+                derived_inventory_df = derived_inventory_obj.get_dataframe()
+
+                inv_summary = derived_inventory_obj.get_summary()
+                logger.info(f"Derived field inventory: {inv_summary.get('total_derived_fields', 0)} fields "
+                           f"({inv_summary.get('metrics_count', 0)} metrics, {inv_summary.get('dimensions_count', 0)} dimensions)")
+
+            except ImportError as e:
+                logger.warning(f"Could not import derived field inventory: {e}")
+                logger.info("Skipping derived field inventory - module not available")
+            except Exception as e:
+                logger.error(_format_error_msg("during derived field inventory", error=e))
+                logger.info("Continuing with SDR generation despite derived field inventory errors")
+
+        # Calculated metrics inventory (if enabled)
+        calculated_metrics_df = pd.DataFrame()
+        calculated_inventory_obj = None  # Store inventory object for JSON output
+        if include_calculated_metrics:
+            logger.info("=" * 60)
+            logger.info("Building calculated metrics inventory")
+            logger.info("=" * 60)
+
+            try:
+                from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+
+                builder = CalculatedMetricsInventoryBuilder(logger=logger)
+                dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
+                calculated_inventory_obj = builder.build(cja, data_view_id, dv_name)
+
+                calculated_metrics_df = calculated_inventory_obj.get_dataframe()
+
+                calc_summary = calculated_inventory_obj.get_summary()
+                logger.info(f"Calculated metrics inventory: {calc_summary.get('total_calculated_metrics', 0)} metrics")
+
+            except ImportError as e:
+                logger.warning(f"Could not import calculated metrics inventory: {e}")
+                logger.info("Skipping calculated metrics inventory - module not available")
+            except Exception as e:
+                logger.error(_format_error_msg("during calculated metrics inventory", error=e))
+                logger.info("Continuing with SDR generation despite calculated metrics inventory errors")
+
+        # Segments inventory (if enabled)
+        segments_inventory_df = pd.DataFrame()
+        segments_inventory_obj = None  # Store inventory object for JSON output
+        if include_segments_inventory:
+            logger.info("=" * 60)
+            logger.info("Building segments inventory")
+            logger.info("=" * 60)
+
+            try:
+                from cja_segments_inventory import SegmentsInventoryBuilder
+
+                builder = SegmentsInventoryBuilder(logger=logger)
+                dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
+                segments_inventory_obj = builder.build(cja, data_view_id, dv_name)
+
+                segments_inventory_df = segments_inventory_obj.get_dataframe()
+
+                seg_summary = segments_inventory_obj.get_summary()
+                logger.info(f"Segments inventory: {seg_summary.get('total_segments', 0)} segments")
+
+            except ImportError as e:
+                logger.warning(f"Could not import segments inventory: {e}")
+                logger.info("Skipping segments inventory - module not available")
+            except Exception as e:
+                logger.error(_format_error_msg("during segments inventory", error=e))
+                logger.info("Continuing with SDR generation despite segments inventory errors")
+
         # Data processing
         logger.info("=" * 60)
         logger.info("Processing data for Excel export")
@@ -8841,30 +10100,109 @@ def process_single_dataview(
             severity_counts = data_quality_df['Severity'].value_counts().to_dict()
             dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
 
+            # Build base metadata properties
+            metadata_properties = [
+                'Generated Date & timestamp and timezone',
+                'Data View ID',
+                'Data View Name',
+                'Total Metrics',
+                'Metrics Breakdown',
+                'Total Dimensions',
+                'Dimensions Breakdown',
+                'Data Quality Issues',
+                'Data Quality Summary'
+            ]
+            metadata_values = [
+                formatted_timestamp,
+                data_view_id,
+                lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
+                len(metrics),
+                '\n'.join(metric_summary) if metric_summary else 'No metrics found',
+                len(dimensions),
+                '\n'.join(dimension_summary) if dimension_summary else 'No dimensions found',
+                len(dq_checker.issues),
+                '\n'.join(dq_summary) if dq_summary else 'No issues'
+            ]
+
+            # Add inventory statistics if any inventory was generated
+            if segments_inventory_obj or calculated_inventory_obj or derived_inventory_obj:
+                metadata_properties.append('--- Inventory Statistics ---')
+                metadata_values.append('')
+
+            if segments_inventory_obj:
+                seg_summary = segments_inventory_obj.get_summary()
+                seg_count = seg_summary.get('total_segments', 0)
+                seg_complexity = seg_summary.get('complexity', {})
+                seg_high = seg_complexity.get('high_complexity_count', 0)
+                seg_elevated = seg_complexity.get('elevated_complexity_count', 0)
+                seg_avg = seg_complexity.get('average', 0)
+                seg_max = seg_complexity.get('max', 0)
+
+                metadata_properties.extend([
+                    'Segments Count',
+                    'Segments Complexity (Avg / Max)',
+                    'Segments High Complexity (≥75)',
+                    'Segments Elevated Complexity (50-74)'
+                ])
+                metadata_values.extend([
+                    seg_count,
+                    f"{seg_avg:.1f} / {seg_max:.1f}",
+                    seg_high,
+                    seg_elevated
+                ])
+
+            if calculated_inventory_obj:
+                calc_summary = calculated_inventory_obj.get_summary()
+                calc_count = calc_summary.get('total_calculated_metrics', 0)
+                calc_complexity = calc_summary.get('complexity', {})
+                calc_high = calc_complexity.get('high_complexity_count', 0)
+                calc_elevated = calc_complexity.get('elevated_complexity_count', 0)
+                calc_avg = calc_complexity.get('average', 0)
+                calc_max = calc_complexity.get('max', 0)
+
+                metadata_properties.extend([
+                    'Calculated Metrics Count',
+                    'Calculated Metrics Complexity (Avg / Max)',
+                    'Calculated Metrics High Complexity (≥75)',
+                    'Calculated Metrics Elevated Complexity (50-74)'
+                ])
+                metadata_values.extend([
+                    calc_count,
+                    f"{calc_avg:.1f} / {calc_max:.1f}",
+                    calc_high,
+                    calc_elevated
+                ])
+
+            if derived_inventory_obj:
+                derived_summary = derived_inventory_obj.get_summary()
+                derived_count = derived_summary.get('total_derived_fields', 0)
+                derived_metrics = derived_summary.get('metrics_count', 0)
+                derived_dimensions = derived_summary.get('dimensions_count', 0)
+                derived_complexity = derived_summary.get('complexity', {})
+                derived_high = derived_complexity.get('high_complexity_count', 0)
+                derived_elevated = derived_complexity.get('elevated_complexity_count', 0)
+                derived_avg = derived_complexity.get('average', 0)
+                derived_max = derived_complexity.get('max', 0)
+
+                metadata_properties.extend([
+                    'Derived Fields Count',
+                    'Derived Fields Breakdown',
+                    'Derived Fields Complexity (Avg / Max)',
+                    'Derived Fields High Complexity (≥75)',
+                    'Derived Fields Elevated Complexity (50-74)'
+                ])
+                metadata_values.extend([
+                    derived_count,
+                    f"Metrics: {derived_metrics}, Dimensions: {derived_dimensions}",
+                    f"{derived_avg:.1f} / {derived_max:.1f}",
+                    derived_high,
+                    derived_elevated
+                ])
+
             # Create enhanced metadata DataFrame
             metadata_df = pd.DataFrame({
-                'Property': [
-                    'Generated Date & timestamp and timezone',
-                    'Data View ID',
-                    'Data View Name',
-                    'Total Metrics',
-                    'Metrics Breakdown',
-                    'Total Dimensions',
-                    'Dimensions Breakdown',
-                    'Data Quality Issues',
-                    'Data Quality Summary'
-                ],
-                'Value': [
-                    formatted_timestamp,
-                    data_view_id,
-                    lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
-                    len(metrics),
-                    '\n'.join(metric_summary) if metric_summary else 'No metrics found',
-                    len(dimensions),
-                    '\n'.join(dimension_summary) if dimension_summary else 'No dimensions found',
-                    len(dq_checker.issues),
-                    '\n'.join(dq_summary) if dq_summary else 'No issues'
-                ]
+                'Property': metadata_properties,
+                'Value': metadata_values
             })
             logger.info("Metadata created successfully")
         except Exception as e:
@@ -8922,13 +10260,47 @@ def process_single_dataview(
         logger.info("=" * 60)
 
         # Prepare data dictionary for all formats
-        data_dict = {
-            'Metadata': metadata_df,
-            'Data Quality': data_quality_df,
-            'DataView Details': lookup_df,
-            'Metrics': metrics,
-            'Dimensions': dimensions
-        }
+        # In inventory-only mode, skip standard SDR sheets
+        if inventory_only:
+            data_dict = {}
+        else:
+            data_dict = {
+                'Metadata': metadata_df,
+                'Data Quality': data_quality_df,
+                'DataView Details': lookup_df,
+                'Metrics': metrics,
+                'Dimensions': dimensions
+            }
+
+        # Add derived field inventory if available or placeholder if flag was used
+        if not derived_inventory_df.empty:
+            data_dict['Derived Fields'] = derived_inventory_df
+        elif include_derived_inventory:
+            data_dict['Derived Fields'] = pd.DataFrame({
+                'Status': ['No derived fields found for this data view'],
+                'Data View ID': [data_view_id],
+                'Note': ['This data view has no derived fields configured']
+            })
+
+        # Add calculated metrics inventory if available or placeholder if flag was used
+        if not calculated_metrics_df.empty:
+            data_dict['Calculated Metrics'] = calculated_metrics_df
+        elif include_calculated_metrics:
+            data_dict['Calculated Metrics'] = pd.DataFrame({
+                'Status': ['No calculated metrics found for this data view'],
+                'Data View ID': [data_view_id],
+                'Note': ['This data view has no associated calculated metrics']
+            })
+
+        # Add segments inventory if available or placeholder if flag was used
+        if not segments_inventory_df.empty:
+            data_dict['Segments'] = segments_inventory_df
+        elif include_segments_inventory:
+            data_dict['Segments'] = pd.DataFrame({
+                'Status': ['No segments found for this data view'],
+                'Data View ID': [data_view_id],
+                'Note': ['This data view has no associated segments']
+            })
 
         # Prepare metadata dictionary for JSON/HTML
         metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict() if not metadata_df.empty else {}
@@ -8956,16 +10328,41 @@ def process_single_dataview(
                         format_cache = ExcelFormatCache(writer.book)
 
                         # Write sheets in order, with Data Quality first for visibility
-                        sheets_to_write = [
-                            (metadata_df, 'Metadata'),
-                            (data_quality_df, 'Data Quality'),
-                            (lookup_df, 'DataView'),
-                        ]
-                        # Add component sheets based on filters
-                        if not dimensions_only:
-                            sheets_to_write.append((metrics, 'Metrics'))
-                        if not metrics_only:
-                            sheets_to_write.append((dimensions, 'Dimensions'))
+                        sheets_to_write = []
+
+                        # Skip standard sheets in inventory-only mode
+                        if not inventory_only:
+                            sheets_to_write.extend([
+                                (metadata_df, 'Metadata'),
+                                (data_quality_df, 'Data Quality'),
+                            ])
+                            sheets_to_write.append((lookup_df, 'DataView'))
+                            # Add component sheets based on filters
+                            if not dimensions_only:
+                                sheets_to_write.append((metrics, 'Metrics'))
+                            if not metrics_only:
+                                sheets_to_write.append((dimensions, 'Dimensions'))
+
+                        # Add inventory sheets at the end, ordered by CLI argument order
+                        inv_order = inventory_order if inventory_order else ['derived', 'calculated', 'segments']
+                        inventory_sheets = {
+                            'derived': (derived_inventory_df, 'Derived Fields', include_derived_inventory),
+                            'calculated': (calculated_metrics_df, 'Calculated Metrics', include_calculated_metrics),
+                            'segments': (segments_inventory_df, 'Segments', include_segments_inventory),
+                        }
+                        for inv_type in inv_order:
+                            if inv_type in inventory_sheets:
+                                df, name, flag_enabled = inventory_sheets[inv_type]
+                                if not df.empty:
+                                    sheets_to_write.append((df, name))
+                                elif flag_enabled:
+                                    # Add placeholder when flag was used but no data found
+                                    placeholder_df = pd.DataFrame({
+                                        'Status': [f'No {name.lower()} found for this data view'],
+                                        'Data View ID': [data_view_id],
+                                        'Note': ['This data view has no associated ' + name.lower().replace(' ', ' ')]
+                                    })
+                                    sheets_to_write.append((placeholder_df, name))
 
                         for sheet_data, sheet_name in sheets_to_write:
                             try:
@@ -8987,7 +10384,12 @@ def process_single_dataview(
                     output_files.append(csv_output)
 
                 elif fmt == 'json':
-                    json_output = write_json_output(data_dict, metadata_dict, base_filename, output_dir, logger)
+                    inventory_objects = {
+                        'derived': derived_inventory_obj,
+                        'calculated': calculated_inventory_obj,
+                        'segments': segments_inventory_obj
+                    }
+                    json_output = write_json_output(data_dict, metadata_dict, base_filename, output_dir, logger, inventory_objects)
                     output_files.append(json_output)
 
                 elif fmt == 'html':
@@ -9045,6 +10447,29 @@ def process_single_dataview(
                 except OSError:
                     pass
 
+            # Collect inventory statistics for result
+            segments_count = 0
+            segments_high_complexity = 0
+            calculated_metrics_count = 0
+            calculated_metrics_high_complexity = 0
+            derived_fields_count = 0
+            derived_fields_high_complexity = 0
+
+            if segments_inventory_obj:
+                seg_summary = segments_inventory_obj.get_summary()
+                segments_count = seg_summary.get('total_segments', 0)
+                segments_high_complexity = seg_summary.get('complexity', {}).get('high_complexity_count', 0)
+
+            if calculated_inventory_obj:
+                calc_summary = calculated_inventory_obj.get_summary()
+                calculated_metrics_count = calc_summary.get('total_calculated_metrics', 0)
+                calculated_metrics_high_complexity = calc_summary.get('complexity', {}).get('high_complexity_count', 0)
+
+            if derived_inventory_obj:
+                derived_summary = derived_inventory_obj.get_summary()
+                derived_fields_count = derived_summary.get('total_derived_fields', 0)
+                derived_fields_high_complexity = derived_summary.get('complexity', {}).get('high_complexity_count', 0)
+
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -9054,7 +10479,13 @@ def process_single_dataview(
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_checker.issues),
                 output_file=str(output_path),
-                file_size_bytes=total_size
+                file_size_bytes=total_size,
+                segments_count=segments_count,
+                segments_high_complexity=segments_high_complexity,
+                calculated_metrics_count=calculated_metrics_count,
+                calculated_metrics_high_complexity=calculated_metrics_high_complexity,
+                derived_fields_count=derived_fields_count,
+                derived_fields_high_complexity=derived_fields_high_complexity
             )
 
         except PermissionError as e:
@@ -9126,7 +10557,8 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
         args: Tuple of (data_view_id, config_file, output_dir, log_level, log_format, output_format,
                        enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache,
                        show_timings, metrics_only, dimensions_only, profile, shared_cache,
-                       api_tuning_config, circuit_breaker_config)
+                       api_tuning_config, circuit_breaker_config,
+                       analyze_derived, derived_rules, derived_severity, derived_max_issues)
 
     Returns:
         ProcessingResult
@@ -9135,9 +10567,29 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     shared_cache = None
     api_tuning_config = None
     circuit_breaker_config = None
+    include_derived_inventory = False
+    include_calculated_metrics = False
+    include_segments_inventory = False
+    inventory_only = False
+    inventory_order = None
 
-    if len(args) >= 20:
-        # New-style with all args
+    if len(args) >= 25:
+        # New-style with inventory_only and inventory_order param
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, include_segments_inventory, inventory_only, inventory_order = args
+    elif len(args) >= 24:
+        # With segments inventory and inventory_order param (no inventory_only)
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, include_segments_inventory, inventory_order = args
+    elif len(args) >= 23:
+        # With inventory_order param (no segments)
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, inventory_order = args
+    elif len(args) >= 22:
+        # With both derived and calculated metrics params
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics = args
+    elif len(args) >= 21:
+        # With derived field inventory param only
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory = args
+    elif len(args) >= 20:
+        # With tuning/breaker but no derived
         data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args
     elif len(args) == 18:
         # With shared_cache only
@@ -9151,7 +10603,12 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
         enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues,
         clear_cache, show_timings, metrics_only, dimensions_only,
         profile=profile, shared_cache=shared_cache,
-        api_tuning_config=api_tuning_config, circuit_breaker_config=circuit_breaker_config
+        api_tuning_config=api_tuning_config, circuit_breaker_config=circuit_breaker_config,
+        include_derived_inventory=include_derived_inventory,
+        include_calculated_metrics=include_calculated_metrics,
+        include_segments_inventory=include_segments_inventory,
+        inventory_only=inventory_only,
+        inventory_order=inventory_order
     )
 
 # ==================== BATCH PROCESSOR CLASS ====================
@@ -9195,7 +10652,12 @@ class BatchProcessor:
                  show_timings: bool = False, metrics_only: bool = False, dimensions_only: bool = False,
                  profile: Optional[str] = None, shared_cache: bool = False,
                  api_tuning_config: Optional[APITuningConfig] = None,
-                 circuit_breaker_config: Optional[CircuitBreakerConfig] = None):
+                 circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+                 include_derived_inventory: bool = False,
+                 include_calculated_metrics: bool = False,
+                 include_segments_inventory: bool = False,
+                 inventory_only: bool = False,
+                 inventory_order: Optional[List[str]] = None):
         self.config_file = config_file
         self.output_dir = output_dir
         self.clear_cache = clear_cache
@@ -9217,6 +10679,11 @@ class BatchProcessor:
         self.shared_cache_enabled = shared_cache
         self.api_tuning_config = api_tuning_config
         self.circuit_breaker_config = circuit_breaker_config
+        self.include_derived_inventory = include_derived_inventory
+        self.include_calculated_metrics = include_calculated_metrics
+        self.include_segments_inventory = include_segments_inventory
+        self.inventory_only = inventory_only
+        self.inventory_order = inventory_order
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
         self.logger = setup_logging(batch_mode=True, log_level=log_level, log_format=log_format)
         self.logger.info(f"Batch ID: {self.batch_id}")
@@ -9274,7 +10741,9 @@ class BatchProcessor:
              self.output_format, self.enable_cache, self.cache_size, self.cache_ttl, self.quiet,
              self.skip_validation, self.max_issues, self.clear_cache, self.show_timings,
              self.metrics_only, self.dimensions_only, self.profile, self._shared_cache,
-             self.api_tuning_config, self.circuit_breaker_config)
+             self.api_tuning_config, self.circuit_breaker_config,
+             self.include_derived_inventory, self.include_calculated_metrics,
+             self.include_segments_inventory, self.inventory_only, self.inventory_order)
             for dv_id in data_view_ids
         ]
 
@@ -10076,9 +11545,10 @@ Requirements:
     parser.add_argument(
         '--interactive', '-i',
         action='store_true',
-        help='Interactively select data views from a numbered list. '
-             'Supports single selection (e.g., "3"), multiple (e.g., "1,3,5"), '
-             'ranges (e.g., "1-5"), or "all" to select all'
+        help='Launch interactive mode for guided SDR generation. '
+             'Walks through: (1) data view selection, (2) output format, '
+             '(3) inventory options (segments, calculated metrics, derived fields). '
+             'Ideal for new users or one-off generation tasks'
     )
 
     parser.add_argument(
@@ -10361,6 +11831,88 @@ Requirements:
         '--git-init',
         action='store_true',
         help='Initialize a new Git repository for snapshots at --git-dir location'
+    )
+
+    # ==================== DERIVED FIELD INVENTORY ARGUMENTS ====================
+
+    derived_group = parser.add_argument_group(
+        'Derived Field Inventory',
+        'Include summary inventory of derived fields in SDR output'
+    )
+
+    derived_group.add_argument(
+        '--include-derived',
+        action='store_true',
+        dest='include_derived_inventory',
+        help='Include derived field inventory in SDR output. Adds a "Derived Fields" sheet/section '
+             'with complexity scores, functions used, and logic summaries. '
+             'Note: For SDR generation only; not used in snapshot diff comparisons since derived '
+             'fields are already captured in standard metrics/dimensions output.'
+    )
+
+    # ==================== CALCULATED METRICS INVENTORY ARGUMENTS ====================
+
+    calc_metrics_group = parser.add_argument_group(
+        'Calculated Metrics Inventory',
+        'Include summary inventory of calculated metrics in SDR output'
+    )
+
+    calc_metrics_group.add_argument(
+        '--include-calculated',
+        action='store_true',
+        dest='include_calculated_metrics',
+        help='Include calculated metrics inventory in SDR output. Adds a "Calculated Metrics" sheet/section '
+             'with complexity scores, formula summaries, and metric references'
+    )
+
+    # ==================== SEGMENTS INVENTORY ARGUMENTS ====================
+
+    segments_group = parser.add_argument_group(
+        'Segments Inventory',
+        'Include summary inventory of segments (filters) in SDR output'
+    )
+
+    segments_group.add_argument(
+        '--include-segments',
+        action='store_true',
+        dest='include_segments_inventory',
+        help='Include segments inventory in SDR output. Adds a "Segments" sheet/section '
+             'with complexity scores, definition summaries, and dimension/metric references'
+    )
+
+    # ==================== INVENTORY-ONLY MODE ====================
+
+    inventory_only_group = parser.add_argument_group(
+        'Inventory-Only Mode',
+        'Generate output with only inventory sheets (no standard SDR content)'
+    )
+
+    inventory_only_group.add_argument(
+        '--inventory-only',
+        action='store_true',
+        dest='inventory_only',
+        help='Output only inventory sheets (Calculated Metrics, Segments, Derived Fields). '
+             'Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). '
+             'Requires at least one --include-* flag.'
+    )
+
+    inventory_only_group.add_argument(
+        '--inventory-summary',
+        action='store_true',
+        dest='inventory_summary',
+        help='Display quick inventory statistics without generating full output files. '
+             'Shows counts, complexity distribution, and high-complexity warnings. '
+             'Requires at least one --include-* flag. Cannot be used with --inventory-only.'
+    )
+
+    inventory_only_group.add_argument(
+        '--include-all-inventory',
+        action='store_true',
+        dest='include_all_inventory',
+        help='Enable all inventory options. In SDR mode, enables --include-segments, '
+             '--include-calculated, and --include-derived. With --snapshot or --git-commit, '
+             'enables only --include-segments and --include-calculated (derived fields are '
+             'not supported in snapshots).'
     )
 
     # Enable shell tab-completion if argcomplete is installed
@@ -11088,6 +12640,315 @@ def interactive_select_dataviews(config_file: str = "config.json",
         return []
 
 
+# ==================== INTERACTIVE MODE ====================
+
+@dataclass
+class WizardConfig:
+    """Configuration collected from interactive mode"""
+    data_view_ids: List[str]
+    output_format: str = "excel"
+    output_dir: Optional[str] = None
+    include_segments: bool = False
+    include_calculated: bool = False
+    include_derived: bool = False
+    inventory_only: bool = False
+
+
+def interactive_wizard(config_file: str = "config.json",
+                       profile: Optional[str] = None) -> Optional[WizardConfig]:
+    """
+    Interactive wizard for guided SDR generation.
+
+    Walks users through:
+    1. Data view selection
+    2. Output format selection
+    3. Inventory options
+    4. Summary and confirmation
+
+    Args:
+        config_file: Path to CJA configuration file
+        profile: Optional profile name to use for credentials
+
+    Returns:
+        WizardConfig with user selections, or None if cancelled
+    """
+
+    def prompt_choice(prompt: str, options: List[Tuple[str, str]],
+                      default: Optional[str] = None) -> Optional[str]:
+        """Prompt user to select from numbered options."""
+        print()
+        print(prompt)
+        print()
+        for i, (key, label) in enumerate(options, 1):
+            default_marker = " (default)" if key == default else ""
+            print(f"  {i}. {label}{default_marker}")
+        print()
+        print("  q. Cancel and exit")
+        print()
+
+        while True:
+            try:
+                default_hint = f" [{options[[k for k, _ in options].index(default)][1]}]" if default else ""
+                choice = input(f"Enter choice (1-{len(options)}){default_hint}: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+
+            if choice in ('q', 'quit', 'exit', 'cancel'):
+                return None
+
+            if not choice and default:
+                return default
+
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(options):
+                    return options[idx][0]
+                print(f"Please enter a number between 1 and {len(options)}.")
+            except ValueError:
+                print(f"Please enter a number between 1 and {len(options)}, or 'q' to cancel.")
+
+    def prompt_yes_no(prompt: str, default: bool = False) -> Optional[bool]:
+        """Prompt user for yes/no answer."""
+        if default:
+            prompt_hint = "[Y/n] (Enter=yes)"
+        else:
+            prompt_hint = "[y/N] (Enter=no)"
+        valid_yes = ('y', 'yes', '1', 'true')
+        valid_no = ('n', 'no', '0', 'false')
+        valid_quit = ('q', 'quit', 'exit', 'cancel')
+
+        while True:
+            print()
+            try:
+                answer = input(f"{prompt} {prompt_hint}: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+
+            if answer in valid_quit:
+                return None
+            if not answer:
+                return default
+            if answer in valid_yes:
+                return True
+            if answer in valid_no:
+                return False
+
+            # Invalid input - show error and retry
+            print(ConsoleColors.warning(f"Invalid input '{answer}'. Please enter 'y' or 'n' (or 'q' to quit)."))
+
+    print()
+    print("=" * 60)
+    print("  CJA SDR GENERATOR - INTERACTIVE MODE")
+    print("=" * 60)
+    print()
+    print("This interactive mode will guide you through generating an SDR.")
+    print("Press 'q' at any prompt to cancel.")
+
+    # Step 1: Connect and show data views
+    print()
+    print("-" * 60)
+    print("STEP 1: Select Data View(s)")
+    print("-" * 60)
+
+    if profile:
+        print(f"Using profile: {profile}")
+    else:
+        print(f"Using configuration: {config_file}")
+    print()
+
+    try:
+        success, source, _ = configure_cjapy(profile, config_file)
+        if not success:
+            print(ConsoleColors.error(f"ERROR: {source}"))
+            return None
+        cja = cjapy.CJA()
+
+        print("Fetching available data views...")
+        available_dvs = cja.getDataViews()
+
+        if available_dvs is None or (hasattr(available_dvs, '__len__') and len(available_dvs) == 0):
+            print()
+            print(ConsoleColors.warning("No data views found or no access to any data views."))
+            return None
+
+        # Convert to list if DataFrame
+        if isinstance(available_dvs, pd.DataFrame):
+            available_dvs = available_dvs.to_dict('records')
+
+        # Build display data
+        display_data = []
+        for dv in available_dvs:
+            if isinstance(dv, dict):
+                dv_id = dv.get('id', 'N/A')
+                dv_name = dv.get('name', 'N/A')
+                display_data.append({'id': dv_id, 'name': dv_name})
+
+        if not display_data:
+            print(ConsoleColors.warning("No data views available."))
+            return None
+
+        # Show data views
+        print()
+        print(f"Found {len(display_data)} accessible data view(s):")
+        print()
+        for idx, item in enumerate(display_data, 1):
+            print(f"  {idx}. {item['name']}")
+            print(f"      {ConsoleColors.dim(item['id'])}")
+
+        print()
+        print("Selection options: single (3), multiple (1,3,5), range (1-3), all")
+        print()
+
+        while True:
+            try:
+                selection = input("Select data view(s): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
+
+            if selection in ('q', 'quit', 'exit', 'cancel'):
+                print(ConsoleColors.warning("Cancelled."))
+                return None
+
+            if not selection:
+                print("Please enter a selection.")
+                continue
+
+            # Parse selection (reuse logic from interactive_select_dataviews)
+            selected_indices = set()
+            valid = True
+
+            if selection in ('all', 'a', '*'):
+                selected_indices = set(range(1, len(display_data) + 1))
+            else:
+                parts = selection.replace(' ', '').split(',')
+                for part in parts:
+                    if not part:
+                        continue
+                    if '-' in part:
+                        try:
+                            range_parts = part.split('-')
+                            if len(range_parts) != 2:
+                                raise ValueError()
+                            start, end = int(range_parts[0]), int(range_parts[1])
+                            if start > end:
+                                start, end = end, start
+                            for i in range(start, end + 1):
+                                selected_indices.add(i)
+                        except ValueError:
+                            print(ConsoleColors.error(f"Invalid range: '{part}'"))
+                            valid = False
+                            break
+                    else:
+                        try:
+                            selected_indices.add(int(part))
+                        except ValueError:
+                            print(ConsoleColors.error(f"Invalid number: '{part}'"))
+                            valid = False
+                            break
+
+            if not valid:
+                continue
+
+            # Validate
+            invalid = [i for i in selected_indices if i < 1 or i > len(display_data)]
+            if invalid:
+                print(ConsoleColors.error(f"Invalid: {invalid}. Valid range: 1-{len(display_data)}"))
+                continue
+
+            if not selected_indices:
+                continue
+
+            selected_ids = [display_data[i - 1]['id'] for i in sorted(selected_indices)]
+            selected_names = [display_data[i - 1]['name'] for i in sorted(selected_indices)]
+
+            print()
+            print(f"Selected: {', '.join(selected_names)}")
+            break
+
+    except FileNotFoundError:
+        print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        print("Run: cja_auto_sdr --sample-config")
+        return None
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+        return None
+
+    # Step 2: Output format
+    print()
+    print("-" * 60)
+    print("STEP 2: Choose Output Format")
+    print("-" * 60)
+
+    format_options = [
+        ("excel", "Excel (.xlsx) - Best for review and sharing"),
+        ("json", "JSON - Best for automation and APIs"),
+        ("csv", "CSV - Best for data processing"),
+        ("html", "HTML - Best for web viewing"),
+        ("markdown", "Markdown - Best for documentation/GitHub"),
+        ("all", "All formats - Generate everything"),
+    ]
+
+    output_format = prompt_choice("Which output format would you like?", format_options, default="excel")
+    if output_format is None:
+        print(ConsoleColors.warning("Cancelled."))
+        return None
+
+    # Step 3: Inventory options
+    print()
+    print("-" * 60)
+    print("STEP 3: Include Inventory Data?")
+    print("-" * 60)
+    print()
+    print("Inventory data provides additional documentation beyond the standard SDR:")
+    print("  • Segments: Filter definitions, complexity scores, references")
+    print("  • Calculated Metrics: Formulas, complexity, metric dependencies")
+    print("  • Derived Fields: Logic analysis, functions used, schema references")
+
+    include_segments = prompt_yes_no("Include Segments inventory?", default=False)
+    if include_segments is None:
+        print(ConsoleColors.warning("Cancelled."))
+        return None
+
+    include_calculated = prompt_yes_no("Include Calculated Metrics inventory?", default=False)
+    if include_calculated is None:
+        print(ConsoleColors.warning("Cancelled."))
+        return None
+
+    include_derived = prompt_yes_no("Include Derived Fields inventory?", default=False)
+    if include_derived is None:
+        print(ConsoleColors.warning("Cancelled."))
+        return None
+
+    # Step 4: Summary and confirmation
+    print()
+    print("-" * 60)
+    print("SUMMARY")
+    print("-" * 60)
+    print()
+    print(f"  Data View(s):        {', '.join(selected_names)}")
+    print(f"  Output Format:       {output_format.upper()}")
+    print(f"  Include Segments:    {'Yes' if include_segments else 'No'}")
+    print(f"  Include Calc Metrics: {'Yes' if include_calculated else 'No'}")
+    print(f"  Include Derived:     {'Yes' if include_derived else 'No'}")
+    print()
+
+    confirm = prompt_yes_no("Generate SDR with these settings?", default=True)
+    if not confirm:
+        print(ConsoleColors.warning("Cancelled."))
+        return None
+
+    return WizardConfig(
+        data_view_ids=selected_ids,
+        output_format=output_format,
+        include_segments=include_segments,
+        include_calculated=include_calculated,
+        include_derived=include_derived,
+    )
+
+
 # ==================== SAMPLE CONFIG GENERATOR ====================
 
 def generate_sample_config(output_path: str = "config.sample.json") -> bool:
@@ -11622,7 +13483,9 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
 # ==================== DIFF AND SNAPSHOT COMMAND HANDLERS ====================
 
 def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: str = "config.json",
-                            quiet: bool = False, profile: Optional[str] = None) -> bool:
+                            quiet: bool = False, profile: Optional[str] = None,
+                            include_calculated_metrics: bool = False,
+                            include_segments: bool = False) -> bool:
     """
     Handle the --snapshot command to save a data view snapshot.
 
@@ -11632,11 +13495,20 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
         config_file: Path to CJA configuration file
         quiet: Suppress progress output
         profile: Optional profile name for credentials
+        include_calculated_metrics: Include calculated metrics inventory in snapshot
+        include_segments: Include segments inventory in snapshot
 
     Returns:
         True if successful, False otherwise
     """
     try:
+        # Build inventory info string for header
+        inventory_info = []
+        if include_calculated_metrics:
+            inventory_info.append("calculated metrics")
+        if include_segments:
+            inventory_info.append("segments")
+
         if not quiet:
             print()
             print("=" * 60)
@@ -11644,6 +13516,8 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
             print("=" * 60)
             print(f"Data View: {data_view_id}")
             print(f"Output: {snapshot_file}")
+            if inventory_info:
+                print(f"Including: {', '.join(inventory_info)} inventory")
             print()
 
         logger = logging.getLogger(__name__)
@@ -11658,7 +13532,11 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
 
         # Create and save snapshot
         snapshot_manager = SnapshotManager(logger)
-        snapshot = snapshot_manager.create_snapshot(cja, data_view_id, quiet)
+        snapshot = snapshot_manager.create_snapshot(
+            cja, data_view_id, quiet,
+            include_calculated_metrics=include_calculated_metrics,
+            include_segments=include_segments
+        )
         saved_path = snapshot_manager.save_snapshot(snapshot, snapshot_file)
 
         if not quiet:
@@ -11669,6 +13547,12 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
             print(f"Data View: {snapshot.data_view_name} ({snapshot.data_view_id})")
             print(f"Metrics: {len(snapshot.metrics)}")
             print(f"Dimensions: {len(snapshot.dimensions)}")
+            # Show inventory counts if included
+            if snapshot.calculated_metrics_inventory is not None:
+                print(f"Calculated Metrics: {len(snapshot.calculated_metrics_inventory)}")
+            if snapshot.segments_inventory is not None:
+                print(f"Segments: {len(snapshot.segments_inventory)}")
+            print(f"Snapshot Version: {snapshot.snapshot_version}")
             print(f"Saved to: {saved_path}")
             print("=" * 60)
 
@@ -11897,7 +13781,9 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
                                   format_pr_comment: bool = False, auto_snapshot: bool = False,
                                   snapshot_dir: str = "./snapshots", keep_last: int = 0,
                                   keep_since: Optional[str] = None,
-                                  profile: Optional[str] = None) -> Tuple[bool, bool, Optional[int]]:
+                                  profile: Optional[str] = None,
+                                  include_calc_metrics: bool = False,
+                                  include_segments: bool = False) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
 
@@ -11930,6 +13816,8 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
         keep_since: Date-based retention - delete snapshots older than this period (e.g., '7d', '2w', '1m')
         profile: Optional profile name for credentials
+        include_calc_metrics: Include calculated metrics inventory in comparison
+        include_segments: Include segments inventory in comparison
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -11947,11 +13835,46 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             print(f"Snapshot: {snapshot_file}")
             if reverse_diff:
                 print("(Reversed comparison)")
+            if include_calc_metrics or include_segments:
+                inv_types = []
+                if include_calc_metrics:
+                    inv_types.append("calculated metrics")
+                if include_segments:
+                    inv_types.append("segments")
+                print(f"Including inventory: {', '.join(inv_types)}")
             print()
 
         # Load the saved snapshot (source/baseline)
         snapshot_manager = SnapshotManager(logger)
         source_snapshot = snapshot_manager.load_snapshot(snapshot_file)
+
+        # Validate snapshot has required inventory data
+        missing_inventory = []
+        if include_calc_metrics and not source_snapshot.has_calculated_metrics_inventory:
+            missing_inventory.append("calculated metrics")
+        if include_segments and not source_snapshot.has_segments_inventory:
+            missing_inventory.append("segments")
+
+        if missing_inventory:
+            inv_summary = source_snapshot.get_inventory_summary()
+            print(ConsoleColors.error("ERROR: Cannot perform inventory diff - snapshot missing requested data."), file=sys.stderr)
+            print(file=sys.stderr)
+            print(f"Snapshot '{snapshot_file}' contains:", file=sys.stderr)
+            print(f"  {'✓' if True else '✗'} Metrics ({len(source_snapshot.metrics)} items)", file=sys.stderr)
+            print(f"  {'✓' if True else '✗'} Dimensions ({len(source_snapshot.dimensions)} items)", file=sys.stderr)
+            print(f"  {'✓' if inv_summary['calculated_metrics']['present'] else '✗'} Calculated Metrics Inventory ({inv_summary['calculated_metrics']['count']} items)", file=sys.stderr)
+            print(f"  {'✓' if inv_summary['segments']['present'] else '✗'} Segments Inventory ({inv_summary['segments']['count']} items)", file=sys.stderr)
+            print(file=sys.stderr)
+            print(f"You requested: {', '.join(missing_inventory)}", file=sys.stderr)
+            print(file=sys.stderr)
+            print("To create a compatible snapshot:", file=sys.stderr)
+            flags = []
+            if include_calc_metrics:
+                flags.append("--include-calculated")
+            if include_segments:
+                flags.append("--include-segments")
+            print(f"  cja-auto-sdr --sdr {data_view_id} {' '.join(flags)} --auto-snapshot", file=sys.stderr)
+            return False, False, None
 
         # Initialize CJA with profile support
         success, source, _ = configure_cjapy(profile=profile, config_file=config_file, logger=logger)
@@ -11964,6 +13887,36 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         if not quiet and not quiet_diff:
             print("Fetching current data view state...")
         target_snapshot = snapshot_manager.create_snapshot(cja, data_view_id, quiet or quiet_diff)
+
+        # Build inventory for target snapshot if requested
+        if include_calc_metrics or include_segments:
+            if not quiet and not quiet_diff:
+                print("Building inventory for current state...")
+
+            if include_calc_metrics:
+                try:
+                    from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+                    builder = CalculatedMetricsInventoryBuilder(logger=logger)
+                    inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
+                    target_snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
+                    if not quiet and not quiet_diff:
+                        print(f"  Calculated metrics: {len(target_snapshot.calculated_metrics_inventory)} items")
+                except Exception as e:
+                    logger.warning(f"Failed to build calculated metrics inventory: {e}")
+
+            if include_segments:
+                try:
+                    from cja_segments_inventory import SegmentsInventoryBuilder
+                    builder = SegmentsInventoryBuilder(logger=logger)
+                    inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
+                    target_snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
+                    if not quiet and not quiet_diff:
+                        print(f"  Segments: {len(target_snapshot.segments_inventory)} items")
+                except Exception as e:
+                    logger.warning(f"Failed to build segments inventory: {e}")
+
+            if not quiet and not quiet_diff:
+                print()
 
         # Auto-save current state snapshot if enabled
         if auto_snapshot:
@@ -12018,7 +13971,9 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             use_extended_fields=extended_fields,
             show_only=show_only,
             metrics_only=metrics_only,
-            dimensions_only=dimensions_only
+            dimensions_only=dimensions_only,
+            include_calc_metrics=include_calc_metrics,
+            include_segments=include_segments
         )
         diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
 
@@ -12085,7 +14040,9 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
                                       reverse_diff: bool = False, warn_threshold: Optional[float] = None,
                                       group_by_field: bool = False, group_by_field_limit: int = 10,
                                       diff_output: Optional[str] = None,
-                                      format_pr_comment: bool = False) -> Tuple[bool, bool, Optional[int]]:
+                                      format_pr_comment: bool = False,
+                                      include_calc_metrics: bool = False,
+                                      include_segments: bool = False) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --compare-snapshots command to compare two snapshot files directly.
 
@@ -12117,6 +14074,8 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
         group_by_field_limit: Max items per section in group-by-field output (0 = unlimited)
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
+        include_calc_metrics: Include calculated metrics inventory in comparison
+        include_segments: Include segments inventory in comparison
 
     Returns:
         Tuple of (success, has_changes, exit_code_override)
@@ -12146,6 +14105,19 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
         if not quiet and not quiet_diff:
             print("Loading target snapshot...")
         target_snapshot = snapshot_manager.load_snapshot(target_file)
+
+        # Validate same data view for inventory comparison
+        if include_calc_metrics or include_segments:
+            if source_snapshot.data_view_id != target_snapshot.data_view_id:
+                print(ConsoleColors.error(
+                    f"ERROR: Inventory comparison requires snapshots from the same data view."
+                ), file=sys.stderr)
+                print(f"  Source: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})", file=sys.stderr)
+                print(f"  Target: {target_snapshot.data_view_name} ({target_snapshot.data_view_id})", file=sys.stderr)
+                print(file=sys.stderr)
+                print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
+                print("Remove --include-segments, --include-calculated, --include-derived for cross-data-view comparison.", file=sys.stderr)
+                return False, False, None
 
         # Handle reverse_diff - swap source and target
         if reverse_diff:
@@ -12196,7 +14168,9 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
             use_extended_fields=extended_fields,
             show_only=show_only,
             metrics_only=metrics_only,
-            dimensions_only=dimensions_only
+            dimensions_only=dimensions_only,
+            include_calc_metrics=include_calc_metrics,
+            include_segments=include_segments
         )
         diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
 
@@ -12423,6 +14397,14 @@ def main():
         print(ConsoleColors.error("ERROR: --git-push requires --git-commit"), file=sys.stderr)
         sys.exit(1)
 
+    # Validate: --include-derived is not supported with --git-commit
+    # Derived fields are for SDR generation only - they're computed from metrics/dimensions
+    if getattr(args, 'git_commit', False) and getattr(args, 'include_derived_inventory', False):
+        print(ConsoleColors.error("ERROR: --include-derived cannot be used with --git-commit"), file=sys.stderr)
+        print("Derived fields inventory is only available in SDR generation mode.", file=sys.stderr)
+        print("Derived field changes are captured in the standard Metrics/Dimensions diff.", file=sys.stderr)
+        sys.exit(1)
+
     # Handle --list-dataviews mode (no data view required)
     if args.list_dataviews:
         # Determine format for list output
@@ -12453,15 +14435,28 @@ def main():
     # Get data views from arguments
     data_view_inputs = args.data_views
 
-    # Handle --interactive mode (select data views interactively)
+    # Handle --interactive mode (full wizard for guided SDR generation)
     if getattr(args, 'interactive', False):
         if data_view_inputs:
-            print(ConsoleColors.warning("Note: --interactive ignores any data view IDs provided on command line"))
-        selected_ids = interactive_select_dataviews(args.config_file, profile=getattr(args, 'profile', None))
-        if not selected_ids:
-            print("No data views selected. Exiting.")
+            print(ConsoleColors.warning("Note: --interactive mode ignores command line arguments"))
+
+        wizard_config = interactive_wizard(args.config_file, profile=getattr(args, 'profile', None))
+        if wizard_config is None:
+            print("Cancelled. Exiting.")
             sys.exit(0)
-        data_view_inputs = selected_ids
+
+        # Apply wizard selections to args
+        data_view_inputs = wizard_config.data_view_ids
+        args.format = wizard_config.output_format
+        args.include_segments_inventory = wizard_config.include_segments
+        args.include_calculated_metrics = wizard_config.include_calculated
+        args.include_derived_inventory = wizard_config.include_derived
+        args.inventory_only = wizard_config.inventory_only
+
+        print()
+        print("=" * 60)
+        print("GENERATING SDR...")
+        print("=" * 60)
         print()
 
     # Handle --stats mode (requires data views)
@@ -12529,6 +14524,11 @@ def main():
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
+        # Check for inventory-only (not supported in diff mode - inventory comparison is part of diff output)
+        if getattr(args, 'inventory_only', False):
+            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --compare-snapshots"), file=sys.stderr)
+            sys.exit(1)
+
         # Default to console for diff commands
         diff_format = args.format if args.format else 'console'
         success, has_changes, exit_code_override = handle_compare_snapshots_command(
@@ -12553,7 +14553,9 @@ def main():
             group_by_field=getattr(args, 'group_by_field', False),
             group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
             diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False)
+            format_pr_comment=getattr(args, 'format_pr_comment', False),
+            include_calc_metrics=getattr(args, 'include_calculated_metrics', False),
+            include_segments=getattr(args, 'include_segments_inventory', False)
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -12574,6 +14576,27 @@ def main():
         # Check for conflicting options
         if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
+            sys.exit(1)
+
+        # Check for inventory options (not supported in cross-DV diff - IDs are data-view-scoped)
+        # Inventory diff is only supported for same-data-view snapshot comparisons
+        if getattr(args, 'include_derived_inventory', False):
+            print(ConsoleColors.error("ERROR: --include-derived cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
+            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
+            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+            sys.exit(1)
+        if getattr(args, 'include_calculated_metrics', False):
+            print(ConsoleColors.error("ERROR: --include-calculated cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
+            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
+            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+            sys.exit(1)
+        if getattr(args, 'include_segments_inventory', False):
+            print(ConsoleColors.error("ERROR: --include-segments cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
+            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
+            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+            sys.exit(1)
+        if getattr(args, 'inventory_only', False):
+            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff"), file=sys.stderr)
             sys.exit(1)
 
         # Resolve names to IDs if needed - resolve EACH identifier separately
@@ -12684,6 +14707,14 @@ def main():
             print("Usage: cja_auto_sdr DATA_VIEW --snapshot ./snapshots/baseline.json", file=sys.stderr)
             sys.exit(1)
 
+        # Validate: --include-derived is not supported with --snapshot
+        # Derived fields are for SDR generation only - they're computed from metrics/dimensions
+        if getattr(args, 'include_derived_inventory', False):
+            print(ConsoleColors.error("ERROR: --include-derived cannot be used with --snapshot"), file=sys.stderr)
+            print("Derived fields inventory is only available in SDR generation mode.", file=sys.stderr)
+            print("Derived field changes are captured in the standard Metrics/Dimensions diff.", file=sys.stderr)
+            sys.exit(1)
+
         # Resolve name to ID if needed - ensure 1:1 mapping
         temp_logger = logging.getLogger('name_resolution')
         temp_logger.setLevel(logging.WARNING)
@@ -12717,7 +14748,9 @@ def main():
             snapshot_file=args.snapshot,
             config_file=args.config_file,
             quiet=args.quiet,
-            profile=getattr(args, 'profile', None)
+            profile=getattr(args, 'profile', None),
+            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
+            include_segments=getattr(args, 'include_segments_inventory', False)
         )
         sys.exit(0 if success else 1)
 
@@ -12726,6 +14759,11 @@ def main():
         if len(data_view_inputs) != 1:
             print(ConsoleColors.error("ERROR: --compare-with-prev requires exactly 1 data view ID or name"), file=sys.stderr)
             print("Usage: cja_auto_sdr DATA_VIEW --compare-with-prev", file=sys.stderr)
+            sys.exit(1)
+
+        # Check for inventory-only (not supported in diff mode - inventory comparison is part of diff output)
+        if getattr(args, 'inventory_only', False):
+            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --compare-with-prev"), file=sys.stderr)
             sys.exit(1)
 
         # Resolve name to ID if needed
@@ -12785,6 +14823,18 @@ def main():
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
+        # Check for inventory options
+        # Note: --include-calculated, --include-segments ARE supported with --diff-snapshot
+        # for inventory diff over time. --include-derived is NOT supported for diff since
+        # derived fields are already captured in metrics/dimensions output.
+        if getattr(args, 'inventory_only', False):
+            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff-snapshot"), file=sys.stderr)
+            sys.exit(1)
+
+        # Get inventory flags (derived fields not supported in diff mode)
+        include_calc_metrics = getattr(args, 'include_calculated_metrics', False)
+        include_segments = getattr(args, 'include_segments_inventory', False)
+
         # Resolve name to ID if needed - ensure 1:1 mapping
         temp_logger = logging.getLogger('name_resolution')
         temp_logger.setLevel(logging.WARNING)
@@ -12843,7 +14893,9 @@ def main():
             snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
             keep_last=getattr(args, 'keep_last', 0),
             keep_since=getattr(args, 'keep_since', None),
-            profile=getattr(args, 'profile', None)
+            profile=getattr(args, 'profile', None),
+            include_calc_metrics=include_calc_metrics,
+            include_segments=include_segments
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -12986,6 +15038,126 @@ def main():
         if not args.quiet:
             print(ConsoleColors.info(f"Circuit breaker enabled (threshold: {circuit_breaker_config.failure_threshold}, timeout: {circuit_breaker_config.timeout_seconds}s)"))
 
+    # Expand --include-all-inventory into individual flags
+    if getattr(args, 'include_all_inventory', False):
+        # Always enable segments and calculated metrics
+        args.include_segments_inventory = True
+        args.include_calculated_metrics = True
+
+        # Only enable derived fields if NOT using snapshots (derived not supported with snapshots)
+        is_snapshot_mode = (
+            getattr(args, 'snapshot', None) or
+            getattr(args, 'git_commit', False) or
+            getattr(args, 'diff_snapshot', None) or
+            getattr(args, 'compare_snapshots', None) or
+            getattr(args, 'compare_with_prev', False)
+        )
+        if not is_snapshot_mode:
+            args.include_derived_inventory = True
+
+        if not args.quiet:
+            enabled = ['--include-segments', '--include-calculated']
+            if not is_snapshot_mode:
+                enabled.append('--include-derived')
+            print(ConsoleColors.info(f"--include-all-inventory enabled: {', '.join(enabled)}"))
+
+    # Validate --inventory-only requires at least one --include-* flag
+    if getattr(args, 'inventory_only', False):
+        has_inventory = (
+            getattr(args, 'include_derived_inventory', False) or
+            getattr(args, 'include_calculated_metrics', False) or
+            getattr(args, 'include_segments_inventory', False)
+        )
+        if not has_inventory:
+            print(ConsoleColors.error("ERROR: --inventory-only requires at least one inventory flag"), file=sys.stderr)
+            print("Use: --include-derived, --include-calculated, and/or --include-segments", file=sys.stderr)
+            print("\nExample: cja_auto_sdr dv_12345 --include-segments --inventory-only", file=sys.stderr)
+            sys.exit(1)
+
+    # Validate --inventory-summary requires at least one --include-* flag and is mutually exclusive with --inventory-only
+    # Determine inventory order based on CLI argument order (used for both sheets and summaries)
+    inventory_order = []
+    if getattr(args, 'include_derived_inventory', False) or getattr(args, 'include_calculated_metrics', False) or getattr(args, 'include_segments_inventory', False):
+        # Check which flag appears first in sys.argv
+        derived_pos = None
+        calculated_pos = None
+        segments_pos = None
+        for i, arg in enumerate(sys.argv):
+            if arg == '--include-derived' and derived_pos is None:
+                derived_pos = i
+            elif arg == '--include-calculated' and calculated_pos is None:
+                calculated_pos = i
+            elif arg == '--include-segments' and segments_pos is None:
+                segments_pos = i
+
+        # Build order based on position
+        positions = []
+        if derived_pos is not None:
+            positions.append(('derived', derived_pos))
+        if calculated_pos is not None:
+            positions.append(('calculated', calculated_pos))
+        if segments_pos is not None:
+            positions.append(('segments', segments_pos))
+
+        # Sort by position and extract names
+        positions.sort(key=lambda x: x[1])
+        inventory_order = [name for name, _ in positions]
+
+    if getattr(args, 'inventory_summary', False):
+        has_inventory = (
+            getattr(args, 'include_derived_inventory', False) or
+            getattr(args, 'include_calculated_metrics', False) or
+            getattr(args, 'include_segments_inventory', False)
+        )
+        if not has_inventory:
+            print(ConsoleColors.error("ERROR: --inventory-summary requires at least one inventory flag"), file=sys.stderr)
+            print("Use: --include-derived, --include-calculated, and/or --include-segments", file=sys.stderr)
+            print("\nExample: cja_auto_sdr dv_12345 --include-segments --inventory-summary", file=sys.stderr)
+            sys.exit(1)
+        if getattr(args, 'inventory_only', False):
+            print(ConsoleColors.error("ERROR: --inventory-summary cannot be used with --inventory-only"), file=sys.stderr)
+            print("Use --inventory-summary alone for quick stats, or --inventory-only for inventory sheets without full SDR.", file=sys.stderr)
+            sys.exit(1)
+
+    # Handle --inventory-summary mode (quick stats without full output)
+    if getattr(args, 'inventory_summary', False):
+        # Determine output format for summary
+        summary_format = args.format if args.format in ('json', 'all') else 'console'
+
+        if len(data_views) > 1:
+            # Process multiple data views in summary mode
+            for dv_id in data_views:
+                process_inventory_summary(
+                    data_view_id=dv_id,
+                    config_file=args.config_file,
+                    output_dir=args.output_dir,
+                    log_level=effective_log_level,
+                    output_format=summary_format,
+                    quiet=args.quiet,
+                    profile=getattr(args, 'profile', None),
+                    include_derived=getattr(args, 'include_derived_inventory', False),
+                    include_calculated=getattr(args, 'include_calculated_metrics', False),
+                    include_segments=getattr(args, 'include_segments_inventory', False),
+                    inventory_order=inventory_order,
+                )
+                print()  # Blank line between data views
+        else:
+            # Single data view
+            process_inventory_summary(
+                data_view_id=data_views[0],
+                config_file=args.config_file,
+                output_dir=args.output_dir,
+                log_level=effective_log_level,
+                output_format=summary_format,
+                quiet=args.quiet,
+                profile=getattr(args, 'profile', None),
+                include_derived=getattr(args, 'include_derived_inventory', False),
+                include_calculated=getattr(args, 'include_calculated_metrics', False),
+                include_segments=getattr(args, 'include_segments_inventory', False),
+                inventory_order=inventory_order,
+            )
+        sys.exit(0)
+
     if args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
 
@@ -13021,7 +15193,12 @@ def main():
             profile=getattr(args, 'profile', None),
             shared_cache=getattr(args, 'shared_cache', False),
             api_tuning_config=api_tuning_config,
-            circuit_breaker_config=circuit_breaker_config
+            circuit_breaker_config=circuit_breaker_config,
+            include_derived_inventory=getattr(args, 'include_derived_inventory', False),
+            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
+            include_segments_inventory=getattr(args, 'include_segments_inventory', False),
+            inventory_only=getattr(args, 'inventory_only', False),
+            inventory_order=inventory_order if inventory_order else None,
         )
 
         results = processor.process_batch(data_views)
@@ -13076,7 +15253,12 @@ def main():
             dimensions_only=getattr(args, 'dimensions_only', False),
             profile=getattr(args, 'profile', None),
             api_tuning_config=api_tuning_config,
-            circuit_breaker_config=circuit_breaker_config
+            circuit_breaker_config=circuit_breaker_config,
+            include_derived_inventory=getattr(args, 'include_derived_inventory', False),
+            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
+            include_segments_inventory=getattr(args, 'include_segments_inventory', False),
+            inventory_only=getattr(args, 'inventory_only', False),
+            inventory_order=inventory_order if inventory_order else None,
         )
 
         # Print final status with color and total runtime
@@ -13089,6 +15271,39 @@ def main():
             print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
             if result.dq_issues_count > 0:
                 print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))
+
+            # Display inventory summary if any inventory was requested
+            include_segs = getattr(args, 'include_segments_inventory', False)
+            include_calc = getattr(args, 'include_calculated_metrics', False)
+            include_derived = getattr(args, 'include_derived_inventory', False)
+
+            if include_segs or include_calc or include_derived:
+                inv_parts = []
+                # Use inventory_order to maintain consistent ordering with sheets
+                inv_order = inventory_order if inventory_order else ['segments', 'calculated', 'derived']
+                for inv_type in inv_order:
+                    if inv_type == 'segments' and include_segs:
+                        seg_str = f"Segments: {result.segments_count}"
+                        if result.segments_high_complexity > 0:
+                            seg_str += f" ({result.segments_high_complexity} high-complexity)"
+                        inv_parts.append(seg_str)
+                    elif inv_type == 'calculated' and include_calc:
+                        calc_str = f"Calculated Metrics: {result.calculated_metrics_count}"
+                        if result.calculated_metrics_high_complexity > 0:
+                            calc_str += f" ({result.calculated_metrics_high_complexity} high-complexity)"
+                        inv_parts.append(calc_str)
+                    elif inv_type == 'derived' and include_derived:
+                        derived_str = f"Derived Fields: {result.derived_fields_count}"
+                        if result.derived_fields_high_complexity > 0:
+                            derived_str += f" ({result.derived_fields_high_complexity} high-complexity)"
+                        inv_parts.append(derived_str)
+
+                if inv_parts:
+                    print(f"  Inventory: {', '.join(inv_parts)}")
+
+                # Warn about high-complexity items
+                if result.total_high_complexity > 0:
+                    print(ConsoleColors.warning(f"  ⚠ {result.total_high_complexity} high-complexity items (≥75) - review recommended"))
 
             # Handle --git-commit for single mode
             if getattr(args, 'git_commit', False):
@@ -13105,6 +15320,10 @@ def main():
                         print(ConsoleColors.success(f"  Repository initialized"))
 
                 # Create snapshot for Git
+                # Check if inventory flags are set
+                include_calc = getattr(args, 'include_calculated_metrics', False)
+                include_segs = getattr(args, 'include_segments_inventory', False)
+
                 snapshot = DataViewSnapshot(
                     data_view_id=result.data_view_id,
                     data_view_name=result.data_view_name,
@@ -13112,18 +15331,26 @@ def main():
                     dimensions=result.dimensions_data if hasattr(result, 'dimensions_data') else []
                 )
 
-                # If we don't have the raw data in result, we need to fetch it
-                # For now, we'll create a minimal snapshot from available info
-                if not snapshot.metrics and not snapshot.dimensions:
-                    # Re-fetch data for Git snapshot
-                    print("Fetching data for Git snapshot...")
+                # If we don't have the raw data in result, or if inventory is requested,
+                # we need to fetch it via create_snapshot
+                needs_fetch = not snapshot.metrics and not snapshot.dimensions
+                needs_inventory = include_calc or include_segs
+
+                if needs_fetch or needs_inventory:
+                    # Re-fetch data for Git snapshot (with optional inventory)
+                    fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
+                    print(f"Fetching {fetch_reason} for Git snapshot...")
                     try:
                         temp_logger = logging.getLogger('git_snapshot')
                         temp_logger.setLevel(logging.WARNING)
                         cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, 'profile', None))
                         if cja:
                             snapshot_mgr = SnapshotManager(temp_logger)
-                            snapshot = snapshot_mgr.create_snapshot(cja, result.data_view_id, quiet=True)
+                            snapshot = snapshot_mgr.create_snapshot(
+                                cja, result.data_view_id, quiet=True,
+                                include_calculated_metrics=include_calc,
+                                include_segments=include_segs
+                            )
                     except Exception as e:
                         print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
 

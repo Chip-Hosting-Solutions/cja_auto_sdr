@@ -8,6 +8,7 @@ Comprehensive solutions for issues with the CJA SDR Generator.
 - [Exit Codes Reference](#exit-codes-reference)
 - [Configuration Errors](#configuration-errors)
 - [Authentication & Connection Errors](#authentication--connection-errors)
+- [API Permission Errors](#api-permission-errors)
 - [Data View Errors](#data-view-errors)
 - [Diff Comparison & Snapshot Errors](#diff-comparison--snapshot-errors)
 - [Profile Errors](#profile-errors)
@@ -17,6 +18,7 @@ Comprehensive solutions for issues with the CJA SDR Generator.
 - [Output & File Errors](#output--file-errors)
 - [Batch Processing Issues](#batch-processing-issues)
 - [Validation Cache Issues](#validation-cache-issues)
+- [Inventory Feature Issues](#inventory-feature-issues)
 - [Git & Repository Issues](#git--repository-issues)
 - [Performance Issues](#performance-issues)
 - [Dependency Issues](#dependency-issues)
@@ -279,6 +281,43 @@ Configuration error: Authentication failed
    uv add --upgrade cjapy
    ```
 
+### OAuth Token Retrieval Failed (v3.1.0+)
+
+**Symptoms:**
+```
+Exception: OAuth response missing required fields. Response: {"error": "invalid_client", "error_description": "..."}
+```
+or
+```
+Exception: OAuth response missing required fields. Response: {"error": "invalid_scope", "error_description": "..."}
+```
+
+**Cause:** The OAuth token request to Adobe's authentication server failed. As of v3.1.0 (cjapy 0.2.4-3), you now receive the actual OAuth error response, making it much easier to diagnose credential issues.
+
+**Common OAuth error responses and solutions:**
+
+| Error Response | Cause | Solution |
+|----------------|-------|----------|
+| `invalid_client` | Client ID or secret is incorrect | Verify `client_id` and `secret` match Developer Console exactly |
+| `invalid_scope` | Scopes are incorrect or not authorized | Copy scopes exactly from Developer Console |
+| `unauthorized_client` | Client not authorized for this grant type | Ensure OAuth Server-to-Server is enabled in Developer Console |
+| `invalid_grant` | Credentials expired or revoked | Generate new credentials in Developer Console |
+
+**Debugging steps:**
+1. The error response shows exactly what Adobe's auth server rejected
+2. Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+3. Open your project and check OAuth Server-to-Server credentials
+4. Verify each field matches your `config.json` exactly:
+   - `client_id` - OAuth Client ID
+   - `secret` - Client Secret
+   - `scopes` - Copy the exact scopes string
+5. Test configuration:
+   ```bash
+   uv run cja_auto_sdr --validate-config
+   ```
+
+> **Note:** Prior to v3.1.0, OAuth failures could result in confusing downstream errors like `TypeError: expected str, got NoneType`. The improved error handling now shows the actual OAuth response immediately.
+
 ### JWT Authentication Deprecated
 
 **Symptoms:**
@@ -345,6 +384,124 @@ uv add --upgrade cjapy
 # Verify installation
 uv pip list | grep cjapy
 ```
+
+---
+
+## API Permission Errors
+
+### Missing AEP API Integration
+
+**Symptoms:**
+```
+ERROR - Failed to fetch segments: 403 Forbidden
+ERROR - Unable to retrieve calculated metrics
+WARNING - Inventory features may be unavailable
+```
+
+**Cause:** Your Adobe Developer Console project only has the CJA API added, but is missing the **AEP (Adobe Experience Platform) API**. The AEP API associates your service account with an Experience Platform product profile, which is required for CJA API authentication.
+
+**Solution:**
+
+1. Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+2. Open your existing project
+3. Click **"Add API"**
+4. Search for **"Experience Platform API"**
+5. Select **"Experience Platform API"** and click **"Next"**
+6. Choose **"OAuth Server-to-Server"**
+7. Select appropriate product profiles with AEP permissions
+8. Click **"Save configured API"**
+
+See the [Quickstart Guide](QUICKSTART_GUIDE.md#15-add-the-adobe-experience-platform-aep-api) for detailed instructions.
+
+### Insufficient AEP Permissions
+
+**Symptoms:**
+```
+ERROR - 403 Forbidden
+WARNING - Cannot access sandbox 'prod'
+```
+
+**Cause:** Your user or service account is not associated with an Experience Platform product profile.
+
+**Solution:**
+
+1. Contact your Adobe Admin Console administrator
+2. Request to be added to AEP product profiles
+3. After permissions are granted, wait 5-10 minutes for propagation
+4. Test with:
+   ```bash
+   uv run cja_auto_sdr --validate-config
+   ```
+
+### CJA Product Admin Rights Not Configured
+
+**Symptoms:**
+```
+ERROR - Data view not accessible
+WARNING - Limited data view access
+ERROR - Cannot list metrics or dimensions
+```
+
+**Cause:** The API credentials don't have CJA Product Admin rights assigned.
+
+**Solution:**
+
+1. Go to [Adobe Admin Console](https://adminconsole.adobe.com/)
+2. Navigate to **Products** → **Customer Journey Analytics**
+3. Select the appropriate **Product Profile**
+4. Add your service account or user to the profile
+5. Ensure the profile has access to the required Data Views
+
+### OAuth Scopes Missing or Incorrect
+
+**Symptoms:**
+```
+ERROR - Authentication failed: insufficient_scope
+WARNING - Token missing required scopes
+```
+
+**Cause:** The OAuth scopes in your configuration don't match what's configured in Adobe Developer Console.
+
+**Solution:**
+
+1. Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+2. Open your project and navigate to **OAuth Server-to-Server** credentials
+3. Copy the **Scopes** value exactly as shown
+4. Update your `config.json`:
+   ```json
+   {
+     "org_id": "YOUR_ORG_ID@AdobeOrg",
+     "client_id": "YOUR_CLIENT_ID",
+     "secret": "YOUR_CLIENT_SECRET",
+     "scopes": "paste_exact_scopes_from_console"
+   }
+   ```
+5. Test the connection:
+   ```bash
+   uv run cja_auto_sdr --validate-config
+   ```
+
+### Verifying API Permissions
+
+To diagnose permission issues, run with debug logging:
+
+```bash
+# Check basic CJA access
+uv run cja_auto_sdr --list-dataviews --log-level DEBUG
+
+# Check inventory access
+uv run cja_auto_sdr dv_12345 --include-segments --log-level DEBUG 2>&1 | grep -i "403\|forbidden\|permission"
+```
+
+**Checklist for proper API setup:**
+
+- [ ] CJA API added to Developer Console project
+- [ ] AEP API added to Developer Console project
+- [ ] OAuth Server-to-Server authentication configured
+- [ ] Correct product profile(s) selected for both APIs
+- [ ] User/service account added to CJA product profile in Admin Console
+- [ ] User/service account added to AEP product profile(s) in Admin Console
+- [ ] Scopes in config.json match Developer Console exactly
 
 ---
 
@@ -1206,6 +1363,251 @@ ERROR: --cache-ttl must be at least 1 second
 
 ---
 
+## Inventory Feature Issues
+
+The inventory features (`--include-segments`, `--include-calculated`, `--include-derived`) document CJA components beyond the standard SDR output. These features work in both SDR mode and snapshot diff mode (same data view over time).
+
+> **Note:** `--include-derived` is for SDR generation only, not snapshot diff. Derived fields are already included in the standard metrics/dimensions API output, so changes are automatically captured in the Metrics/Dimensions diff sections.
+
+### Using --include-all-inventory
+
+The `--include-all-inventory` flag is a shorthand that enables all inventory types with **smart mode detection**:
+
+```bash
+# Shorthand for all inventories (SDR mode)
+cja_auto_sdr dv_12345 --include-all-inventory
+
+# Equivalent to:
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
+```
+
+**Smart mode detection:** When used with snapshot or diff modes, `--include-all-inventory` automatically excludes `--include-derived` (since derived fields don't support diff):
+
+```bash
+# In snapshot mode, --include-all-inventory enables only segments and calculated metrics
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory
+# Equivalent to: --include-segments --include-calculated (no --include-derived)
+
+# In diff-snapshot mode, same behavior
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-all-inventory
+```
+
+### Using --inventory-summary
+
+The `--inventory-summary` flag provides quick inventory statistics without generating full output files:
+
+```bash
+# Quick stats for all inventories
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-summary
+
+# Quick stats for specific inventory
+cja_auto_sdr dv_12345 --include-segments --inventory-summary
+```
+
+**Symptoms when misused:**
+```
+ERROR: --inventory-summary requires at least one of: --include-segments, --include-derived, --include-calculated
+```
+
+**Solution:** Add at least one inventory flag:
+```bash
+cja_auto_sdr dv_12345 --include-segments --inventory-summary
+# Or use the shorthand:
+cja_auto_sdr dv_12345 --include-all-inventory --inventory-summary
+```
+
+### Inventory Options Not Compatible with Cross-DV Diff
+
+**Symptoms:**
+```
+ERROR: --include-segments cannot be used with --diff (cross-data-view comparisons)
+```
+
+**Cause:** Inventory options are not supported for cross-data-view diff (`--diff`) because calculated metrics, segments, and derived fields use data-view-scoped IDs that cannot be matched across different data views.
+
+**Solutions:**
+1. For cross-DV diff, remove the inventory flag:
+   ```bash
+   # Wrong - inventory with cross-DV diff
+   cja_auto_sdr --diff dv_12345 dv_67890 --include-segments
+
+   # Correct - cross-DV diff only
+   cja_auto_sdr --diff dv_12345 dv_67890
+   ```
+
+2. For same-data-view comparisons over time, use snapshot diff with inventory:
+   ```bash
+   # Create baseline snapshot with inventory
+   cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-segments
+
+   # Compare current state against baseline (inventory diff supported)
+   cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-segments
+   ```
+
+### Inventory-Only Not Compatible with Diff Modes
+
+**Symptoms:**
+```
+ERROR: --inventory-only is only available in SDR mode, not with --diff-snapshot
+ERROR: --inventory-only is only available in SDR mode, not with --compare-snapshots
+```
+
+**Cause:** The `--inventory-only` flag is for SDR generation only. In diff mode, you compare inventories as part of the diff output, not as standalone sheets.
+
+**Solution:** Remove `--inventory-only` when using diff modes:
+```bash
+# Wrong - inventory-only with diff
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-segments --inventory-only
+
+# Correct - inventory diff without --inventory-only
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-segments
+```
+
+### Inventory-Only Requires Include Flag
+
+**Symptoms:**
+```
+ERROR: --inventory-only requires at least one of: --include-segments, --include-derived, --include-calculated
+```
+
+**Cause:** The `--inventory-only` flag skips standard SDR sheets but requires at least one inventory type to generate.
+
+**Solutions:**
+```bash
+# Wrong - inventory-only without include flag
+cja_auto_sdr dv_12345 --inventory-only
+
+# Correct - specify which inventories to include
+cja_auto_sdr dv_12345 --include-segments --inventory-only
+cja_auto_sdr dv_12345 --include-calculated --include-derived --inventory-only
+cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived --inventory-only
+```
+
+### No Segments Found
+
+**Symptoms:**
+```
+INFO - No segments found for data view dv_12345
+WARNING - Segments inventory is empty
+```
+
+**Causes:**
+- No segments are associated with the data view
+- API credentials don't have permission to read segments
+- The `getFilters` API endpoint is not accessible
+
+**Solutions:**
+1. Verify segments exist in CJA UI for the data view
+2. Check API permissions include segment read access
+3. Test API connectivity:
+   ```bash
+   uv run cja_auto_sdr dv_12345 --include-segments --log-level DEBUG
+   ```
+
+### No Derived Fields Found
+
+**Symptoms:**
+```
+INFO - No derived fields found in data view dv_12345
+WARNING - Derived fields inventory is empty
+```
+
+**Causes:**
+- Data view has no derived fields configured
+- Derived fields are not exposed in the API response
+
+**Solutions:**
+1. Verify derived fields exist in CJA data view settings
+2. Check that derived fields are included in the data view's component list
+
+### No Calculated Metrics Found
+
+**Symptoms:**
+```
+INFO - No calculated metrics found for data view dv_12345
+WARNING - Calculated metrics inventory is empty
+```
+
+**Causes:**
+- No calculated metrics are associated with the data view
+- API credentials don't have permission to read calculated metrics
+
+**Solutions:**
+1. Verify calculated metrics exist and are associated with the data view in CJA
+2. Check API permissions include calculated metrics read access
+
+### Complexity Score Appears Incorrect
+
+**Symptoms:** Complexity scores seem too high or too low for certain components.
+
+**Understanding complexity scores:**
+- Scores range from 0-100
+- Factors vary by inventory type (see documentation for weights)
+- Scores are relative, not absolute measures
+
+**Complexity Score Factors:**
+
+| Inventory | Key Factors |
+|-----------|-------------|
+| Segments | Predicates (30%), logic operators (20%), nesting (20%), references (20%), regex (10%) |
+| Derived Fields | Operators (30%), branches (25%), nesting (20%), functions (10%), schema fields (10%), regex (5%) |
+| Calculated Metrics | Operators (25%), metric refs (25%), nesting (20%), functions (15%), segments (10%), conditionals (5%) |
+
+**Interpreting scores:**
+| Score | Complexity | Typical Characteristics |
+|-------|------------|------------------------|
+| 0-25 | Low | Simple, single operation |
+| 26-50 | Moderate | Multiple conditions or references |
+| 51-75 | Elevated | Nested logic, multiple components |
+| 76-100 | High | Complex sequential or multi-layered logic |
+
+### Inventory Sheet Missing from Output
+
+**Symptoms:** Requested inventory sheet doesn't appear in output.
+
+**Causes:**
+- No components of that type exist
+- API returned empty data
+- Output format doesn't support the inventory type
+
+**Solutions:**
+1. Check logs for "No {type} found" messages
+2. Verify the component type exists in the data view
+3. Run with debug logging:
+   ```bash
+   cja_auto_sdr dv_12345 --include-segments --log-level DEBUG
+   ```
+
+### Inventory Processing Slow
+
+**Symptoms:** Adding inventory flags significantly increases processing time.
+
+**Cause:** Each inventory type requires additional API calls to fetch component data.
+
+**Solutions:**
+1. Only include inventories you need:
+   ```bash
+   # Instead of all three (or --include-all-inventory)
+   cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
+
+   # Include only what you need
+   cja_auto_sdr dv_12345 --include-segments
+   ```
+
+2. Use `--inventory-summary` for quick stats without full output (v3.1.0):
+   ```bash
+   # Quick check of inventory counts and complexity
+   cja_auto_sdr dv_12345 --include-all-inventory --inventory-summary
+   ```
+
+3. Use `--inventory-only` for focused inventory output:
+   ```bash
+   # Skip standard SDR sheets for faster inventory-only output
+   cja_auto_sdr dv_12345 --include-all-inventory --inventory-only
+   ```
+
+---
+
 ## Git & Repository Issues
 
 ### GitHub Authentication Failed When Cloning
@@ -1299,6 +1701,8 @@ uv run cja_auto_sdr dv_1 dv_2 dv_3 --workers 2 --retry-base-delay 1.5
 ---
 
 ## Dependency Issues
+
+> **Recommended cjapy version:** v3.1.0 requires cjapy 0.2.4-3 or later for improved OAuth error handling. Users on older versions may see confusing errors when authentication fails. Upgrade with: `uv add --upgrade cjapy`
 
 ### Module Not Found
 
@@ -1771,6 +2175,17 @@ Get-Content (Get-ChildItem logs\*.log | Sort-Object LastWriteTime -Descending | 
 | `API call failed: {error}` | General API error | Check logs |
 | `All {N} attempts failed for {operation}` | Retries exhausted | Check network/credentials |
 | `HTTP 429: Too Many Requests` | Rate limited | Reduce workers, increase delays |
+| `OAuth response missing required fields. Response: {...}` | OAuth authentication failed (v3.1.0+) | Check the response error - see [OAuth Token Retrieval Failed](#oauth-token-retrieval-failed-v310) |
+
+### API Permission Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `403 Forbidden when accessing segments` | Missing AEP API for auth | Add AEP API to Developer Console project |
+| `Failed to fetch calculated metrics` | Missing AEP API for auth | Add AEP API to Developer Console project |
+| `Cannot access sandbox` | Sandbox permission denied | Add sandbox access to product profile |
+| `Authentication failed: insufficient_scope` | Wrong OAuth scopes | Copy scopes exactly from Developer Console |
+| `Permission denied for schema access` | Missing AEP API for auth | Add AEP API to Developer Console project |
 
 ### Data View Errors
 
@@ -1813,6 +2228,18 @@ Get-Content (Get-ChildItem logs\*.log | Sort-Object LastWriteTime -Descending | 
 | `Diff requires exactly 2 data views` | Wrong number of args to `--diff` | Provide exactly 2 identifiers |
 | `Cannot create snapshot directory` | Permission denied | Check directory permissions |
 | `--format console` not supported for SDR | Console is diff-only | Use excel, csv, json, html, or markdown |
+
+### Inventory Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `--include-segments cannot be used with --diff` | Inventory not supported for cross-DV diff | Use snapshot diff for same DV, or remove flag |
+| `--inventory-only requires at least one of: --include-*` | No inventory type specified | Add `--include-segments`, `--include-derived`, `--include-calculated`, or `--include-all-inventory` |
+| `--inventory-only is only available in SDR mode` | Inventory-only is SDR feature | Remove `--inventory-only` in diff mode |
+| `--inventory-summary requires at least one of: --include-*` | No inventory type specified | Add an inventory flag or use `--include-all-inventory` |
+| `No segments found for data view` | No segments in data view | Verify segments exist in CJA UI |
+| `No derived fields found in data view` | No derived fields configured | Check data view settings |
+| `No calculated metrics found for data view` | No calculated metrics | Verify metrics are associated with data view |
 
 ### Profile Errors
 
@@ -1863,6 +2290,9 @@ If you encounter issues not covered here:
 - [Installation Guide](INSTALLATION.md) - Setup instructions
 - [CLI Reference](CLI_REFERENCE.md) - Complete command options
 - [Data View Comparison Guide](DIFF_COMPARISON.md) - Diff, snapshots, and CI/CD integration
+- [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter inventory documentation
+- [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field inventory documentation
+- [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics inventory documentation
 - [Performance Guide](PERFORMANCE.md) - Optimization options
 - [Data Quality Guide](DATA_QUALITY.md) - Understanding validation
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Multi-data view processing
