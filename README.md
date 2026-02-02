@@ -227,7 +227,7 @@ python cja_sdr_generator.py "Production Analytics"
 | Include segments inventory | `cja_auto_sdr dv_12345 --include-segments` |
 | Include derived fields (SDR only) | `cja_auto_sdr dv_12345 --include-derived` |
 | Include calculated metrics | `cja_auto_sdr dv_12345 --include-calculated` |
-| Include all inventories | `cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived` |
+| Include all inventories | `cja_auto_sdr dv_12345 --include-all-inventory` |
 | Inventory-only output | `cja_auto_sdr dv_12345 --include-segments --inventory-only` |
 | **Output Formats** | |
 | Export as Excel (default) | `cja_auto_sdr dv_12345 --format excel` |
@@ -299,34 +299,39 @@ python cja_sdr_generator.py "Production Analytics"
 
 ```
 cja_auto_sdr/
-├── cja_sdr_generator.py     # Main script (single-file application)
-├── pyproject.toml           # Project configuration and dependencies
-├── uv.lock                  # Dependency lock file for reproducible builds
-├── README.md                # This file
-├── CHANGELOG.md             # Version history and release notes
-├── LICENSE                  # License file
-├── config.json              # Your credentials (DO NOT COMMIT)
-├── config.json.example      # Config file template
-├── .env.example             # Environment variable template
-├── docs/                    # Documentation (19 guides)
-│   ├── QUICKSTART_GUIDE.md  # Getting started guide
-│   ├── CONFIGURATION.md     # Profiles, config.json & env vars
-│   ├── CLI_REFERENCE.md     # Command-line reference
-│   ├── DIFF_COMPARISON.md   # Data view comparison guide
-│   ├── GIT_INTEGRATION.md   # Git integration guide
-│   ├── INSTALLATION.md      # Setup instructions
-│   └── ...                  # Additional guides
-├── tests/                   # Test suite (1,017 tests)
-├── sample_outputs/          # Example output files
-│   ├── excel/               # Sample Excel SDR
-│   ├── csv/                 # Sample CSV output
-│   ├── json/                # Sample JSON output
-│   ├── html/                # Sample HTML output
-│   ├── markdown/            # Sample Markdown output
-│   ├── diff/                # Sample diff comparison outputs
-│   └── git-snapshots/       # Sample Git integration snapshots
-├── logs/                    # Generated log files
-└── *.xlsx                   # Generated SDR files
+├── cja_sdr_generator.py              # Main SDR generator script
+├── cja_calculated_metrics_inventory.py  # Calculated metrics inventory module
+├── cja_derived_fields_inventory.py   # Derived fields inventory module
+├── cja_segments_inventory.py         # Segments inventory module
+├── cja_inventory_utils.py            # Shared inventory utilities
+├── pyproject.toml                    # Project configuration and dependencies
+├── uv.lock                           # Dependency lock file for reproducible builds
+├── README.md                         # This file
+├── CHANGELOG.md                      # Version history and release notes
+├── LICENSE                           # License file
+├── config.json                       # Your credentials (DO NOT COMMIT)
+├── config.json.example               # Config file template
+├── .env.example                      # Environment variable template
+├── docs/                             # Documentation (19 guides)
+│   ├── QUICKSTART_GUIDE.md           # Getting started guide
+│   ├── CONFIGURATION.md              # Profiles, config.json & env vars
+│   ├── CLI_REFERENCE.md              # Command-line reference
+│   ├── INVENTORY_OVERVIEW.md         # Unified inventory guide
+│   ├── DIFF_COMPARISON.md            # Data view comparison guide
+│   ├── GIT_INTEGRATION.md            # Git integration guide
+│   └── ...                           # Additional guides
+├── tests/                            # Test suite
+├── sample_outputs/                   # Example output files
+│   ├── excel/                        # Sample Excel SDR
+│   ├── csv/                          # Sample CSV output
+│   ├── json/                         # Sample JSON output
+│   ├── html/                         # Sample HTML output
+│   ├── markdown/                     # Sample Markdown output
+│   ├── diff/                         # Sample diff comparison outputs
+│   └── git-snapshots/                # Sample Git integration snapshots
+├── snapshots/                        # Saved Data View snapshots
+├── logs/                             # Generated log files
+└── *.xlsx                            # Generated SDR files
 ```
 
 ## License
