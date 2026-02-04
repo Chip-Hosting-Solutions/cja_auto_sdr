@@ -36,15 +36,20 @@ def run_pytest_collect() -> str:
 
 
 def parse_counts(collect_output: str) -> Dict[str, int]:
-    module_re = re.compile(r"^\s*<Module (test_[^>]+)>")
+    module_re = re.compile(r"^\s*<Module ([^>]+)>")
     func_re = re.compile(r"^\s*<Function ")
     counts: Dict[str, int] = {}
     current: str | None = None
     for line in collect_output.splitlines():
         mod_match = module_re.match(line)
         if mod_match:
-            current = mod_match.group(1)
-            counts.setdefault(current, 0)
+            module_path = mod_match.group(1).strip()
+            module_name = Path(module_path).name
+            if module_name.startswith("test_"):
+                current = module_name
+                counts.setdefault(current, 0)
+            else:
+                current = None
             continue
         if current and func_re.match(line):
             counts[current] += 1

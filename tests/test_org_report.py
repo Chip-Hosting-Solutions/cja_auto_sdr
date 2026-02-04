@@ -479,6 +479,74 @@ class TestOrgComponentAnalyzer:
         assert len(pairs) == 1
         assert pairs[0].jaccard_similarity == pytest.approx(0.9, abs=0.0001)
 
+    def test_similarity_guardrail_skips_matrix(self, mock_cja, mock_logger):
+        """Guardrail should skip similarity when DV count exceeds limit."""
+        config = OrgReportConfig(similarity_max_dvs=1)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        data_views = [{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}]
+        summaries = [
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m2"}, dimension_ids=set()),
+        ]
+
+        with patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)), \
+             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
+             patch.object(analyzer, "_build_component_index", return_value={}), \
+             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
+             patch.object(analyzer, "_generate_recommendations", return_value=[]), \
+             patch.object(analyzer, "_compute_similarity_matrix") as compute_similarity:
+            result = analyzer.run_analysis()
+
+        assert result.similarity_pairs is None
+        compute_similarity.assert_not_called()
+
+    def test_similarity_guardrail_force_override(self, mock_cja, mock_logger):
+        """Force flag should override similarity guardrail."""
+        config = OrgReportConfig(similarity_max_dvs=1, force_similarity=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        data_views = [{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}]
+        summaries = [
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m2"}, dimension_ids=set()),
+        ]
+
+        with patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)), \
+             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
+             patch.object(analyzer, "_build_component_index", return_value={}), \
+             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
+             patch.object(analyzer, "_generate_recommendations", return_value=[]), \
+             patch.object(analyzer, "_compute_similarity_matrix", return_value=[] ) as compute_similarity:
+            result = analyzer.run_analysis()
+
+        assert result.similarity_pairs == []
+        compute_similarity.assert_called_once()
+
+    def test_cache_put_many_used_for_batch(self, mock_cja, mock_logger):
+        """Cache writes should batch via put_many to avoid per-DV disk writes."""
+        config = OrgReportConfig(use_cache=True)
+        cache = Mock()
+        cache.get.return_value = None
+
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger, cache=cache)
+
+        data_views = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+
+        summaries = [
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m2"}, dimension_ids=set()),
+        ]
+
+        with patch.object(analyzer, "_fetch_data_view_components", side_effect=summaries):
+            analyzer._fetch_all_data_views(data_views)
+
+        cache.put_many.assert_called_once()
+        cache.put.assert_not_called()
+
     def test_run_analysis_recommends_high_overlap_from_floor(self, mock_cja, mock_logger):
         """Test run_analysis emits overlap recommendations from >=0.9 floor"""
         config = OrgReportConfig(overlap_threshold=0.95)

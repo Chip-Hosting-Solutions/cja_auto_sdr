@@ -8799,6 +8799,23 @@ Requirements:
     )
 
     org_group.add_argument(
+        '--similarity-max-dvs',
+        type=int,
+        metavar='N',
+        dest='org_similarity_max_dvs',
+        default=250,
+        help='Guardrail to skip similarity when data views exceed N (default: 250). '
+             'Use --force-similarity to override.'
+    )
+
+    org_group.add_argument(
+        '--force-similarity',
+        action='store_true',
+        dest='org_force_similarity',
+        help='Force similarity matrix even if guardrails would skip it'
+    )
+
+    org_group.add_argument(
         '--include-names',
         action='store_true',
         dest='org_include_names',
@@ -8839,6 +8856,13 @@ Requirements:
         action='store_true',
         dest='org_include_drift',
         help='Include component drift details showing exact differences between similar DV pairs'
+    )
+
+    org_group.add_argument(
+        '--org-shared-client',
+        action='store_true',
+        dest='org_shared_client',
+        help='Use a single shared cjapy client across threads (faster, but may be unsafe if cjapy is not thread-safe)'
     )
 
     # Sampling options
@@ -13445,6 +13469,8 @@ def main():
             verbose=getattr(args, 'org_verbose', False),
             include_names=getattr(args, 'org_include_names', False),
             skip_similarity=getattr(args, 'skip_similarity', False),
+            similarity_max_dvs=getattr(args, 'org_similarity_max_dvs', 250),
+            force_similarity=getattr(args, 'org_force_similarity', False),
             # Existing options
             include_component_types=not getattr(args, 'no_component_types', False),
             include_metadata=getattr(args, 'org_include_metadata', False),
@@ -13458,6 +13484,7 @@ def main():
             enable_clustering=getattr(args, 'org_cluster', False),
             cluster_method=getattr(args, 'org_cluster_method', 'average'),
             quiet=args.quiet,
+            cja_per_thread=not getattr(args, 'org_shared_client', False),
             # Feature 1: Governance thresholds
             duplicate_threshold=getattr(args, 'org_duplicate_threshold', None),
             isolated_threshold=getattr(args, 'org_isolated_threshold', None),

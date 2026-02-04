@@ -263,6 +263,14 @@ If `scipy` is not installed and `--cluster` is used, a warning is logged and clu
 | Option | Description |
 |--------|-------------|
 | `--skip-similarity` | Skip O(n²) pairwise similarity calculation |
+| `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N (default: 250) |
+| `--force-similarity` | Force similarity even if guardrails would skip it |
+
+### Concurrency Options
+
+| Option | Description |
+|--------|-------------|
+| `--org-shared-client` | Use a single shared cjapy client across threads (faster, but may be unsafe if cjapy is not thread-safe) |
 
 ### Output Options
 

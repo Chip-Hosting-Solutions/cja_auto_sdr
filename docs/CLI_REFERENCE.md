@@ -256,6 +256,8 @@ Analyze component usage patterns across all data views in your organization.
 | `--limit N` | Analyze only the first N data views (useful for testing) | - |
 | `--include-names` | Fetch and display component names (slower but more readable) | False |
 | `--skip-similarity` | Skip O(n²) pairwise similarity calculation (faster for large orgs) | False |
+| `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N (use `--force-similarity` to override) | 250 |
+| `--force-similarity` | Force similarity matrix even if guardrails would skip it | False |
 | `--org-summary` | Show only summary statistics, suppress detailed component lists | False |
 | `--org-verbose` | Include full component lists and detailed breakdowns in output | False |
 
@@ -292,6 +294,12 @@ Analyze component usage patterns across all data views in your organization.
 | `--refresh-cache` | Clear the org-report cache and fetch fresh data | False |
 
 Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
+
+#### Concurrency Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--org-shared-client` | Use a single shared cjapy client across threads (faster, but may be unsafe if cjapy is not thread-safe) | False |
 
 #### Clustering Options
 

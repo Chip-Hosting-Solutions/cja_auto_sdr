@@ -140,7 +140,42 @@ class OrgReportCache:
             include_metadata: Whether metadata was included in the summary
             include_component_types: Whether component type counts were included
         """
-        self._cache[summary.data_view_id] = {
+        self._cache[summary.data_view_id] = self._build_entry(
+            summary,
+            include_names=include_names,
+            include_metadata=include_metadata,
+            include_component_types=include_component_types,
+        )
+        self._save_cache()
+
+    def put_many(
+        self,
+        summaries: list[DataViewSummary],
+        include_names: bool = False,
+        include_metadata: bool = False,
+        include_component_types: bool = False,
+    ) -> None:
+        """Store multiple DataViewSummary objects in the cache with a single disk write."""
+        if not summaries:
+            return
+        for summary in summaries:
+            self._cache[summary.data_view_id] = self._build_entry(
+                summary,
+                include_names=include_names,
+                include_metadata=include_metadata,
+                include_component_types=include_component_types,
+            )
+        self._save_cache()
+
+    def _build_entry(
+        self,
+        summary: DataViewSummary,
+        *,
+        include_names: bool,
+        include_metadata: bool,
+        include_component_types: bool,
+    ) -> Dict[str, Any]:
+        return {
             'data_view_id': summary.data_view_id,
             'data_view_name': summary.data_view_name,
             'metric_ids': list(summary.metric_ids),
@@ -168,7 +203,6 @@ class OrgReportCache:
             'include_component_types': include_component_types,
             'fetched_at': datetime.now().isoformat(),
         }
-        self._save_cache()
 
     def invalidate(self, dv_id: Optional[str] = None) -> None:
         """Clear cache entries.

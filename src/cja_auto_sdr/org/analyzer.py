@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -63,6 +64,7 @@ class OrgComponentAnalyzer:
         self.logger = logger
         self.org_id = org_id
         self.cache = cache
+        self._thread_local = threading.local()
 
         # Handle cache clear option
         if config.clear_cache and self.cache:
@@ -120,12 +122,25 @@ class OrgComponentAnalyzer:
         # 5. Compute similarity matrix (if not skipped and not org-stats mode)
         similarity_pairs = None
         if not self.config.skip_similarity and not self.config.org_stats_only:
-            self.logger.info("Computing similarity matrix...")
-            similarity_pairs = self._compute_similarity_matrix(summaries)
-            effective_threshold = min(self.config.overlap_threshold, 0.9)
-            self.logger.info(
-                f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
-            )
+            max_dvs = self.config.similarity_max_dvs
+            if (
+                max_dvs is not None
+                and len(successful_summaries) > max_dvs
+                and not self.config.force_similarity
+            ):
+                self.logger.warning(
+                    "Skipping similarity matrix: %s data views exceed guardrail of %s. "
+                    "Use --force-similarity or increase --similarity-max-dvs to override.",
+                    len(successful_summaries),
+                    max_dvs,
+                )
+            else:
+                self.logger.info("Computing similarity matrix...")
+                similarity_pairs = self._compute_similarity_matrix(summaries)
+                effective_threshold = min(self.config.overlap_threshold, 0.9)
+                self.logger.info(
+                    f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
+                )
         elif self.config.org_stats_only:
             self.logger.info("Skipping similarity matrix (--org-stats mode)")
         else:
@@ -357,6 +372,8 @@ class OrgComponentAnalyzer:
         if not to_fetch:
             return summaries
 
+        pending_cache: List[DataViewSummary] = []
+
         # Use ThreadPoolExecutor for parallel fetches
         with ThreadPoolExecutor(max_workers=min(10, len(to_fetch))) as executor:
             futures = {
@@ -379,14 +396,9 @@ class OrgComponentAnalyzer:
                         summary = future.result()
                         summaries.append(summary)
 
-                        # Store in cache if enabled
+                        # Store in cache if enabled (batch to reduce disk writes)
                         if self.config.use_cache and self.cache and not summary.error:
-                            self.cache.put(
-                                summary,
-                                include_names=self.config.include_names,
-                                include_metadata=self.config.include_metadata,
-                                include_component_types=self.config.include_component_types
-                            )
+                            pending_cache.append(summary)
 
                         if summary.error:
                             pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
@@ -401,7 +413,26 @@ class OrgComponentAnalyzer:
                         ))
                     pbar.update(1)
 
+        if self.config.use_cache and self.cache and pending_cache:
+            self.cache.put_many(
+                pending_cache,
+                include_names=self.config.include_names,
+                include_metadata=self.config.include_metadata,
+                include_component_types=self.config.include_component_types,
+            )
+
         return summaries
+
+    def _get_thread_client(self):
+        if not self.config.cja_per_thread:
+            return self.cja
+
+        client = getattr(self._thread_local, "cja", None)
+        if client is None:
+            import cjapy
+            client = cjapy.CJA()
+            self._thread_local.cja = client
+        return client
 
     def _fetch_data_view_components(self, dv: Dict[str, Any]) -> DataViewSummary:
         """Fetch metrics and dimensions for a single data view.
@@ -417,8 +448,9 @@ class OrgComponentAnalyzer:
         start_time = time.time()
 
         try:
+            cja = self._get_thread_client()
             # Fetch metrics
-            metrics_df = self.cja.getMetrics(dv_id, inclType=True, full=True)
+            metrics_df = cja.getMetrics(dv_id, inclType=True, full=True)
             metric_ids = set()
             metric_names = None
             standard_metric_count = 0
@@ -444,7 +476,7 @@ class OrgComponentAnalyzer:
                             standard_metric_count += 1
 
             # Fetch dimensions
-            dimensions_df = self.cja.getDimensions(dv_id, inclType=True, full=True)
+            dimensions_df = cja.getDimensions(dv_id, inclType=True, full=True)
             dimension_ids = set()
             dimension_names = None
             standard_dimension_count = 0
@@ -473,7 +505,7 @@ class OrgComponentAnalyzer:
             calculated_metric_count = 0
             if self.config.include_component_types:
                 try:
-                    calc_metrics = self.cja.getCalculatedMetrics(
+                    calc_metrics = cja.getCalculatedMetrics(
                         dataViewId=dv_id,
                         full=False
                     )
@@ -497,7 +529,7 @@ class OrgComponentAnalyzer:
             if self.config.include_metadata:
                 try:
                     # Try to get detailed data view info
-                    dv_details = self.cja.getDataView(dv_id)
+                    dv_details = cja.getDataView(dv_id)
                     if dv_details is not None:
                         if isinstance(dv_details, dict):
                             # Extract owner using utility function

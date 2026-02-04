@@ -69,6 +69,11 @@ class OrgReportConfig:
     enable_clustering: bool = False
     cluster_method: str = "average"  # 'average' or 'complete' work with Jaccard distances; 'ward' requires Euclidean
     quiet: bool = False  # Suppress progress output (tqdm)
+    # Similarity guardrails
+    similarity_max_dvs: Optional[int] = 250  # Skip similarity if DVs exceed this count (unless forced)
+    force_similarity: bool = False  # Force similarity even if guardrails would skip
+    # Threading safety
+    cja_per_thread: bool = True  # Use a separate cjapy client per thread for safety
     # Recommendation thresholds
     isolated_review_threshold: int = 20  # Min isolated components per DV to trigger review recommendation
     # Governance thresholds (Feature 1)
