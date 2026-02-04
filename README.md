@@ -232,7 +232,7 @@ cja_auto_sdr "Production Analytics"
 | Include segments inventory | `cja_auto_sdr dv_12345 --include-segments` |
 | Include derived fields (SDR only) | `cja_auto_sdr dv_12345 --include-derived` |
 | Include calculated metrics | `cja_auto_sdr dv_12345 --include-calculated` |
-| Include all inventories | `cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived` |
+| Include all inventories | `cja_auto_sdr dv_12345 --include-all-inventory` |
 | Inventory-only output | `cja_auto_sdr dv_12345 --include-segments --inventory-only` |
 | **Output Formats** | |
 | Export as Excel (default) | `cja_auto_sdr dv_12345 --format excel` |
@@ -324,12 +324,17 @@ cja_auto_sdr/
 │   └── cja_auto_sdr/        # Main package (src-layout)
 │       ├── __init__.py      # Package init with version
 │       ├── generator.py     # Main SDR generator
-│       └── inventory/       # Inventory subpackage
+│       ├── inventory/       # Inventory subpackage
+│       │   ├── __init__.py
+│       │   ├── utils.py
+│       │   ├── calculated_metrics.py
+│       │   ├── derived_fields.py
+│       │   └── segments.py
+│       └── org/             # Org-wide analysis subpackage
 │           ├── __init__.py
-│           ├── utils.py
-│           ├── calculated_metrics.py
-│           ├── derived_fields.py
-│           └── segments.py
+│           ├── models.py    # Data classes for org analysis
+│           ├── cache.py     # Report caching
+│           └── analyzer.py  # OrgComponentAnalyzer
 ├── scripts/                 # Utility scripts
 ├── pyproject.toml           # Project configuration and dependencies
 ├── uv.lock                  # Dependency lock file for reproducible builds
@@ -343,11 +348,12 @@ cja_auto_sdr/
 │   ├── QUICKSTART_GUIDE.md  # Getting started guide
 │   ├── CONFIGURATION.md     # Profiles, config.json & env vars
 │   ├── CLI_REFERENCE.md     # Command-line reference
+│   ├── INVENTORY_OVERVIEW.md # Unified inventory guide
 │   ├── DIFF_COMPARISON.md   # Data view comparison guide
 │   ├── GIT_INTEGRATION.md   # Git integration guide
-│   ├── INSTALLATION.md      # Setup instructions
+│   ├── ORG_WIDE_ANALYSIS.md # Org-wide report guide
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (1,120+ tests)
+├── tests/                   # Test suite (1,150+ tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output
@@ -356,6 +362,7 @@ cja_auto_sdr/
 │   ├── markdown/            # Sample Markdown output
 │   ├── diff/                # Sample diff comparison outputs
 │   └── git-snapshots/       # Sample Git integration snapshots
+├── snapshots/               # Saved Data View snapshots
 ├── logs/                    # Generated log files
 └── *.xlsx                   # Generated SDR files
 ```
