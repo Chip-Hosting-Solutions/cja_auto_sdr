@@ -856,12 +856,14 @@ Basic snapshot without inventory data:
     { "id": "dimensions/page", "name": "Page", "type": "string", ... }
   ],
   "metadata": {
-    "tool_version": "3.2.0",
+    "tool_version": "x.y.z",
     "metrics_count": 150,
     "dimensions_count": 75
   }
 }
 ```
+
+> **Note:** `tool_version` reflects the version of the tool that created the snapshot.
 
 ### Version 2.0 (With Inventory)
 
@@ -904,7 +906,7 @@ When created with `--include-calculated`, `--include-segments`, or `--include-al
     }
   ],
   "metadata": {
-    "tool_version": "3.2.0",
+    "tool_version": "x.y.z",
     "metrics_count": 150,
     "dimensions_count": 75,
     "calculated_metrics_count": 25,

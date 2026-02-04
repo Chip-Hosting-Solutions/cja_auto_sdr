@@ -45,6 +45,12 @@ MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
 AUTO_WORKERS_SENTINEL: int = 0          # Sentinel value to trigger auto-detection
 DEFAULT_ORG_REPORT_WORKERS: int = 10    # Max concurrent workers for org-wide data view fetches
 
+# ==================== GOVERNANCE THRESHOLDS ====================
+
+# Maximum overlap threshold for governance similarity checks
+# Pairs >= 90% similarity are always flagged for governance, regardless of --overlap-threshold
+GOVERNANCE_MAX_OVERLAP_THRESHOLD: float = 0.9
+
 # ==================== CACHE DEFAULTS ====================
 
 DEFAULT_CACHE_SIZE: int = 1000          # Maximum cached validation results

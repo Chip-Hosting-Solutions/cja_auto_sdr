@@ -139,11 +139,37 @@ This release introduces **org-wide component analysis** for governance and stand
 
 ### Changed
 - Updated version to 3.2.0
+- **Package restructuring**: Migrated to `src/cja_auto_sdr/` layout with modular subpackages
+- **Entry point**: Changed from `cja_sdr_generator:main` to `cja_auto_sdr.generator:main`
+- **Dynamic versioning**: Version now read from `src/cja_auto_sdr/core/version.py`
 
 ### Dependencies
 - **scipy** is an optional dependency for clustering features - install with `uv pip install 'cja-auto-sdr[clustering]'`
 - New `clustering` extra for scipy dependency
 - New `full` extra that bundles clustering, env, and completion extras
+
+### Breaking Changes
+
+**Entry Point Change**
+
+The internal module structure has been reorganized. If you have custom integrations that import directly from the module:
+
+```python
+# Old (v3.1.0 and earlier)
+from cja_sdr_generator import main
+
+# New (v3.2.0)
+from cja_auto_sdr.generator import main
+# Or use the package-level import:
+from cja_auto_sdr import main
+```
+
+**CLI commands are unchanged** - `cja_auto_sdr` and `cja-auto-sdr` work exactly as before.
+
+**scipy now optional** - The `--cluster` flag requires scipy, which is no longer installed by default. Install with:
+```bash
+uv pip install 'cja-auto-sdr[clustering]'
+```
 
 ---
 

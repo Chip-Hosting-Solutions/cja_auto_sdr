@@ -19,7 +19,10 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import pandas as pd
 from tqdm import tqdm
 
-from cja_auto_sdr.core.constants import DEFAULT_ORG_REPORT_WORKERS
+from cja_auto_sdr.core.constants import (
+    DEFAULT_ORG_REPORT_WORKERS,
+    GOVERNANCE_MAX_OVERLAP_THRESHOLD,
+)
 from cja_auto_sdr.inventory.utils import extract_owner
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
@@ -142,7 +145,7 @@ class OrgComponentAnalyzer:
             else:
                 self.logger.info("Computing similarity matrix...")
                 similarity_pairs = self._compute_similarity_matrix(summaries)
-                effective_threshold = min(self.config.overlap_threshold, 0.9)
+                effective_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
                 self.logger.info(
                     f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
                 )
@@ -773,7 +776,7 @@ class OrgComponentAnalyzer:
         """
         pairs = []
         valid_summaries = [s for s in summaries if s.error is None]
-        min_similarity_threshold = min(self.config.overlap_threshold, 0.9)
+        min_similarity_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
 
         for i, dv1 in enumerate(valid_summaries):
             set1 = dv1.all_component_ids
@@ -1012,7 +1015,7 @@ class OrgComponentAnalyzer:
         # Recommendation: High overlap pairs
         if similarity_pairs:
             for pair in similarity_pairs:
-                if pair.jaccard_similarity >= 0.9:
+                if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD:
                     recommendations.append({
                         'type': 'review_overlap',
                         'severity': 'high',
@@ -1111,7 +1114,7 @@ class OrgComponentAnalyzer:
         if self.config.include_drift and similarity_pairs:
             for pair in similarity_pairs:
                 drift_count = len(pair.only_in_dv1) + len(pair.only_in_dv2)
-                if pair.jaccard_similarity >= 0.9 and drift_count > 0:
+                if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD and drift_count > 0:
                     # Update existing overlap recommendation with drift info
                     for rec in recommendations:
                         if (rec.get('type') == 'review_overlap' and
@@ -1144,7 +1147,7 @@ class OrgComponentAnalyzer:
 
         # Check duplicate threshold (high-similarity pairs >= 90%)
         if self.config.duplicate_threshold is not None and similarity_pairs:
-            high_sim_pairs = [p for p in similarity_pairs if p.jaccard_similarity >= 0.9]
+            high_sim_pairs = [p for p in similarity_pairs if p.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD]
             if len(high_sim_pairs) > self.config.duplicate_threshold:
                 violations.append({
                     'type': 'duplicate_threshold_exceeded',
