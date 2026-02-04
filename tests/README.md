@@ -38,7 +38,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,171 comprehensive tests**
+**Total: 1,183 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -46,7 +46,7 @@ tests/
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 159 | Data view diff comparison feature with inventory support |
 | `test_ux_features.py` | 103 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
-| `test_org_report.py` | 120 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
+| `test_org_report.py` | 132 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_cli.py` | 76 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
@@ -76,7 +76,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,171** | **Collected via pytest --collect-only** |
+| **Total** | **1,183** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
