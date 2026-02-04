@@ -17,7 +17,7 @@ from io import StringIO
 
 # Import the functions from the main module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     parse_arguments,
     open_file_in_default_app,
     list_dataviews,
@@ -177,7 +177,7 @@ class TestListDataviewsFormat:
 class TestShowStatsFunction:
     """Tests for the show_stats function"""
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_show_stats_json_output(self, mock_cjapy):
         """Test show_stats with JSON format"""
         # Setup mock
@@ -199,7 +199,7 @@ class TestShowStatsFunction:
         assert 'count' in data
         assert 'totals' in data
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_show_stats_csv_output(self, mock_cjapy):
         """Test show_stats with CSV format"""
         # Setup mock
@@ -220,7 +220,7 @@ class TestShowStatsFunction:
         assert lines[0] == 'id,name,owner,metrics,dimensions,total_components'
         assert len(lines) == 2  # Header + 1 data row
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_show_stats_table_output(self, mock_cjapy):
         """Test show_stats with table format"""
         # Setup mock
@@ -244,7 +244,7 @@ class TestShowStatsFunction:
 class TestListDataviewsFunction:
     """Tests for the list_dataviews function with format options"""
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_list_dataviews_json_output(self, mock_cjapy):
         """Test list_dataviews with JSON format"""
         # Setup mock
@@ -267,7 +267,7 @@ class TestListDataviewsFunction:
         assert 'count' in data
         assert data['count'] == 2
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_list_dataviews_csv_output(self, mock_cjapy):
         """Test list_dataviews with CSV format"""
         # Setup mock
@@ -289,7 +289,7 @@ class TestListDataviewsFunction:
         assert lines[0] == 'id,name,owner'
         assert len(lines) == 3  # Header + 2 data rows
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_list_dataviews_empty_json(self, mock_cjapy):
         """Test list_dataviews JSON output when no data views"""
         # Setup mock
@@ -337,10 +337,10 @@ class TestCombinedFeatures:
 class TestVersionUpdated:
     """Test that version is correct"""
 
-    def test_version_is_3_1_0(self):
-        """Test that version is 3.1.0"""
-        from cja_sdr_generator import __version__
-        assert __version__ == "3.1.0"
+    def test_version_is_3_2_0(self):
+        """Test that version is 3.2.0"""
+        from cja_auto_sdr.generator import __version__
+        assert __version__ == "3.2.0"
 
 
 class TestFormatAutoDetection:
@@ -348,65 +348,65 @@ class TestFormatAutoDetection:
 
     def test_infer_format_xlsx(self):
         """Test xlsx extension infers excel format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('report.xlsx') == 'excel'
 
     def test_infer_format_xls(self):
         """Test xls extension infers excel format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('report.xls') == 'excel'
 
     def test_infer_format_csv(self):
         """Test csv extension infers csv format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('data.csv') == 'csv'
 
     def test_infer_format_json(self):
         """Test json extension infers json format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('output.json') == 'json'
 
     def test_infer_format_html(self):
         """Test html extension infers html format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('report.html') == 'html'
 
     def test_infer_format_htm(self):
         """Test htm extension infers html format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('report.htm') == 'html'
 
     def test_infer_format_md(self):
         """Test md extension infers markdown format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('doc.md') == 'markdown'
 
     def test_infer_format_markdown(self):
         """Test markdown extension infers markdown format"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('doc.markdown') == 'markdown'
 
     def test_infer_format_unknown_extension(self):
         """Test unknown extension returns None"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('file.txt') is None
         assert infer_format_from_path('file.pdf') is None
 
     def test_infer_format_stdout(self):
         """Test stdout markers return None"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('-') is None
         assert infer_format_from_path('stdout') is None
 
     def test_infer_format_empty(self):
         """Test empty/None returns None"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('') is None
         assert infer_format_from_path(None) is None
 
     def test_infer_format_case_insensitive(self):
         """Test extension matching is case insensitive"""
-        from cja_sdr_generator import infer_format_from_path
+        from cja_auto_sdr.generator import infer_format_from_path
         assert infer_format_from_path('REPORT.XLSX') == 'excel'
         assert infer_format_from_path('Data.JSON') == 'json'
 
@@ -462,13 +462,13 @@ class TestConsoleColorsTheme:
 
     def test_set_theme_default(self):
         """Test setting default theme"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         ConsoleColors.set_theme('default')
         assert ConsoleColors._theme == 'default'
 
     def test_set_theme_accessible(self):
         """Test setting accessible theme"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         ConsoleColors.set_theme('accessible')
         assert ConsoleColors._theme == 'accessible'
         # Reset to default for other tests
@@ -476,25 +476,25 @@ class TestConsoleColorsTheme:
 
     def test_set_theme_invalid(self):
         """Test that invalid theme raises ValueError"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         with pytest.raises(ValueError):
             ConsoleColors.set_theme('invalid_theme')
 
     def test_diff_added_method_exists(self):
         """Test diff_added method exists and works"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         result = ConsoleColors.diff_added('test')
         assert 'test' in result
 
     def test_diff_removed_method_exists(self):
         """Test diff_removed method exists and works"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         result = ConsoleColors.diff_removed('test')
         assert 'test' in result
 
     def test_diff_modified_method_exists(self):
         """Test diff_modified method exists and works"""
-        from cja_sdr_generator import ConsoleColors
+        from cja_auto_sdr.generator import ConsoleColors
         result = ConsoleColors.diff_modified('test')
         assert 'test' in result
 
@@ -568,7 +568,7 @@ class TestFormatAliases:
 
     def test_should_generate_format_with_alias(self):
         """Test should_generate_format works with aliases"""
-        from cja_sdr_generator import should_generate_format
+        from cja_auto_sdr.generator import should_generate_format
 
         # 'reports' alias = excel + markdown
         assert should_generate_format('reports', 'excel') is True
@@ -641,7 +641,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_derived_with_diff_errors(self):
         """Test that --include-derived with --diff (cross-DV) produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-derived']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -653,7 +653,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_calculated_with_diff_errors(self):
         """Test that --include-calculated with --diff (cross-DV) produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-calculated']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -689,7 +689,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_segments_with_diff_errors(self):
         """Test that --include-segments with --diff (cross-DV) produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--include-segments']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -717,7 +717,7 @@ class TestInventoryOptionsValidation:
 
     def test_inventory_only_without_include_flag_errors(self):
         """Test that --inventory-only without any --include-* flag produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--inventory-only']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -728,7 +728,7 @@ class TestInventoryOptionsValidation:
 
     def test_inventory_only_with_diff_errors(self):
         """Test that --inventory-only with --diff produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', '--diff', 'dv_A', 'dv_B', '--inventory-only']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -740,7 +740,7 @@ class TestInventoryOptionsValidation:
 
     def test_inventory_only_with_compare_snapshots_errors(self):
         """Test that --inventory-only with --compare-snapshots produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', '--compare-snapshots', 'a.json', 'b.json', '--inventory-only']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -752,7 +752,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_derived_with_snapshot_errors(self):
         """Test that --include-derived with --snapshot produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-derived']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -764,7 +764,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_derived_with_git_commit_errors(self):
         """Test that --include-derived with --git-commit produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--git-commit', '--include-derived']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -778,7 +778,7 @@ class TestInventoryOptionsValidation:
         """Test that --include-calculated with --snapshot is allowed (no early validation error)"""
         # This test verifies the flag combination passes validation
         # It will fail later due to missing config, but that's expected
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-calculated']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit):
@@ -789,7 +789,7 @@ class TestInventoryOptionsValidation:
 
     def test_include_segments_with_snapshot_allowed(self):
         """Test that --include-segments with --snapshot is allowed (no early validation error)"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--snapshot', 'out.json', '--include-segments']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit):
@@ -815,7 +815,7 @@ class TestInventoryOptionsValidation:
 
     def test_inventory_summary_without_include_flag_errors(self):
         """Test that --inventory-summary without any --include-* flag produces error"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--inventory-summary']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -826,7 +826,7 @@ class TestInventoryOptionsValidation:
 
     def test_inventory_summary_with_inventory_only_errors(self):
         """Test that --inventory-summary with --inventory-only produces error (mutually exclusive)"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--include-segments', '--inventory-summary', '--inventory-only']):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 with pytest.raises(SystemExit) as exc_info:
@@ -849,7 +849,7 @@ class TestDisplayInventorySummary:
 
     def test_summary_returns_dict(self, tmp_path):
         """Test that display_inventory_summary returns a dictionary"""
-        from cja_sdr_generator import display_inventory_summary
+        from cja_auto_sdr.generator import display_inventory_summary
 
         result = display_inventory_summary(
             data_view_id="dv_12345",
@@ -866,7 +866,7 @@ class TestDisplayInventorySummary:
 
     def test_summary_with_no_inventories(self, tmp_path):
         """Test summary with no inventory data"""
-        from cja_sdr_generator import display_inventory_summary
+        from cja_auto_sdr.generator import display_inventory_summary
 
         result = display_inventory_summary(
             data_view_id="dv_test",
@@ -880,7 +880,7 @@ class TestDisplayInventorySummary:
 
     def test_summary_json_output(self, tmp_path):
         """Test that JSON output is created when format is json"""
-        from cja_sdr_generator import display_inventory_summary
+        from cja_auto_sdr.generator import display_inventory_summary
         import json
 
         result = display_inventory_summary(
@@ -903,7 +903,7 @@ class TestDisplayInventorySummary:
 
     def test_summary_high_complexity_threshold(self, tmp_path):
         """Test that high-complexity items are collected at threshold 70"""
-        from cja_sdr_generator import display_inventory_summary
+        from cja_auto_sdr.generator import display_inventory_summary
         from unittest.mock import MagicMock
 
         # Create mock inventory with high-complexity item
@@ -944,7 +944,7 @@ class TestDisplayInventorySummary:
 
     def test_summary_console_output_not_quiet(self, tmp_path, capsys):
         """Test that console output is produced when not quiet"""
-        from cja_sdr_generator import display_inventory_summary
+        from cja_auto_sdr.generator import display_inventory_summary
 
         display_inventory_summary(
             data_view_id="dv_console",
@@ -995,7 +995,7 @@ class TestProcessingResultInventory:
 
     def test_has_inventory_false_when_empty(self):
         """Test has_inventory is False when no inventory data"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",
@@ -1007,7 +1007,7 @@ class TestProcessingResultInventory:
 
     def test_has_inventory_true_with_segments(self):
         """Test has_inventory is True when segments count > 0"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",
@@ -1020,7 +1020,7 @@ class TestProcessingResultInventory:
 
     def test_has_inventory_true_with_calculated_metrics(self):
         """Test has_inventory is True when calculated metrics count > 0"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",
@@ -1033,7 +1033,7 @@ class TestProcessingResultInventory:
 
     def test_has_inventory_true_with_derived_fields(self):
         """Test has_inventory is True when derived fields count > 0"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",
@@ -1046,7 +1046,7 @@ class TestProcessingResultInventory:
 
     def test_total_high_complexity(self):
         """Test total_high_complexity sums all high-complexity counts"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",
@@ -1061,7 +1061,7 @@ class TestProcessingResultInventory:
 
     def test_total_high_complexity_zero_when_empty(self):
         """Test total_high_complexity is 0 when no high-complexity items"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
             data_view_id="dv_test",

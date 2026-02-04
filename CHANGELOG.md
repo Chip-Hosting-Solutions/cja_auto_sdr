@@ -7,6 +7,146 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-02-01
+
+### Highlights
+- **Org-Wide Component Analysis** - Analyze component usage patterns across all data views in your organization with `--org-report`
+- **Component Distribution** - Classify components into Core (50%+ of DVs), Common (25-49%), Limited (2+), and Isolated (1 DV only) buckets
+- **Duplicate Detection** - Identify near-duplicate data views using Jaccard similarity scoring
+- **Data View Clustering** - Group related data views using hierarchical clustering with `--cluster`
+- **Governance Exit Codes** - CI/CD integration with threshold-based exit codes using `--fail-on-threshold`
+- **Trending & Drift Analysis** - Compare reports over time with `--compare-org-report`
+- **Naming Audit** - Detect naming convention inconsistencies with `--audit-naming`
+- **All Output Formats** - Org-wide reports support console (default), JSON, Excel, HTML, Markdown, CSV, and format aliases
+
+This release introduces **org-wide component analysis** for governance and standardization. The new `--org-report` mode analyzes all accessible data views to identify core components used organization-wide, detect duplicate data views, and provide governance recommendations. Use filtering (`--filter`, `--exclude`) to focus on specific data view groups. Advanced features include data view clustering, trend analysis, naming audits, and CI/CD governance checks with configurable thresholds.
+
+### Added
+
+#### Org-Wide Analysis Feature
+- New `--org-report` flag to enable org-wide analysis mode
+- New `--filter PATTERN` flag to include only data views matching regex pattern
+- New `--exclude PATTERN` flag to exclude data views matching regex pattern
+- New `--limit N` flag to analyze only first N data views (for testing)
+- New `--include-names` flag to fetch and display component names (slower but more readable)
+- New `--skip-similarity` flag to skip O(n²) pairwise similarity calculation (faster for large orgs)
+- New `--core-threshold FLOAT` flag to customize core component classification threshold (default: 0.5)
+- New `--core-min-count N` flag to use absolute count for core classification (overrides threshold)
+- New `--overlap-threshold FLOAT` flag to customize high-overlap detection threshold (default: 0.8)
+- New `--org-summary` flag to show only summary statistics
+- New `--org-verbose` flag to include full component lists and detailed breakdowns
+
+#### Component Type & Metadata Options
+- New `--no-component-types` flag to disable component type breakdown (standard vs derived)
+- New `--include-metadata` flag to include data view metadata (owner, dates, descriptions)
+- New `--include-drift` flag to include component drift details between similar DV pairs
+
+#### Sampling Options
+- New `--sample N` flag to randomly sample N data views (useful for very large orgs)
+- New `--sample-seed SEED` flag for reproducible random sampling
+- New `--sample-stratified` flag to stratify sample by data view name prefix
+
+#### Caching Options
+- New `--use-cache` flag to enable caching of data view components for faster repeat runs
+- New `--cache-max-age HOURS` flag to set maximum cache age (default: 24)
+- New `--refresh-cache` flag to clear cache and fetch fresh data
+- Cache stored in `~/.cja_auto_sdr/cache/org_report_cache.json`
+
+#### Clustering Options
+- New `--cluster` flag to enable hierarchical clustering of related data views
+- New `--cluster-method METHOD` flag to select linkage method: `average` (default), `complete`, or `ward`
+
+#### Governance & CI/CD Options
+- New `--duplicate-threshold N` flag to set maximum allowed high-similarity pairs
+- New `--isolated-threshold PERCENT` flag to set maximum isolated component percentage
+- New `--fail-on-threshold` flag to enable exit code 2 when thresholds exceeded
+
+#### Advanced Analysis Options
+- New `--org-stats` flag for quick summary stats without similarity matrix or clustering
+- New `--audit-naming` flag to detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes)
+- New `--compare-org-report PREV.json` flag to compare current report to previous for trending/drift analysis
+- New `--owner-summary` flag to group statistics by data view owner (requires `--include-metadata`)
+- New `--flag-stale` flag to flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns)
+
+#### Format Aliases
+- New `reports` format alias (expands to excel + markdown) for documentation
+- New `data` format alias (expands to csv + json) for data pipelines
+- New `ci` format alias (expands to json + markdown) for CI/CD integration
+
+#### Data Structures
+- `OrgReportConfig` dataclass for org-wide analysis configuration (all options)
+- `ComponentInfo` dataclass for component metadata with data view membership
+- `DataViewSummary` dataclass for per-data-view component summary with type breakdowns
+- `SimilarityPair` dataclass for pairwise Jaccard similarity results with drift details
+- `ComponentDistribution` dataclass for bucket classification results
+- `OrgReportResult` dataclass for complete analysis results with clusters
+- `DataViewCluster` dataclass for hierarchical clustering results
+- `OrgReportCache` class for persistent caching of component data
+- `OrgReportComparison` dataclass for trending/drift analysis between reports
+
+#### Output Writers
+- `write_org_report_console()` - ASCII-formatted console output with distribution bars
+- `write_org_report_json()` - Structured JSON for programmatic processing
+- `write_org_report_excel()` - Multi-sheet Excel workbook with Summary, Data Views, Core Components, Isolated by DV, Similarity, Clusters, and Recommendations sheets
+- `write_org_report_markdown()` - GitHub-flavored markdown with tables
+- `write_org_report_html()` - Styled HTML report with cards, tables, and progress bars
+- `write_org_report_csv()` - Multiple CSV files in a directory
+- `write_org_report_stats_only()` - Minimal stats output for `--org-stats` mode
+- `write_org_report_comparison_console()` - Trending/drift comparison output
+- `compare_org_reports()` - Compare two org-reports for trending analysis
+
+#### Core Implementation
+- `OrgComponentAnalyzer` class with parallel ThreadPoolExecutor for concurrent data view fetching
+- `_fetch_data_view_components()` method for per-DV component extraction
+- `_build_component_index()` method for global component indexing
+- `_compute_distribution_buckets()` method for component classification
+- `_compute_similarity_matrix()` method for pairwise Jaccard similarity
+- `_generate_recommendations()` method for governance insights
+- `run_org_report()` orchestration function
+
+### Documentation
+- New `docs/ORG_WIDE_ANALYSIS.md` - Comprehensive org-wide analysis guide (333 lines)
+- Updated `docs/QUICK_REFERENCE.md` - Added Org-Wide Analysis mode, commands section, format table update
+- Updated `docs/CLI_REFERENCE.md` - Added Org-Wide Analysis options section and examples
+- Updated `docs/USE_CASES.md` - Added 3 new use cases: Org-Wide Governance, Data View Consolidation, Cross-Team Component Sharing
+- Updated `docs/OUTPUT_FORMATS.md` - Added console format and format availability by mode table
+- Updated `docs/QUICKSTART_GUIDE.md` - Added org-wide analysis to Next Steps
+- Updated `docs/TROUBLESHOOTING.md` - Added Org-Wide Analysis Issues section
+- Updated `README.md` - Added Org-Wide Analysis to features and documentation tables
+
+### Testing
+- New `tests/test_org_report.py` with 75 comprehensive tests covering:
+  - `TestOrgReportConfig` - Configuration dataclass validation (4 tests)
+  - `TestComponentInfo` - Component metadata handling (3 tests)
+  - `TestDataViewSummary` - Data view summary with component names (4 tests)
+  - `TestSimilarityPair` - Jaccard similarity calculations (2 tests)
+  - `TestComponentDistribution` - Bucket classification (3 tests)
+  - `TestOrgReportResult` - Result aggregation (3 tests)
+  - `TestDistributionBar` - ASCII progress bar rendering (4 tests)
+  - `TestOrgComponentAnalyzer` - Core analyzer functionality (5 tests)
+  - `TestOutputWriters` - All output format writers (4 tests)
+  - `TestIncludeNames` - Component name fetching (3 tests)
+  - `TestEdgeCases` - Empty org, all failures, invalid regex (5 tests)
+  - `TestNewOrgReportConfig` - Component types, metadata, drift, sampling, caching, clustering options (7 tests)
+  - `TestDataViewCluster` - Cluster size and naming (2 tests)
+  - `TestSimilarityPairDrift` - Drift detection fields (2 tests)
+  - `TestDataViewSummaryEnhancements` - Component type counts, metadata fields (2 tests)
+  - `TestSampling` - Sampling applied, reproducible, below threshold (3 tests)
+  - `TestOrgReportCache` - Cache put/get, invalidation, miss handling (4 tests)
+  - `TestLargeOrgScaling` - Large org runtime behavior: 100+ DVs, 500+ components, O(n²) similarity (5 tests)
+  - `TestOutputPathWithFormatAliases` - Output path handling with format aliases (reports, data, ci) (13 tests)
+- **1,116 tests** (1,115 passing, 1 skipped) - up from 1,017 in v3.1.0
+
+### Changed
+- Updated version to 3.2.0
+
+### Dependencies
+- **scipy** is an optional dependency for clustering features - install with `uv pip install 'cja-auto-sdr[clustering]'`
+- New `clustering` extra for scipy dependency
+- New `full` extra that bundles clustering, env, and completion extras
+
+---
+
 ## [3.1.0] - 2026-01-30
 
 ### Highlights

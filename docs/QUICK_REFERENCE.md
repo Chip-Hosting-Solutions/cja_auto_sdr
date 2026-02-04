@@ -1,17 +1,20 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.1.0.
+Single-page command cheat sheet for CJA SDR Generator v3.2.0.
 
-## Two Main Modes
+## Three Main Modes
 
 | Mode | Purpose | Output |
 |------|---------|--------|
 | **SDR Generation** | Document a data view's dimensions, metrics, and calculated metrics | Excel, CSV, JSON, HTML, Markdown reports |
 | **Diff Comparison** | Compare two data views or snapshots to identify changes | Side-by-side comparison showing added, removed, and modified components |
+| **Org-Wide Analysis** | Analyze component usage across all data views in an organization | Distribution reports, similarity matrix, governance recommendations |
 
 **SDR Generation** creates a Solution Design Reference—a comprehensive inventory of all components in a data view. Use this for documentation, audits, and onboarding.
 
 **Diff Comparison** identifies what changed between two data views or between a current state and a saved snapshot. Use this for change tracking, QA validation, and migration verification.
+
+**Org-Wide Analysis** examines all accessible data views to identify core components, detect duplicates, and provide governance insights. Use this for audits, standardization, and understanding your analytics landscape.
 
 ## Running Commands
 
@@ -21,9 +24,9 @@ You have three equivalent options:
 |--------|---------|-------|
 | **uv run** | `uv run cja_auto_sdr ...` | Works immediately on macOS/Linux, may have issues on Windows |
 | **Activated venv** | `cja_auto_sdr ...` | After activating: `source .venv/bin/activate` (Unix) or `.venv\Scripts\activate` (Windows) |
-| **Direct script** | `python cja_sdr_generator.py ...` | Most reliable on Windows |
+| **Direct script** | `cja_auto_sdr ...` | Most reliable on Windows |
 
-This guide uses `uv run`. Windows users should substitute with `python cja_sdr_generator.py`. The command examples below omit the prefix for brevity.
+This guide uses `uv run`. Windows users should substitute with `cja_auto_sdr`. The command examples below omit the prefix for brevity.
 
 ## Interactive Mode (Recommended for New Users)
 
@@ -101,6 +104,106 @@ cja_auto_sdr --diff dv_12345 dv_67890 --changes-only
 cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels "Before" "After"
 ```
 
+## Org-Wide Analysis Commands
+
+```bash
+# Analyze all data views in organization (console output)
+cja_auto_sdr --org-report
+
+# Filter data views by name pattern
+cja_auto_sdr --org-report --filter "Prod.*"
+
+# Exclude test/dev data views
+cja_auto_sdr --org-report --exclude "Test|Dev|Sandbox"
+
+# Combine filter and exclude
+cja_auto_sdr --org-report --filter "Analytics" --exclude "Test"
+
+# Limit to first N data views (for testing)
+cja_auto_sdr --org-report --limit 10
+
+# Include component names (slower but more readable)
+cja_auto_sdr --org-report --include-names
+
+# Skip similarity matrix (faster for large orgs)
+cja_auto_sdr --org-report --skip-similarity
+
+# Custom thresholds
+cja_auto_sdr --org-report --core-threshold 0.7 --overlap-threshold 0.9
+
+# Export to Excel
+cja_auto_sdr --org-report --format excel
+
+# Export all formats
+cja_auto_sdr --org-report --format all --output-dir ./reports
+
+# Quick stats mode (fast overview)
+cja_auto_sdr --org-report --stats-only
+```
+
+### Advanced Org-Wide Options
+
+```bash
+# --- Clustering & Similarity ---
+# Requires: uv pip install 'cja-auto-sdr[clustering]'
+
+# Cluster similar data views into families
+cja_auto_sdr --org-report --cluster
+
+# Cluster with specific method
+cja_auto_sdr --org-report --cluster --cluster-method ward
+
+# --- Caching (for large orgs) ---
+# Use cached data (refresh if stale)
+cja_auto_sdr --org-report --use-cache
+
+# Force cache refresh
+cja_auto_sdr --org-report --use-cache --refresh-cache
+
+# Custom cache max age (seconds)
+cja_auto_sdr --org-report --use-cache --cache-max-age 7200
+
+# --- Sampling (for very large orgs) ---
+# Random sample 50 data views
+cja_auto_sdr --org-report --sample 50
+
+# Reproducible sample with seed
+cja_auto_sdr --org-report --sample 50 --sample-seed 42
+
+# Stratified sampling by owner
+cja_auto_sdr --org-report --sample 50 --sample-stratified
+
+# --- Trending & Comparison ---
+# Compare against previous org report
+cja_auto_sdr --org-report --compare-org-report ./previous.json
+
+# --- Naming Audit ---
+# Audit naming conventions
+cja_auto_sdr --org-report --audit-naming
+
+# Flag potentially stale components
+cja_auto_sdr --org-report --flag-stale
+
+# --- Governance & CI/CD ---
+# CI/CD with governance thresholds
+cja_auto_sdr --org-report --fail-on-threshold
+
+# Custom thresholds
+cja_auto_sdr --org-report --fail-on-threshold \
+  --duplicate-threshold 0.15 \
+  --isolated-threshold 0.25
+
+# --- Component Types & Metadata ---
+# Filter to specific component types
+cja_auto_sdr --org-report --component-types dimensions,metrics
+
+# Include owner/team summary
+cja_auto_sdr --org-report --owner-summary
+
+# Include metadata in output
+cja_auto_sdr --org-report --include-metadata
+```
+
 ## Profile Management (Multi-Org)
 
 ```bash
@@ -163,15 +266,15 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 
 ### Format Support by Mode
 
-| Format | SDR | Diff | Description |
-|--------|-----|------|-------------|
-| `excel` | ✅ (default) | ✅ | Excel workbook |
-| `csv` | ✅ | ✅ | Comma-separated values |
-| `json` | ✅ | ✅ | JSON for integrations |
-| `html` | ✅ | ✅ | Browser-viewable |
-| `markdown` | ✅ | ✅ | Documentation-ready |
-| `console` | ❌ | ✅ (default) | Terminal output |
-| `all` | ✅ | ✅ | All formats |
+| Format | SDR | Diff | Org-Report | Description |
+|--------|-----|------|------------|-------------|
+| `excel` | ✅ (default) | ✅ | ✅ | Excel workbook |
+| `csv` | ✅ | ✅ | ✅ | Comma-separated values |
+| `json` | ✅ | ✅ | ✅ | JSON for integrations |
+| `html` | ✅ | ✅ | ✅ | Browser-viewable |
+| `markdown` | ✅ | ✅ | ✅ | Documentation-ready |
+| `console` | ❌ | ✅ (default) | ✅ (default) | Terminal output |
+| `all` | ✅ | ✅ | ✅ | All formats |
 
 ### Format Aliases (Shortcuts)
 
@@ -324,12 +427,19 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 | 1 | Error (config, API, or processing failure) |
 | 2 | Diff: changes found |
 | 3 | Diff: changes exceeded threshold |
+| 10 | Org-report: governance threshold exceeded (any) |
+| 11 | Org-report: duplicate threshold exceeded |
+| 12 | Org-report: isolated threshold exceeded |
+| 13 | Org-report: naming audit failed |
+
+> **CI/CD Tip:** Use exit codes with `--fail-on-threshold` for automated governance checks.
 
 ## More Information
 
 - Configuration: [CONFIGURATION.md](CONFIGURATION.md) - config.json, environment variables
 - Full CLI docs: [CLI_REFERENCE.md](CLI_REFERENCE.md)
 - Diff comparison: [DIFF_COMPARISON.md](DIFF_COMPARISON.md)
+- Org-wide analysis: [ORG_WIDE_ANALYSIS.md](ORG_WIDE_ANALYSIS.md) - Cross-DV governance
 - Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - Batch processing: [BATCH_PROCESSING_GUIDE.md](BATCH_PROCESSING_GUIDE.md)
 - Data quality: [DATA_QUALITY.md](DATA_QUALITY.md)

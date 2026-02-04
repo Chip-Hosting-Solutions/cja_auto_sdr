@@ -14,7 +14,7 @@ import json
 import pandas as pd
 from unittest.mock import Mock, MagicMock
 
-from cja_segments_inventory import (
+from cja_auto_sdr.inventory.segments import (
     SegmentsInventoryBuilder,
     SegmentsInventory,
     SegmentSummary,

@@ -1,6 +1,6 @@
 [project]
 name = "cja-auto-sdr"
-version = "3.1.0"
+dynamic = ["version"]
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -13,10 +13,13 @@ dependencies = [
 ]
 
 [project.scripts]
-cja_auto_sdr = "cja_sdr_generator:main"
-cja-auto-sdr = "cja_sdr_generator:main"
+cja_auto_sdr = "cja_auto_sdr.generator:main"
+cja-auto-sdr = "cja_auto_sdr.generator:main"
 
 [project.optional-dependencies]
+clustering = [
+    "scipy>=1.14.0",
+]
 dev = [
     "pytest>=8.3.4",
     "pytest-cov>=4.1.0",
@@ -27,29 +30,25 @@ env = [
 completion = [
     "argcomplete>=3.0.0",
 ]
+full = [
+    "scipy>=1.14.0",
+    "python-dotenv>=1.0.0",
+    "argcomplete>=3.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/cja_auto_sdr/core/version.py"
+
 [tool.hatch.build.targets.wheel]
-only-include = [
-    "cja_sdr_generator.py",
-    "cja_derived_analyzer.py",
-    "cja_calculated_metrics_inventory.py",
-    "cja_derived_fields_inventory.py",
-    "cja_segments_inventory.py",
-    "cja_inventory_utils.py",
-]
+packages = ["src/cja_auto_sdr"]
 
 [tool.hatch.build.targets.sdist]
-only-include = [
-    "cja_sdr_generator.py",
-    "cja_derived_analyzer.py",
-    "cja_calculated_metrics_inventory.py",
-    "cja_derived_fields_inventory.py",
-    "cja_segments_inventory.py",
-    "cja_inventory_utils.py",
+include = [
+    "/src",
     "pyproject.toml",
     "README.md",
     "LICENSE",

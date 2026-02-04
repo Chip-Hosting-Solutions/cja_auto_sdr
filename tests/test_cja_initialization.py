@@ -10,7 +10,7 @@ from unittest.mock import Mock, MagicMock, patch
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     initialize_cja,
     validate_data_view,
     list_dataviews,
@@ -70,9 +70,9 @@ def incomplete_config_file(tmp_path):
 class TestInitializeCjaSuccess:
     """Tests for successful CJA initialization"""
 
-    @patch('cja_sdr_generator.CredentialResolver')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_init_with_config_file(self, mock_api_call, mock_cjapy, mock_resolver_class,
                                     mock_logger, mock_config_file):
         """Test successful initialization with config file"""
@@ -98,10 +98,10 @@ class TestInitializeCjaSuccess:
         assert result is not None
         mock_cjapy.importConfigFile.assert_called_once_with(mock_config_file)
 
-    @patch('cja_sdr_generator.CredentialResolver')
-    @patch('cja_sdr_generator._config_from_env')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator._config_from_env')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_init_with_env_credentials(self, mock_api_call, mock_cjapy, mock_config_env,
                                         mock_resolver_class, mock_logger, mock_config_file):
         """Test successful initialization with environment credentials"""
@@ -126,9 +126,9 @@ class TestInitializeCjaSuccess:
         assert result is not None
         mock_config_env.assert_called_once()  # _config_from_env should be called for env credentials
 
-    @patch('cja_sdr_generator.CredentialResolver')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_init_logs_connection_success(self, mock_api_call, mock_cjapy, mock_resolver_class,
                                            mock_logger, mock_config_file):
         """Test that successful connection is logged"""
@@ -154,7 +154,7 @@ class TestInitializeCjaSuccess:
 class TestInitializeCjaFailures:
     """Tests for CJA initialization failures"""
 
-    @patch('cja_sdr_generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
     def test_init_fails_with_invalid_config(self, mock_resolver_class,
                                              mock_logger, mock_config_file):
         """Test that initialization fails with invalid config"""
@@ -172,7 +172,7 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_sdr_generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
     def test_init_fails_with_missing_config_file(self, mock_resolver_class,
                                                   mock_logger):
         """Test that initialization fails when config file is missing"""
@@ -190,8 +190,8 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_sdr_generator.CredentialResolver')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_init_fails_on_import_error(self, mock_cjapy, mock_resolver_class,
                                          mock_logger, mock_config_file):
         """Test handling of import errors"""
@@ -210,8 +210,8 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_sdr_generator.CredentialResolver')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.CredentialResolver')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_init_fails_on_attribute_error(self, mock_cjapy, mock_resolver_class,
                                             mock_logger, mock_config_file):
         """Test handling of attribute errors (bad credentials)"""
@@ -230,9 +230,9 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_config_file')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_config_file')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_init_fails_on_permission_error(self, mock_cjapy, mock_validate_config,
                                              mock_load_env, mock_logger, mock_config_file):
         """Test handling of permission errors"""
@@ -249,10 +249,10 @@ class TestInitializeCjaFailures:
 class TestInitializeCjaConnectionTest:
     """Tests for connection testing during initialization"""
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_config_file')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_config_file')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_connection_test_returns_none(self, mock_api_call, mock_cjapy, mock_validate_config,
                                            mock_load_env, mock_logger, mock_config_file):
         """Test handling when connection test returns None"""
@@ -268,10 +268,10 @@ class TestInitializeCjaConnectionTest:
         assert result is not None
         mock_logger.warning.assert_called()
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_config_file')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_config_file')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_connection_test_raises_exception(self, mock_api_call, mock_cjapy, mock_validate_config,
                                                mock_load_env, mock_logger, mock_config_file):
         """Test handling when connection test raises exception"""
@@ -399,7 +399,7 @@ class TestValidateDataView:
 class TestListDataviews:
     """Tests for list_dataviews function"""
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_lists_available_dataviews(self, mock_print, mock_cjapy, mock_config_file):
         """Test listing available data views"""
@@ -416,7 +416,7 @@ class TestListDataviews:
         # Should print data view information
         mock_print.assert_called()
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_handles_empty_dataviews_list(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of empty data views list"""
@@ -430,7 +430,7 @@ class TestListDataviews:
         # Should print no data views message
         mock_print.assert_called()
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_handles_dataframe_response(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of DataFrame response"""
@@ -445,7 +445,7 @@ class TestListDataviews:
 
         assert result is True
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_handles_config_not_found(self, mock_print, mock_cjapy):
         """Test handling of missing config file"""
@@ -456,7 +456,7 @@ class TestListDataviews:
         assert result is False
         mock_print.assert_called()
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_handles_api_error(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of API errors"""
@@ -472,8 +472,8 @@ class TestListDataviews:
 class TestValidateConfigOnly:
     """Tests for validate_config_only function"""
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_validates_valid_config(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test validation of valid configuration"""
@@ -486,10 +486,10 @@ class TestValidateConfigOnly:
 
         assert result is True
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_env_credentials')
-    @patch('cja_sdr_generator._config_from_env')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_env_credentials')
+    @patch('cja_auto_sdr.generator._config_from_env')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_validates_env_credentials(self, mock_print, mock_cjapy, mock_config_env,
                                         mock_validate_env, mock_load_env, mock_config_file):
@@ -508,7 +508,7 @@ class TestValidateConfigOnly:
 
         assert result is True
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
     @patch('builtins.print')
     def test_fails_with_missing_config(self, mock_print, mock_load_env):
         """Test failure with missing config file"""
@@ -518,8 +518,8 @@ class TestValidateConfigOnly:
 
         assert result is False
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_fails_on_api_connection_error(self, mock_print, mock_cjapy,
                                             mock_load_env, mock_config_file):
@@ -533,7 +533,7 @@ class TestValidateConfigOnly:
 
         assert result is False
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
     @patch('builtins.print')
     def test_shows_credential_status(self, mock_print, mock_load_env, mock_config_file):
         """Test that credential status is shown"""
@@ -544,8 +544,8 @@ class TestValidateConfigOnly:
 
         mock_print.assert_called()
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.cjapy')
     @patch('builtins.print')
     def test_shows_data_view_count(self, mock_print, mock_cjapy,
                                     mock_load_env, mock_config_file):
@@ -564,11 +564,11 @@ class TestValidateConfigOnly:
 class TestInitializeCjaEnvFallback:
     """Tests for environment to config file fallback"""
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_env_credentials')
-    @patch('cja_sdr_generator.validate_config_file')
-    @patch('cja_sdr_generator.cjapy')
-    @patch('cja_sdr_generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_env_credentials')
+    @patch('cja_auto_sdr.generator.validate_config_file')
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
     def test_falls_back_to_config_when_env_incomplete(self, mock_api_call, mock_cjapy,
                                                        mock_validate_config, mock_validate_env,
                                                        mock_load_env, mock_logger, mock_config_file):
@@ -585,9 +585,9 @@ class TestInitializeCjaEnvFallback:
         assert result is not None
         mock_cjapy.importConfigFile.assert_called_once()
 
-    @patch('cja_sdr_generator.load_credentials_from_env')
-    @patch('cja_sdr_generator.validate_env_credentials')
-    @patch('cja_sdr_generator.validate_config_file')
+    @patch('cja_auto_sdr.generator.load_credentials_from_env')
+    @patch('cja_auto_sdr.generator.validate_env_credentials')
+    @patch('cja_auto_sdr.generator.validate_config_file')
     def test_fails_when_both_env_and_config_invalid(self, mock_validate_config, mock_validate_env,
                                                      mock_load_env, mock_logger, mock_config_file):
         """Test failure when both env and config are invalid"""

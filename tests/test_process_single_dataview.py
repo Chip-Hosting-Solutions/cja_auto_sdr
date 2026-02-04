@@ -12,7 +12,7 @@ from unittest.mock import Mock, MagicMock, patch, PropertyMock
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     process_single_dataview,
     process_single_dataview_worker,
     ProcessingResult
@@ -73,12 +73,12 @@ def sample_dataview_info():
 class TestProcessSingleDataviewSuccess:
     """Tests for successful processing scenarios"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_successful_processing(self, mock_excel_writer, mock_apply_formatting,
                                     mock_dq_checker_class, mock_fetcher_class,
@@ -122,12 +122,12 @@ class TestProcessSingleDataviewSuccess:
         assert result.metrics_count == 2
         assert result.dimensions_count == 2
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_processing_with_cache_disabled(self, mock_excel_writer, mock_apply_formatting,
                                               mock_dq_checker_class, mock_fetcher_class,
@@ -170,8 +170,8 @@ class TestProcessSingleDataviewSuccess:
 class TestProcessSingleDataviewFailures:
     """Tests for failure scenarios"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
     def test_cja_initialization_failure(self, mock_init_cja, mock_setup_logging,
                                          mock_config_file, temp_output_dir):
         """Test handling of CJA initialization failure"""
@@ -188,9 +188,9 @@ class TestProcessSingleDataviewFailures:
         assert result.success is False
         assert "initialization failed" in result.error_message.lower()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
     def test_data_view_validation_failure(self, mock_validate_dv, mock_init_cja,
                                            mock_setup_logging, mock_config_file, temp_output_dir):
         """Test handling of data view validation failure"""
@@ -209,10 +209,10 @@ class TestProcessSingleDataviewFailures:
         assert result.success is False
         assert "validation failed" in result.error_message.lower()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
     def test_empty_data_fetched(self, mock_fetcher_class, mock_validate_dv,
                                  mock_init_cja, mock_setup_logging,
                                  mock_config_file, temp_output_dir, sample_dataview_info):
@@ -237,11 +237,11 @@ class TestProcessSingleDataviewFailures:
         assert result.success is False
         assert "no metrics or dimensions" in result.error_message.lower()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
     @patch('pandas.ExcelWriter')
     def test_permission_error_writing_file(self, mock_excel_writer, mock_dq_checker_class,
                                             mock_fetcher_class, mock_validate_dv,
@@ -280,12 +280,12 @@ class TestProcessSingleDataviewFailures:
 class TestProcessSingleDataviewOutputFormats:
     """Tests for different output formats"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.write_csv_output')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.write_csv_output')
     def test_csv_output_format(self, mock_write_csv, mock_dq_checker_class,
                                 mock_fetcher_class, mock_validate_dv,
                                 mock_init_cja, mock_setup_logging,
@@ -319,12 +319,12 @@ class TestProcessSingleDataviewOutputFormats:
         assert result.success is True
         mock_write_csv.assert_called_once()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.write_json_output')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.write_json_output')
     def test_json_output_format(self, mock_write_json, mock_dq_checker_class,
                                  mock_fetcher_class, mock_validate_dv,
                                  mock_init_cja, mock_setup_logging,
@@ -358,12 +358,12 @@ class TestProcessSingleDataviewOutputFormats:
         assert result.success is True
         mock_write_json.assert_called_once()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.write_html_output')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.write_html_output')
     def test_html_output_format(self, mock_write_html, mock_dq_checker_class,
                                  mock_fetcher_class, mock_validate_dv,
                                  mock_init_cja, mock_setup_logging,
@@ -397,12 +397,12 @@ class TestProcessSingleDataviewOutputFormats:
         assert result.success is True
         mock_write_html.assert_called_once()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.write_markdown_output')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.write_markdown_output')
     def test_markdown_output_format(self, mock_write_md, mock_dq_checker_class,
                                      mock_fetcher_class, mock_validate_dv,
                                      mock_init_cja, mock_setup_logging,
@@ -440,13 +440,13 @@ class TestProcessSingleDataviewOutputFormats:
 class TestProcessSingleDataviewCaching:
     """Tests for caching functionality"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.ValidationCache')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.ValidationCache')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_cache_enabled(self, mock_excel_writer, mock_apply_formatting,
                             mock_dq_checker_class, mock_cache_class,
@@ -489,13 +489,13 @@ class TestProcessSingleDataviewCaching:
         assert result.success is True
         mock_cache_class.assert_called_once()
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.ValidationCache')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.ValidationCache')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_clear_cache_option(self, mock_excel_writer, mock_apply_formatting,
                                  mock_dq_checker_class, mock_cache_class,
@@ -541,7 +541,7 @@ class TestProcessSingleDataviewCaching:
 class TestProcessSingleDataviewWorker:
     """Tests for the worker wrapper function"""
 
-    @patch('cja_sdr_generator.process_single_dataview')
+    @patch('cja_auto_sdr.generator.process_single_dataview')
     def test_worker_unpacks_args(self, mock_process):
         """Test that worker correctly unpacks arguments"""
         expected_result = ProcessingResult(
@@ -587,12 +587,12 @@ class TestProcessSingleDataviewWorker:
 class TestProcessSingleDataviewFilenaming:
     """Tests for file naming logic"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_filename_sanitization(self, mock_excel_writer, mock_apply_formatting,
                                     mock_dq_checker_class, mock_fetcher_class,
@@ -642,12 +642,12 @@ class TestProcessSingleDataviewFilenaming:
 class TestProcessSingleDataviewMaxIssues:
     """Tests for max_issues parameter"""
 
-    @patch('cja_sdr_generator.setup_logging')
-    @patch('cja_sdr_generator.initialize_cja')
-    @patch('cja_sdr_generator.validate_data_view')
-    @patch('cja_sdr_generator.ParallelAPIFetcher')
-    @patch('cja_sdr_generator.DataQualityChecker')
-    @patch('cja_sdr_generator.apply_excel_formatting')
+    @patch('cja_auto_sdr.generator.setup_logging')
+    @patch('cja_auto_sdr.generator.initialize_cja')
+    @patch('cja_auto_sdr.generator.validate_data_view')
+    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
+    @patch('cja_auto_sdr.generator.DataQualityChecker')
+    @patch('cja_auto_sdr.generator.apply_excel_formatting')
     @patch('pandas.ExcelWriter')
     def test_max_issues_parameter_passed(self, mock_excel_writer, mock_apply_formatting,
                                           mock_dq_checker_class, mock_fetcher_class,

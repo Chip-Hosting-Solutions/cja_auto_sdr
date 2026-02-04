@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     write_csv_output,
     write_json_output,
     write_html_output,

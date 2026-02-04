@@ -10,7 +10,7 @@ import shutil
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     get_cja_home,
     get_profiles_dir,
     get_profile_path,
@@ -57,7 +57,7 @@ class TestGetProfilesDir:
 
     def test_profiles_dir(self):
         """Test profiles directory is under CJA home"""
-        with patch('cja_sdr_generator.get_cja_home', return_value=Path('/home/test/.cja')):
+        with patch('cja_auto_sdr.generator.get_cja_home', return_value=Path('/home/test/.cja')):
             profiles = get_profiles_dir()
             assert profiles == Path('/home/test/.cja/orgs')
 
@@ -67,7 +67,7 @@ class TestGetProfilePath:
 
     def test_profile_path(self):
         """Test profile path includes profile name"""
-        with patch('cja_sdr_generator.get_profiles_dir', return_value=Path('/home/test/.cja/orgs')):
+        with patch('cja_auto_sdr.generator.get_profiles_dir', return_value=Path('/home/test/.cja/orgs')):
             path = get_profile_path('client-a')
             assert path == Path('/home/test/.cja/orgs/client-a')
 
@@ -243,7 +243,7 @@ class TestLoadProfileCredentials:
         (profile_dir / 'config.json').write_text(json.dumps(config))
 
         logger = MagicMock()
-        with patch('cja_sdr_generator.get_profile_path', return_value=profile_dir):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=profile_dir):
             result = load_profile_credentials('test-profile', logger)
 
         assert result['org_id'] == 'test@AdobeOrg'
@@ -263,7 +263,7 @@ class TestLoadProfileCredentials:
         (profile_dir / '.env').write_text('ORG_ID=env@AdobeOrg')
 
         logger = MagicMock()
-        with patch('cja_sdr_generator.get_profile_path', return_value=profile_dir):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=profile_dir):
             result = load_profile_credentials('test-profile', logger)
 
         # .env should override config.json
@@ -276,7 +276,7 @@ class TestLoadProfileCredentials:
         logger = MagicMock()
         nonexistent_path = tmp_path / 'orgs' / 'nonexistent'
 
-        with patch('cja_sdr_generator.get_profile_path', return_value=nonexistent_path):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=nonexistent_path):
             with pytest.raises(ProfileNotFoundError):
                 load_profile_credentials('nonexistent', logger)
 
@@ -287,7 +287,7 @@ class TestLoadProfileCredentials:
         profile_dir.mkdir(parents=True)
 
         logger = MagicMock()
-        with patch('cja_sdr_generator.get_profile_path', return_value=profile_dir):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=profile_dir):
             with pytest.raises(ProfileConfigError):
                 load_profile_credentials('empty-profile', logger)
 
@@ -353,7 +353,7 @@ class TestListProfiles:
 
     def test_list_no_profiles_dir(self, tmp_path, capsys):
         """Test listing when profiles directory doesn't exist"""
-        with patch('cja_sdr_generator.get_profiles_dir', return_value=tmp_path / 'nonexistent'):
+        with patch('cja_auto_sdr.generator.get_profiles_dir', return_value=tmp_path / 'nonexistent'):
             result = list_profiles()
             assert result is True
             captured = capsys.readouterr()
@@ -364,7 +364,7 @@ class TestListProfiles:
         profiles_dir = tmp_path / 'orgs'
         profiles_dir.mkdir()
 
-        with patch('cja_sdr_generator.get_profiles_dir', return_value=profiles_dir):
+        with patch('cja_auto_sdr.generator.get_profiles_dir', return_value=profiles_dir):
             result = list_profiles()
             assert result is True
             captured = capsys.readouterr()
@@ -380,7 +380,7 @@ class TestListProfiles:
         profile.mkdir()
         (profile / 'config.json').write_text('{"org_id": "test@AdobeOrg"}')
 
-        with patch('cja_sdr_generator.get_profiles_dir', return_value=profiles_dir):
+        with patch('cja_auto_sdr.generator.get_profiles_dir', return_value=profiles_dir):
             result = list_profiles(output_format='table')
             assert result is True
             captured = capsys.readouterr()
@@ -396,7 +396,7 @@ class TestListProfiles:
         profile.mkdir()
         (profile / 'config.json').write_text('{"org_id": "test@AdobeOrg"}')
 
-        with patch('cja_sdr_generator.get_profiles_dir', return_value=profiles_dir):
+        with patch('cja_auto_sdr.generator.get_profiles_dir', return_value=profiles_dir):
             result = list_profiles(output_format='json')
             assert result is True
             captured = capsys.readouterr()
@@ -422,7 +422,7 @@ class TestShowProfile:
         }
         (profile_dir / 'config.json').write_text(json.dumps(config))
 
-        with patch('cja_sdr_generator.get_profile_path', return_value=profile_dir):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=profile_dir):
             result = show_profile('test-profile')
             assert result is True
             captured = capsys.readouterr()
@@ -435,7 +435,7 @@ class TestShowProfile:
         """Test showing a nonexistent profile"""
         nonexistent_path = tmp_path / 'orgs' / 'nonexistent'
 
-        with patch('cja_sdr_generator.get_profile_path', return_value=nonexistent_path):
+        with patch('cja_auto_sdr.generator.get_profile_path', return_value=nonexistent_path):
             result = show_profile('nonexistent')
             assert result is False
             captured = capsys.readouterr()

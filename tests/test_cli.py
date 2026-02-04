@@ -10,7 +10,7 @@ import argparse
 
 # Import the function we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import parse_arguments, generate_sample_config
+from cja_auto_sdr.generator import parse_arguments, generate_sample_config
 
 
 class TestCLIArguments:
@@ -289,7 +289,7 @@ class TestProcessingResult:
 
     def test_file_size_formatted_bytes(self):
         """Test file size formatting for bytes"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
         result = ProcessingResult(
             data_view_id='dv_test',
             data_view_name='Test',
@@ -301,7 +301,7 @@ class TestProcessingResult:
 
     def test_file_size_formatted_kilobytes(self):
         """Test file size formatting for kilobytes"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
         result = ProcessingResult(
             data_view_id='dv_test',
             data_view_name='Test',
@@ -313,7 +313,7 @@ class TestProcessingResult:
 
     def test_file_size_formatted_megabytes(self):
         """Test file size formatting for megabytes"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
         result = ProcessingResult(
             data_view_id='dv_test',
             data_view_name='Test',
@@ -325,7 +325,7 @@ class TestProcessingResult:
 
     def test_file_size_formatted_zero(self):
         """Test file size formatting for zero bytes"""
-        from cja_sdr_generator import ProcessingResult
+        from cja_auto_sdr.generator import ProcessingResult
         result = ProcessingResult(
             data_view_id='dv_test',
             data_view_name='Test',
@@ -424,7 +424,7 @@ class TestConstants:
 
     def test_cache_size_default_uses_constant(self):
         """Test that cache_size default matches DEFAULT_CACHE_SIZE constant"""
-        from cja_sdr_generator import DEFAULT_CACHE_SIZE
+        from cja_auto_sdr.generator import DEFAULT_CACHE_SIZE
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
@@ -432,7 +432,7 @@ class TestConstants:
 
     def test_cache_ttl_default_uses_constant(self):
         """Test that cache_ttl default matches DEFAULT_CACHE_TTL constant"""
-        from cja_sdr_generator import DEFAULT_CACHE_TTL
+        from cja_auto_sdr.generator import DEFAULT_CACHE_TTL
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
@@ -444,12 +444,12 @@ class TestConsoleScriptEntryPoints:
 
     def test_main_function_is_importable(self):
         """Test that main function can be imported from cja_sdr_generator"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         assert callable(main)
 
     def test_main_function_with_version_flag(self):
         """Test that main function handles --version flag correctly"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         test_args = ['cja_auto_sdr', '--version']
         with patch.object(sys, 'argv', test_args):
             with pytest.raises(SystemExit) as exc_info:
@@ -458,7 +458,7 @@ class TestConsoleScriptEntryPoints:
 
     def test_main_function_with_help_flag(self):
         """Test that main function handles --help flag correctly"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         test_args = ['cja_auto_sdr', '--help']
         with patch.object(sys, 'argv', test_args):
             with pytest.raises(SystemExit) as exc_info:
@@ -467,12 +467,12 @@ class TestConsoleScriptEntryPoints:
 
     def test_main_function_with_sample_config_flag(self):
         """Test that main function handles --sample-config flag"""
-        from cja_sdr_generator import main
+        from cja_auto_sdr.generator import main
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, 'sample_config.json')
             test_args = ['cja_auto_sdr', '--sample-config']
             with patch.object(sys, 'argv', test_args):
-                with patch('cja_sdr_generator.generate_sample_config') as mock_gen:
+                with patch('cja_auto_sdr.generator.generate_sample_config') as mock_gen:
                     mock_gen.return_value = True
                     with pytest.raises(SystemExit) as exc_info:
                         main()
@@ -489,8 +489,8 @@ class TestConsoleScriptEntryPoints:
             content = f.read()
 
         # Verify both entry point variants exist with correct targets
-        assert 'cja_auto_sdr = "cja_sdr_generator:main"' in content
-        assert 'cja-auto-sdr = "cja_sdr_generator:main"' in content
+        assert 'cja_auto_sdr = "cja_auto_sdr.generator:main"' in content
+        assert 'cja-auto-sdr = "cja_auto_sdr.generator:main"' in content
 
         # Verify [project.scripts] section exists
         assert '[project.scripts]' in content
@@ -525,7 +525,7 @@ class TestConsoleScriptEntryPoints:
 
     def test_version_output_format(self):
         """Test that version output follows expected format"""
-        from cja_sdr_generator import __version__
+        from cja_auto_sdr.generator import __version__
         import subprocess
         result = subprocess.run(
             ['uv', 'run', 'cja_auto_sdr', '--version'],
@@ -549,7 +549,7 @@ class TestRetryArguments:
 
     def test_max_retries_default(self):
         """Test that max-retries uses default from DEFAULT_RETRY_CONFIG"""
-        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
@@ -564,7 +564,7 @@ class TestRetryArguments:
 
     def test_retry_base_delay_default(self):
         """Test that retry-base-delay uses default from DEFAULT_RETRY_CONFIG"""
-        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
@@ -579,7 +579,7 @@ class TestRetryArguments:
 
     def test_retry_max_delay_default(self):
         """Test that retry-max-delay uses default from DEFAULT_RETRY_CONFIG"""
-        from cja_sdr_generator import DEFAULT_RETRY_CONFIG
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
         test_args = ['cja_sdr_generator.py', 'dv_12345']
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()

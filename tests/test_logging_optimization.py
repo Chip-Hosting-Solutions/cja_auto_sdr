@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     setup_logging, DataQualityChecker, PerformanceTracker, parse_arguments
 )
 

@@ -1,0 +1,20 @@
+name: Test Count Sync
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-counts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync dependencies
+        run: uv sync --dev
+      - name: Verify test counts are up to date
+        run: .venv/bin/python scripts/update_test_counts.py --check

@@ -39,7 +39,7 @@ When you provide a data view name:
 uv run cja_auto_sdr "Production Analytics"
 
 # Windows
-python cja_sdr_generator.py "Production Analytics"
+cja_auto_sdr "Production Analytics"
 ```
 
 ### Multiple Data Views by Name
@@ -92,7 +92,7 @@ To see all accessible data view names and IDs:
 uv run cja_auto_sdr --list-dataviews
 
 # Windows
-python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --list-dataviews
 ```
 
 Output:
@@ -153,7 +153,7 @@ Tips for using Data View Names:
   • Use quotes around names: cja_auto_sdr "Production Analytics"
   • IDs start with 'dv_': cja_auto_sdr dv_12345
 
-Try running: python cja_sdr_generator.py --list-dataviews
+Try running: cja_auto_sdr --list-dataviews
   to see all accessible data view IDs and names
 ```
 

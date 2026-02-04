@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     DataViewSnapshot,
     generate_git_commit_message,
     git_commit_snapshot,
@@ -539,7 +539,7 @@ class TestCLIGitArguments:
 
     def test_git_init_argument_exists(self):
         """Test that --git-init argument is recognized."""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         # Temporarily modify sys.argv
@@ -554,7 +554,7 @@ class TestCLIGitArguments:
 
     def test_git_commit_argument_exists(self):
         """Test that --git-commit argument is recognized."""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -568,7 +568,7 @@ class TestCLIGitArguments:
 
     def test_git_push_argument_exists(self):
         """Test that --git-push argument is recognized."""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -582,7 +582,7 @@ class TestCLIGitArguments:
 
     def test_git_dir_default_value(self):
         """Test that --git-dir has correct default value."""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -595,7 +595,7 @@ class TestCLIGitArguments:
 
     def test_git_message_argument(self):
         """Test that --git-message argument is recognized."""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv

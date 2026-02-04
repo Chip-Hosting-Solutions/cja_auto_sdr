@@ -176,8 +176,11 @@ python -m venv .venv
 # Upgrade pip
 python -m pip install --upgrade pip
 
-# Install dependencies
-pip install cjapy>=0.2.4.post2 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0 numpy>=2.2.0
+# Install core dependencies
+pip install cjapy>=0.2.4.post3 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0 numpy>=2.2.0
+
+# Optional: Install scipy for clustering support (--cluster flag)
+pip install scipy>=1.14.0
 
 # Install the tool in development mode
 pip install -e .
@@ -192,7 +195,7 @@ python -c "import pandas; print(f'Pandas: {pandas.__version__}')"
 python -c "import cjapy; print('cjapy: OK')"
 
 # Test the tool
-python cja_sdr_generator.py --version
+cja_auto_sdr --version
 # Or if the console script was installed:
 cja_auto_sdr --version
 ```
@@ -201,22 +204,22 @@ cja_auto_sdr --version
 
 ```text
 # Option 1: Run the script directly (most reliable)
-python cja_sdr_generator.py --list-dataviews
-python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
+cja_auto_sdr --list-dataviews
+cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 
 # Option 2: Use the console script (if installation succeeded)
 cja_auto_sdr --list-dataviews
 cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 
 # Option 3: Use full path to Python in venv
-.venv\Scripts\python.exe cja_sdr_generator.py --version
+.venv\Scripts\cja_auto_sdr.exe --version
 ```
 
 **Common Windows Issues:**
 
 | Issue | Solution |
 |-------|----------|
-| `uv run` doesn't work | Use `python cja_sdr_generator.py` instead |
+| `uv run` doesn't work | Use `cja_auto_sdr` instead |
 | NumPy ImportError | Reinstall with `pip install --only-binary :all: numpy` |
 | Permission denied | Run PowerShell as Administrator or use `Set-ExecutionPolicy RemoteSigned` |
 | Module not found | Ensure venv is activated: `.venv\Scripts\activate` |
@@ -300,15 +303,19 @@ Then edit with your credentials:
 
 ```
 cja_auto_sdr/
+├── src/
+│   └── cja_auto_sdr/         # Main package (src-layout)
+│       ├── generator.py      # Main SDR generator
+│       └── inventory/        # Inventory subpackage
+├── scripts/                  # Utility scripts
 ├── .venv/                    # Virtual environment (created by uv)
 ├── logs/                     # Log files (created automatically)
 ├── docs/                     # Documentation
 ├── tests/                    # Test suite
 ├── pyproject.toml            # Project configuration
 ├── uv.lock                   # Dependency lock file
-├── config.json             # Your CJA credentials (DO NOT COMMIT)
+├── config.json               # Your CJA credentials (DO NOT COMMIT)
 ├── .env                      # Environment variables (DO NOT COMMIT)
-├── cja_sdr_generator.py      # Main script
 └── README.md
 ```
 
@@ -343,10 +350,10 @@ All dependencies are managed through `pyproject.toml`:
 ```toml
 [project]
 name = "cja-auto-sdr"
-version = "3.1.0"
+dynamic = ["version"]  # Version read from src/cja_auto_sdr/core/version.py
 requires-python = ">=3.14"
 dependencies = [
-    "cjapy>=0.2.4.post2",
+    "cjapy>=0.2.4.post3",
     "numpy>=2.2.0,!=2.4.0",
     "pandas>=2.3.3",
     "xlsxwriter>=3.2.9",
@@ -354,16 +361,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.3.4",
-    "pytest-cov>=4.1.0",
-]
-env = [
-    "python-dotenv>=1.0.0",
-]
-completion = [
-    "argcomplete>=3.0.0",
-]
+clustering = ["scipy>=1.14.0"]
+env = ["python-dotenv>=1.0.0"]
+completion = ["argcomplete>=3.0.0"]
+full = ["scipy>=1.14.0", "python-dotenv>=1.0.0", "argcomplete>=3.0.0"]
+dev = ["pytest>=8.3.4", "pytest-cov>=4.1.0"]
 ```
 
 ### Core Dependencies
@@ -374,6 +376,31 @@ completion = [
 | `pandas` | Data manipulation |
 | `xlsxwriter` | Excel generation |
 | `tqdm` | Progress bars |
+
+### Optional Dependencies
+
+| Extra | Package | Purpose |
+|-------|---------|---------|
+| `clustering` | `scipy` | Hierarchical clustering for `--cluster` flag |
+| `env` | `python-dotenv` | Load credentials from `.env` files |
+| `completion` | `argcomplete` | Shell tab completion |
+| `full` | All of the above | Install everything |
+
+### Installing Optional Extras
+
+```bash
+# Install with clustering support (for --cluster flag)
+uv pip install 'cja-auto-sdr[clustering]'
+
+# Install with .env file support
+uv pip install 'cja-auto-sdr[env]'
+
+# Install everything
+uv pip install 'cja-auto-sdr[full]'
+
+# For development with all features
+uv sync --extra clustering --extra dev
+```
 
 ## Verifying Installation
 
