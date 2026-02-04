@@ -737,7 +737,7 @@ cja_auto_sdr --org-report
 
 Output includes:
 - **Distribution Summary:** Core, Common, Limited, Isolated component counts
-- **Similarity Matrix:** Jaccard similarity between data views (unless `--skip-similarity`)
+- **Similarity Matrix:** Jaccard similarity between data views (unless `--skip-similarity`). For governance checks, the effective overlap threshold is capped at 90% and reports note the configured vs. effective threshold when higher.
 - **Governance Recommendations:** Based on component distribution patterns
 
 ### Excel/File Output

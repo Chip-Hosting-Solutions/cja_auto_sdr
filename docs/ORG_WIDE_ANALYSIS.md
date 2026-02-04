@@ -92,6 +92,10 @@ This identifies:
 - **Prod/staging pairs** (high overlap with minor differences)
 - **Related data views** that share common components
 
+Note: For governance checks, pairs with >= 90% similarity are always included.
+If `--overlap-threshold` is set above 0.9, the effective similarity threshold is capped at 0.9
+and reports will note the configured vs. effective threshold.
+
 ```bash
 # Flag pairs with 90%+ similarity (default: 80%)
 cja_auto_sdr --org-report --overlap-threshold 0.9
@@ -133,7 +137,7 @@ Based on the analysis, the tool generates governance recommendations:
 |--------|---------|-------------|
 | `--core-threshold` | 0.5 | Fraction of DVs for "core" classification |
 | `--core-min-count` | - | Absolute count for "core" (overrides threshold) |
-| `--overlap-threshold` | 0.8 | Minimum similarity to flag as "high overlap" |
+| `--overlap-threshold` | 0.8 | Minimum similarity to flag as "high overlap" (capped at 0.9 for governance checks) |
 
 ### Component Type Breakdown
 

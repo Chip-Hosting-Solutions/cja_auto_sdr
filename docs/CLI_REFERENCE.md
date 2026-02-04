@@ -267,7 +267,7 @@ Analyze component usage patterns across all data views in your organization.
 |--------|-------------|---------|
 | `--core-threshold FLOAT` | Fraction of data views for "core" classification (0.0-1.0) | 0.5 |
 | `--core-min-count N` | Absolute count for "core" classification (overrides threshold) | - |
-| `--overlap-threshold FLOAT` | Minimum Jaccard similarity to flag as "high overlap" (0.0-1.0) | 0.8 |
+| `--overlap-threshold FLOAT` | Minimum Jaccard similarity to flag as "high overlap" (0.0-1.0; capped at 0.9 for governance checks) | 0.8 |
 
 #### Component Type & Metadata Options
 

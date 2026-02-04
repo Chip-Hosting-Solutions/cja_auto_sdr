@@ -10837,7 +10837,11 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print("-" * 110)
         print("HIGH OVERLAP PAIRS")
         print("-" * 110)
-        print(f"Pairs with >= {config.overlap_threshold*100:.0f}% Jaccard similarity:")
+        effective_threshold = min(config.overlap_threshold, 0.9)
+        threshold_note = ""
+        if config.overlap_threshold > 0.9:
+            threshold_note = f" (configured {config.overlap_threshold*100:.0f}%, capped at 90% for governance checks)"
+        print(f"Pairs with >= {effective_threshold*100:.0f}% Jaccard similarity{threshold_note}:")
         print()
 
         for pair in result.similarity_pairs[:10]:  # Limit to top 10
@@ -11101,6 +11105,7 @@ def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: 
 
 def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
     """Build org report JSON payload."""
+    effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
     return {
         "report_type": "org_analysis",
         "version": "1.0",
@@ -11114,6 +11119,7 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             "core_threshold": result.parameters.core_threshold,
             "core_min_count": result.parameters.core_min_count,
             "overlap_threshold": result.parameters.overlap_threshold,
+            "overlap_threshold_effective": effective_overlap_threshold,
             "include_component_types": result.parameters.include_component_types,
             "include_metadata": result.parameters.include_metadata,
             "include_drift": result.parameters.include_drift,
@@ -11321,6 +11327,7 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
         total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
         total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
         total_derived_fields = total_derived_metrics + total_derived_dimensions
+        effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
         metrics = [
             'Organization ID',
@@ -11340,6 +11347,8 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
             'Common Components',
             'Limited Components',
             'Isolated Components',
+            'Overlap Threshold (Configured)',
+            'Overlap Threshold (Effective)',
             'Analysis Duration (seconds)',
         ]
         values = [
@@ -11360,6 +11369,8 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
             result.distribution.total_common,
             result.distribution.total_limited,
             result.distribution.total_isolated,
+            result.parameters.overlap_threshold,
+            effective_overlap_threshold,
             round(result.duration, 2),
         ]
         # Add sampling info
@@ -11744,7 +11755,13 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
     if result.similarity_pairs:
         lines.append("## High Overlap Pairs")
         lines.append("")
-        lines.append(f"Data view pairs with >= {int(result.parameters.overlap_threshold*100)}% Jaccard similarity.")
+        effective_threshold = min(result.parameters.overlap_threshold, 0.9)
+        threshold_note = ""
+        if result.parameters.overlap_threshold > 0.9:
+            threshold_note = f" (configured {int(result.parameters.overlap_threshold*100)}%, capped at 90% for governance checks)"
+        lines.append(
+            f"Data view pairs with >= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}."
+        )
         lines.append("")
         lines.append("| Data View 1 | Data View 2 | Similarity | Shared |")
         lines.append("|-------------|-------------|------------|-------:|")
@@ -12047,9 +12064,16 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
 
     # Similarity Pairs
     if result.similarity_pairs:
+        effective_threshold = min(result.parameters.overlap_threshold, 0.9)
+        threshold_note = ""
+        if result.parameters.overlap_threshold > 0.9:
+            threshold_note = (
+                f" (configured {int(result.parameters.overlap_threshold*100)}%, "
+                "capped at 90% for governance checks)"
+            )
         html_out += f'''
         <h2>High Overlap Pairs</h2>
-        <p>Data view pairs with &gt;= {int(result.parameters.overlap_threshold*100)}% Jaccard similarity.</p>
+        <p>Data view pairs with &gt;= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}.</p>
         <div class="card">
             <table>
                 <thead>
@@ -12139,6 +12163,7 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
     total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
+    effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
     summary_data = [{
         'Report Type': 'Org-Wide Component Analysis',
@@ -12156,7 +12181,8 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
         'Derived Dimensions (Non-Unique)': total_derived_dimensions,
         'Total Derived Fields (Non-Unique)': total_derived_fields,
         'Core Threshold': result.parameters.core_threshold,
-        'Overlap Threshold': result.parameters.overlap_threshold,
+        'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
+        'Overlap Threshold (Effective)': effective_overlap_threshold,
         'Analysis Duration (s)': round(result.duration, 2),
     }]
     summary_df = pd.DataFrame(summary_data)
@@ -12223,6 +12249,7 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
 
     # 5. Similarity CSV (if computed)
     if result.similarity_pairs:
+        effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
         sim_data = []
         for pair in result.similarity_pairs:
             sim_data.append({
@@ -12233,6 +12260,8 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
                 'Jaccard Similarity': pair.jaccard_similarity,
                 'Shared Components': pair.shared_count,
                 'Union Size': pair.union_count,
+                'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
+                'Overlap Threshold (Effective)': effective_overlap_threshold,
             })
         sim_df = pd.DataFrame(sim_data)
         sim_path = csv_dir / "org_report_similarity.csv"

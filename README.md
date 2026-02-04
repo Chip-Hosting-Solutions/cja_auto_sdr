@@ -280,6 +280,7 @@ cja_auto_sdr "Production Analytics"
 | Export as CSV | `cja_auto_sdr --org-report --format csv` |
 | Export all formats | `cja_auto_sdr --org-report --format all` |
 | Custom thresholds | `cja_auto_sdr --org-report --core-threshold 0.7 --overlap-threshold 0.9` |
+| Overlap threshold note | Similarity reporting caps the effective threshold at 90% for governance checks (reports show configured vs. effective when higher) |
 | Quick stats mode | `cja_auto_sdr --org-report --org-stats` |
 | Cluster data views | `cja_auto_sdr --org-report --cluster --format excel` |
 | CI/CD governance check | `cja_auto_sdr --org-report --duplicate-threshold 5 --fail-on-threshold` |

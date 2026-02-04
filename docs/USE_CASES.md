@@ -541,6 +541,8 @@ Use org-wide analysis to plan data view consolidation:
 cja_auto_sdr --org-report --overlap-threshold 0.9 --format json | \
   jq '.similarity_pairs[] | select(.similarity >= 0.9)'
 
+# Note: For governance checks, pairs with >= 90% similarity are always included,
+# even if `--overlap-threshold` is set above 0.9.
 # Validate prod/staging alignment
 cja_auto_sdr --org-report --filter "Prod|Staging" --overlap-threshold 0.95
 
