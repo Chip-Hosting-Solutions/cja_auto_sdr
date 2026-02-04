@@ -90,6 +90,10 @@ class OrgReportConfig:
     include_owner_summary: bool = False  # Group stats by data view owner
     # Stale component heuristics (Feature 6)
     flag_stale: bool = False  # Flag components with stale naming patterns
+    # Memory warning threshold
+    memory_warning_threshold_mb: Optional[int] = 100  # Warn if component index exceeds this size (0 to disable)
+    # Smart cache validation
+    validate_cache: bool = False  # Validate cache entries against data view modification timestamps
 
 
 @dataclass

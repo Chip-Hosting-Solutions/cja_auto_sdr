@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import pandas as pd
 from tqdm import tqdm
 
+from cja_auto_sdr.core.constants import DEFAULT_ORG_REPORT_WORKERS
+from cja_auto_sdr.inventory.utils import extract_owner
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
     ComponentInfo,
@@ -113,6 +115,9 @@ class OrgComponentAnalyzer:
         self.logger.info("Building component index...")
         component_index = self._build_component_index(summaries)
         self.logger.info(f"Indexed {len(component_index)} unique components")
+
+        # 3.5. Check memory warning
+        self._check_memory_warning(component_index)
 
         # 4. Compute distribution
         self.logger.info("Computing distribution buckets...")
@@ -343,29 +348,41 @@ class OrgComponentAnalyzer:
         summaries = []
         to_fetch = []
         cache_hits = 0
+        cache_stale = 0
 
         # Check cache first if enabled
         if self.config.use_cache and self.cache:
-            required_flags = {
-                'include_names': self.config.include_names,
-                'include_metadata': self.config.include_metadata,
-                'include_component_types': self.config.include_component_types,
-            }
-            for dv in data_views:
-                dv_id = dv.get('id', '')
-                cached = self.cache.get(
-                    dv_id,
-                    self.config.cache_max_age_hours,
-                    required_flags=required_flags
-                )
-                if cached:
-                    summaries.append(cached)
-                    cache_hits += 1
-                else:
-                    to_fetch.append(dv)
+            # Use smart validation if enabled
+            if self.config.validate_cache:
+                self.logger.info("Validating cached entries against modification timestamps...")
+                to_fetch, valid_summaries, valid_count, stale_count = self._validate_cache_entries(data_views)
+                summaries.extend(valid_summaries)
+                cache_hits = valid_count
+                cache_stale = stale_count
+                if cache_hits > 0 or cache_stale > 0:
+                    self.logger.info(f"Cache validation: {cache_hits} valid, {cache_stale} stale, {len(to_fetch)} to fetch")
+            else:
+                # Standard age-based cache lookup
+                required_flags = {
+                    'include_names': self.config.include_names,
+                    'include_metadata': self.config.include_metadata,
+                    'include_component_types': self.config.include_component_types,
+                }
+                for dv in data_views:
+                    dv_id = dv.get('id', '')
+                    cached = self.cache.get(
+                        dv_id,
+                        self.config.cache_max_age_hours,
+                        required_flags=required_flags
+                    )
+                    if cached:
+                        summaries.append(cached)
+                        cache_hits += 1
+                    else:
+                        to_fetch.append(dv)
 
-            if cache_hits > 0:
-                self.logger.info(f"Cache: {cache_hits} hits, {len(to_fetch)} to fetch")
+                if cache_hits > 0:
+                    self.logger.info(f"Cache: {cache_hits} hits, {len(to_fetch)} to fetch")
         else:
             to_fetch = data_views
 
@@ -375,7 +392,7 @@ class OrgComponentAnalyzer:
         pending_cache: List[DataViewSummary] = []
 
         # Use ThreadPoolExecutor for parallel fetches
-        with ThreadPoolExecutor(max_workers=min(10, len(to_fetch))) as executor:
+        with ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch))) as executor:
             futures = {
                 executor.submit(self._fetch_data_view_components, dv): dv
                 for dv in to_fetch
@@ -533,7 +550,6 @@ class OrgComponentAnalyzer:
                     if dv_details is not None:
                         if isinstance(dv_details, dict):
                             # Extract owner using utility function
-                            from cja_auto_sdr.inventory.utils import extract_owner
                             owner, owner_id = extract_owner(dv_details.get('owner'))
 
                             # Extract dates
@@ -626,6 +642,52 @@ class OrgComponentAnalyzer:
                 index[dim_id].data_views.add(summary.data_view_id)
 
         return index
+
+    def _estimate_component_index_memory(self, index: Dict[str, ComponentInfo]) -> float:
+        """Estimate memory usage of the component index in MB.
+
+        Uses a heuristic formula:
+        per_component = 200 (base object overhead)
+                      + len(comp_id)
+                      + len(name) if name else 0
+                      + 50 * len(data_views) (set entries)
+                      + 50 (misc overhead)
+
+        Args:
+            index: Component index to estimate
+
+        Returns:
+            Estimated memory usage in megabytes
+        """
+        total_bytes = 0
+        for comp_id, info in index.items():
+            base_overhead = 200
+            id_size = len(comp_id)
+            name_size = len(info.name) if info.name else 0
+            data_views_size = 50 * len(info.data_views)
+            misc_overhead = 50
+            total_bytes += base_overhead + id_size + name_size + data_views_size + misc_overhead
+
+        return total_bytes / (1024 * 1024)
+
+    def _check_memory_warning(self, index: Dict[str, ComponentInfo]) -> None:
+        """Check if component index memory exceeds threshold and log warning.
+
+        Args:
+            index: Component index to check
+        """
+        threshold = self.config.memory_warning_threshold_mb
+        if threshold is None or threshold <= 0:
+            return  # Warning disabled
+
+        estimated_mb = self._estimate_component_index_memory(index)
+        if estimated_mb > threshold:
+            self.logger.warning(
+                "High memory usage detected: component index estimated at %.1fMB (threshold: %dMB). "
+                "Consider using --limit, --sample, or --skip-similarity to reduce memory footprint.",
+                estimated_mb,
+                threshold
+            )
 
     def _compute_distribution(
         self,
@@ -1274,6 +1336,83 @@ class OrgComponentAnalyzer:
                 reverse=True
             )
         }
+
+    def _fetch_modification_date(self, dv_id: str) -> Optional[str]:
+        """Fetch the current modification date for a data view.
+
+        Makes a lightweight API call to get just the data view metadata.
+
+        Args:
+            dv_id: Data view ID
+
+        Returns:
+            Modification timestamp string or None if unavailable
+        """
+        try:
+            cja = self._get_thread_client()
+            dv_details = cja.getDataView(dv_id)
+            if dv_details is not None and isinstance(dv_details, dict):
+                return dv_details.get('modified') or dv_details.get('modifiedDate')
+        except Exception:
+            pass
+        return None
+
+    def _validate_cache_entries(
+        self,
+        data_views: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], List[DataViewSummary], int, int]:
+        """Validate cached entries against current modification timestamps.
+
+        For each data view, checks if the cached entry's modification timestamp
+        matches the current modification timestamp from the API.
+
+        Args:
+            data_views: List of data view dicts to validate
+
+        Returns:
+            Tuple of (dvs_to_fetch, valid_cached_summaries, valid_count, stale_count)
+        """
+        if not self.cache:
+            return data_views, [], 0, 0
+
+        to_fetch = []
+        valid_summaries = []
+        valid_count = 0
+        stale_count = 0
+
+        required_flags = {
+            'include_names': self.config.include_names,
+            'include_metadata': self.config.include_metadata,
+            'include_component_types': self.config.include_component_types,
+        }
+
+        for dv in data_views:
+            dv_id = dv.get('id', '')
+
+            # Check if entry exists and is within age limit
+            if not self.cache.needs_validation(dv_id, self.config.cache_max_age_hours):
+                to_fetch.append(dv)
+                continue
+
+            # Fetch current modification date
+            current_modified = self._fetch_modification_date(dv_id)
+
+            # Try to get from cache with validation
+            cached = self.cache.get(
+                dv_id,
+                self.config.cache_max_age_hours,
+                required_flags=required_flags,
+                current_modified=current_modified
+            )
+
+            if cached:
+                valid_summaries.append(cached)
+                valid_count += 1
+            else:
+                to_fetch.append(dv)
+                stale_count += 1
+
+        return to_fetch, valid_summaries, valid_count, stale_count
 
     def _detect_stale_components(
         self,

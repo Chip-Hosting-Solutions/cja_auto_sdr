@@ -57,7 +57,8 @@ class OrgReportCache:
         self,
         dv_id: str,
         max_age_hours: int = 24,
-        required_flags: Optional[Dict[str, bool]] = None
+        required_flags: Optional[Dict[str, bool]] = None,
+        current_modified: Optional[str] = None
     ) -> Optional[DataViewSummary]:
         """Get cached data view summary if fresh enough.
 
@@ -65,6 +66,8 @@ class OrgReportCache:
             dv_id: Data view ID
             max_age_hours: Maximum cache age in hours
             required_flags: Optional flags indicating required cached fields
+            current_modified: Current data view modification timestamp for validation.
+                If provided and differs from cached timestamp, returns None.
 
         Returns:
             Cached DataViewSummary or None if not cached or stale
@@ -83,6 +86,12 @@ class OrgReportCache:
                 return None  # Cache is stale
         except (ValueError, TypeError):
             return None
+
+        # Validate modification timestamp if provided
+        if current_modified is not None:
+            cached_modified = entry.get('modified')
+            if cached_modified != current_modified:
+                return None  # Data view has been modified since cached
 
         if required_flags:
             include_names = required_flags.get('include_names', False)
@@ -215,6 +224,49 @@ class OrgReportCache:
         elif dv_id in self._cache:
             del self._cache[dv_id]
         self._save_cache()
+
+    def needs_validation(self, dv_id: str, max_age_hours: int = 24) -> bool:
+        """Check if a cache entry exists and is within age limit but needs validation.
+
+        Use this to identify entries that would be returned by get() but should
+        be validated against current modification timestamps.
+
+        Args:
+            dv_id: Data view ID
+            max_age_hours: Maximum cache age in hours
+
+        Returns:
+            True if entry exists within age limit and may need validation
+        """
+        if dv_id not in self._cache:
+            return False
+
+        entry = self._cache[dv_id]
+        fetched_at = entry.get('fetched_at')
+        if not fetched_at:
+            return False
+
+        try:
+            fetched_time = datetime.fromisoformat(fetched_at)
+            if datetime.now() - fetched_time > timedelta(hours=max_age_hours):
+                return False  # Cache is stale anyway
+        except (ValueError, TypeError):
+            return False
+
+        return True
+
+    def get_cached_modified(self, dv_id: str) -> Optional[str]:
+        """Get the cached modification timestamp for a data view.
+
+        Args:
+            dv_id: Data view ID
+
+        Returns:
+            Cached modification timestamp or None if not cached
+        """
+        if dv_id not in self._cache:
+            return None
+        return self._cache[dv_id].get('modified')
 
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics.

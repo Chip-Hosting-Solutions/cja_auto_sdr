@@ -8913,6 +8913,22 @@ Requirements:
         help='Clear the org-report cache and fetch fresh data'
     )
 
+    org_group.add_argument(
+        '--validate-cache',
+        action='store_true',
+        dest='org_validate_cache',
+        help='Validate cached entries against data view modification timestamps before using'
+    )
+
+    org_group.add_argument(
+        '--memory-warning',
+        type=int,
+        metavar='MB',
+        default=100,
+        dest='org_memory_warning',
+        help='Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)'
+    )
+
     # Clustering options
     org_group.add_argument(
         '--cluster',
@@ -13481,6 +13497,8 @@ def main():
             use_cache=getattr(args, 'org_use_cache', False),
             cache_max_age_hours=getattr(args, 'org_cache_max_age', 24),
             clear_cache=getattr(args, 'org_clear_cache', False),
+            validate_cache=getattr(args, 'org_validate_cache', False),
+            memory_warning_threshold_mb=getattr(args, 'org_memory_warning', 100),
             enable_clustering=getattr(args, 'org_cluster', False),
             cluster_method=getattr(args, 'org_cluster_method', 'average'),
             quiet=args.quiet,

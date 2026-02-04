@@ -2716,3 +2716,414 @@ class TestWardClusteringWarning:
         assert not any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
 
         logger.removeHandler(handler)
+
+
+class TestMemoryWarning:
+    """Test memory usage warning functionality"""
+
+    @pytest.fixture
+    def mock_cja(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_logger(self):
+        import logging
+        logger = logging.getLogger("test_memory_warning")
+        logger.setLevel(logging.WARNING)
+        return logger
+
+    def test_memory_estimation_basic(self, mock_cja, mock_logger):
+        """Test that memory estimation returns reasonable values"""
+        config = OrgReportConfig()
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        # Create a component index with known sizes
+        component_index = {
+            f"metric/comp_{i}": ComponentInfo(
+                f"metric/comp_{i}",
+                "metric",
+                name=f"Component {i}",
+                data_views={f"dv_{j}" for j in range(10)}
+            )
+            for i in range(100)
+        }
+
+        estimated_mb = analyzer._estimate_component_index_memory(component_index)
+
+        # Should be a positive number
+        assert estimated_mb > 0
+        # With 100 components, each with ~200 base + 15 id + 12 name + 500 dv overhead + 50 misc
+        # = ~777 bytes per component = ~77,700 bytes = ~0.074 MB
+        # Allow for some variance in the estimate
+        assert 0.01 < estimated_mb < 1.0
+
+    def test_warning_logged_when_threshold_exceeded(self, mock_cja):
+        """Test that warning is logged when memory exceeds threshold"""
+        import logging
+
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        logger = logging.getLogger("test_memory_threshold")
+        logger.setLevel(logging.WARNING)
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        # Set a very low threshold to trigger warning
+        config = OrgReportConfig(memory_warning_threshold_mb=1)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        # Create a large component index
+        component_index = {
+            f"metric/comp_{i}": ComponentInfo(
+                f"metric/comp_{i}",
+                "metric",
+                name=f"Component {i} with a longer name to increase memory",
+                data_views={f"dv_{j}" for j in range(50)}  # Many data views
+            )
+            for i in range(1000)  # Many components
+        }
+
+        analyzer._check_memory_warning(component_index)
+
+        # Should have logged a warning about memory
+        assert any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
+        logger.removeHandler(handler)
+
+    def test_no_warning_when_below_threshold(self, mock_cja):
+        """Test that no warning is logged when memory is below threshold"""
+        import logging
+
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        logger = logging.getLogger("test_memory_no_warning")
+        logger.setLevel(logging.WARNING)
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        # Set a high threshold that won't be exceeded
+        config = OrgReportConfig(memory_warning_threshold_mb=1000)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        # Create a small component index
+        component_index = {
+            f"metric/comp_{i}": ComponentInfo(
+                f"metric/comp_{i}",
+                "metric",
+                data_views={"dv_1"}
+            )
+            for i in range(10)
+        }
+
+        analyzer._check_memory_warning(component_index)
+
+        # Should NOT have logged a warning about memory
+        assert not any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
+        logger.removeHandler(handler)
+
+    def test_warning_disabled_with_zero(self, mock_cja):
+        """Test that no warning is logged when threshold is 0 (disabled)"""
+        import logging
+
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        logger = logging.getLogger("test_memory_disabled")
+        logger.setLevel(logging.WARNING)
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        # Disable warning with threshold of 0
+        config = OrgReportConfig(memory_warning_threshold_mb=0)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        # Create a large component index that would normally trigger warning
+        component_index = {
+            f"metric/comp_{i}": ComponentInfo(
+                f"metric/comp_{i}",
+                "metric",
+                name=f"Component {i} with a longer name",
+                data_views={f"dv_{j}" for j in range(50)}
+            )
+            for i in range(1000)
+        }
+
+        analyzer._check_memory_warning(component_index)
+
+        # Should NOT have logged any warning (disabled)
+        assert not any("memory" in w.lower() for w in handler.warnings)
+        logger.removeHandler(handler)
+
+    def test_warning_disabled_with_none(self, mock_cja):
+        """Test that no warning is logged when threshold is None (disabled)"""
+        import logging
+
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        logger = logging.getLogger("test_memory_none")
+        logger.setLevel(logging.WARNING)
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        # Disable warning with threshold of None
+        config = OrgReportConfig(memory_warning_threshold_mb=None)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        # Create a large component index
+        component_index = {
+            f"metric/comp_{i}": ComponentInfo(
+                f"metric/comp_{i}",
+                "metric",
+                data_views={f"dv_{j}" for j in range(50)}
+            )
+            for i in range(1000)
+        }
+
+        analyzer._check_memory_warning(component_index)
+
+        # Should NOT have logged any warning (disabled)
+        assert not any("memory" in w.lower() for w in handler.warnings)
+        logger.removeHandler(handler)
+
+
+class TestSmartCacheInvalidation:
+    """Test smart cache invalidation based on modification timestamps"""
+
+    def test_cache_validates_modification_timestamp(self):
+        """Test that cache returns None when current_modified differs from cached"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            # Store a summary with a modification timestamp
+            summary = DataViewSummary(
+                data_view_id="dv_test",
+                data_view_name="Test DV",
+                metric_ids={"m1", "m2"},
+                dimension_ids={"d1"},
+                metric_count=2,
+                dimension_count=1,
+                modified="2024-01-15T10:00:00Z",
+            )
+            cache.put(summary, include_metadata=True)
+
+            # Try to get with same modification timestamp - should succeed
+            retrieved = cache.get(
+                "dv_test",
+                max_age_hours=24,
+                current_modified="2024-01-15T10:00:00Z"
+            )
+            assert retrieved is not None
+            assert retrieved.data_view_id == "dv_test"
+
+            # Try to get with different modification timestamp - should fail
+            retrieved = cache.get(
+                "dv_test",
+                max_age_hours=24,
+                current_modified="2024-01-16T10:00:00Z"  # Different timestamp
+            )
+            assert retrieved is None
+
+    def test_cache_returns_valid_when_no_current_modified(self):
+        """Test backward compatibility - cache works when no current_modified provided"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            summary = DataViewSummary(
+                data_view_id="dv_test",
+                data_view_name="Test DV",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="2024-01-15T10:00:00Z",
+            )
+            cache.put(summary, include_metadata=True)
+
+            # Get without providing current_modified - should still work
+            retrieved = cache.get("dv_test", max_age_hours=24)
+            assert retrieved is not None
+            assert retrieved.data_view_id == "dv_test"
+
+    def test_needs_validation_true_for_fresh_entry(self):
+        """Test needs_validation returns True for fresh cache entries"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            summary = DataViewSummary(
+                data_view_id="dv_test",
+                data_view_name="Test DV",
+            )
+            cache.put(summary)
+
+            # Fresh entry should need validation
+            assert cache.needs_validation("dv_test", max_age_hours=24) is True
+
+            # Non-existent entry should not need validation
+            assert cache.needs_validation("nonexistent", max_age_hours=24) is False
+
+    def test_get_cached_modified(self):
+        """Test get_cached_modified returns cached modification timestamp"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            summary = DataViewSummary(
+                data_view_id="dv_test",
+                data_view_name="Test DV",
+                modified="2024-01-15T10:00:00Z",
+            )
+            cache.put(summary, include_metadata=True)
+
+            # Should return the cached modified timestamp
+            assert cache.get_cached_modified("dv_test") == "2024-01-15T10:00:00Z"
+
+            # Non-existent entry should return None
+            assert cache.get_cached_modified("nonexistent") is None
+
+    def test_analyzer_validates_when_flag_set(self):
+        """Test that analyzer validates cache when validate_cache is True"""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_validate_cache")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            # Pre-populate cache with old modified timestamp
+            summary = DataViewSummary(
+                data_view_id="dv_1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="2024-01-15T10:00:00Z",
+            )
+            # Put with all flags to match the config defaults
+            cache.put(summary, include_metadata=True, include_component_types=True)
+
+            config = OrgReportConfig(
+                use_cache=True,
+                validate_cache=True,
+                cache_max_age_hours=24,
+                include_metadata=True,  # Match the cache flags
+                include_component_types=True,  # Default is True, match cache
+            )
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
+
+            # Mock _fetch_modification_date to return different timestamp
+            with patch.object(analyzer, "_fetch_modification_date", return_value="2024-01-16T10:00:00Z"):
+                to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
+                    [{"id": "dv_1", "name": "DV 1"}]
+                )
+
+            # Should detect stale entry and need to re-fetch
+            assert len(to_fetch) == 1
+            assert len(valid_summaries) == 0
+            assert valid_count == 0
+            assert stale_count == 1
+
+    def test_analyzer_skips_validation_by_default(self):
+        """Test that analyzer does not validate cache when validate_cache is False"""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_no_validate")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            # Pre-populate cache
+            summary = DataViewSummary(
+                data_view_id="dv_1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="2024-01-15T10:00:00Z",
+            )
+            cache.put(summary)
+
+            # validate_cache=False (default)
+            config = OrgReportConfig(
+                use_cache=True,
+                validate_cache=False,
+                cache_max_age_hours=24,
+            )
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
+
+            # Simulate _fetch_all_data_views behavior - should use standard lookup
+            # Get from cache without validation
+            retrieved = cache.get("dv_1", max_age_hours=24)
+            assert retrieved is not None  # Should get from cache without validation
+
+    def test_analyzer_validates_with_matching_timestamp(self):
+        """Test that validation passes when timestamps match"""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_validate_match")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            # Pre-populate cache with all flags matching the config
+            summary = DataViewSummary(
+                data_view_id="dv_1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="2024-01-15T10:00:00Z",
+            )
+            # Put with all flags to match the config defaults
+            cache.put(summary, include_metadata=True, include_component_types=True)
+
+            config = OrgReportConfig(
+                use_cache=True,
+                validate_cache=True,
+                cache_max_age_hours=24,
+                include_metadata=True,  # Match the cache flags
+                include_component_types=True,  # Default is True, match cache
+            )
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
+
+            # Mock _fetch_modification_date to return same timestamp
+            with patch.object(analyzer, "_fetch_modification_date", return_value="2024-01-15T10:00:00Z"):
+                to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
+                    [{"id": "dv_1", "name": "DV 1"}]
+                )
+
+            # Should detect valid entry and use cache
+            assert len(to_fetch) == 0
+            assert len(valid_summaries) == 1
+            assert valid_count == 1
+            assert stale_count == 0

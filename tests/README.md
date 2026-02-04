@@ -480,8 +480,8 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,171 tests total)
-- [x] Org-wide analysis tests (test_org_report.py) - 120 tests (including large org scaling, output path aliases)
+- [x] Comprehensive test coverage (1,183 tests total)
+- [x] Org-wide analysis tests (test_org_report.py) - 132 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Profile management tests (test_profiles.py) - 43 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
