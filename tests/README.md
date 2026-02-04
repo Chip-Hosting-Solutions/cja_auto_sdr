@@ -38,7 +38,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,120 comprehensive tests**
+**Total: 1,152 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -76,7 +76,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,120** | **Collected via pytest --collect-only** |
+| **Total** | **1,152** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -480,7 +480,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,120 tests total)
+- [x] Comprehensive test coverage (1,152 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 103 tests (including large org scaling, output path aliases)
 - [x] Profile management tests (test_profiles.py) - 43 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
