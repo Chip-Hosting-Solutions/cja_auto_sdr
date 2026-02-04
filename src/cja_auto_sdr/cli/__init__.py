@@ -1,11 +1,30 @@
-"""CLI module - Command-line interface components.
+"""CLI module - Command-line interface components."""
 
-This module provides future-facing imports for the modular structure.
-Currently, all symbols should be imported from cja_auto_sdr.generator
-to avoid circular import issues.
-"""
+from cja_auto_sdr.cli.commands import (
+    generate_sample_config,
+    list_dataviews,
+    show_config_status,
+    validate_config_only,
+)
+from cja_auto_sdr.cli.interactive import (
+    interactive_select_dataviews,
+    interactive_wizard,
+    prompt_for_selection,
+)
+from cja_auto_sdr.cli.main import main
+from cja_auto_sdr.cli.parser import parse_arguments
 
-__all__ = []
+__all__ = [
+    "generate_sample_config",
+    "interactive_select_dataviews",
+    "interactive_wizard",
+    "list_dataviews",
+    "main",
+    "parse_arguments",
+    "prompt_for_selection",
+    "show_config_status",
+    "validate_config_only",
+]
 
 
 def __getattr__(name):

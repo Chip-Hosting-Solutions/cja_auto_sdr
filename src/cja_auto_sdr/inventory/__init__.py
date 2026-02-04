@@ -56,3 +56,12 @@ __all__ = [
     "normalize_api_response",
     "validate_required_id",
 ]
+
+
+from cja_auto_sdr.core.lazy import make_getattr
+
+__getattr__ = make_getattr(
+    __name__,
+    ["display_inventory_summary"],
+    mapping={"display_inventory_summary": "cja_auto_sdr.inventory.summary"},
+)

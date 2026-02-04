@@ -1,11 +1,28 @@
-"""Output module - Output format writers.
+"""Output module - Output format writers and registries."""
 
-This module provides future-facing imports for the modular structure.
-Currently, all symbols should be imported from cja_auto_sdr.generator
-to avoid circular import issues.
-"""
+from cja_auto_sdr.output.excel import ExcelFormatCache, apply_excel_formatting
+from cja_auto_sdr.output.protocols import OutputWriter
+from cja_auto_sdr.output.registry import WRITER_REGISTRY, get_writer
+from cja_auto_sdr.output.writers import (
+    write_csv_output,
+    write_excel_output,
+    write_html_output,
+    write_json_output,
+    write_markdown_output,
+)
 
-__all__ = []
+__all__ = [
+    "ExcelFormatCache",
+    "OutputWriter",
+    "WRITER_REGISTRY",
+    "apply_excel_formatting",
+    "get_writer",
+    "write_csv_output",
+    "write_excel_output",
+    "write_html_output",
+    "write_json_output",
+    "write_markdown_output",
+]
 
 
 def __getattr__(name):

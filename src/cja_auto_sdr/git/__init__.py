@@ -1,11 +1,22 @@
-"""Git module - Git integration for snapshots.
+"""Git module - Git integration for snapshots."""
 
-This module provides future-facing imports for the modular structure.
-Currently, all symbols should be imported from cja_auto_sdr.generator
-to avoid circular import issues.
-"""
+from cja_auto_sdr.diff.git import (
+    generate_git_commit_message,
+    git_commit_snapshot,
+    git_get_user_info,
+    git_init_snapshot_repo,
+    is_git_repository,
+    save_git_friendly_snapshot,
+)
 
-__all__ = []
+__all__ = [
+    "generate_git_commit_message",
+    "git_commit_snapshot",
+    "git_get_user_info",
+    "git_init_snapshot_repo",
+    "is_git_repository",
+    "save_git_friendly_snapshot",
+]
 
 
 def __getattr__(name):
