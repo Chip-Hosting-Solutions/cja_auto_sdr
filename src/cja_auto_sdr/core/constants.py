@@ -43,6 +43,7 @@ DEFAULT_VALIDATION_WORKERS: int = 2     # Concurrent validation threads
 DEFAULT_BATCH_WORKERS: int = 4          # Default batch processing workers
 MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
 AUTO_WORKERS_SENTINEL: int = 0          # Sentinel value to trigger auto-detection
+DEFAULT_ORG_REPORT_WORKERS: int = 10    # Max concurrent workers for org-wide data view fetches
 
 # ==================== CACHE DEFAULTS ====================
 

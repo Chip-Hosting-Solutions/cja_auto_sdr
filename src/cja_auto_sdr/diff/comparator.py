@@ -149,14 +149,28 @@ class DataViewComparator:
         modified = sum(1 for d in diffs if d.change_type == ChangeType.MODIFIED)
         return f"+{added} -{removed} ~{modified}"
 
-    def _compare_inventory_items(
+    def _compare_items_generic(
         self,
         source_list: List[Dict],
         target_list: List[Dict],
-        inventory_type: str,
-        id_field: str = 'id',
-        name_field: str = 'name'
-    ) -> List[InventoryItemDiff]:
+        id_field: str,
+        name_extractor: callable,
+        diff_factory: callable,
+        find_changed_fields: callable,
+    ) -> List:
+        """Generic comparison logic for items identified by an ID field.
+
+        Args:
+            source_list: List of source items (dicts)
+            target_list: List of target items (dicts)
+            id_field: Field name to use as unique ID
+            name_extractor: Function (item) -> name string
+            diff_factory: Function (id, name, change_type, source, target, changed_fields) -> diff object
+            find_changed_fields: Function (source_item, target_item) -> dict of changed fields
+
+        Returns:
+            List of diff objects created by diff_factory
+        """
         diffs = []
 
         source_map = {item.get(id_field): item for item in source_list if item.get(id_field)}
@@ -169,46 +183,54 @@ class DataViewComparator:
             target_item = target_map.get(item_id)
 
             if source_item and not target_item:
-                diffs.append(InventoryItemDiff(
-                    id=item_id,
-                    name=source_item.get(name_field, 'Unknown'),
-                    change_type=ChangeType.REMOVED,
-                    inventory_type=inventory_type,
-                    source_data=source_item,
-                    target_data=None
+                diffs.append(diff_factory(
+                    item_id, name_extractor(source_item), ChangeType.REMOVED,
+                    source_item, None, None
                 ))
             elif target_item and not source_item:
-                diffs.append(InventoryItemDiff(
-                    id=item_id,
-                    name=target_item.get(name_field, 'Unknown'),
-                    change_type=ChangeType.ADDED,
-                    inventory_type=inventory_type,
-                    source_data=None,
-                    target_data=target_item
+                diffs.append(diff_factory(
+                    item_id, name_extractor(target_item), ChangeType.ADDED,
+                    None, target_item, None
                 ))
             else:
-                changed_fields = self._find_inventory_changed_fields(source_item, target_item, inventory_type)
-                if changed_fields:
-                    diffs.append(InventoryItemDiff(
-                        id=item_id,
-                        name=target_item.get(name_field, 'Unknown'),
-                        change_type=ChangeType.MODIFIED,
-                        inventory_type=inventory_type,
-                        source_data=source_item,
-                        target_data=target_item,
-                        changed_fields=changed_fields
-                    ))
-                else:
-                    diffs.append(InventoryItemDiff(
-                        id=item_id,
-                        name=target_item.get(name_field, 'Unknown'),
-                        change_type=ChangeType.UNCHANGED,
-                        inventory_type=inventory_type,
-                        source_data=source_item,
-                        target_data=target_item
-                    ))
+                changed_fields = find_changed_fields(source_item, target_item)
+                change_type = ChangeType.MODIFIED if changed_fields else ChangeType.UNCHANGED
+                diffs.append(diff_factory(
+                    item_id, name_extractor(target_item), change_type,
+                    source_item, target_item, changed_fields
+                ))
 
         return diffs
+
+    def _compare_inventory_items(
+        self,
+        source_list: List[Dict],
+        target_list: List[Dict],
+        inventory_type: str,
+        id_field: str = 'id',
+        name_field: str = 'name'
+    ) -> List[InventoryItemDiff]:
+        def name_extractor(item: Dict) -> str:
+            return item.get(name_field, 'Unknown')
+
+        def diff_factory(item_id, name, change_type, source, target, changed_fields):
+            return InventoryItemDiff(
+                id=item_id,
+                name=name,
+                change_type=change_type,
+                inventory_type=inventory_type,
+                source_data=source,
+                target_data=target,
+                changed_fields=changed_fields or {}
+            )
+
+        def find_changed(source_item, target_item):
+            return self._find_inventory_changed_fields(source_item, target_item, inventory_type)
+
+        return self._compare_items_generic(
+            source_list, target_list, id_field,
+            name_extractor, diff_factory, find_changed
+        )
 
     def _find_inventory_changed_fields(self, source: Dict, target: Dict, inventory_type: str) -> Dict[str, Tuple[Any, Any]]:
         changed = {}
@@ -254,54 +276,23 @@ class DataViewComparator:
 
     def _compare_components(self, source_list: List[Dict], target_list: List[Dict],
                            component_type: str) -> List[ComponentDiff]:
-        diffs = []
+        def name_extractor(item: Dict) -> str:
+            return item.get('name', item.get('title', 'Unknown'))
 
-        source_map = {item.get('id'): item for item in source_list if item.get('id')}
-        target_map = {item.get('id'): item for item in target_list if item.get('id')}
+        def diff_factory(item_id, name, change_type, source, target, changed_fields):
+            return ComponentDiff(
+                id=item_id,
+                name=name,
+                change_type=change_type,
+                source_data=source,
+                target_data=target,
+                changed_fields=changed_fields or {}
+            )
 
-        all_ids = set(source_map.keys()) | set(target_map.keys())
-
-        for item_id in sorted(all_ids):
-            source_item = source_map.get(item_id)
-            target_item = target_map.get(item_id)
-
-            if source_item and not target_item:
-                diffs.append(ComponentDiff(
-                    id=item_id,
-                    name=source_item.get('name', source_item.get('title', 'Unknown')),
-                    change_type=ChangeType.REMOVED,
-                    source_data=source_item,
-                    target_data=None
-                ))
-            elif target_item and not source_item:
-                diffs.append(ComponentDiff(
-                    id=item_id,
-                    name=target_item.get('name', target_item.get('title', 'Unknown')),
-                    change_type=ChangeType.ADDED,
-                    source_data=None,
-                    target_data=target_item
-                ))
-            else:
-                changed_fields = self._find_changed_fields(source_item, target_item)
-                if changed_fields:
-                    diffs.append(ComponentDiff(
-                        id=item_id,
-                        name=target_item.get('name', target_item.get('title', 'Unknown')),
-                        change_type=ChangeType.MODIFIED,
-                        source_data=source_item,
-                        target_data=target_item,
-                        changed_fields=changed_fields
-                    ))
-                else:
-                    diffs.append(ComponentDiff(
-                        id=item_id,
-                        name=target_item.get('name', target_item.get('title', 'Unknown')),
-                        change_type=ChangeType.UNCHANGED,
-                        source_data=source_item,
-                        target_data=target_item
-                    ))
-
-        return diffs
+        return self._compare_items_generic(
+            source_list, target_list, 'id',
+            name_extractor, diff_factory, self._find_changed_fields
+        )
 
     def _find_changed_fields(self, source: Dict, target: Dict) -> Dict[str, Tuple[Any, Any]]:
         changed = {}
