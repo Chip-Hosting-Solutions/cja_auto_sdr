@@ -523,7 +523,7 @@ cja_auto_sdr --org-report \
 echo "Governance report saved to: $OUTPUT_DIR"
 
 # Extract high-priority recommendations
-cja_auto_sdr --org-report --format json | \
+cja_auto_sdr --org-report --format json --output - | \
   jq '.recommendations[] | select(.severity == "high")'
 ```
 
@@ -538,7 +538,7 @@ Use org-wide analysis to plan data view consolidation:
 
 ```bash
 # Find duplicate data views (high similarity pairs)
-cja_auto_sdr --org-report --overlap-threshold 0.9 --format json | \
+cja_auto_sdr --org-report --overlap-threshold 0.9 --format json --output - | \
   jq '.similarity_pairs[] | select(.similarity >= 0.9)'
 
 # Note: For governance checks, pairs with >= 90% similarity are always included,
@@ -564,7 +564,7 @@ Identify components that could be shared across teams:
 
 ```bash
 # Find standardization opportunities
-cja_auto_sdr --org-report --format json | \
+cja_auto_sdr --org-report --format json --output - | \
   jq '.recommendations[] | select(.type == "standardization_opportunity")'
 
 # Analyze isolated components per data view

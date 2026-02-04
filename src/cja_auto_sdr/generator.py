@@ -4,6 +4,7 @@ import json
 import re
 import html
 import math
+import contextlib
 from datetime import datetime, timedelta
 import hashlib
 import logging
@@ -12313,20 +12314,28 @@ def run_org_report(
     logger = logging.getLogger('org_report')
     logger.setLevel(logging.INFO if not quiet else logging.WARNING)
 
+    output_to_stdout = output_path in ('-', 'stdout')
+    status_to_stderr = output_to_stdout and output_format == 'json'
+    status_stream = sys.stderr if status_to_stderr else sys.stdout
+
+    def _status_print(*args, **kwargs) -> None:
+        kwargs.setdefault("file", status_stream)
+        print(*args, **kwargs)
+
     if not quiet:
-        print()
-        print("=" * 110)
-        print("ORG-WIDE COMPONENT ANALYSIS")
-        print("=" * 110)
+        _status_print()
+        _status_print("=" * 110)
+        _status_print("ORG-WIDE COMPONENT ANALYSIS")
+        _status_print("=" * 110)
         if profile:
-            print(f"\nUsing profile: {profile}")
-        print()
+            _status_print(f"\nUsing profile: {profile}")
+        _status_print()
 
     try:
         # Configure CJA connection
         success, source, credentials = configure_cjapy(profile, config_file)
         if not success:
-            print(ConsoleColors.error(f"ERROR: {source}"))
+            _status_print(ConsoleColors.error(f"ERROR: {source}"))
             return False, False
 
         # Extract org_id from credentials
@@ -12341,14 +12350,14 @@ def run_org_report(
             if not quiet:
                 stats = cache.get_stats()
                 if stats['entries'] > 0:
-                    print(f"Cache: {stats['entries']} entries available")
+                    _status_print(f"Cache: {stats['entries']} entries available")
 
         # Run analysis
         analyzer = OrgComponentAnalyzer(cja, org_config, logger, org_id=org_id, cache=cache)
         result = analyzer.run_analysis()
 
         if result.total_data_views == 0:
-            print(ConsoleColors.warning("No data views found matching criteria"))
+            _status_print(ConsoleColors.warning("No data views found matching criteria"))
             return False, False
 
         # Handle org-report comparison (Feature 4)
@@ -12356,23 +12365,24 @@ def run_org_report(
         if org_config.compare_org_report:
             try:
                 if not quiet:
-                    print(f"\nComparing to previous report: {org_config.compare_org_report}")
+                    _status_print(f"\nComparing to previous report: {org_config.compare_org_report}")
                 comparison = compare_org_reports(result, org_config.compare_org_report)
-                write_org_report_comparison_console(comparison, quiet)
+                with contextlib.redirect_stdout(status_stream):
+                    write_org_report_comparison_console(comparison, quiet)
             except FileNotFoundError:
-                print(ConsoleColors.error(f"ERROR: Previous report not found: {org_config.compare_org_report}"))
+                _status_print(ConsoleColors.error(f"ERROR: Previous report not found: {org_config.compare_org_report}"))
             except json.JSONDecodeError:
-                print(ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"))
+                _status_print(ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"))
             except Exception as e:
-                print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
+                _status_print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
 
         # Generate output based on format
-        output_to_stdout = output_path in ('-', 'stdout')
         output_path_obj = Path(output_path) if output_path and not output_to_stdout else None
 
         # Handle org-stats mode (Feature 2) - minimal output
         if org_config.org_stats_only:
-            write_org_report_stats_only(result, quiet)
+            with contextlib.redirect_stdout(status_stream):
+                write_org_report_stats_only(result, quiet)
             # Still output JSON if requested for CI integration
             if output_format == 'json':
                 if output_to_stdout:
@@ -12381,7 +12391,7 @@ def run_org_report(
                 else:
                     file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
                     if not quiet:
-                        print(f"JSON saved to: {file_path}")
+                        _status_print(f"JSON saved to: {file_path}")
             return True, result.thresholds_exceeded
 
         # Handle format aliases (reports, data, ci)
@@ -12406,9 +12416,9 @@ def run_org_report(
                     path = write_org_report_html(result, alias_base, output_dir, logger)
                     generated_files.append(f"HTML: {path}")
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} Reports saved ({output_format} alias):")
+                _status_print(f"\n{ConsoleColors.success('✓')} Reports saved ({output_format} alias):")
                 for f in generated_files:
-                    print(f"  - {f}")
+                    _status_print(f"  - {f}")
         elif output_format == 'console' or (output_format is None and output_path is None):
             write_org_report_console(result, org_config, quiet)
         elif output_format == 'json':
@@ -12418,26 +12428,26 @@ def run_org_report(
             else:
                 file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
                 if not quiet:
-                    print(f"\n{ConsoleColors.success('✓')} JSON report saved to: {file_path}")
+                    _status_print(f"\n{ConsoleColors.success('✓')} JSON report saved to: {file_path}")
         elif output_format == 'excel':
             file_path = write_org_report_excel(result, output_path_obj, output_dir, logger)
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} Excel report saved to: {file_path}")
+                _status_print(f"\n{ConsoleColors.success('✓')} Excel report saved to: {file_path}")
         elif output_format == 'markdown':
             file_path = write_org_report_markdown(result, output_path_obj, output_dir, logger)
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} Markdown report saved to: {file_path}")
+                _status_print(f"\n{ConsoleColors.success('✓')} Markdown report saved to: {file_path}")
         elif output_format == 'html':
             file_path = write_org_report_html(result, output_path_obj, output_dir, logger)
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} HTML report saved to: {file_path}")
+                _status_print(f"\n{ConsoleColors.success('✓')} HTML report saved to: {file_path}")
         elif output_format == 'csv':
             if output_to_stdout:
-                print(ConsoleColors.error("ERROR: CSV output for org-report writes multiple files and cannot be sent to stdout. Use --output-dir or a file path.")) 
+                _status_print(ConsoleColors.error("ERROR: CSV output for org-report writes multiple files and cannot be sent to stdout. Use --output-dir or a file path."))
                 return False, False
             csv_dir = write_org_report_csv(result, output_path_obj, output_dir, logger)
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} CSV reports saved to: {csv_dir}")
+                _status_print(f"\n{ConsoleColors.success('✓')} CSV reports saved to: {csv_dir}")
         elif output_format == 'all':
             # Generate all formats
             write_org_report_console(result, org_config, quiet)
@@ -12448,40 +12458,40 @@ def run_org_report(
             html_path = write_org_report_html(result, all_base, output_dir, logger)
             csv_dir = write_org_report_csv(result, all_base, output_dir, logger)
             if not quiet:
-                print(f"\n{ConsoleColors.success('✓')} Reports saved:")
-                print(f"  - JSON: {json_path}")
-                print(f"  - Excel: {excel_path}")
-                print(f"  - Markdown: {md_path}")
-                print(f"  - HTML: {html_path}")
-                print(f"  - CSV: {csv_dir}")
+                _status_print(f"\n{ConsoleColors.success('✓')} Reports saved:")
+                _status_print(f"  - JSON: {json_path}")
+                _status_print(f"  - Excel: {excel_path}")
+                _status_print(f"  - Markdown: {md_path}")
+                _status_print(f"  - HTML: {html_path}")
+                _status_print(f"  - CSV: {csv_dir}")
         else:
             # Unknown format - raise clear error instead of silent fallback
-            print(ConsoleColors.error(f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"))
+            _status_print(ConsoleColors.error(f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"))
             return False, False
 
         if not quiet:
-            print()
-            print("=" * 110)
-            print(f"Analysis completed in {result.duration:.2f}s")
+            _status_print()
+            _status_print("=" * 110)
+            _status_print(f"Analysis completed in {result.duration:.2f}s")
             # Show governance violation summary if thresholds exceeded
             if result.thresholds_exceeded and org_config.fail_on_threshold:
-                print(ConsoleColors.warning(f"GOVERNANCE THRESHOLDS EXCEEDED - {len(result.governance_violations or [])} violation(s)"))
-            print("=" * 110)
+                _status_print(ConsoleColors.warning(f"GOVERNANCE THRESHOLDS EXCEEDED - {len(result.governance_violations or [])} violation(s)"))
+            _status_print("=" * 110)
 
         return True, result.thresholds_exceeded
 
     except FileNotFoundError:
-        print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        _status_print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False, False
 
     except (KeyboardInterrupt, SystemExit):
         if not quiet:
-            print()
-            print(ConsoleColors.warning("Operation cancelled."))
+            _status_print()
+            _status_print(ConsoleColors.warning("Operation cancelled."))
         raise
 
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Org report failed: {str(e)}"))
+        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {str(e)}"))
         logger.exception("Org report error")
         return False, False
 

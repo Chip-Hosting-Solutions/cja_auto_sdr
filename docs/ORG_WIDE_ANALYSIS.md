@@ -417,6 +417,12 @@ cja_auto_sdr --org-report --include-names --format json
 
 The JSON output provides a complete component inventory for planning.
 
+If you want to stream JSON to another tool, send it to stdout and pipe it:
+
+```bash
+cja_auto_sdr --org-report --format json --output - | jq '.summary'
+```
+
 ### 3. Environment Validation
 
 Verify prod/staging parity:

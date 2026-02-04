@@ -2344,7 +2344,7 @@ cja_auto_sdr --org-report --use-cache --cache-max-age 48
 
 ```bash
 # Debug: see actual values before setting thresholds
-cja_auto_sdr --org-report --format json | jq '.summary'
+cja_auto_sdr --org-report --format json --output - | jq '.summary'
 ```
 
 ### Performance Issues

@@ -789,15 +789,15 @@ cja_auto_sdr --org-report \
 # --- Data Analysis Examples ---
 
 # Find high-similarity pairs (potential duplicates)
-cja_auto_sdr --org-report --overlap-threshold 0.9 --format json | \
+cja_auto_sdr --org-report --overlap-threshold 0.9 --format json --output - | \
   jq '.similarity_pairs[] | select(.similarity >= 0.9)'
 
 # Extract high-priority recommendations
-cja_auto_sdr --org-report --format json | \
+cja_auto_sdr --org-report --format json --output - | \
   jq '.recommendations[] | select(.severity == "high")'
 
 # List core components used across the org
-cja_auto_sdr --org-report --include-names --format json | \
+cja_auto_sdr --org-report --include-names --format json --output - | \
   jq '.component_index | to_entries[] | select(.value.bucket == "core")'
 ```
 
