@@ -39,6 +39,7 @@ class OrgReportConfig:
         clear_cache: Clear cache before running
         enable_clustering: Enable hierarchical clustering
         cluster_method: Clustering method (ward, average, complete)
+        isolated_review_threshold: Min isolated components to trigger review recommendation
     """
     filter_pattern: Optional[str] = None
     exclude_pattern: Optional[str] = None
@@ -68,6 +69,8 @@ class OrgReportConfig:
     enable_clustering: bool = False
     cluster_method: str = "average"  # 'average' or 'complete' work with Jaccard distances; 'ward' requires Euclidean
     quiet: bool = False  # Suppress progress output (tqdm)
+    # Recommendation thresholds
+    isolated_review_threshold: int = 20  # Min isolated components per DV to trigger review recommendation
     # Governance thresholds (Feature 1)
     duplicate_threshold: Optional[int] = None  # Max allowed high-similarity pairs (>=90%)
     isolated_threshold: Optional[float] = None  # Max isolated component percentage (0.0-1.0)

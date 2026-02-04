@@ -364,6 +364,150 @@ class TestOrgComponentAnalyzer:
         assert pairs[0].dv1_id == "dv_1"
         assert pairs[0].dv2_id == "dv_3"
 
+    def test_similarity_includes_governance_threshold_pairs(self, mock_cja, mock_logger):
+        """Test >=0.9 pairs are included even when overlap threshold is higher"""
+        config = OrgReportConfig(overlap_threshold=0.95)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2"},
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2", "d3"},
+            ),
+        ]
+
+        # Jaccard = 12 / 13 = 0.923..., below overlap_threshold 0.95 but above 0.9
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) == 1
+        assert pairs[0].jaccard_similarity == pytest.approx(12 / 13, abs=0.01)
+
+    def test_similarity_excludes_below_governance_floor(self, mock_cja, mock_logger):
+        """Test pairs below 0.9 remain excluded when overlap threshold is higher"""
+        config = OrgReportConfig(overlap_threshold=0.95)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 9)},
+                dimension_ids=set(),
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 10)},
+                dimension_ids=set(),
+            ),
+        ]
+
+        # Jaccard = 8 / 9 = 0.888..., below 0.9 and should be excluded
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) == 0
+
+    def test_similarity_drift_included_for_governance_pairs(self, mock_cja, mock_logger):
+        """Test drift details are captured for >=0.9 pairs included via governance floor"""
+        config = OrgReportConfig(overlap_threshold=0.95, include_drift=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids=set(),
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 12)},
+                dimension_ids=set(),
+            ),
+        ]
+
+        # Jaccard = 10 / 11 = 0.909..., included by governance floor
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) == 1
+        assert pairs[0].only_in_dv1 == []
+        assert pairs[0].only_in_dv2 == ["m11"]
+
+    def test_similarity_logging_uses_effective_threshold(self, mock_cja):
+        """Test run_analysis logs effective threshold when overlap threshold exceeds 0.9"""
+        config = OrgReportConfig(overlap_threshold=0.95)
+        mock_logger = Mock()
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        with patch.object(analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}], False, 1)), \
+             patch.object(analyzer, "_fetch_all_data_views", return_value=[
+                 DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set())
+             ]), \
+             patch.object(analyzer, "_build_component_index", return_value={}), \
+             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
+             patch.object(analyzer, "_compute_similarity_matrix", return_value=[
+                 SimilarityPair("dv_1", "DV 1", "dv_2", "DV 2", 0.91, 10, 11)
+             ]), \
+             patch.object(analyzer, "_generate_recommendations", return_value=[]):
+            analyzer.run_analysis()
+
+        assert any(
+            "pairs above threshold (>= 0.9)" in str(call.args[0])
+            for call in mock_logger.info.call_args_list
+        )
+
+    def test_similarity_includes_exact_ninety_percent(self, mock_cja, mock_logger):
+        """Test exact 0.9 similarity is included when overlap threshold is higher"""
+        config = OrgReportConfig(overlap_threshold=0.95)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 10)},
+                dimension_ids=set(),
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 10)} | {"m10"},
+                dimension_ids=set(),
+            ),
+        ]
+
+        # Jaccard = 9 / 10 = 0.9
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) == 1
+        assert pairs[0].jaccard_similarity == pytest.approx(0.9, abs=0.0001)
+
+    def test_run_analysis_recommends_high_overlap_from_floor(self, mock_cja, mock_logger):
+        """Test run_analysis emits overlap recommendations from >=0.9 floor"""
+        config = OrgReportConfig(overlap_threshold=0.95)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2"},
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2", "d3"},
+            ),
+        ]
+
+        with patch.object(analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}], False, 2)), \
+             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
+             patch.object(analyzer, "_build_component_index", return_value={}), \
+             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()):
+            result = analyzer.run_analysis()
+
+        overlap_recs = [r for r in result.recommendations if r.get("type") == "review_overlap"]
+        assert len(overlap_recs) == 1
+        assert overlap_recs[0]["data_view_1"] == "dv_1"
+        assert overlap_recs[0]["data_view_2"] == "dv_2"
+
     def test_filter_data_views(self, mock_cja, mock_logger):
         """Test data view filtering with regex"""
         mock_cja.getDataViews.return_value = pd.DataFrame([
@@ -1781,6 +1925,39 @@ class TestGovernanceThresholds:
         assert exceeded is False
         assert len(violations) == 0
 
+    def test_duplicate_threshold_counts_pairs_above_90(self, mock_cja, mock_logger):
+        """Test duplicate threshold uses >=0.9 pairs even with higher overlap threshold"""
+        config = OrgReportConfig(overlap_threshold=0.95, duplicate_threshold=2, fail_on_threshold=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1", "DV 1",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2"},
+            ),
+            DataViewSummary(
+                "dv_2", "DV 2",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2", "d3"},
+            ),
+            DataViewSummary(
+                "dv_3", "DV 3",
+                metric_ids={f"m{i}" for i in range(1, 11)},
+                dimension_ids={"d1", "d2", "d3"},
+            ),
+        ]
+
+        similarity_pairs = analyzer._compute_similarity_matrix(summaries)
+        violations, exceeded = analyzer._check_governance_thresholds(
+            similarity_pairs, ComponentDistribution(), 100
+        )
+
+        assert exceeded is True
+        assert len(violations) == 1
+        assert violations[0]["type"] == "duplicate_threshold_exceeded"
+        assert violations[0]["actual"] == 3
+
 
 class TestNamingAudit:
     """Test Feature 3: Naming convention audit"""
@@ -2288,3 +2465,186 @@ class TestNewOrgReportConfigFields:
         assert config.compare_org_report is None
         assert config.include_owner_summary is False
         assert config.flag_stale is False
+
+    def test_isolated_review_threshold_default(self):
+        """Test isolated_review_threshold default value"""
+        config = OrgReportConfig()
+        assert config.isolated_review_threshold == 20
+
+    def test_isolated_review_threshold_custom(self):
+        """Test isolated_review_threshold custom value"""
+        config = OrgReportConfig(isolated_review_threshold=50)
+        assert config.isolated_review_threshold == 50
+
+
+class TestIsolatedReviewThreshold:
+    """Test configurable isolated component review threshold"""
+
+    @pytest.fixture
+    def mock_cja(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_logger(self):
+        import logging
+        return logging.getLogger("test")
+
+    def test_recommendation_uses_configurable_threshold(self, mock_cja, mock_logger):
+        """Test that recommendation threshold is configurable"""
+        # Default threshold (20)
+        config = OrgReportConfig(isolated_review_threshold=20)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary("dv_1", "Specialized DV", metric_count=100, dimension_count=50),
+        ]
+
+        # Create 21 isolated components (exceeds default of 20)
+        component_index = {
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
+            for i in range(21)
+        }
+
+        distribution = ComponentDistribution()
+        recommendations = analyzer._generate_recommendations(
+            summaries, component_index, distribution, None
+        )
+
+        isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
+        assert len(isolated_rec) == 1
+
+    def test_higher_threshold_no_recommendation(self, mock_cja, mock_logger):
+        """Test higher threshold prevents recommendation"""
+        # Set threshold to 50
+        config = OrgReportConfig(isolated_review_threshold=50)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary("dv_1", "Specialized DV", metric_count=100, dimension_count=50),
+        ]
+
+        # Create 21 isolated components (below threshold of 50)
+        component_index = {
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
+            for i in range(21)
+        }
+
+        distribution = ComponentDistribution()
+        recommendations = analyzer._generate_recommendations(
+            summaries, component_index, distribution, None
+        )
+
+        # Should NOT trigger recommendation since 21 <= 50
+        isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
+        assert len(isolated_rec) == 0
+
+    def test_lower_threshold_triggers_recommendation(self, mock_cja, mock_logger):
+        """Test lower threshold triggers recommendation earlier"""
+        # Set threshold to 5
+        config = OrgReportConfig(isolated_review_threshold=5)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary("dv_1", "Specialized DV", metric_count=100, dimension_count=50),
+        ]
+
+        # Create only 6 isolated components (exceeds threshold of 5)
+        component_index = {
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
+            for i in range(6)
+        }
+
+        distribution = ComponentDistribution()
+        recommendations = analyzer._generate_recommendations(
+            summaries, component_index, distribution, None
+        )
+
+        # Should trigger recommendation since 6 > 5
+        isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
+        assert len(isolated_rec) == 1
+
+
+class TestWardClusteringWarning:
+    """Test that ward clustering method produces a warning"""
+
+    @pytest.fixture
+    def mock_cja(self):
+        return Mock()
+
+    def test_ward_method_logs_warning(self, mock_cja):
+        """Test that ward method logs a warning about Euclidean distance assumption"""
+        import logging
+
+        # Create a logger that captures warnings
+        logger = logging.getLogger("test_ward")
+        logger.setLevel(logging.WARNING)
+
+        # Use a handler to capture log messages
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        config = OrgReportConfig(enable_clustering=True, cluster_method="ward")
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        summaries = [
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1", "m2"}, dimension_ids=set()),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m1", "m3"}, dimension_ids=set()),
+        ]
+
+        # This should log a warning about ward method
+        try:
+            analyzer._compute_clusters(summaries)
+        except ImportError:
+            # scipy not installed - skip the warning test
+            pytest.skip("scipy not installed")
+
+        # Check that a warning was logged about ward method
+        assert any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
+
+        logger.removeHandler(handler)
+
+    def test_average_method_no_warning(self, mock_cja):
+        """Test that average method does not log a warning"""
+        import logging
+
+        logger = logging.getLogger("test_average")
+        logger.setLevel(logging.WARNING)
+
+        class LogCapture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.warnings = []
+
+            def emit(self, record):
+                if record.levelno >= logging.WARNING:
+                    self.warnings.append(record.getMessage())
+
+        handler = LogCapture()
+        logger.addHandler(handler)
+
+        config = OrgReportConfig(enable_clustering=True, cluster_method="average")
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        summaries = [
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1", "m2"}, dimension_ids=set()),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m1", "m3"}, dimension_ids=set()),
+        ]
+
+        try:
+            analyzer._compute_clusters(summaries)
+        except ImportError:
+            pytest.skip("scipy not installed")
+
+        # Check that no warning about ward/euclidean was logged
+        assert not any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
+
+        logger.removeHandler(handler)

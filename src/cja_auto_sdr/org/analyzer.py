@@ -122,7 +122,10 @@ class OrgComponentAnalyzer:
         if not self.config.skip_similarity and not self.config.org_stats_only:
             self.logger.info("Computing similarity matrix...")
             similarity_pairs = self._compute_similarity_matrix(summaries)
-            self.logger.info(f"Found {len(similarity_pairs)} pairs above threshold")
+            effective_threshold = min(self.config.overlap_threshold, 0.9)
+            self.logger.info(
+                f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
+            )
         elif self.config.org_stats_only:
             self.logger.info("Skipping similarity matrix (--org-stats mode)")
         else:
@@ -665,6 +668,8 @@ class OrgComponentAnalyzer:
         Jaccard similarity = |A ∩ B| / |A ∪ B|
 
         When include_drift is enabled, also captures which components are unique to each DV.
+        Always includes pairs with >=90% similarity to support governance checks,
+        even if the overlap threshold is higher.
 
         Args:
             summaries: List of DataViewSummary objects
@@ -674,6 +679,7 @@ class OrgComponentAnalyzer:
         """
         pairs = []
         valid_summaries = [s for s in summaries if s.error is None]
+        min_similarity_threshold = min(self.config.overlap_threshold, 0.9)
 
         for i, dv1 in enumerate(valid_summaries):
             set1 = dv1.all_component_ids
@@ -691,7 +697,7 @@ class OrgComponentAnalyzer:
                 if union > 0:
                     similarity = intersection / union
 
-                    if similarity >= self.config.overlap_threshold:
+                    if similarity >= min_similarity_threshold:
                         # Compute drift details if enabled
                         only_in_dv1 = []
                         only_in_dv2 = []
@@ -758,6 +764,13 @@ class OrgComponentAnalyzer:
         if len(valid_summaries) < 2:
             self.logger.info("Not enough data views for clustering")
             return None
+
+        # Warn if ward method is used - it assumes Euclidean distances
+        if self.config.cluster_method == "ward":
+            self.logger.warning(
+                "Cluster method 'ward' assumes Euclidean distances but Jaccard distances are used. "
+                "Results may be suboptimal. Consider using 'average' or 'complete' instead."
+            )
 
         n = len(valid_summaries)
 
@@ -890,7 +903,7 @@ class OrgComponentAnalyzer:
 
         # Recommendation: Data views with many isolated components
         for dv_id, isolated in isolated_by_dv.items():
-            if len(isolated) > 20:
+            if len(isolated) > self.config.isolated_review_threshold:
                 dv_name = next((s.data_view_name for s in summaries if s.data_view_id == dv_id), 'Unknown')
                 recommendations.append({
                     'type': 'review_isolated',
