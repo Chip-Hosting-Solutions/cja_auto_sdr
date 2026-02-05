@@ -100,11 +100,38 @@ class OrgComponentAnalyzer:
                         lock_holder_pid=lock_info.get("pid") if lock_info else None,
                         started_at=lock_info.get("started_at") if lock_info else None,
                     )
+                quick_check_result = self._quick_check_empty_org()
+                if quick_check_result is not None:
+                    return quick_check_result
                 # Run the analysis while holding the lock
                 return self._run_analysis_impl()
         else:
             # Skip lock (for testing)
             return self._run_analysis_impl()
+
+    def _quick_check_empty_org(self) -> OrgReportResult | None:
+        """Return an empty-org result if no data views exist, otherwise None."""
+        # This provides better UX - users learn about empty results before long work begins
+        try:
+            quick_check = self.cja.getDataViews()
+            if quick_check is None or (hasattr(quick_check, "__len__") and len(quick_check) == 0):
+                self.logger.warning("No data views found in organization; returning empty org report")
+                return OrgReportResult(
+                    timestamp=datetime.now().isoformat(),
+                    org_id=self.org_id,
+                    parameters=self.config,
+                    data_view_summaries=[],
+                    component_index={},
+                    distribution=ComponentDistribution(),
+                    similarity_pairs=None,
+                    recommendations=[],
+                    duration=0.0,
+                    is_sampled=False,
+                    total_available_data_views=0,
+                )
+        except Exception:
+            pass  # Continue to normal flow - let actual analysis handle errors
+        return None
 
     def _run_analysis_impl(self) -> OrgReportResult:
         """Internal implementation of org-wide analysis (called within lock)."""
@@ -251,6 +278,37 @@ class OrgComponentAnalyzer:
             stale_components=stale_components,
         )
 
+    def _validate_regex_pattern(self, pattern: str, name: str) -> Optional[re.Pattern]:
+        """Validate and compile a regex pattern with basic ReDoS protection.
+
+        Args:
+            pattern: User-provided regex pattern
+            name: Name for error messages (e.g., "filter", "exclude")
+
+        Returns:
+            Compiled pattern or None if invalid/too complex
+        """
+        # Basic complexity check - reject patterns with nested quantifiers
+        # which are common sources of catastrophic backtracking
+        dangerous_patterns = [
+            r'\(\?[^)]*\+[^)]*\+',  # Nested + quantifiers
+            r'\(\?[^)]*\*[^)]*\*',  # Nested * quantifiers
+            r'(\.\*){3,}',          # Multiple .* in sequence
+            r'(\.\+){3,}',          # Multiple .+ in sequence
+        ]
+        for dp in dangerous_patterns:
+            if re.search(dp, pattern):
+                self.logger.warning(
+                    f"Potentially dangerous {name} pattern rejected (may cause slow matching): {pattern}"
+                )
+                return None
+
+        try:
+            return re.compile(pattern, re.IGNORECASE)
+        except re.error as e:
+            self.logger.warning(f"Invalid {name} pattern: {e}")
+            return None
+
     def _list_and_filter_data_views(self) -> Tuple[List[Dict[str, Any]], bool, int]:
         """List all data views and apply filter/exclude/sample patterns.
 
@@ -274,22 +332,18 @@ class OrgComponentAnalyzer:
 
         # Apply include filter
         if self.config.filter_pattern:
-            try:
-                pattern = re.compile(self.config.filter_pattern, re.IGNORECASE)
+            pattern = self._validate_regex_pattern(self.config.filter_pattern, "filter")
+            if pattern:
                 filtered = [dv for dv in filtered if pattern.search(dv.get('name', ''))]
                 self.logger.info(f"Filter '{self.config.filter_pattern}' matched {len(filtered)} data views")
-            except re.error as e:
-                self.logger.warning(f"Invalid filter pattern: {e}")
 
         # Apply exclude filter
         if self.config.exclude_pattern:
-            try:
-                pattern = re.compile(self.config.exclude_pattern, re.IGNORECASE)
+            pattern = self._validate_regex_pattern(self.config.exclude_pattern, "exclude")
+            if pattern:
                 before = len(filtered)
                 filtered = [dv for dv in filtered if not pattern.search(dv.get('name', ''))]
                 self.logger.info(f"Exclude '{self.config.exclude_pattern}' removed {before - len(filtered)} data views")
-            except re.error as e:
-                self.logger.warning(f"Invalid exclude pattern: {e}")
 
         # Track total available before sampling/limiting
         total_available = len(filtered)

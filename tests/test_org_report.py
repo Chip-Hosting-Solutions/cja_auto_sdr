@@ -183,6 +183,7 @@ class TestAnalyzerLockIntegration:
                     analyzer.run_analysis()
 
                 assert "test_org@AdobeOrg" in str(exc_info.value)
+                mock_cja.getDataViews.assert_not_called()
 
     def test_analyzer_skip_lock_option(self):
         """Test that skip_lock=True bypasses the lock"""
@@ -198,6 +199,34 @@ class TestAnalyzerLockIntegration:
         # Should not raise even if we don't mock the lock
         result = analyzer.run_analysis()
         assert result is not None
+
+    def test_quick_check_empty_org_returns_empty_result(self):
+        """Test that quick check returns empty OrgReportResult when no data views exist"""
+        import logging
+
+        mock_cja = Mock()
+        mock_cja.getDataViews.return_value = []
+        logger = logging.getLogger("test_quick_check_empty")
+
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(skip_lock=True), logger)
+
+        result = analyzer._quick_check_empty_org()
+        assert result is not None
+        assert result.total_available_data_views == 0
+        assert result.data_view_summaries == []
+
+    def test_quick_check_non_empty_org_returns_none(self):
+        """Test that quick check returns None when data views exist"""
+        import logging
+
+        mock_cja = Mock()
+        mock_cja.getDataViews.return_value = [{"id": "dv_1", "name": "DV 1"}]
+        logger = logging.getLogger("test_quick_check_non_empty")
+
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(skip_lock=True), logger)
+
+        result = analyzer._quick_check_empty_org()
+        assert result is None
 
 
 class TestOrgReportConfig:
