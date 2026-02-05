@@ -547,23 +547,6 @@ class OrgComponentAnalyzer:
                         else:
                             standard_dimension_count += 1
 
-            # Fetch calculated metrics count if component types enabled
-            calculated_metric_count = 0
-            if self.config.include_component_types:
-                try:
-                    calc_metrics = cja.getCalculatedMetrics(
-                        dataViewId=dv_id,
-                        full=False
-                    )
-                    if calc_metrics is not None:
-                        if isinstance(calc_metrics, pd.DataFrame):
-                            calculated_metric_count = len(calc_metrics)
-                        elif isinstance(calc_metrics, list):
-                            calculated_metric_count = len(calc_metrics)
-                except Exception:
-                    # Calculated metrics API may fail - continue without it
-                    pass
-
             # Fetch metadata if enabled
             owner = None
             owner_id = None
@@ -604,7 +587,6 @@ class OrgComponentAnalyzer:
                 metric_names=metric_names,
                 dimension_names=dimension_names,
                 standard_metric_count=standard_metric_count,
-                calculated_metric_count=calculated_metric_count,
                 derived_metric_count=derived_metric_count,
                 standard_dimension_count=standard_dimension_count,
                 derived_dimension_count=derived_dimension_count,
@@ -1335,7 +1317,6 @@ class OrgComponentAnalyzer:
                     'total_metrics': 0,
                     'total_dimensions': 0,
                     'total_derived': 0,
-                    'total_calculated': 0,
                 }
 
             stats = owner_stats[owner]
@@ -1345,7 +1326,6 @@ class OrgComponentAnalyzer:
             stats['total_metrics'] += summary.metric_count
             stats['total_dimensions'] += summary.dimension_count
             stats['total_derived'] += summary.derived_metric_count + summary.derived_dimension_count
-            stats['total_calculated'] += summary.calculated_metric_count
 
         # Compute averages
         for owner, stats in owner_stats.items():

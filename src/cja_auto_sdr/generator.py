@@ -8853,7 +8853,7 @@ Requirements:
         '--no-component-types',
         action='store_true',
         dest='no_component_types',
-        help='Disable component type breakdown (standard vs derived metrics/dimensions, calculated metrics)'
+        help='Disable component type breakdown (standard vs derived metrics/dimensions)'
     )
 
     # Metadata
@@ -10956,7 +10956,6 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         # Aggregate type counts
         total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.error)
         total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.error)
-        total_calculated_metrics = sum(s.calculated_metric_count for s in result.data_view_summaries if not s.error)
         total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.error)
         total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.error)
 
@@ -11255,7 +11254,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
                 # Component type breakdown
                 "standard_metrics": dv.standard_metric_count,
                 "derived_metrics": dv.derived_metric_count,
-                "calculated_metrics": dv.calculated_metric_count,
                 "standard_dimensions": dv.standard_dimension_count,
                 "derived_dimensions": dv.derived_dimension_count,
                 # Metadata

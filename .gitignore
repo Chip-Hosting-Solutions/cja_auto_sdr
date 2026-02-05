@@ -36,14 +36,11 @@ out.json
 # Temporary files
 plan.md
 
-# Keep sample_outputs but add exclusions
+# Ignore xlsx everywhere except sample_outputs and test fixtures
 *.xlsx
 !sample_outputs/**/*.xlsx
 !tests/fixtures/**/*.xlsx
 
 # Claude Code session files
 .claude/
-
-# Sample outputs (generated)
-sample_outputs/
 CLAUDE.md

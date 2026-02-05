@@ -143,17 +143,16 @@ Based on the analysis, the tool generates governance recommendations:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--no-component-types` | Off | Disable standard/derived/calculated metrics breakdown |
+| `--no-component-types` | Off | Disable standard/derived field breakdown |
 
 When enabled (default), tracks:
 - **Standard metrics/dimensions** - Native XDM-based components
-- **Derived metrics/dimensions** - Components from derived fields
-- **Calculated metrics** - Components from the calculated metrics API
+- **Derived metrics/dimensions** - Components created via derived fields
 
 ```bash
 # View component type distribution
 cja_auto_sdr --org-report --format excel
-# Columns: Standard Metrics, Derived Metrics, Calculated Metrics, etc.
+# Columns: Standard Metrics, Derived Metrics, Standard Dimensions, Derived Dimensions
 ```
 
 ### Metadata Options

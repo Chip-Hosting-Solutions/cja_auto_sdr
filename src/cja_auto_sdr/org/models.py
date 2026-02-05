@@ -28,7 +28,7 @@ class OrgReportConfig:
         verbose: Include full component lists
         include_names: Include component names (slower, requires extra API calls)
         skip_similarity: Skip O(n^2) similarity matrix calculation
-        include_component_types: Include standard/calculated/derived breakdown
+        include_component_types: Include standard/derived field breakdown
         include_metadata: Include owner, creation/modification dates, descriptions
         include_drift: Include component drift details for similar pairs
         sample_size: Number of DVs to randomly sample (None = no sampling)
@@ -136,7 +136,6 @@ class DataViewSummary:
         metric_names: Optional dict mapping metric ID to name
         dimension_names: Optional dict mapping dimension ID to name
         standard_metric_count: Count of standard metrics
-        calculated_metric_count: Count of calculated metrics
         derived_metric_count: Count of derived metrics
         standard_dimension_count: Count of standard dimensions
         derived_dimension_count: Count of derived dimensions
@@ -160,7 +159,6 @@ class DataViewSummary:
     dimension_names: Optional[Dict[str, str]] = None
     # Component type breakdown
     standard_metric_count: int = 0
-    calculated_metric_count: int = 0
     derived_metric_count: int = 0
     standard_dimension_count: int = 0
     derived_dimension_count: int = 0
