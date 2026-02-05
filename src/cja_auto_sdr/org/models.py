@@ -94,6 +94,8 @@ class OrgReportConfig:
     memory_warning_threshold_mb: Optional[int] = 100  # Warn if component index exceeds this size (0 to disable)
     # Smart cache validation
     validate_cache: bool = False  # Validate cache entries against data view modification timestamps
+    # Concurrency lock
+    skip_lock: bool = False  # Skip the file-based lock that prevents concurrent runs (for testing)
 
 
 @dataclass

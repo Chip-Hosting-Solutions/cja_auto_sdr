@@ -31,7 +31,7 @@ from cja_auto_sdr.org.models import (
     OrgReportResult,
     SimilarityPair,
 )
-from cja_auto_sdr.org.cache import OrgReportCache
+from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
 from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
 
 __all__ = [
@@ -44,8 +44,9 @@ __all__ = [
     "OrgReportConfig",
     "OrgReportResult",
     "SimilarityPair",
-    # Cache
+    # Cache & Lock
     "OrgReportCache",
+    "OrgReportLock",
     # Analyzer
     "OrgComponentAnalyzer",
 ]

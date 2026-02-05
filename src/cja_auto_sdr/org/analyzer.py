@@ -37,7 +37,7 @@ from cja_auto_sdr.org.models import (
 if TYPE_CHECKING:
     import cjapy
 
-from cja_auto_sdr.org.cache import OrgReportCache
+from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
 
 
 class OrgComponentAnalyzer:
@@ -81,7 +81,33 @@ class OrgComponentAnalyzer:
 
         Returns:
             OrgReportResult containing all analysis data
+
+        Raises:
+            ConcurrentOrgReportError: If another org-report is already running for this org
         """
+        # Check for concurrent runs (unless skip_lock is set)
+        if not self.config.skip_lock:
+            from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
+
+            lock = OrgReportLock(self.org_id)
+            lock_info = lock.get_lock_info()
+
+            # Try to acquire the lock before starting
+            with lock:
+                if not lock.acquired:
+                    raise ConcurrentOrgReportError(
+                        org_id=self.org_id,
+                        lock_holder_pid=lock_info.get("pid") if lock_info else None,
+                        started_at=lock_info.get("started_at") if lock_info else None,
+                    )
+                # Run the analysis while holding the lock
+                return self._run_analysis_impl()
+        else:
+            # Skip lock (for testing)
+            return self._run_analysis_impl()
+
+    def _run_analysis_impl(self) -> OrgReportResult:
+        """Internal implementation of org-wide analysis (called within lock)."""
         start_time = time.time()
         timestamp = datetime.now().isoformat()
 

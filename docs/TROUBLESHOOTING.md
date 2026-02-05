@@ -2299,6 +2299,7 @@ For detailed org-wide analysis troubleshooting, see the [Troubleshooting section
 | Cache not working | Cache directory permissions | Check `~/.cja_auto_sdr/cache/` is writable |
 | `--owner-summary` shows nothing | Missing metadata | Add `--include-metadata` flag |
 | Exit code 2 unexpectedly | Governance threshold exceeded | Check `--duplicate-threshold` and `--isolated-threshold` values |
+| "Another --org-report is already running" | Concurrent run prevention | Wait for other run to finish, or check if a previous run crashed (lock auto-expires after 1 hour) |
 
 ### Clustering Issues
 

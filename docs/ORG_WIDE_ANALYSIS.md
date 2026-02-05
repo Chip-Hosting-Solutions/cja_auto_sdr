@@ -490,6 +490,26 @@ Component indices are held in memory. For orgs with 100+ data views and 10,000+ 
 
 For N data views, similarity requires N×(N-1)/2 comparisons. With 50 DVs, that's 1,225 comparisons. Use `--skip-similarity` for faster results.
 
+### "Another --org-report is already running"
+
+The tool prevents concurrent `--org-report` runs for the same organization to avoid:
+- Duplicate API calls and wasted resources
+- Rate limit exhaustion
+- Inconsistent results
+
+If you see this error:
+1. Check if another terminal/process is running an org-report
+2. Wait for the existing run to complete
+3. If the previous run crashed, the lock will automatically expire after 1 hour
+
+The lock file is stored in `~/.cja_auto_sdr/locks/`.
+
+To force bypass the lock (for testing only):
+```bash
+# Use skip_lock in your config (not recommended for production)
+# The lock exists to protect against accidental concurrent runs
+```
+
 ## Advanced Features
 
 ### Governance Exit Codes

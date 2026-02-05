@@ -171,3 +171,35 @@ class RetryableHTTPError(Exception):
     def __init__(self, status_code: int, message: str = ""):
         self.status_code = status_code
         super().__init__(f"HTTP {status_code}: {message}" if message else f"HTTP {status_code}")
+
+
+class ConcurrentOrgReportError(CJASDRError):
+    """Exception raised when another org-report is already running for the same org.
+
+    Prevents wasted API calls and rate limit issues from concurrent runs.
+
+    Attributes:
+        org_id: Organization ID that is locked
+        lock_holder_pid: PID of the process holding the lock
+        started_at: When the other run started
+    """
+
+    def __init__(
+        self,
+        org_id: str,
+        lock_holder_pid: Optional[int] = None,
+        started_at: Optional[str] = None,
+    ):
+        self.org_id = org_id
+        self.lock_holder_pid = lock_holder_pid
+        self.started_at = started_at
+
+        message = f"Another --org-report is already running for org '{org_id}'"
+        details_parts = []
+        if lock_holder_pid:
+            details_parts.append(f"PID {lock_holder_pid}")
+        if started_at:
+            details_parts.append(f"started at {started_at}")
+
+        details = ", ".join(details_parts) if details_parts else None
+        super().__init__(message, details)

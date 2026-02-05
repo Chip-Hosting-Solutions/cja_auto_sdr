@@ -34,6 +34,170 @@ from cja_auto_sdr.generator import (
     write_org_report_csv,
     run_org_report,
 )
+from cja_auto_sdr.org.cache import OrgReportLock
+from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
+import time
+import multiprocessing
+
+
+class TestOrgReportLock:
+    """Test OrgReportLock for preventing concurrent runs"""
+
+    def test_lock_acquired_when_no_existing_lock(self):
+        """Test that lock is acquired when no existing lock"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with lock:
+                assert lock.acquired is True
+                # Lock file should exist
+                assert lock.lock_file.exists()
+            # Lock file should be removed after context exit
+            assert not lock.lock_file.exists()
+
+    def test_lock_blocks_second_acquisition(self):
+        """Test that second lock acquisition fails when first holds lock"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock1 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            lock2 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+
+            with lock1:
+                assert lock1.acquired is True
+                # Second lock should fail
+                with lock2:
+                    assert lock2.acquired is False
+
+    def test_lock_allows_different_orgs(self):
+        """Test that different orgs can run concurrently"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock1 = OrgReportLock("org1@AdobeOrg", lock_dir=Path(tmpdir))
+            lock2 = OrgReportLock("org2@AdobeOrg", lock_dir=Path(tmpdir))
+
+            with lock1:
+                assert lock1.acquired is True
+                with lock2:
+                    # Different org should succeed
+                    assert lock2.acquired is True
+
+    def test_stale_lock_is_taken_over(self):
+        """Test that stale locks from dead processes are taken over"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_dir = Path(tmpdir)
+            lock_file = lock_dir / "org_report_test_org_at_AdobeOrg.lock"
+            lock_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write a stale lock with a non-existent PID
+            with open(lock_file, "w") as f:
+                json.dump({
+                    "pid": 999999999,  # Very unlikely to exist
+                    "timestamp": time.time() - 7200,  # 2 hours ago
+                    "started_at": "2024-01-01T00:00:00",
+                }, f)
+
+            # New lock should take over
+            lock = OrgReportLock("test_org@AdobeOrg", lock_dir=lock_dir, stale_threshold_seconds=3600)
+            with lock:
+                assert lock.acquired is True
+
+    def test_get_lock_info(self):
+        """Test get_lock_info returns lock holder information"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+
+            # No lock initially
+            assert lock.get_lock_info() is None
+
+            with lock:
+                info = lock.get_lock_info()
+                assert info is not None
+                assert info["pid"] == os.getpid()
+                assert "started_at" in info
+
+    def test_lock_sanitizes_org_id(self):
+        """Test that org ID is sanitized for filename safety"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock = OrgReportLock("test/org@AdobeOrg", lock_dir=Path(tmpdir))
+            # Should not contain unsafe characters
+            assert "@" not in lock.lock_file.name
+            assert "/" not in lock.lock_file.name
+
+
+class TestConcurrentOrgReportError:
+    """Test ConcurrentOrgReportError exception"""
+
+    def test_error_message(self):
+        """Test error message formatting"""
+        error = ConcurrentOrgReportError(
+            org_id="test@AdobeOrg",
+            lock_holder_pid=12345,
+            started_at="2024-01-15T10:00:00",
+        )
+        assert "test@AdobeOrg" in str(error)
+        assert "12345" in str(error)
+        assert "2024-01-15T10:00:00" in str(error)
+
+    def test_error_without_details(self):
+        """Test error message without optional details"""
+        error = ConcurrentOrgReportError(org_id="test@AdobeOrg")
+        assert "test@AdobeOrg" in str(error)
+
+
+class TestAnalyzerLockIntegration:
+    """Test OrgComponentAnalyzer lock integration"""
+
+    def test_analyzer_raises_on_concurrent_run(self):
+        """Test that analyzer raises ConcurrentOrgReportError on concurrent run"""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_lock")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a lock that simulates another process
+            lock_dir = Path(tmpdir)
+            lock_file = lock_dir / "locks" / "org_report_test_org_at_AdobeOrg.lock"
+            lock_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(lock_file, "w") as f:
+                json.dump({
+                    "pid": os.getpid(),  # Use current PID so it appears "running"
+                    "timestamp": time.time(),
+                    "started_at": datetime.now().isoformat(),
+                }, f)
+
+            config = OrgReportConfig(skip_lock=False)
+
+            # Patch the lock to use our temp directory
+            with patch("cja_auto_sdr.org.analyzer.OrgReportLock") as MockLock:
+                mock_lock_instance = Mock()
+                mock_lock_instance.acquired = False
+                mock_lock_instance.get_lock_info.return_value = {
+                    "pid": 12345,
+                    "started_at": "2024-01-15T10:00:00",
+                }
+                mock_lock_instance.__enter__ = Mock(return_value=mock_lock_instance)
+                mock_lock_instance.__exit__ = Mock(return_value=None)
+                MockLock.return_value = mock_lock_instance
+
+                analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test_org@AdobeOrg")
+
+                with pytest.raises(ConcurrentOrgReportError) as exc_info:
+                    analyzer.run_analysis()
+
+                assert "test_org@AdobeOrg" in str(exc_info.value)
+
+    def test_analyzer_skip_lock_option(self):
+        """Test that skip_lock=True bypasses the lock"""
+        import logging
+
+        mock_cja = Mock()
+        mock_cja.getDataViews.return_value = []  # Return empty list to end early
+        logger = logging.getLogger("test_skip_lock")
+
+        config = OrgReportConfig(skip_lock=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test_org@AdobeOrg")
+
+        # Should not raise even if we don't mock the lock
+        result = analyzer.run_analysis()
+        assert result is not None
 
 
 class TestOrgReportConfig:

@@ -2,17 +2,145 @@
 Org-wide report caching functionality.
 
 This module provides caching for data view component data to speed up
-repeat analysis runs.
+repeat analysis runs, and a lock mechanism to prevent concurrent runs.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from cja_auto_sdr.org.models import DataViewSummary
+
+
+class OrgReportLock:
+    """File-based lock to prevent concurrent org-report runs for the same org.
+
+    Uses a lock file with PID and timestamp to detect stale locks from
+    crashed processes. Lock is automatically released when context exits.
+
+    Usage:
+        with OrgReportLock(org_id) as lock:
+            if not lock.acquired:
+                print("Another org-report is running")
+                return
+            # ... run analysis ...
+
+    Args:
+        org_id: Organization ID to lock
+        lock_dir: Directory for lock files. Defaults to ~/.cja_auto_sdr/locks/
+        stale_threshold_seconds: Consider lock stale after this many seconds (default: 1 hour)
+    """
+
+    def __init__(
+        self,
+        org_id: str,
+        lock_dir: Optional[Path] = None,
+        stale_threshold_seconds: int = 3600,
+    ):
+        if lock_dir is None:
+            lock_dir = Path.home() / ".cja_auto_sdr" / "locks"
+        self.lock_dir = lock_dir
+        # Sanitize org_id for filename (remove @ and other special chars)
+        safe_org_id = org_id.replace("@", "_at_").replace("/", "_")
+        self.lock_file = lock_dir / f"org_report_{safe_org_id}.lock"
+        self.stale_threshold = stale_threshold_seconds
+        self.acquired = False
+        self._pid = os.getpid()
+
+    def __enter__(self) -> "OrgReportLock":
+        self.acquired = self._try_acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self.acquired:
+            self._release()
+
+    def _try_acquire(self) -> bool:
+        """Attempt to acquire the lock.
+
+        Returns:
+            True if lock acquired, False if another process holds it
+        """
+        self.lock_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check for existing lock
+        if self.lock_file.exists():
+            try:
+                with open(self.lock_file, "r") as f:
+                    lock_data = json.load(f)
+
+                lock_pid = lock_data.get("pid")
+                lock_time = lock_data.get("timestamp", 0)
+
+                # Check if lock is stale (process died or took too long)
+                age_seconds = time.time() - lock_time
+                if age_seconds > self.stale_threshold:
+                    # Lock is stale, we can take it
+                    pass
+                elif lock_pid and self._is_process_running(lock_pid):
+                    # Process is still running, lock is valid
+                    return False
+                # else: process died, we can take the lock
+
+            except (json.JSONDecodeError, IOError, KeyError):
+                # Corrupted lock file, we can take it
+                pass
+
+        # Write our lock
+        try:
+            with open(self.lock_file, "w") as f:
+                json.dump({
+                    "pid": self._pid,
+                    "timestamp": time.time(),
+                    "started_at": datetime.now().isoformat(),
+                }, f)
+            return True
+        except IOError:
+            return False
+
+    def _release(self) -> None:
+        """Release the lock."""
+        try:
+            if self.lock_file.exists():
+                # Only remove if we own it
+                with open(self.lock_file, "r") as f:
+                    lock_data = json.load(f)
+                if lock_data.get("pid") == self._pid:
+                    self.lock_file.unlink()
+        except (json.JSONDecodeError, IOError, KeyError):
+            # Best effort removal
+            try:
+                self.lock_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _is_process_running(pid: int) -> bool:
+        """Check if a process with the given PID is running."""
+        try:
+            os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
+    def get_lock_info(self) -> Optional[Dict[str, Any]]:
+        """Get information about the current lock holder.
+
+        Returns:
+            Dict with pid, timestamp, started_at or None if no lock
+        """
+        if not self.lock_file.exists():
+            return None
+        try:
+            with open(self.lock_file, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
 
 
 class OrgReportCache:

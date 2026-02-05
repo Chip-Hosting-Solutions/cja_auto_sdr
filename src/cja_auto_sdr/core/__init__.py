@@ -22,6 +22,7 @@ from cja_auto_sdr.core.exceptions import (
     CredentialSourceError,
     CircuitBreakerOpen,
     RetryableHTTPError,
+    ConcurrentOrgReportError,
 )
 
 from cja_auto_sdr.core.config import (
@@ -88,6 +89,7 @@ __all__ = [
     'CredentialSourceError',
     'CircuitBreakerOpen',
     'RetryableHTTPError',
+    'ConcurrentOrgReportError',
     # Config dataclasses
     'RetryConfig',
     'CacheConfig',
