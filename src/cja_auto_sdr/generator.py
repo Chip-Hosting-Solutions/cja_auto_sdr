@@ -8759,7 +8759,7 @@ Requirements:
         metavar='PATTERN',
         dest='org_filter',
         help='Include only data views whose name matches this regex pattern '
-             '(e.g., "Prod.*" or "prod|production")'
+             '(e.g., "Prod.*" or "prod|production"). Avoid complex nested quantifiers'
     )
 
     org_group.add_argument(
@@ -8768,7 +8768,7 @@ Requirements:
         metavar='PATTERN',
         dest='org_exclude',
         help='Exclude data views whose name matches this regex pattern '
-             '(e.g., "Test.*|Dev.*|sandbox")'
+             '(e.g., "Test.*|Dev.*|sandbox"). Avoid complex nested quantifiers'
     )
 
     org_group.add_argument(
@@ -8802,7 +8802,8 @@ Requirements:
         default=0.8,
         metavar='PERCENT',
         help='Threshold for "high overlap" pairs in similarity analysis '
-             '(default: 0.8 = pairs with >= 80%% Jaccard similarity are flagged)'
+             '(default: 0.8). Note: For governance checks (--fail-on-threshold), '
+             'values above 0.9 are capped at 90%% to ensure duplicate detection'
     )
 
     org_group.add_argument(
@@ -8876,7 +8877,9 @@ Requirements:
         '--org-shared-client',
         action='store_true',
         dest='org_shared_client',
-        help='Use a single shared cjapy client across threads (faster, but may be unsafe if cjapy is not thread-safe)'
+        help='Use a single shared cjapy client across threads. WARNING: This is experimental '
+             'and may cause race conditions if cjapy is not thread-safe. Use only if you have '
+             'tested with your cjapy version. Default creates one client per thread (safer)'
     )
 
     # Sampling options

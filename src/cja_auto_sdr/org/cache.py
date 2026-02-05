@@ -216,6 +216,9 @@ class OrgReportCache:
             return None
 
         # Validate modification timestamp if provided
+        # NOTE: If current_modified is None (API didn't return timestamp),
+        # we skip validation and treat cached entry as valid (optimistic approach).
+        # This prevents unnecessary refetches when metadata is unavailable.
         if current_modified is not None:
             cached_modified = entry.get('modified')
             if cached_modified != current_modified:

@@ -227,6 +227,11 @@ cja_auto_sdr --org-report --use-cache
 cja_auto_sdr --org-report --use-cache --refresh-cache
 ```
 
+> **Note:** Smart cache validation (`--validate-cache`) compares modification
+> timestamps. If the CJA API doesn't return a modification timestamp for a
+> data view, the cached entry is treated as valid (optimistic caching). Use
+> `--refresh-cache` to force a full refresh when in doubt.
+
 Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 
 ### Clustering Options
