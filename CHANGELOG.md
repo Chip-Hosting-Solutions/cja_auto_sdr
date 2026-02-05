@@ -73,6 +73,13 @@ This release introduces **org-wide component analysis** for governance and stand
 - New `data` format alias (expands to csv + json) for data pipelines
 - New `ci` format alias (expands to json + markdown) for CI/CD integration
 
+#### Safeguards & UX Enhancements
+- New `--config-json` flag to output `--config-status` as machine-readable JSON for CI/CD and scripting
+- New `--yes` / `-y` flag to skip confirmation prompts (for large batch operations)
+- **Duplicate data view detection**: Automatically detects and removes duplicate data view IDs in batch mode with warning
+- **Proactive output directory write check**: Validates output directory permissions before making API calls (fail fast)
+- **Large batch confirmation**: Prompts for confirmation when processing 20+ data views (bypass with `--yes` or `--quiet`)
+
 #### Data Structures
 - `OrgReportConfig` dataclass for org-wide analysis configuration (all options)
 - `ComponentInfo` dataclass for component metadata with data view membership
@@ -135,7 +142,8 @@ This release introduces **org-wide component analysis** for governance and stand
   - `TestOrgReportCache` - Cache put/get, invalidation, miss handling (4 tests)
   - `TestLargeOrgScaling` - Large org runtime behavior: 100+ DVs, 500+ components, O(n²) similarity (5 tests)
   - `TestOutputPathWithFormatAliases` - Output path handling with format aliases (reports, data, ci) (13 tests)
-- **1,116 tests** (1,115 passing, 1 skipped) - up from 1,017 in v3.1.0
+- **1,206 tests** (1,205 passing, 1 skipped) - up from 1,017 in v3.1.0
+- New tests for v3.2.0 safeguards: `TestConfigJsonFlag`, `TestYesFlag`, `TestDuplicateDataViewWarning`, `TestOutputDirectoryWriteCheck` (13 tests)
 
 ### Changed
 - Updated version to 3.2.0

@@ -38,14 +38,14 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,193 comprehensive tests**
+**Total: 1,206 comprehensive tests**
 
 ### Test Count Breakdown
 
 | Test File | Tests | Coverage Area |
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 159 | Data view diff comparison feature with inventory support |
-| `test_ux_features.py` | 103 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
+| `test_ux_features.py` | 116 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 142 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_cli.py` | 76 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
@@ -76,7 +76,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,193** | **Collected via pytest --collect-only** |
+| **Total** | **1,206** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -480,7 +480,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,193 tests total)
+- [x] Comprehensive test coverage (1,206 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 142 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Profile management tests (test_profiles.py) - 43 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
@@ -492,7 +492,7 @@ Check for drift (CI-friendly):
 - [x] Inventory utilities tests (test_inventory_utils.py) - 41 tests
 - [x] Git integration tests (test_git_integration.py) - 33 tests
 - [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 159 tests
-- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 103 tests
+- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 116 tests
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)

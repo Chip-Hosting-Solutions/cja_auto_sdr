@@ -8324,6 +8324,19 @@ Requirements:
     )
 
     parser.add_argument(
+        '--config-json',
+        action='store_true',
+        help='Output --config-status as machine-readable JSON (for scripting and CI/CD)'
+    )
+
+    parser.add_argument(
+        '--yes', '-y',
+        action='store_true',
+        dest='assume_yes',
+        help='Skip confirmation prompts (e.g., for large batch operations)'
+    )
+
+    parser.add_argument(
         '--max-issues',
         type=int,
         default=0,
@@ -10098,7 +10111,8 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 # ==================== CONFIG STATUS ====================
 
 def show_config_status(config_file: str = "config.json",
-                       profile: Optional[str] = None) -> bool:
+                       profile: Optional[str] = None,
+                       output_json: bool = False) -> bool:
     """
     Show configuration status without connecting to API.
 
@@ -10110,19 +10124,24 @@ def show_config_status(config_file: str = "config.json",
     Args:
         config_file: Path to CJA configuration file
         profile: Optional profile name to use for credentials
+        output_json: If True, output machine-readable JSON instead of human-readable text
 
     Returns:
         True if valid configuration found, False otherwise
     """
-    print()
-    print("=" * 60)
-    print("CONFIGURATION STATUS")
-    print("=" * 60)
-    print()
+    # For JSON output, we'll collect data and print at the end
+    if not output_json:
+        print()
+        print("=" * 60)
+        print("CONFIGURATION STATUS")
+        print("=" * 60)
+        print()
 
     config_source = None
+    config_source_type = None  # 'profile', 'environment', 'file'
     config_data = {}
     logger = logging.getLogger(__name__)
+    error_message = None
 
     # Priority 1: Profile credentials
     if profile:
@@ -10130,9 +10149,14 @@ def show_config_status(config_file: str = "config.json",
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
                 config_source = f"Profile: {profile}"
+                config_source_type = "profile"
                 config_data = profile_creds
         except (ProfileNotFoundError, ProfileConfigError) as e:
-            print(ConsoleColors.error(f"ERROR: Profile '{profile}' - {e}"))
+            error_message = f"Profile '{profile}' - {e}"
+            if output_json:
+                print(json.dumps({"error": error_message, "valid": False}, indent=2))
+            else:
+                print(ConsoleColors.error(f"ERROR: {error_message}"))
             return False
 
     # Priority 2: Environment variables
@@ -10140,6 +10164,7 @@ def show_config_status(config_file: str = "config.json",
         env_credentials = load_credentials_from_env()
         if env_credentials and validate_env_credentials(env_credentials, logger):
             config_source = "Environment variables"
+            config_source_type = "environment"
             config_data = env_credentials
 
     # Priority 3: Config file
@@ -10150,27 +10175,36 @@ def show_config_status(config_file: str = "config.json",
                 with open(config_file, 'r') as f:
                     config_data = json.load(f)
                 config_source = f"Config file: {config_path.resolve()}"
+                config_source_type = "file"
             except json.JSONDecodeError:
-                print(ConsoleColors.error(f"ERROR: {config_file} is not valid JSON"))
+                error_message = f"{config_file} is not valid JSON"
+                if output_json:
+                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
+                else:
+                    print(ConsoleColors.error(f"ERROR: {error_message}"))
                 return False
             except Exception as e:
-                print(ConsoleColors.error(f"ERROR: Cannot read {config_file}: {e}"))
+                error_message = f"Cannot read {config_file}: {e}"
+                if output_json:
+                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
+                else:
+                    print(ConsoleColors.error(f"ERROR: {error_message}"))
                 return False
         else:
-            print(ConsoleColors.error(f"ERROR: No configuration found"))
-            print()
-            print("Options:")
-            print(f"  1. Create config file: {config_file}")
-            print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
-            print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
-            print()
-            print("Generate a sample config with:")
-            print("  cja_auto_sdr --sample-config")
+            error_message = "No configuration found"
+            if output_json:
+                print(json.dumps({"error": error_message, "valid": False}, indent=2))
+            else:
+                print(ConsoleColors.error(f"ERROR: {error_message}"))
+                print()
+                print("Options:")
+                print(f"  1. Create config file: {config_file}")
+                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
+                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
+                print()
+                print("Generate a sample config with:")
+                print("  cja_auto_sdr --sample-config")
             return False
-
-    print(f"Source: {config_source}")
-    print()
-    print("Credentials:")
 
     # Define field display order and metadata
     fields = [
@@ -10181,42 +10215,78 @@ def show_config_status(config_file: str = "config.json",
         ('sandbox', 'SANDBOX', False, False),
     ]
 
+    # Build credentials info with masked values
     all_required_set = True
+    credentials_info = {}
+
     for key, display_name, required, sensitive in fields:
         value = config_data.get(key, '')
         if value:
             if sensitive:
                 # Mask sensitive values
-                if len(value) > 8:
+                if isinstance(value, str) and len(value) > 8:
                     masked = value[:4] + '*' * (len(value) - 8) + value[-4:]
                 else:
-                    masked = '*' * len(value)
+                    masked = '****'
                 display_value = masked
             else:
                 display_value = value
-            status = ConsoleColors.success("✓")
-            print(f"  {status} {display_name}: {display_value}")
+            credentials_info[key] = {
+                "value": display_value,
+                "set": True,
+                "required": required
+            }
         else:
+            credentials_info[key] = {
+                "value": None,
+                "set": False,
+                "required": required
+            }
             if required:
-                status = ConsoleColors.error("✗")
-                print(f"  {status} {display_name}: not set (required)")
                 all_required_set = False
-            else:
-                print(f"  - {display_name}: not set (optional)")
 
-    print()
-    if all_required_set:
-        print(ConsoleColors.success("Configuration is complete."))
-        print()
-        print("To verify API connectivity, run:")
-        print("  cja_auto_sdr --validate-config")
+    # Output based on format
+    if output_json:
+        result = {
+            "source": config_source,
+            "source_type": config_source_type,
+            "profile": profile,
+            "config_file": str(Path(config_file).resolve()) if config_source_type == "file" else None,
+            "credentials": credentials_info,
+            "valid": all_required_set
+        }
+        print(json.dumps(result, indent=2))
     else:
-        print(ConsoleColors.error("Configuration is incomplete."))
+        print(f"Source: {config_source}")
         print()
-        print("See documentation:")
-        print("  https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs/CONFIGURATION.md")
+        print("Credentials:")
 
-    print()
+        for key, display_name, required, sensitive in fields:
+            info = credentials_info[key]
+            if info["set"]:
+                status = ConsoleColors.success("✓")
+                print(f"  {status} {display_name}: {info['value']}")
+            else:
+                if required:
+                    status = ConsoleColors.error("✗")
+                    print(f"  {status} {display_name}: not set (required)")
+                else:
+                    print(f"  - {display_name}: not set (optional)")
+
+        print()
+        if all_required_set:
+            print(ConsoleColors.success("Configuration is complete."))
+            print()
+            print("To verify API connectivity, run:")
+            print("  cja_auto_sdr --validate-config")
+        else:
+            print(ConsoleColors.error("Configuration is incomplete."))
+            print()
+            print("See documentation:")
+            print("  https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs/CONFIGURATION.md")
+
+        print()
+
     return all_required_set
 
 
@@ -13439,8 +13509,14 @@ def main():
         sys.exit(0 if success else 1)
 
     # Handle --config-status mode (no data view required, no API call)
-    if getattr(args, 'config_status', False):
-        success = show_config_status(args.config_file, profile=getattr(args, 'profile', None))
+    # --config-json implies --config-status
+    if getattr(args, 'config_status', False) or getattr(args, 'config_json', False):
+        output_json = getattr(args, 'config_json', False)
+        success = show_config_status(
+            args.config_file,
+            profile=getattr(args, 'profile', None),
+            output_json=output_json
+        )
         sys.exit(0 if success else 1)
 
     # Handle --validate-config mode (no data view required)
@@ -14055,6 +14131,54 @@ def main():
                     print(f"      - {dv_id}")
         print()
 
+    # Check for duplicate data view IDs and deduplicate
+    original_count = len(data_views)
+    seen = set()
+    duplicates = []
+    unique_data_views = []
+    for dv in data_views:
+        if dv in seen:
+            duplicates.append(dv)
+        else:
+            seen.add(dv)
+            unique_data_views.append(dv)
+
+    if duplicates and not args.quiet:
+        print(ConsoleColors.warning(f"Duplicate data view IDs removed: {set(duplicates)}"))
+        print(f"  Processing {len(unique_data_views)} unique data view(s) instead of {original_count}")
+        print()
+
+    data_views = unique_data_views
+
+    # Large batch confirmation (unless --yes or --quiet)
+    LARGE_BATCH_THRESHOLD = 20
+    if (len(data_views) >= LARGE_BATCH_THRESHOLD
+            and not getattr(args, 'assume_yes', False)
+            and not args.quiet
+            and not getattr(args, 'dry_run', False)
+            and sys.stdin.isatty()):
+        print(ConsoleColors.warning(f"Large batch detected: {len(data_views)} data views"))
+        print()
+        print("Estimated processing:")
+        print(f"  • API calls: ~{len(data_views) * 3} requests (metrics, dimensions, info per DV)")
+        print(f"  • Duration: ~{len(data_views) * 2}-{len(data_views) * 5} seconds")
+        print()
+        print("Tips:")
+        print("  • Use --filter to narrow scope: --filter 'prod*'")
+        print("  • Use --limit N to process only first N data views")
+        print("  • Use --yes to skip this prompt in CI/CD")
+        print()
+
+        try:
+            response = input("Continue? [y/N]: ").strip().lower()
+            if response not in ('y', 'yes'):
+                print("Cancelled.")
+                sys.exit(0)
+            print()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            sys.exit(0)
+
     # Validate the resolved data view IDs
     if not args.quiet and names_provided:
         print(ConsoleColors.info(f"Processing {len(data_views)} data view(s) total..."))
@@ -14099,6 +14223,22 @@ def main():
     if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
         print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
         sys.exit(1)
+
+    # Proactive output directory write check - fail fast before API calls
+    output_dir = Path(args.output_dir)
+    if output_dir.exists():
+        # Directory exists - check write permissions
+        if not os.access(output_dir, os.W_OK):
+            print(ConsoleColors.error(f"ERROR: Cannot write to output directory: {output_dir}"), file=sys.stderr)
+            print("Check permissions and try again.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Directory doesn't exist - check we can create it by checking parent
+        parent_dir = output_dir.parent
+        if parent_dir.exists() and not os.access(parent_dir, os.W_OK):
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {output_dir}"), file=sys.stderr)
+            print(f"Parent directory {parent_dir} is not writable.", file=sys.stderr)
+            sys.exit(1)
 
     # Process data views - start timing here for accurate processing-only runtime
     processing_start_time = time.time()

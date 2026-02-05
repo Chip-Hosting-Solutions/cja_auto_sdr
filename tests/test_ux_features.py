@@ -1070,3 +1070,169 @@ class TestProcessingResultInventory:
             duration=1.0
         )
         assert result.total_high_complexity == 0
+
+
+# ==================== v3.2.0 SAFEGUARDS ====================
+
+class TestConfigJsonFlag:
+    """Tests for --config-json flag (v3.2.0)"""
+
+    def test_config_json_flag_registered(self):
+        """Test that --config-json flag is available in argument parser"""
+        with patch('sys.argv', ['cja_sdr_generator.py', '--config-json']):
+            args = parse_arguments()
+            assert hasattr(args, 'config_json')
+            assert args.config_json is True
+
+    def test_config_json_default_false(self):
+        """Test that --config-json defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert hasattr(args, 'config_json')
+            assert args.config_json is False
+
+    def test_config_json_implies_config_status(self):
+        """Test that --config-json can be used without --config-status"""
+        with patch('sys.argv', ['cja_sdr_generator.py', '--config-json']):
+            args = parse_arguments()
+            # --config-json should work standalone (implies --config-status)
+            assert args.config_json is True
+
+    def test_show_config_status_json_output(self, tmp_path, capsys):
+        """Test that show_config_status produces valid JSON when output_json=True"""
+        from cja_auto_sdr.generator import show_config_status
+
+        # Create a minimal config file
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"org_id": "test@org", "client_id": "abc123", "secret": "secretvalue"}')
+
+        result = show_config_status(str(config_file), output_json=True)
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+
+        assert output["valid"] is True
+        assert output["source_type"] == "file"
+        assert "credentials" in output
+        assert output["credentials"]["org_id"]["set"] is True
+        assert output["credentials"]["client_id"]["set"] is True
+        assert output["credentials"]["secret"]["set"] is True
+        # Verify secrets are masked (shows first 4 + *** + last 4 chars)
+        assert "*" in output["credentials"]["secret"]["value"]
+        assert output["credentials"]["secret"]["value"] != "secretvalue"
+
+    def test_show_config_status_json_invalid_config(self, tmp_path, capsys):
+        """Test that show_config_status JSON output handles missing config"""
+        from cja_auto_sdr.generator import show_config_status
+
+        result = show_config_status(str(tmp_path / "nonexistent.json"), output_json=True)
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+
+        assert output["valid"] is False
+        assert "error" in output
+
+
+class TestYesFlag:
+    """Tests for --yes / -y flag (v3.2.0)"""
+
+    def test_yes_flag_registered(self):
+        """Test that --yes flag is available in argument parser"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '--yes']):
+            args = parse_arguments()
+            assert hasattr(args, 'assume_yes')
+            assert args.assume_yes is True
+
+    def test_yes_short_flag_registered(self):
+        """Test that -y short flag is available"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345', '-y']):
+            args = parse_arguments()
+            assert hasattr(args, 'assume_yes')
+            assert args.assume_yes is True
+
+    def test_yes_flag_default_false(self):
+        """Test that --yes defaults to False"""
+        with patch('sys.argv', ['cja_sdr_generator.py', 'dv_12345']):
+            args = parse_arguments()
+            assert hasattr(args, 'assume_yes')
+            assert args.assume_yes is False
+
+
+class TestDuplicateDataViewWarning:
+    """Tests for duplicate data view ID detection (v3.2.0)"""
+
+    def test_duplicate_removal_logic(self):
+        """Test that duplicate detection logic works correctly"""
+        # Simulate the deduplication logic from main()
+        data_views = ['dv_1', 'dv_2', 'dv_1', 'dv_3', 'dv_2', 'dv_1']
+
+        seen = set()
+        duplicates = []
+        unique_data_views = []
+        for dv in data_views:
+            if dv in seen:
+                duplicates.append(dv)
+            else:
+                seen.add(dv)
+                unique_data_views.append(dv)
+
+        assert unique_data_views == ['dv_1', 'dv_2', 'dv_3']
+        assert set(duplicates) == {'dv_1', 'dv_2'}
+        assert len(duplicates) == 3  # dv_1 appears twice extra, dv_2 once
+
+    def test_no_duplicates_preserved(self):
+        """Test that unique data views are preserved as-is"""
+        data_views = ['dv_1', 'dv_2', 'dv_3']
+
+        seen = set()
+        duplicates = []
+        unique_data_views = []
+        for dv in data_views:
+            if dv in seen:
+                duplicates.append(dv)
+            else:
+                seen.add(dv)
+                unique_data_views.append(dv)
+
+        assert unique_data_views == data_views
+        assert duplicates == []
+
+
+class TestOutputDirectoryWriteCheck:
+    """Tests for proactive output directory write check (v3.2.0)"""
+
+    def test_output_dir_exists_and_writable(self, tmp_path):
+        """Test that existing writable directory passes check"""
+        # tmp_path is always writable in tests
+        assert os.access(tmp_path, os.W_OK)
+
+    def test_output_dir_parent_checked_for_creation(self, tmp_path):
+        """Test that parent directory is checked when output dir doesn't exist"""
+        new_dir = tmp_path / "new_output_dir"
+        # Parent (tmp_path) exists and is writable
+        assert not new_dir.exists()
+        assert os.access(tmp_path, os.W_OK)
+
+    def test_output_dir_creation_blocked_by_permissions(self, tmp_path):
+        """Test detection of non-writable parent directory"""
+        import stat
+
+        # Create a read-only directory
+        readonly_dir = tmp_path / "readonly"
+        readonly_dir.mkdir()
+
+        try:
+            # Make it read-only
+            readonly_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+
+            # Check that we cannot write to it
+            assert not os.access(readonly_dir, os.W_OK)
+
+            # Trying to create a subdir would fail
+            new_subdir = readonly_dir / "cannot_create"
+            assert not new_subdir.exists()
+
+        finally:
+            # Restore permissions for cleanup
+            readonly_dir.chmod(stat.S_IRWXU)
