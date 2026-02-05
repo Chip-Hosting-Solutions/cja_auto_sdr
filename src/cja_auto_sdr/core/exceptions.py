@@ -203,3 +203,25 @@ class ConcurrentOrgReportError(CJASDRError):
 
         details = ", ".join(details_parts) if details_parts else None
         super().__init__(message, details)
+
+
+class MemoryLimitExceeded(CJASDRError):
+    """Exception raised when component index memory exceeds the configured hard limit.
+
+    This protects against out-of-memory conditions for very large organizations.
+
+    Attributes:
+        estimated_mb: Estimated memory usage in megabytes
+        limit_mb: Configured memory limit in megabytes
+    """
+
+    def __init__(self, estimated_mb: float, limit_mb: int):
+        self.estimated_mb = estimated_mb
+        self.limit_mb = limit_mb
+
+        message = (
+            f"Component index memory ({estimated_mb:.1f}MB) exceeds limit ({limit_mb}MB). "
+            "Use --sample, --limit, or --filter to reduce data view count, "
+            "or increase --memory-limit."
+        )
+        super().__init__(message)

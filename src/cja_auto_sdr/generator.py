@@ -8946,6 +8946,15 @@ Requirements:
         help='Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)'
     )
 
+    org_group.add_argument(
+        '--memory-limit',
+        type=int,
+        metavar='MB',
+        default=None,
+        dest='org_memory_limit',
+        help='Abort if component index exceeds this size in MB. Protects against OOM for very large orgs (default: no limit)'
+    )
+
     # Clustering options
     org_group.add_argument(
         '--cluster',
@@ -8957,10 +8966,10 @@ Requirements:
     org_group.add_argument(
         '--cluster-method',
         type=str,
-        choices=['ward', 'average', 'complete'],
+        choices=['average', 'complete'],
         default='average',
         dest='org_cluster_method',
-        help='Clustering linkage method (default: average). Note: ward requires Euclidean distances and may produce incorrect results with Jaccard similarity'
+        help='Clustering linkage method: average (recommended) or complete. Both work correctly with Jaccard distances'
     )
 
     # Feature 1: Governance exit codes
@@ -13615,6 +13624,7 @@ def main():
             clear_cache=getattr(args, 'org_clear_cache', False),
             validate_cache=getattr(args, 'org_validate_cache', False),
             memory_warning_threshold_mb=getattr(args, 'org_memory_warning', 100),
+            memory_limit_mb=getattr(args, 'org_memory_limit', None),
             enable_clustering=getattr(args, 'org_cluster', False),
             cluster_method=getattr(args, 'org_cluster_method', 'average'),
             quiet=args.quiet,

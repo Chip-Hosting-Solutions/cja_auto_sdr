@@ -1297,13 +1297,12 @@ class TestDataViewSummaryEnhancements:
             metric_count=3,
             dimension_count=2,
             standard_metric_count=2,
-            calculated_metric_count=1,
-            derived_metric_count=0,
+            derived_metric_count=1,
             standard_dimension_count=1,
             derived_dimension_count=1,
         )
         assert summary.standard_metric_count == 2
-        assert summary.calculated_metric_count == 1
+        assert summary.derived_metric_count == 1
         assert summary.derived_dimension_count == 1
 
     def test_metadata_fields(self):
@@ -2825,53 +2824,12 @@ class TestIsolatedReviewThreshold:
         assert len(isolated_rec) == 1
 
 
-class TestWardClusteringWarning:
-    """Test that ward clustering method produces a warning"""
+class TestClusteringMethods:
+    """Test clustering method configurations"""
 
     @pytest.fixture
     def mock_cja(self):
         return Mock()
-
-    def test_ward_method_logs_warning(self, mock_cja):
-        """Test that ward method logs a warning about Euclidean distance assumption"""
-        import logging
-
-        # Create a logger that captures warnings
-        logger = logging.getLogger("test_ward")
-        logger.setLevel(logging.WARNING)
-
-        # Use a handler to capture log messages
-        class LogCapture(logging.Handler):
-            def __init__(self):
-                super().__init__()
-                self.warnings = []
-
-            def emit(self, record):
-                if record.levelno >= logging.WARNING:
-                    self.warnings.append(record.getMessage())
-
-        handler = LogCapture()
-        logger.addHandler(handler)
-
-        config = OrgReportConfig(enable_clustering=True, cluster_method="ward")
-        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
-
-        summaries = [
-            DataViewSummary("dv_1", "DV 1", metric_ids={"m1", "m2"}, dimension_ids=set()),
-            DataViewSummary("dv_2", "DV 2", metric_ids={"m1", "m3"}, dimension_ids=set()),
-        ]
-
-        # This should log a warning about ward method
-        try:
-            analyzer._compute_clusters(summaries)
-        except ImportError:
-            # scipy not installed - skip the warning test
-            pytest.skip("scipy not installed")
-
-        # Check that a warning was logged about ward method
-        assert any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
-
-        logger.removeHandler(handler)
 
     def test_average_method_no_warning(self, mock_cja):
         """Test that average method does not log a warning"""
@@ -3230,11 +3188,11 @@ class TestSmartCacheInvalidation:
             )
             analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
 
-            # Mock _fetch_modification_date to return different timestamp
-            with patch.object(analyzer, "_fetch_modification_date", return_value="2024-01-16T10:00:00Z"):
-                to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
-                    [{"id": "dv_1", "name": "DV 1"}]
-                )
+            # Pass data view list with different modification timestamp
+            # (batch optimization: uses modified from the list, not individual API calls)
+            to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
+                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-16T10:00:00Z"}]
+            )
 
             # Should detect stale entry and need to re-fetch
             assert len(to_fetch) == 1
@@ -3309,14 +3267,56 @@ class TestSmartCacheInvalidation:
             )
             analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
 
-            # Mock _fetch_modification_date to return same timestamp
-            with patch.object(analyzer, "_fetch_modification_date", return_value="2024-01-15T10:00:00Z"):
-                to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
-                    [{"id": "dv_1", "name": "DV 1"}]
-                )
+            # Pass data view list with same modification timestamp
+            # (batch optimization: uses modified from the list, not individual API calls)
+            to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
+                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-15T10:00:00Z"}]
+            )
 
             # Should detect valid entry and use cache
             assert len(to_fetch) == 0
             assert len(valid_summaries) == 1
             assert valid_count == 1
             assert stale_count == 0
+
+    def test_missing_timestamp_treated_as_stale(self):
+        """Test that missing modification timestamps are treated as stale when validating"""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_missing_timestamp")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir))
+
+            # Pre-populate cache
+            summary = DataViewSummary(
+                data_view_id="dv_1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="2024-01-15T10:00:00Z",
+            )
+            cache.put(summary, include_metadata=True, include_component_types=True)
+
+            config = OrgReportConfig(
+                use_cache=True,
+                validate_cache=True,
+                cache_max_age_hours=24,
+                include_metadata=True,
+                include_component_types=True,
+            )
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
+
+            # Pass data view WITHOUT modification timestamp (some API responses omit this)
+            to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
+                [{"id": "dv_1", "name": "DV 1"}]  # No 'modified' or 'modifiedDate' field
+            )
+
+            # Should treat missing timestamp as stale to honor --validate-cache guarantee
+            assert len(to_fetch) == 1
+            assert len(valid_summaries) == 0
+            assert valid_count == 0
+            assert stale_count == 1

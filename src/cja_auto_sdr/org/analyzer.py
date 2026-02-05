@@ -736,16 +736,27 @@ class OrgComponentAnalyzer:
         return total_bytes / (1024 * 1024)
 
     def _check_memory_warning(self, index: Dict[str, ComponentInfo]) -> None:
-        """Check if component index memory exceeds threshold and log warning.
+        """Check if component index memory exceeds threshold and log warning or abort.
 
         Args:
             index: Component index to check
+
+        Raises:
+            MemoryLimitExceeded: If memory exceeds the hard limit (memory_limit_mb)
         """
+        estimated_mb = self._estimate_component_index_memory(index)
+
+        # Check hard limit first
+        limit = self.config.memory_limit_mb
+        if limit is not None and limit > 0 and estimated_mb > limit:
+            from cja_auto_sdr.core.exceptions import MemoryLimitExceeded
+            raise MemoryLimitExceeded(estimated_mb, limit)
+
+        # Then check warning threshold
         threshold = self.config.memory_warning_threshold_mb
         if threshold is None or threshold <= 0:
             return  # Warning disabled
 
-        estimated_mb = self._estimate_component_index_memory(index)
         if estimated_mb > threshold:
             self.logger.warning(
                 "High memory usage detected: component index estimated at %.1fMB (threshold: %dMB). "
@@ -923,13 +934,6 @@ class OrgComponentAnalyzer:
         if len(valid_summaries) < 2:
             self.logger.info("Not enough data views for clustering")
             return None
-
-        # Warn if ward method is used - it assumes Euclidean distances
-        if self.config.cluster_method == "ward":
-            self.logger.warning(
-                "Cluster method 'ward' assumes Euclidean distances but Jaccard distances are used. "
-                "Results may be suboptimal. Consider using 'average' or 'complete' instead."
-            )
 
         n = len(valid_summaries)
 
@@ -1400,37 +1404,17 @@ class OrgComponentAnalyzer:
             )
         }
 
-    def _fetch_modification_date(self, dv_id: str) -> Optional[str]:
-        """Fetch the current modification date for a data view.
-
-        Makes a lightweight API call to get just the data view metadata.
-
-        Args:
-            dv_id: Data view ID
-
-        Returns:
-            Modification timestamp string or None if unavailable
-        """
-        try:
-            cja = self._get_thread_client()
-            dv_details = cja.getDataView(dv_id)
-            if dv_details is not None and isinstance(dv_details, dict):
-                return dv_details.get('modified') or dv_details.get('modifiedDate')
-        except Exception:
-            pass
-        return None
-
     def _validate_cache_entries(
         self,
         data_views: List[Dict[str, Any]]
     ) -> Tuple[List[Dict[str, Any]], List[DataViewSummary], int, int]:
-        """Validate cached entries against current modification timestamps.
+        """Validate cached entries using modification timestamps from getDataViews() response.
 
-        For each data view, checks if the cached entry's modification timestamp
-        matches the current modification timestamp from the API.
+        This uses a batch approach - the modification timestamps are already available
+        in the data_views list from getDataViews(), so no additional API calls are needed.
 
         Args:
-            data_views: List of data view dicts to validate
+            data_views: List of data view dicts from getDataViews() (includes 'modified' field)
 
         Returns:
             Tuple of (dvs_to_fetch, valid_cached_summaries, valid_count, stale_count)
@@ -1457,8 +1441,15 @@ class OrgComponentAnalyzer:
                 to_fetch.append(dv)
                 continue
 
-            # Fetch current modification date
-            current_modified = self._fetch_modification_date(dv_id)
+            # Use modification date from getDataViews() response (no extra API call needed)
+            current_modified = dv.get('modified') or dv.get('modifiedDate')
+
+            # If API doesn't return modification timestamp, treat as stale to honor
+            # --validate-cache guarantee (we can't verify freshness without it)
+            if current_modified is None:
+                to_fetch.append(dv)
+                stale_count += 1
+                continue
 
             # Try to get from cache with validation
             cached = self.cache.get(

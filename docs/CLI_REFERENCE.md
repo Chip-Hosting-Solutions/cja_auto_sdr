@@ -256,8 +256,9 @@ Analyze component usage patterns across all data views in your organization.
 | `--limit N` | Analyze only the first N data views (useful for testing) | - |
 | `--include-names` | Fetch and display component names (slower but more readable) | False |
 | `--skip-similarity` | Skip O(n²) pairwise similarity calculation (faster for large orgs) | False |
-| `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N (use `--force-similarity` to override) | 250 |
+| `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N. Similarity has O(n²) complexity—250 DVs means ~31K comparisons. Use `--force-similarity` to override | 250 |
 | `--force-similarity` | Force similarity matrix even if guardrails would skip it | False |
+| `--memory-limit MB` | Abort if component index exceeds this size in MB. Protects against OOM for very large orgs | - |
 | `--org-summary` | Show only summary statistics, suppress detailed component lists | False |
 | `--org-verbose` | Include full component lists and detailed breakdowns in output | False |
 
@@ -306,11 +307,11 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--cluster` | Enable hierarchical clustering to group related data views | False |
-| `--cluster-method METHOD` | Clustering linkage method: `average` (default), `complete`, or `ward` | average |
+| `--cluster-method METHOD` | Clustering linkage method: `average` (recommended) or `complete` | average |
 
 > **Requires:** The `clustering` extra must be installed: `uv pip install 'cja-auto-sdr[clustering]'`
 >
-> **Note:** The `average` method is recommended because it works correctly with Jaccard distances. The `ward` method assumes Euclidean distances and may produce incorrect results.
+> **Note:** The `average` method is recommended because it works correctly with Jaccard distances (which measure component overlap). The `complete` method is also valid and produces tighter clusters.
 
 #### Governance & CI/CD Options
 

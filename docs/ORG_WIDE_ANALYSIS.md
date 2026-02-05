@@ -33,6 +33,28 @@ cja_auto_sdr --org-report --format excel
 cja_auto_sdr --org-report --format all
 ```
 
+## Quick Health Check
+
+For a fast overview without detailed analysis:
+
+```bash
+# Fastest: Quick stats only (no similarity, no clustering)
+cja_auto_sdr --org-report --org-stats
+
+# Fast with sampling: Analyze 10 random data views
+cja_auto_sdr --org-report --org-stats --sample 10
+
+# Fast with limit: Analyze first 10 data views
+cja_auto_sdr --org-report --org-stats --limit 10
+```
+
+**Performance comparison (100 DVs):**
+| Mode | Time |
+|------|------|
+| Full analysis | ~2 min |
+| `--org-stats` | ~30 sec |
+| `--org-stats --sample 10` | ~5 sec |
+
 ## How It Works
 
 ### 1. Data View Discovery
@@ -95,6 +117,20 @@ This identifies:
 Note: For governance checks, pairs with >= 90% similarity are always included.
 If `--overlap-threshold` is set above 0.9, the effective similarity threshold is capped at 0.9
 and reports will note the configured vs. effective threshold.
+
+> ⚠️ **Performance Note:** Similarity calculation has **O(n²) complexity** - for N data views,
+> it computes N×(N-1)/2 pairwise comparisons. This is fast for small orgs but scales quadratically:
+>
+> | Data Views | Comparisons | Approximate Time |
+> |------------|-------------|------------------|
+> | 50 | 1,225 | ~1 second |
+> | 100 | 4,950 | ~4 seconds |
+> | 250 | 31,125 | ~25 seconds |
+> | 500 | 124,750 | ~2 minutes |
+>
+> The default guardrail (`--similarity-max-dvs 250`) automatically skips similarity when
+> data views exceed this threshold. Use `--force-similarity` to override, or `--skip-similarity`
+> to disable entirely.
 
 ```bash
 # Flag pairs with 90%+ similarity (default: 80%)
@@ -241,7 +277,7 @@ Group related data views into clusters using hierarchical clustering:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--cluster` | Off | Enable hierarchical clustering |
-| `--cluster-method METHOD` | average | Linkage method: `average`, `complete`, or `ward` |
+| `--cluster-method METHOD` | average | Linkage method: `average` (recommended) or `complete` |
 
 ```bash
 # Identify data view families
@@ -264,7 +300,7 @@ uv pip install 'cja-auto-sdr[clustering]'
 
 If `scipy` is not installed and `--cluster` is used, a warning is logged and clustering is skipped gracefully.
 
-**Important:** The default method is `average` because it works correctly with Jaccard distances. The `ward` method assumes Euclidean distances and may produce incorrect results with similarity-based distances.
+**Why `average` is recommended:** The clustering algorithm uses Jaccard distances (1 - similarity) to measure how different data views are. The `average` linkage method works correctly with any distance metric. The `complete` method is also valid and produces tighter, more distinct clusters.
 
 ### Performance Options
 
@@ -476,6 +512,25 @@ The analyzer fetches components in parallel (up to 10 concurrent requests). For 
 
 Component indices are held in memory. For orgs with 100+ data views and 10,000+ unique components, ensure adequate memory (4GB+ recommended).
 
+**Memory controls:**
+
+```bash
+# Warn if component index exceeds 100MB (default)
+cja_auto_sdr --org-report --memory-warning 100
+
+# Abort if component index exceeds 500MB
+cja_auto_sdr --org-report --memory-limit 500
+
+# Disable memory warning
+cja_auto_sdr --org-report --memory-warning 0
+```
+
+For very large organizations (1000+ DVs), consider:
+1. Use `--sample` to analyze a representative subset
+2. Use `--filter` to focus on specific data view groups
+3. Use `--limit` to cap the number of data views
+4. Use `--memory-limit` to abort before exhausting memory
+
 ## Troubleshooting
 
 ### "No data views found matching criteria"
@@ -593,6 +648,68 @@ cja_auto_sdr --org-report --compare-org-report baseline.json
 # - Component count changes (↑ / ↓)
 # - New high-similarity pairs
 # - Resolved pairs
+```
+
+#### CI/CD Trending Example
+
+Track changes between org-report runs with GitHub Actions:
+
+```yaml
+name: Weekly Governance Check
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday 9 AM
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install cja-auto-sdr
+        run: pip install cja-auto-sdr
+
+      - name: Download previous report
+        uses: actions/download-artifact@v4
+        with:
+          name: org-report-baseline
+          path: ./baseline/
+        continue-on-error: true  # First run won't have baseline
+
+      - name: Run org-report
+        env:
+          ORG_ID: ${{ secrets.CJA_ORG_ID }}
+          CLIENT_ID: ${{ secrets.CJA_CLIENT_ID }}
+          SECRET: ${{ secrets.CJA_CLIENT_SECRET }}
+          SCOPES: ${{ secrets.CJA_SCOPES }}
+        run: |
+          cja_auto_sdr --org-report --format json --output current.json
+
+      - name: Compare with baseline
+        if: hashFiles('baseline/org-report.json') != ''
+        run: |
+          cja_auto_sdr --org-report --compare-org-report baseline/org-report.json
+
+      - name: Upload as new baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: org-report-baseline
+          path: current.json
+```
+
+#### Local Trending Example
+
+```bash
+# Save baseline with date
+cja_auto_sdr --org-report --format json --output baseline-$(date +%Y%m%d).json
+
+# Later, compare to baseline
+cja_auto_sdr --org-report --compare-org-report baseline-20240115.json
 ```
 
 ### Owner/Team Summary

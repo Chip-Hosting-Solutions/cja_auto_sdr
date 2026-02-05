@@ -67,7 +67,7 @@ class OrgReportConfig:
     clear_cache: bool = False
     # Clustering
     enable_clustering: bool = False
-    cluster_method: str = "average"  # 'average' or 'complete' work with Jaccard distances; 'ward' requires Euclidean
+    cluster_method: str = "average"  # 'average' (recommended) or 'complete' - both work correctly with Jaccard distances
     quiet: bool = False  # Suppress progress output (tqdm)
     # Similarity guardrails
     similarity_max_dvs: Optional[int] = 250  # Skip similarity if DVs exceed this count (unless forced)
@@ -92,6 +92,8 @@ class OrgReportConfig:
     flag_stale: bool = False  # Flag components with stale naming patterns
     # Memory warning threshold
     memory_warning_threshold_mb: Optional[int] = 100  # Warn if component index exceeds this size (0 to disable)
+    # Memory hard limit
+    memory_limit_mb: Optional[int] = None  # Abort if component index exceeds this size (None = no limit)
     # Smart cache validation
     validate_cache: bool = False  # Validate cache entries against data view modification timestamps
     # Concurrency lock

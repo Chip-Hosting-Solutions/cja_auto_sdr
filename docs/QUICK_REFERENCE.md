@@ -137,8 +137,11 @@ cja_auto_sdr --org-report --format excel
 # Export all formats
 cja_auto_sdr --org-report --format all --output-dir ./reports
 
-# Quick stats mode (fast overview)
-cja_auto_sdr --org-report --stats-only
+# Quick stats mode (fast overview, no similarity/clustering)
+cja_auto_sdr --org-report --org-stats
+
+# Quick health check with sampling
+cja_auto_sdr --org-report --org-stats --sample 10
 ```
 
 ### Advanced Org-Wide Options
@@ -150,8 +153,8 @@ cja_auto_sdr --org-report --stats-only
 # Cluster similar data views into families
 cja_auto_sdr --org-report --cluster
 
-# Cluster with specific method
-cja_auto_sdr --org-report --cluster --cluster-method ward
+# Cluster with specific method (average recommended, complete also valid)
+cja_auto_sdr --org-report --cluster --cluster-method complete
 
 # --- Caching (for large orgs) ---
 # Use cached data (refresh if stale)
