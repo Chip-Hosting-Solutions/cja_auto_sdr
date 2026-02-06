@@ -3156,8 +3156,8 @@ class TestSmartCacheInvalidation:
             assert retrieved is not None
             assert retrieved.data_view_id == "dv_test"
 
-    def test_needs_validation_true_for_fresh_entry(self):
-        """Test needs_validation returns True for fresh cache entries"""
+    def test_has_valid_entry_true_for_fresh_entry(self):
+        """Test has_valid_entry returns True for fresh cache entries"""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = OrgReportCache(cache_dir=Path(tmpdir))
 
@@ -3167,11 +3167,11 @@ class TestSmartCacheInvalidation:
             )
             cache.put(summary)
 
-            # Fresh entry should need validation
-            assert cache.needs_validation("dv_test", max_age_hours=24) is True
+            # Fresh entry should be valid
+            assert cache.has_valid_entry("dv_test", max_age_hours=24) is True
 
-            # Non-existent entry should not need validation
-            assert cache.needs_validation("nonexistent", max_age_hours=24) is False
+            # Non-existent entry should not be valid
+            assert cache.has_valid_entry("nonexistent", max_age_hours=24) is False
 
     def test_get_cached_modified(self):
         """Test get_cached_modified returns cached modification timestamp"""

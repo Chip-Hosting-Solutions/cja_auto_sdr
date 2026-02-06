@@ -383,18 +383,15 @@ class OrgReportCache:
             del self._cache[dv_id]
         self._save_cache()
 
-    def needs_validation(self, dv_id: str, max_age_hours: int = 24) -> bool:
-        """Check if a cache entry exists and is within age limit but needs validation.
-
-        Use this to identify entries that would be returned by get() but should
-        be validated against current modification timestamps.
+    def has_valid_entry(self, dv_id: str, max_age_hours: int = 24) -> bool:
+        """Check if a cache entry exists and is within age limit.
 
         Args:
             dv_id: Data view ID
             max_age_hours: Maximum cache age in hours
 
         Returns:
-            True if entry exists within age limit and may need validation
+            True if entry exists and is fresh enough to potentially use
         """
         if dv_id not in self._cache:
             return False

@@ -653,7 +653,7 @@ class TestCacheValidationBatch:
 
         # Setup mock cache
         mock_cache = Mock(spec=OrgReportCache)
-        mock_cache.needs_validation.return_value = True
+        mock_cache.has_valid_entry.return_value = True
         mock_cache.get.return_value = None  # All stale
 
         logger = logging.getLogger("test_batch_cache")

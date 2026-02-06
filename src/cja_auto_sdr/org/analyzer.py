@@ -1484,8 +1484,8 @@ class OrgComponentAnalyzer:
         for dv in data_views:
             dv_id = dv.get('id', '')
 
-            # Check if entry exists and is within age limit
-            if not self.cache.needs_validation(dv_id, self.config.cache_max_age_hours):
+            # No valid cache entry → must fetch from API
+            if not self.cache.has_valid_entry(dv_id, self.config.cache_max_age_hours):
                 to_fetch.append(dv)
                 continue
 

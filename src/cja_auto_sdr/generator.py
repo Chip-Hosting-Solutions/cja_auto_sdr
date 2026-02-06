@@ -174,6 +174,8 @@ from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
 # - OrgComponentAnalyzer -> org/analyzer.py
 
 
+TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
+
 # ==================== OUTPUT WRITER PROTOCOL ====================
 
 
@@ -461,6 +463,8 @@ def setup_logging(
 
 class PerformanceTracker:
     """Track execution time for operations"""
+    MAX_METRICS = 500
+
     def __init__(self, logger: logging.Logger):
         self.metrics = {}
         self.logger = logger
@@ -474,6 +478,10 @@ class PerformanceTracker:
         """End timing an operation"""
         if operation_name in self.start_times:
             duration = time.time() - self.start_times[operation_name]
+            if len(self.metrics) >= self.MAX_METRICS:
+                # Drop oldest entry to prevent unbounded growth
+                oldest = next(iter(self.metrics))
+                del self.metrics[oldest]
             self.metrics[operation_name] = duration
 
             # Log individual operations only in DEBUG mode for performance
@@ -1040,9 +1048,7 @@ class SharedValidationCache:
 
         with self._lock:
             if cache_key not in self._cache:
-                stats = dict(self._stats)
-                stats['misses'] = stats.get('misses', 0) + 1
-                self._stats.update(stats)
+                self._stats['misses'] = self._stats.get('misses', 0) + 1
                 return None, cache_key
 
             cached_data = self._cache[cache_key]
@@ -1054,16 +1060,12 @@ class SharedValidationCache:
                 del self._cache[cache_key]
                 if cache_key in self._access_times:
                     del self._access_times[cache_key]
-                stats = dict(self._stats)
-                stats['misses'] = stats.get('misses', 0) + 1
-                self._stats.update(stats)
+                self._stats['misses'] = self._stats.get('misses', 0) + 1
                 return None, cache_key
 
             # Cache hit - update access time and stats
             self._access_times[cache_key] = time.time()
-            stats = dict(self._stats)
-            stats['hits'] = stats.get('hits', 0) + 1
-            self._stats.update(stats)
+            self._stats['hits'] = self._stats.get('hits', 0) + 1
 
             # Return copy to prevent mutation
             return [issue.copy() for issue in cached_issues], cache_key
@@ -1114,9 +1116,7 @@ class SharedValidationCache:
         if lru_key in self._access_times:
             del self._access_times[lru_key]
 
-        stats = dict(self._stats)
-        stats['evictions'] = stats.get('evictions', 0) + 1
-        self._stats.update(stats)
+        self._stats['evictions'] = self._stats.get('evictions', 0) + 1
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -1322,10 +1322,10 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
     credentials = load_profile_config_json(profile_path) or {}
     json_source = bool(credentials)
 
-    # Override with .env values
+    # Override with .env values (skip empty values to avoid overwriting valid config)
     env_credentials = load_profile_dotenv(profile_path)
     if env_credentials:
-        credentials.update(env_credentials)
+        credentials.update({k: v for k, v in env_credentials.items() if v})
 
     if not credentials:
         raise ProfileConfigError(
@@ -2923,7 +2923,7 @@ class ParallelAPIFetcher:
                 total=len(tasks),
                 desc="Fetching API data",
                 unit="item",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                bar_format=TQDM_BAR_FORMAT,
                 leave=False,
                 disable=self.quiet
             ) as pbar:
@@ -2970,25 +2970,24 @@ class ParallelAPIFetcher:
         Execute an API call with timing for auto-tuning.
 
         Wraps make_api_call_with_retry with timing measurement and tuner feedback.
+        Only records timing on successful calls so retries don't inflate metrics.
         """
         start_time = time.time()
-        try:
-            result = make_api_call_with_retry(
-                api_func,
-                *args,
-                logger=self.logger,
-                operation_name=operation_name,
-                circuit_breaker=self.circuit_breaker,
-                **kwargs
-            )
-            return result
-        finally:
-            # Record response time for tuning (regardless of success/failure)
-            if self.tuner is not None:
-                duration_ms = (time.time() - start_time) * 1000
-                new_workers = self.tuner.record_response_time(duration_ms)
-                if new_workers is not None:
-                    self.max_workers = new_workers
+        result = make_api_call_with_retry(
+            api_func,
+            *args,
+            logger=self.logger,
+            operation_name=operation_name,
+            circuit_breaker=self.circuit_breaker,
+            **kwargs
+        )
+        # Record response time only on success to avoid retry delays inflating metrics
+        if self.tuner is not None:
+            duration_ms = (time.time() - start_time) * 1000
+            new_workers = self.tuner.record_response_time(duration_ms)
+            if new_workers is not None:
+                self.max_workers = new_workers
+        return result
 
     def _fetch_metrics(self, data_view_id: str) -> pd.DataFrame:
         """Fetch metrics with error handling and retry"""
@@ -3465,7 +3464,7 @@ class DataQualityChecker:
                     total=len(tasks),
                     desc="Validating data",
                     unit="check",
-                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                    bar_format=TQDM_BAR_FORMAT,
                     leave=False,
                     disable=self.quiet
                 ) as pbar:
@@ -3597,8 +3596,8 @@ class ExcelFormatCache:
             xlsxwriter Format object
         """
         # Convert dict to a hashable key (sorted tuple of items)
-        # Handle nested values by converting to string representation
-        cache_key = tuple(sorted((k, str(v)) for k, v in properties.items()))
+        # Use repr() for nested values to avoid collisions (e.g. [1,2] vs '[1, 2]')
+        cache_key = tuple(sorted((k, repr(v)) for k, v in properties.items()))
 
         if cache_key not in self._cache:
             self._cache[cache_key] = self.workbook.add_format(properties)
@@ -3674,10 +3673,9 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
             worksheet.write(1, 1, "Count", summary_header)
 
             # Write severity counts in order
-            severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
             row = 2
             total_count = 0
-            for sev in severity_order:
+            for sev in DataQualityChecker.SEVERITY_ORDER:
                 count = severity_counts.get(sev, 0)
                 if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:  # Always show main levels
                     worksheet.write(row, 0, sev, summary_cell)
@@ -4473,9 +4471,8 @@ def write_markdown_output(
                 md_parts.append("| Severity | Count |")
                 md_parts.append("| --- | --- |")
 
-                severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
                 severity_emojis = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '⚪', 'INFO': '🔵'}
-                for sev in severity_order:
+                for sev in DataQualityChecker.SEVERITY_ORDER:
                     count = severity_counts.get(sev, 0)
                     if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
                         emoji = severity_emojis.get(sev, '')
@@ -7994,6 +7991,17 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
 # ==================== COMMAND-LINE INTERFACE ====================
 
+def _bounded_float(min_val: float, max_val: float):
+    """Argparse type factory for a float bounded to [min_val, max_val]."""
+    def _type(value: str) -> float:
+        f = float(value)
+        if f < min_val or f > max_val:
+            raise argparse.ArgumentTypeError(f"must be between {min_val} and {max_val}, got {f}")
+        return f
+    _type.__name__ = f"float[{min_val}-{max_val}]"
+    return _type
+
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
@@ -8859,7 +8867,7 @@ Requirements:
 
     org_group.add_argument(
         '--overlap-threshold',
-        type=float,
+        type=_bounded_float(0.0, 1.0),
         default=0.8,
         metavar='PERCENT',
         help='Threshold for "high overlap" pairs in similarity analysis '
@@ -9044,7 +9052,7 @@ Requirements:
 
     org_group.add_argument(
         '--isolated-threshold',
-        type=float,
+        type=_bounded_float(0.0, 1.0),
         metavar='PERCENT',
         dest='org_isolated_threshold',
         help='Maximum isolated component percentage (0.0-1.0). Exit with code 2 if exceeded when --fail-on-threshold is set'
@@ -10590,7 +10598,7 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
         success, source, _ = configure_cjapy(profile, config_file)
         if not success:
             print(ConsoleColors.error(f"ERROR: {source}"))
-            return False, False
+            return False
         cja = cjapy.CJA()
 
         stats_data = []
