@@ -80,8 +80,10 @@ class OrgReportLock:
         # First, try atomic exclusive creation (no race condition)
         try:
             fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, lock_payload.encode())
-            os.close(fd)
+            try:
+                os.write(fd, lock_payload.encode())
+            finally:
+                os.close(fd)
             return True
         except FileExistsError:
             pass  # Lock file exists, check if stale below
@@ -109,8 +111,10 @@ class OrgReportLock:
 
             try:
                 fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(fd, lock_payload.encode())
-                os.close(fd)
+                try:
+                    os.write(fd, lock_payload.encode())
+                finally:
+                    os.close(fd)
                 return True
             except FileExistsError:
                 # Another process beat us to it after we removed the stale lock
@@ -126,8 +130,10 @@ class OrgReportLock:
                 pass
             try:
                 fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(fd, lock_payload.encode())
-                os.close(fd)
+                try:
+                    os.write(fd, lock_payload.encode())
+                finally:
+                    os.close(fd)
                 return True
             except (FileExistsError, IOError):
                 return False

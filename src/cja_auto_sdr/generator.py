@@ -7456,7 +7456,10 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
         data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory = args
     elif len(args) >= 20:
         # With tuning/breaker but no derived
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args[:20]
+    elif len(args) == 19:
+        # With api_tuning_config only (no circuit_breaker_config)
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config = args
     elif len(args) == 18:
         # With shared_cache only
         data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache = args
