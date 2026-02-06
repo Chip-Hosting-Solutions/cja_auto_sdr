@@ -8119,6 +8119,16 @@ Examples:
   cja_auto_sdr --list-dataviews --format json
   cja_auto_sdr --list-dataviews --output -    # JSON to stdout
 
+  # List connections with their datasets
+  cja_auto_sdr --list-connections
+  cja_auto_sdr --list-connections --format json
+  cja_auto_sdr --list-connections --format csv --output connections.csv
+
+  # List data views with their backing connections and datasets
+  cja_auto_sdr --list-datasets
+  cja_auto_sdr --list-datasets --format json
+  cja_auto_sdr --list-datasets --format csv --output datasets.csv
+
   # --- Profile Management ---
 
   # List all available profiles
@@ -8142,7 +8152,7 @@ Examples:
   cja_auto_sdr --list-dataviews
 
 Note:
-  At least one data view ID must be provided (except for --list-dataviews, --sample-config, --stats).
+  At least one data view ID must be provided (except for --list-dataviews, --list-connections, --list-datasets, --sample-config, --stats).
   Use 'cja_auto_sdr --help' to see all options.
 
 Exit Codes:
@@ -8368,6 +8378,18 @@ Requirements:
         '--list-dataviews',
         action='store_true',
         help='List all accessible data views and exit (no data view ID required)'
+    )
+
+    parser.add_argument(
+        '--list-connections',
+        action='store_true',
+        help='List all accessible connections with their datasets and exit'
+    )
+
+    parser.add_argument(
+        '--list-datasets',
+        action='store_true',
+        help='List all data views with their backing connections and datasets, then exit'
     )
 
     parser.add_argument(
@@ -9468,6 +9490,42 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
         return [], {}
 
 
+# ==================== DATASET INFO HELPER ====================
+
+def _extract_dataset_info(dataset: Any) -> dict:
+    """
+    Resilient parser for dataset objects from connection API responses.
+
+    The dataSets field in connection responses may use varying field names.
+    This helper tries common field names and falls back gracefully.
+
+    Args:
+        dataset: A dataset object (dict or other) from the dataSets array
+
+    Returns:
+        Dict with 'id' and 'name' keys (values may be 'N/A' if not found)
+    """
+    if not isinstance(dataset, dict):
+        return {'id': str(dataset) if dataset else 'N/A', 'name': 'N/A'}
+
+    # Try common ID field names
+    ds_id = (dataset.get('id')
+             or dataset.get('datasetId')
+             or dataset.get('dataSetId')
+             or dataset.get('dataset_id')
+             or 'N/A')
+
+    # Try common name field names
+    ds_name = (dataset.get('name')
+               or dataset.get('datasetName')
+               or dataset.get('dataSetName')
+               or dataset.get('dataset_name')
+               or dataset.get('title')
+               or 'N/A')
+
+    return {'id': str(ds_id), 'name': str(ds_name)}
+
+
 # ==================== LIST DATA VIEWS ====================
 
 def list_dataviews(config_file: str = "config.json", output_format: str = "table",
@@ -9613,6 +9671,400 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
             print()
             print("Note: If multiple data views share the same name, all will be processed.")
             print("=" * total_width)
+
+        return True
+
+    except FileNotFoundError:
+        if is_machine_readable:
+            error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
+            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+        else:
+            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+            print()
+            print("Generate a sample configuration file with:")
+            print("  cja_auto_sdr --sample-config")
+        return False
+
+    except (KeyboardInterrupt, SystemExit):
+        if not is_machine_readable:
+            print()
+            print(ConsoleColors.warning("Operation cancelled."))
+        raise
+
+    except Exception as e:
+        if is_machine_readable:
+            error_json = json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"})
+            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+        else:
+            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+        return False
+
+
+# ==================== LIST CONNECTIONS ====================
+
+def list_connections(config_file: str = "config.json", output_format: str = "table",
+                     output_file: Optional[str] = None, profile: Optional[str] = None) -> bool:
+    """
+    List all accessible connections with their datasets and exit.
+
+    Args:
+        config_file: Path to CJA configuration file
+        output_format: Output format - "table" (default), "json", or "csv"
+        output_file: Optional file path to write output (or "-" for stdout)
+        profile: Profile name to load credentials from (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    is_stdout = output_file in ('-', 'stdout')
+    is_machine_readable = output_format in ('json', 'csv') or is_stdout
+
+    # Resolve active profile
+    active_profile = resolve_active_profile(profile)
+
+    if not is_machine_readable:
+        print()
+        print("=" * 60)
+        print("LISTING ACCESSIBLE CONNECTIONS")
+        print("=" * 60)
+        print()
+        if active_profile:
+            print(f"Using profile: {active_profile}")
+        else:
+            print(f"Using configuration: {config_file}")
+        print()
+
+    try:
+        logger = logging.getLogger('list_connections')
+        logger.setLevel(logging.WARNING)
+        success, source, _ = configure_cjapy(
+            profile=active_profile,
+            config_file=config_file,
+            logger=logger
+        )
+        if not success:
+            if not is_machine_readable:
+                print(f"Configuration error: {source}")
+            return False
+        cja = cjapy.CJA()
+
+        if not is_machine_readable:
+            print("Connecting to CJA API...")
+        raw_connections = cja.getConnections(output='raw')
+
+        # Extract connection list from response
+        connections = []
+        if isinstance(raw_connections, dict):
+            connections = raw_connections.get('content', raw_connections.get('result', []))
+            if not isinstance(connections, list):
+                connections = [raw_connections]
+        elif isinstance(raw_connections, list):
+            connections = raw_connections
+
+        if not connections:
+            if is_machine_readable:
+                if output_format == 'json':
+                    output_data = json.dumps({"connections": [], "count": 0}, indent=2)
+                else:  # csv
+                    output_data = "connection_id,connection_name,owner,dataset_id,dataset_name\n"
+                if is_stdout:
+                    print(output_data)
+                elif output_file:
+                    with open(output_file, 'w') as f:
+                        f.write(output_data)
+            else:
+                print()
+                print(ConsoleColors.warning("No connections found or no access to any connections."))
+                print()
+            return True
+
+        # Prepare data
+        display_data = []
+        for conn in connections:
+            if not isinstance(conn, dict):
+                continue
+            conn_id = conn.get('id', 'N/A')
+            conn_name = conn.get('name', 'N/A')
+            conn_owner = conn.get('owner', {})
+            owner_name = conn_owner.get('name', 'N/A') if isinstance(conn_owner, dict) else str(conn_owner)
+
+            raw_datasets = conn.get('dataSets', conn.get('datasets', []))
+            if not isinstance(raw_datasets, list):
+                raw_datasets = []
+            datasets = [_extract_dataset_info(ds) for ds in raw_datasets]
+
+            display_data.append({
+                'id': conn_id,
+                'name': conn_name,
+                'owner': owner_name,
+                'datasets': datasets
+            })
+
+        # Output based on format
+        if output_format == 'json' or (is_stdout and output_format != 'csv'):
+            output_data = json.dumps({
+                "connections": display_data,
+                "count": len(display_data)
+            }, indent=2)
+            if is_stdout:
+                print(output_data)
+            elif output_file:
+                with open(output_file, 'w') as f:
+                    f.write(output_data)
+            else:
+                print(output_data)
+        elif output_format == 'csv':
+            lines = ["connection_id,connection_name,owner,dataset_id,dataset_name"]
+            for conn in display_data:
+                conn_name_csv = conn['name'].replace('"', '""')
+                owner_csv = conn['owner'].replace('"', '""')
+                if conn['datasets']:
+                    for ds in conn['datasets']:
+                        ds_name_csv = ds['name'].replace('"', '""')
+                        lines.append(f'{conn["id"]},"{conn_name_csv}","{owner_csv}",{ds["id"]},"{ds_name_csv}"')
+                else:
+                    lines.append(f'{conn["id"]},"{conn_name_csv}","{owner_csv}",,')
+            output_data = '\n'.join(lines)
+            if is_stdout:
+                print(output_data)
+            elif output_file:
+                with open(output_file, 'w') as f:
+                    f.write(output_data)
+            else:
+                print(output_data)
+        else:
+            # Table format (default)
+            print()
+            print(f"Found {len(display_data)} accessible connection(s):")
+            print()
+
+            for conn in display_data:
+                print(f"Connection: {conn['name']} ({conn['id']})")
+                print(f"Owner: {conn['owner']}")
+                if conn['datasets']:
+                    print(f"Datasets ({len(conn['datasets'])}):")
+                    for ds in conn['datasets']:
+                        print(f"  {ds['id']}  {ds['name']}")
+                else:
+                    print("Datasets: (none)")
+                print()
+
+        return True
+
+    except FileNotFoundError:
+        if is_machine_readable:
+            error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
+            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+        else:
+            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+            print()
+            print("Generate a sample configuration file with:")
+            print("  cja_auto_sdr --sample-config")
+        return False
+
+    except (KeyboardInterrupt, SystemExit):
+        if not is_machine_readable:
+            print()
+            print(ConsoleColors.warning("Operation cancelled."))
+        raise
+
+    except Exception as e:
+        if is_machine_readable:
+            error_json = json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"})
+            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+        else:
+            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+        return False
+
+
+# ==================== LIST DATASETS ====================
+
+def list_datasets(config_file: str = "config.json", output_format: str = "table",
+                  output_file: Optional[str] = None, profile: Optional[str] = None) -> bool:
+    """
+    List all data views with their backing connections and underlying datasets.
+
+    For each data view, shows the connection it belongs to and the datasets
+    in that connection.
+
+    Args:
+        config_file: Path to CJA configuration file
+        output_format: Output format - "table" (default), "json", or "csv"
+        output_file: Optional file path to write output (or "-" for stdout)
+        profile: Profile name to load credentials from (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    is_stdout = output_file in ('-', 'stdout')
+    is_machine_readable = output_format in ('json', 'csv') or is_stdout
+
+    # Resolve active profile
+    active_profile = resolve_active_profile(profile)
+
+    if not is_machine_readable:
+        print()
+        print("=" * 60)
+        print("LISTING DATA VIEWS WITH DATASETS")
+        print("=" * 60)
+        print()
+        if active_profile:
+            print(f"Using profile: {active_profile}")
+        else:
+            print(f"Using configuration: {config_file}")
+        print()
+
+    try:
+        logger = logging.getLogger('list_datasets')
+        logger.setLevel(logging.WARNING)
+        success, source, _ = configure_cjapy(
+            profile=active_profile,
+            config_file=config_file,
+            logger=logger
+        )
+        if not success:
+            if not is_machine_readable:
+                print(f"Configuration error: {source}")
+            return False
+        cja = cjapy.CJA()
+
+        if not is_machine_readable:
+            print("Connecting to CJA API...")
+
+        # Step 1: Fetch all connections and build lookup map
+        raw_connections = cja.getConnections(output='raw')
+        conn_map = {}  # connection_id -> {name, datasets}
+        connections_list = []
+        if isinstance(raw_connections, dict):
+            connections_list = raw_connections.get('content', raw_connections.get('result', []))
+            if not isinstance(connections_list, list):
+                connections_list = [raw_connections]
+        elif isinstance(raw_connections, list):
+            connections_list = raw_connections
+
+        for conn in connections_list:
+            if not isinstance(conn, dict):
+                continue
+            conn_id = conn.get('id', '')
+            conn_name = conn.get('name', 'N/A')
+            raw_datasets = conn.get('dataSets', conn.get('datasets', []))
+            if not isinstance(raw_datasets, list):
+                raw_datasets = []
+            datasets = [_extract_dataset_info(ds) for ds in raw_datasets]
+            conn_map[conn_id] = {'name': conn_name, 'datasets': datasets}
+
+        # Step 2: Fetch all data views
+        available_dvs = cja.getDataViews()
+        if isinstance(available_dvs, pd.DataFrame):
+            available_dvs = available_dvs.to_dict('records')
+
+        if not available_dvs:
+            if is_machine_readable:
+                if output_format == 'json':
+                    output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
+                else:  # csv
+                    output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
+                if is_stdout:
+                    print(output_data)
+                elif output_file:
+                    with open(output_file, 'w') as f:
+                        f.write(output_data)
+            else:
+                print()
+                print(ConsoleColors.warning("No data views found or no access to any data views."))
+                print()
+            return True
+
+        # Step 3: Fetch detail for each data view to get parentDataGroupId
+        if not is_machine_readable:
+            print(f"Fetching details for {len(available_dvs)} data view(s)...")
+        display_data = []
+        for i, dv in enumerate(available_dvs):
+            if not isinstance(dv, dict):
+                continue
+            dv_id = dv.get('id', 'N/A')
+            dv_name = dv.get('name', 'N/A')
+
+            if not is_machine_readable:
+                print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end='\r')
+
+            # Get full data view detail for parentDataGroupId
+            parent_conn_id = None
+            try:
+                dv_detail = cja.getDataView(dv_id, full=True)
+                if isinstance(dv_detail, dict):
+                    parent_conn_id = dv_detail.get('parentDataGroupId')
+            except Exception:
+                pass  # Gracefully skip if detail fetch fails
+
+            conn_info = conn_map.get(parent_conn_id, {}) if parent_conn_id else {}
+            conn_name = conn_info.get('name', 'Unknown')
+            datasets = conn_info.get('datasets', [])
+
+            entry = {
+                'id': dv_id,
+                'name': dv_name,
+                'connection': {
+                    'id': parent_conn_id or 'N/A',
+                    'name': conn_name
+                },
+                'datasets': datasets
+            }
+            display_data.append(entry)
+
+        if not is_machine_readable:
+            # Clear progress line
+            print(" " * 80, end='\r')
+
+        # Output based on format
+        if output_format == 'json' or (is_stdout and output_format != 'csv'):
+            output_data = json.dumps({
+                "dataViews": display_data,
+                "count": len(display_data)
+            }, indent=2)
+            if is_stdout:
+                print(output_data)
+            elif output_file:
+                with open(output_file, 'w') as f:
+                    f.write(output_data)
+            else:
+                print(output_data)
+        elif output_format == 'csv':
+            lines = ["dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name"]
+            for entry in display_data:
+                dv_name_csv = entry['name'].replace('"', '""')
+                conn_name_csv = entry['connection']['name'].replace('"', '""')
+                conn_id = entry['connection']['id']
+                if entry['datasets']:
+                    for ds in entry['datasets']:
+                        ds_name_csv = ds['name'].replace('"', '""')
+                        lines.append(f'{entry["id"]},"{dv_name_csv}",{conn_id},"{conn_name_csv}",{ds["id"]},"{ds_name_csv}"')
+                else:
+                    lines.append(f'{entry["id"]},"{dv_name_csv}",{conn_id},"{conn_name_csv}",,')
+            output_data = '\n'.join(lines)
+            if is_stdout:
+                print(output_data)
+            elif output_file:
+                with open(output_file, 'w') as f:
+                    f.write(output_data)
+            else:
+                print(output_data)
+        else:
+            # Table format (default)
+            print()
+            print(f"Found {len(display_data)} data view(s) with dataset information:")
+            print()
+
+            for entry in display_data:
+                print(f"Data View: {entry['name']} ({entry['id']})")
+                print(f"Connection: {entry['connection']['name']} ({entry['connection']['id']})")
+                if entry['datasets']:
+                    print(f"Datasets ({len(entry['datasets'])}):")
+                    for ds in entry['datasets']:
+                        print(f"  {ds['id']}  {ds['name']}")
+                else:
+                    print("Datasets: (none)")
+                print()
 
         return True
 
@@ -13587,6 +14039,38 @@ def main():
             list_format = 'json'  # Default to JSON for stdout
 
         success = list_dataviews(
+            args.config_file,
+            output_format=list_format,
+            output_file=getattr(args, 'output', None),
+            profile=getattr(args, 'profile', None)
+        )
+        sys.exit(0 if success else 1)
+
+    # Handle --list-connections mode (no data view required)
+    if args.list_connections:
+        list_format = 'table'
+        if args.format in ('json', 'csv'):
+            list_format = args.format
+        elif output_to_stdout:
+            list_format = 'json'
+
+        success = list_connections(
+            args.config_file,
+            output_format=list_format,
+            output_file=getattr(args, 'output', None),
+            profile=getattr(args, 'profile', None)
+        )
+        sys.exit(0 if success else 1)
+
+    # Handle --list-datasets mode (no data view required)
+    if args.list_datasets:
+        list_format = 'table'
+        if args.format in ('json', 'csv'):
+            list_format = args.format
+        elif output_to_stdout:
+            list_format = 'json'
+
+        success = list_datasets(
             args.config_file,
             output_format=list_format,
             output_file=getattr(args, 'output', None),

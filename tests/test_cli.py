@@ -10,7 +10,7 @@ import argparse
 
 # Import the function we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import parse_arguments, generate_sample_config
+from cja_auto_sdr.generator import parse_arguments, generate_sample_config, _extract_dataset_info, list_connections, list_datasets
 
 
 class TestCLIArguments:
@@ -706,3 +706,324 @@ class TestFormatValidation:
         with patch.object(sys, 'argv', test_args):
             args = parse_arguments()
             assert args.format == 'json'
+
+
+class TestListConnectionsArgs:
+    """Test --list-connections argument parsing"""
+
+    def test_list_connections_flag(self):
+        """Test parsing with --list-connections flag"""
+        test_args = ['cja_sdr_generator.py', '--list-connections']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_connections is True
+
+    def test_list_connections_default_false(self):
+        """Test that list-connections is False by default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_connections is False
+
+    def test_list_connections_with_format(self):
+        """Test --list-connections with --format json"""
+        test_args = ['cja_sdr_generator.py', '--list-connections', '--format', 'json']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_connections is True
+            assert args.format == 'json'
+
+    def test_list_connections_with_csv_output(self):
+        """Test --list-connections with --format csv and --output"""
+        test_args = ['cja_sdr_generator.py', '--list-connections', '--format', 'csv', '--output', 'conns.csv']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_connections is True
+            assert args.format == 'csv'
+            assert args.output == 'conns.csv'
+
+
+class TestListDatasetsArgs:
+    """Test --list-datasets argument parsing"""
+
+    def test_list_datasets_flag(self):
+        """Test parsing with --list-datasets flag"""
+        test_args = ['cja_sdr_generator.py', '--list-datasets']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_datasets is True
+
+    def test_list_datasets_default_false(self):
+        """Test that list-datasets is False by default"""
+        test_args = ['cja_sdr_generator.py', 'dv_12345']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_datasets is False
+
+    def test_list_datasets_with_format(self):
+        """Test --list-datasets with --format csv"""
+        test_args = ['cja_sdr_generator.py', '--list-datasets', '--format', 'csv']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_datasets is True
+            assert args.format == 'csv'
+
+    def test_list_datasets_with_profile(self):
+        """Test --list-datasets with --profile"""
+        test_args = ['cja_sdr_generator.py', '--list-datasets', '--profile', 'client-a']
+        with patch.object(sys, 'argv', test_args):
+            args = parse_arguments()
+            assert args.list_datasets is True
+            assert args.profile == 'client-a'
+
+
+class TestExtractDatasetInfo:
+    """Test _extract_dataset_info() helper"""
+
+    def test_standard_fields(self):
+        """Test extraction with standard id/name fields"""
+        result = _extract_dataset_info({'id': 'ds_123', 'name': 'Web Events'})
+        assert result == {'id': 'ds_123', 'name': 'Web Events'}
+
+    def test_alternate_id_field(self):
+        """Test extraction with datasetId field"""
+        result = _extract_dataset_info({'datasetId': 'ds_456', 'name': 'Mobile Events'})
+        assert result == {'id': 'ds_456', 'name': 'Mobile Events'}
+
+    def test_alternate_name_field_title(self):
+        """Test extraction with title field"""
+        result = _extract_dataset_info({'id': 'ds_789', 'title': 'Product Catalog'})
+        assert result == {'id': 'ds_789', 'name': 'Product Catalog'}
+
+    def test_alternate_name_field_datasetName(self):
+        """Test extraction with datasetName field"""
+        result = _extract_dataset_info({'id': 'ds_111', 'datasetName': 'Test Dataset'})
+        assert result == {'id': 'ds_111', 'name': 'Test Dataset'}
+
+    def test_missing_fields(self):
+        """Test extraction with empty dict"""
+        result = _extract_dataset_info({})
+        assert result == {'id': 'N/A', 'name': 'N/A'}
+
+    def test_non_dict_input(self):
+        """Test extraction with non-dict input"""
+        result = _extract_dataset_info('ds_string_id')
+        assert result == {'id': 'ds_string_id', 'name': 'N/A'}
+
+    def test_none_input(self):
+        """Test extraction with None input"""
+        result = _extract_dataset_info(None)
+        assert result == {'id': 'N/A', 'name': 'N/A'}
+
+    def test_dataSetId_field(self):
+        """Test extraction with dataSetId (camelCase) field"""
+        result = _extract_dataset_info({'dataSetId': 'ds_222', 'dataSetName': 'Events'})
+        assert result == {'id': 'ds_222', 'name': 'Events'}
+
+
+class TestListConnectionsFunction:
+    """Test list_connections() function with mocks"""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_json(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections with JSON output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_123',
+                    'name': 'Production Connection',
+                    'owner': {'name': 'John Doe'},
+                    'dataSets': [
+                        {'id': 'ds_456', 'name': 'Web Events'},
+                        {'id': 'ds_789', 'name': 'Mobile Events'}
+                    ]
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['count'] == 1
+        assert output['connections'][0]['id'] == 'conn_123'
+        assert len(output['connections'][0]['datasets']) == 2
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_empty(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections with no connections"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+
+        result = list_connections(output_format='table')
+        assert result is True
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_csv(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections with CSV output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': {'name': 'Owner'},
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='csv')
+
+        assert result is True
+        lines = f.getvalue().strip().split('\n')
+        assert lines[0] == 'connection_id,connection_name,owner,dataset_id,dataset_name'
+        assert 'conn_1' in lines[1]
+        assert 'ds_1' in lines[1]
+
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_config_failure(self, mock_profile, mock_configure):
+        """Test list_connections when configuration fails"""
+        mock_configure.return_value = (False, 'Missing credentials', None)
+
+        result = list_connections(output_format='json')
+        assert result is False
+
+
+class TestListDatasetsFunction:
+    """Test list_datasets() function with mocks"""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_json(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets with JSON output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_456',
+                    'name': 'Production Connection',
+                    'dataSets': [
+                        {'id': 'ds_789', 'name': 'Web Events'}
+                    ]
+                }
+            ]
+        }
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_123', 'name': 'Web Data View'}
+        ]
+        mock_cja_instance.getDataView.return_value = {
+            'id': 'dv_123',
+            'name': 'Web Data View',
+            'parentDataGroupId': 'conn_456'
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['count'] == 1
+        assert output['dataViews'][0]['connection']['id'] == 'conn_456'
+        assert len(output['dataViews'][0]['datasets']) == 1
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_unknown_connection(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets when data view has no parentDataGroupId"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_orphan', 'name': 'Orphan View'}
+        ]
+        mock_cja_instance.getDataView.return_value = {
+            'id': 'dv_orphan',
+            'name': 'Orphan View'
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['dataViews'][0]['connection']['name'] == 'Unknown'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_csv(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets with CSV output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Conn One',
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset'}]
+                }
+            ]
+        }
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View One'}
+        ]
+        mock_cja_instance.getDataView.return_value = {
+            'id': 'dv_1',
+            'name': 'View One',
+            'parentDataGroupId': 'conn_1'
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='csv')
+
+        assert result is True
+        lines = f.getvalue().strip().split('\n')
+        assert lines[0] == 'dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name'
+        assert 'dv_1' in lines[1]
+        assert 'conn_1' in lines[1]
+        assert 'ds_1' in lines[1]
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_empty_dataviews(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets with no data views"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
+
+        result = list_datasets(output_format='table')
+        assert result is True
