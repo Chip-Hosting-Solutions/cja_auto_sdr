@@ -189,7 +189,7 @@ class SDRConfig:
 class WizardConfig:
     """Configuration options collected from the interactive wizard."""
     config_file: str = "config.json"
-    data_views: list = field(default_factory=list)
+    data_views: list[str] = field(default_factory=list)
     output_format: str = "excel"
     output_dir: str = "."
     skip_validation: bool = False

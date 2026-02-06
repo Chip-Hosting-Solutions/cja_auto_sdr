@@ -23,6 +23,7 @@ from cja_auto_sdr.core.exceptions import (
     CircuitBreakerOpen,
     RetryableHTTPError,
     ConcurrentOrgReportError,
+    MemoryLimitExceeded,
 )
 
 from cja_auto_sdr.core.config import (
@@ -90,6 +91,7 @@ __all__ = [
     'CircuitBreakerOpen',
     'RetryableHTTPError',
     'ConcurrentOrgReportError',
+    'MemoryLimitExceeded',
     # Config dataclasses
     'RetryConfig',
     'CacheConfig',

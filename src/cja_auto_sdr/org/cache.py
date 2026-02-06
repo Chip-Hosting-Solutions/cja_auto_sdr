@@ -45,8 +45,9 @@ class OrgReportLock:
         if lock_dir is None:
             lock_dir = Path.home() / ".cja_auto_sdr" / "locks"
         self.lock_dir = lock_dir
-        # Sanitize org_id for filename (remove @ and other special chars)
-        safe_org_id = org_id.replace("@", "_at_").replace("/", "_")
+        # Sanitize org_id for filename (keep only safe chars)
+        import re
+        safe_org_id = re.sub(r'[^a-zA-Z0-9_-]', '_', org_id)
         self.lock_file = lock_dir / f"org_report_{safe_org_id}.lock"
         self.stale_threshold = stale_threshold_seconds
         self.acquired = False
@@ -63,45 +64,73 @@ class OrgReportLock:
     def _try_acquire(self) -> bool:
         """Attempt to acquire the lock.
 
+        Uses atomic file creation (O_CREAT|O_EXCL) to prevent TOCTOU races.
+
         Returns:
             True if lock acquired, False if another process holds it
         """
         self.lock_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check for existing lock
-        if self.lock_file.exists():
-            try:
-                with open(self.lock_file, "r") as f:
-                    lock_data = json.load(f)
+        lock_payload = json.dumps({
+            "pid": self._pid,
+            "timestamp": time.time(),
+            "started_at": datetime.now().isoformat(),
+        })
 
-                lock_pid = lock_data.get("pid")
-                lock_time = lock_data.get("timestamp", 0)
-
-                # Check if lock is stale (process died or took too long)
-                age_seconds = time.time() - lock_time
-                if age_seconds > self.stale_threshold:
-                    # Lock is stale, we can take it
-                    pass
-                elif lock_pid and self._is_process_running(lock_pid):
-                    # Process is still running, lock is valid
-                    return False
-                # else: process died, we can take the lock
-
-            except (json.JSONDecodeError, IOError, KeyError):
-                # Corrupted lock file, we can take it
-                pass
-
-        # Write our lock
+        # First, try atomic exclusive creation (no race condition)
         try:
-            with open(self.lock_file, "w") as f:
-                json.dump({
-                    "pid": self._pid,
-                    "timestamp": time.time(),
-                    "started_at": datetime.now().isoformat(),
-                }, f)
+            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, lock_payload.encode())
+            os.close(fd)
             return True
+        except FileExistsError:
+            pass  # Lock file exists, check if stale below
         except IOError:
             return False
+
+        # Lock file exists — check if stale or held by a dead process
+        try:
+            with open(self.lock_file, "r") as f:
+                lock_data = json.load(f)
+
+            lock_pid = lock_data.get("pid")
+            lock_time = lock_data.get("timestamp", 0)
+
+            age_seconds = time.time() - lock_time
+            if age_seconds <= self.stale_threshold and lock_pid and self._is_process_running(lock_pid):
+                # Process is still running and lock is fresh — cannot acquire
+                return False
+
+            # Lock is stale or holder is dead — remove and retry atomically
+            try:
+                os.unlink(str(self.lock_file))
+            except OSError:
+                pass
+
+            try:
+                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, lock_payload.encode())
+                os.close(fd)
+                return True
+            except FileExistsError:
+                # Another process beat us to it after we removed the stale lock
+                return False
+            except IOError:
+                return False
+
+        except (json.JSONDecodeError, IOError, KeyError):
+            # Corrupted lock file — remove and retry
+            try:
+                os.unlink(str(self.lock_file))
+            except OSError:
+                pass
+            try:
+                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, lock_payload.encode())
+                os.close(fd)
+                return True
+            except (FileExistsError, IOError):
+                return False
 
     def _release(self) -> None:
         """Release the lock."""

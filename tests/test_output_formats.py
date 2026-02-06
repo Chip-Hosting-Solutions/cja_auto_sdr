@@ -9,16 +9,48 @@ import pandas as pd
 import logging
 import json
 import os
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import (
+    write_excel_output,
     write_csv_output,
     write_json_output,
     write_html_output,
     write_markdown_output
 )
+
+XLSX_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def _get_excel_sheet_names(file_path: str) -> list[str]:
+    """Extract worksheet names from an XLSX file without openpyxl."""
+    with zipfile.ZipFile(file_path) as archive:
+        workbook_xml = archive.read("xl/workbook.xml")
+
+    root = ET.fromstring(workbook_xml)
+    return [
+        sheet.attrib["name"]
+        for sheet in root.findall("x:sheets/x:sheet", XLSX_NS)
+    ]
+
+
+def _get_excel_shared_strings(file_path: str) -> list[str]:
+    """Extract shared strings from an XLSX file without openpyxl."""
+    with zipfile.ZipFile(file_path) as archive:
+        if "xl/sharedStrings.xml" not in archive.namelist():
+            return []
+        shared_strings_xml = archive.read("xl/sharedStrings.xml")
+
+    root = ET.fromstring(shared_strings_xml)
+    shared_strings = []
+    for entry in root.findall("x:si", XLSX_NS):
+        fragments = [fragment.text or "" for fragment in entry.findall(".//x:t", XLSX_NS)]
+        shared_strings.append("".join(fragments))
+    return shared_strings
 
 
 class TestCSVOutput:
@@ -352,6 +384,71 @@ class TestHTMLOutput:
         assert 'severity-CRITICAL' in html_content
         assert 'severity-HIGH' in html_content
         assert 'severity-MEDIUM' in html_content
+
+
+class TestExcelOutput:
+    """Test Excel output format generation"""
+
+    def test_excel_output_creates_file(self, tmp_path, sample_data_dict):
+        """Test that Excel output creates a single XLSX file."""
+        logger = logging.getLogger("test")
+
+        output_path = write_excel_output(
+            sample_data_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger
+        )
+
+        assert os.path.exists(output_path)
+        assert output_path.endswith(".xlsx")
+
+    def test_excel_output_contains_expected_sheets(self, tmp_path, sample_data_dict):
+        """Test that Excel output includes one worksheet per data section."""
+        logger = logging.getLogger("test")
+
+        output_path = write_excel_output(
+            sample_data_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger
+        )
+
+        sheet_names = _get_excel_sheet_names(output_path)
+        assert set(sheet_names) == set(sample_data_dict.keys())
+
+    def test_excel_output_contains_expected_values(self, tmp_path, sample_data_dict):
+        """Test that key SDR values are written into the workbook."""
+        logger = logging.getLogger("test")
+
+        output_path = write_excel_output(
+            sample_data_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger
+        )
+
+        shared_strings = _get_excel_shared_strings(output_path)
+        assert "Test Metric 1" in shared_strings
+        assert "Test Data View 1" in shared_strings
+
+    def test_excel_output_empty_sheet_uses_placeholder(self, tmp_path):
+        """Test that empty DataFrames render a placeholder row."""
+        logger = logging.getLogger("test")
+        data_dict = {"Empty Sheet": pd.DataFrame()}
+
+        output_path = write_excel_output(
+            data_dict,
+            "test_empty",
+            str(tmp_path),
+            logger
+        )
+
+        sheet_names = _get_excel_sheet_names(output_path)
+        shared_strings = _get_excel_shared_strings(output_path)
+
+        assert "Empty Sheet" in sheet_names
+        assert "No data available for Empty Sheet" in shared_strings
 
 
 class TestOutputFormatComparison:

@@ -2,6 +2,9 @@ name: Test Count Sync
 
 on:
   pull_request:
+    paths:
+      - 'tests/**'
+      - 'scripts/update_test_counts.py'
   workflow_dispatch:
 
 jobs:

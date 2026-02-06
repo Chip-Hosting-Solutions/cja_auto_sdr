@@ -163,8 +163,8 @@ cja_auto_sdr --org-report --use-cache
 # Force cache refresh
 cja_auto_sdr --org-report --use-cache --refresh-cache
 
-# Custom cache max age (seconds)
-cja_auto_sdr --org-report --use-cache --cache-max-age 7200
+# Custom cache max age (hours, default: 24)
+cja_auto_sdr --org-report --use-cache --cache-max-age 48
 
 # --- Sampling (for very large orgs) ---
 # Random sample 50 data views
@@ -191,14 +191,14 @@ cja_auto_sdr --org-report --flag-stale
 # CI/CD with governance thresholds
 cja_auto_sdr --org-report --fail-on-threshold
 
-# Custom thresholds
+# Custom thresholds (duplicate-threshold is max allowed high-similarity pairs as int)
 cja_auto_sdr --org-report --fail-on-threshold \
-  --duplicate-threshold 0.15 \
+  --duplicate-threshold 5 \
   --isolated-threshold 0.25
 
 # --- Component Types & Metadata ---
-# Filter to specific component types
-cja_auto_sdr --org-report --component-types dimensions,metrics
+# Disable component type breakdown
+cja_auto_sdr --org-report --no-component-types
 
 # Include owner/team summary
 cja_auto_sdr --org-report --owner-summary
@@ -430,10 +430,7 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 | 1 | Error (config, API, or processing failure) |
 | 2 | Diff: changes found |
 | 3 | Diff: changes exceeded threshold |
-| 10 | Org-report: governance threshold exceeded (any) |
-| 11 | Org-report: duplicate threshold exceeded |
-| 12 | Org-report: isolated threshold exceeded |
-| 13 | Org-report: naming audit failed |
+| 2 | Org-report: governance threshold exceeded (with `--fail-on-threshold`) |
 
 > **CI/CD Tip:** Use exit codes with `--fail-on-threshold` for automated governance checks.
 

@@ -222,6 +222,27 @@ class TestBackwardsCompatibilityImports:
         assert OrgComponentAnalyzer
 
     # ===========================================
+    # Modular Output API
+    # ===========================================
+
+    def test_output_module_importable(self):
+        """The modular output package must import without errors."""
+        from cja_auto_sdr import output
+
+        assert output
+        assert callable(output.write_excel_output)
+
+    def test_output_registry_excel_writer_available(self):
+        """Excel writer must be registered in the modular output API."""
+        from cja_auto_sdr.output import get_writer
+
+        excel_writer = get_writer("excel")
+        xlsx_writer = get_writer("xlsx")
+
+        assert callable(excel_writer)
+        assert callable(xlsx_writer)
+
+    # ===========================================
     # Constants
     # ===========================================
 
@@ -553,7 +574,7 @@ class TestBackwardsCompatibilityImports:
             _config_from_env,
         )
         # These are internal but used in tests
-        assert _data_view_cache is not None or _data_view_cache is None  # Can be None
+        assert _data_view_cache is not None
         assert callable(_format_error_msg)
         assert callable(_get_credential_fields)
         assert callable(_config_from_env)

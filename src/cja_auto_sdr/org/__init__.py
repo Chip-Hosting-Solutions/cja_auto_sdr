@@ -32,7 +32,6 @@ from cja_auto_sdr.org.models import (
     SimilarityPair,
 )
 from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
-from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
 
 __all__ = [
     # Models
@@ -47,6 +46,19 @@ __all__ = [
     # Cache & Lock
     "OrgReportCache",
     "OrgReportLock",
-    # Analyzer
+    # Analyzer (lazy)
     "OrgComponentAnalyzer",
 ]
+
+
+from cja_auto_sdr.core.lazy import make_getattr
+
+__getattr__ = make_getattr(
+    __name__,
+    [
+        "OrgComponentAnalyzer",
+    ],
+    mapping={
+        "OrgComponentAnalyzer": "cja_auto_sdr.org.analyzer",
+    },
+)

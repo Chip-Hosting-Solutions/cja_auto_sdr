@@ -2317,7 +2317,7 @@ Without scipy, the `--cluster` flag is silently skipped and a warning is logged.
 
 **Cluster results seem incorrect:**
 - Use `--cluster-method average` (default) for Jaccard distances
-- The `ward` method assumes Euclidean distances and may produce unexpected results
+- The `complete` method is also valid and produces tighter clusters
 
 ### Caching Issues
 

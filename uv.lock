@@ -111,6 +111,7 @@ full = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest" },
     { name = "pytest-cov" },
 ]
 
@@ -133,7 +134,10 @@ requires-dist = [
 provides-extras = ["clustering", "completion", "dev", "env", "full"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest-cov", specifier = ">=7.0.0" }]
+dev = [
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+]
 
 [[package]]
 name = "cjapy"

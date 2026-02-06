@@ -2329,16 +2329,16 @@ def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
         logger: Logger instance
     """
     # cjapy.importConfigFile expects a JSON file, so we create a temporary one
-    # This is cleaned up on exit
+    # This is cleaned up on exit. Use restrictive permissions (0o600) since it contains credentials.
     temp_config = tempfile.NamedTemporaryFile(
         mode='w',
         suffix='.json',
         delete=False,
         prefix='cja_env_config_'
     )
-
     json.dump(credentials, temp_config)
     temp_config.close()
+    os.chmod(temp_config.name, 0o600)
 
     logger.debug(f"Created temporary config file: {temp_config.name}")
 
@@ -2595,6 +2595,7 @@ def initialize_cja(
         ConfigurationError: If credentials are invalid or missing
         APIError: If API connection fails
     """
+    logger = logger or logging.getLogger(__name__)
     try:
         logger.info("=" * 60)
         logger.info("INITIALIZING CJA CONNECTION")
@@ -3928,6 +3929,56 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
         raise
 
 # ==================== OUTPUT FORMAT WRITERS ====================
+
+def write_excel_output(
+    data_dict: Dict[str, pd.DataFrame],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
+    """
+    Write data to a formatted Excel workbook.
+
+    Args:
+        data_dict: Dictionary mapping sheet names to DataFrames
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+
+    Returns:
+        Path to Excel output file
+    """
+    try:
+        logger.info("Generating Excel output...")
+
+        excel_file = os.path.join(output_dir, f"{base_filename}.xlsx")
+        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+            format_cache = ExcelFormatCache(writer.book)
+            for sheet_name, df in data_dict.items():
+                if df.empty:
+                    placeholder_df = pd.DataFrame(
+                        {'Note': [f'No data available for {sheet_name}']}
+                    )
+                    apply_excel_formatting(
+                        writer, placeholder_df, sheet_name, logger, format_cache
+                    )
+                else:
+                    apply_excel_formatting(writer, df, sheet_name, logger, format_cache)
+
+        logger.info(f"Excel file created: {excel_file}")
+        return excel_file
+
+    except PermissionError as e:
+        logger.error(f"Permission denied creating Excel file: {e}")
+        logger.error("Check write permissions for the output directory")
+        raise
+    except OSError as e:
+        logger.error(f"OS error creating Excel file: {e}")
+        logger.error("Check disk space and path validity")
+        raise
+    except Exception as e:
+        logger.error(_format_error_msg("creating Excel file", error=e))
+        raise
 
 def write_csv_output(
     data_dict: Dict[str, pd.DataFrame],
@@ -7373,6 +7424,14 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     Returns:
         ProcessingResult
     """
+    # Propagate retry config from parent process via env vars (for spawned workers)
+    if 'MAX_RETRIES' in os.environ:
+        DEFAULT_RETRY_CONFIG['max_retries'] = int(os.environ['MAX_RETRIES'])
+    if 'RETRY_BASE_DELAY' in os.environ:
+        DEFAULT_RETRY_CONFIG['base_delay'] = float(os.environ['RETRY_BASE_DELAY'])
+    if 'RETRY_MAX_DELAY' in os.environ:
+        DEFAULT_RETRY_CONFIG['max_delay'] = float(os.environ['RETRY_MAX_DELAY'])
+
     # Handle varying tuple lengths for backward compatibility
     shared_cache = None
     api_tuning_config = None
@@ -7508,13 +7567,15 @@ class BatchProcessor:
         try:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
         except PermissionError:
-            print(ConsoleColors.error(f"ERROR: Permission denied creating output directory: {output_dir}"), file=sys.stderr)
-            print("       Check that you have write permissions for the parent directory.", file=sys.stderr)
-            sys.exit(1)
+            raise OutputError(
+                f"Permission denied creating output directory: {output_dir}. "
+                "Check that you have write permissions for the parent directory."
+            )
         except OSError as e:
-            print(ConsoleColors.error(f"ERROR: Cannot create output directory '{output_dir}': {e}"), file=sys.stderr)
-            print("       Verify the path is valid and the disk has available space.", file=sys.stderr)
-            sys.exit(1)
+            raise OutputError(
+                f"Cannot create output directory '{output_dir}': {e}. "
+                "Verify the path is valid and the disk has available space."
+            )
 
     def process_batch(self, data_view_ids: List[str]) -> Dict:
         """
@@ -13382,6 +13443,10 @@ def main():
     DEFAULT_RETRY_CONFIG['max_retries'] = args.max_retries
     DEFAULT_RETRY_CONFIG['base_delay'] = args.retry_base_delay
     DEFAULT_RETRY_CONFIG['max_delay'] = args.retry_max_delay
+    # Also set env vars so child processes (ProcessPoolExecutor) inherit the values
+    os.environ['MAX_RETRIES'] = str(args.max_retries)
+    os.environ['RETRY_BASE_DELAY'] = str(args.retry_base_delay)
+    os.environ['RETRY_MAX_DELAY'] = str(args.retry_max_delay)
 
     # Handle --output for stdout - implies quiet mode
     output_to_stdout = getattr(args, 'output', None) in ('-', 'stdout')

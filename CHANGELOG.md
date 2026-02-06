@@ -54,7 +54,7 @@ This release introduces **org-wide component analysis** for governance and stand
 
 #### Clustering Options
 - New `--cluster` flag to enable hierarchical clustering of related data views
-- New `--cluster-method METHOD` flag to select linkage method: `average` (default), `complete`, or `ward`
+- New `--cluster-method METHOD` flag to select linkage method: `average` (default) or `complete`
 
 #### Governance & CI/CD Options
 - New `--duplicate-threshold N` flag to set maximum allowed high-similarity pairs
@@ -112,7 +112,7 @@ This release introduces **org-wide component analysis** for governance and stand
 - `run_org_report()` orchestration function
 
 ### Documentation
-- New `docs/ORG_WIDE_ANALYSIS.md` - Comprehensive org-wide analysis guide (333 lines)
+- New `docs/ORG_WIDE_ANALYSIS.md` - Comprehensive org-wide analysis guide (780 lines)
 - Updated `docs/QUICK_REFERENCE.md` - Added Org-Wide Analysis mode, commands section, format table update
 - Updated `docs/CLI_REFERENCE.md` - Added Org-Wide Analysis options section and examples
 - Updated `docs/USE_CASES.md` - Added 3 new use cases: Org-Wide Governance, Data View Consolidation, Cross-Team Component Sharing

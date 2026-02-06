@@ -92,6 +92,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `-q, --quiet` | Suppress output except errors | False |
 | `--open` | Open generated file(s) in default application after creation | False |
 | `--show-timings` | Display performance timing breakdown after processing | False |
+| `--config-json` | Output `--config-status` as machine-readable JSON (for scripting and CI/CD) | False |
+| `--yes, -y` | Skip confirmation prompts (e.g., for large batch operations) | False |
 
 ### Processing
 
@@ -258,6 +260,7 @@ Analyze component usage patterns across all data views in your organization.
 | `--skip-similarity` | Skip O(n²) pairwise similarity calculation (faster for large orgs) | False |
 | `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N. Similarity has O(n²) complexity—250 DVs means ~31K comparisons. Use `--force-similarity` to override | 250 |
 | `--force-similarity` | Force similarity matrix even if guardrails would skip it | False |
+| `--memory-warning MB` | Warn if component index estimated memory exceeds this threshold in MB (0 to disable) | 100 |
 | `--memory-limit MB` | Abort if component index exceeds this size in MB. Protects against OOM for very large orgs | - |
 | `--org-summary` | Show only summary statistics, suppress detailed component lists | False |
 | `--org-verbose` | Include full component lists and detailed breakdowns in output | False |
@@ -293,6 +296,7 @@ Analyze component usage patterns across all data views in your organization.
 | `--use-cache` | Enable caching of data view components for faster repeat runs | False |
 | `--cache-max-age HOURS` | Maximum cache age before refresh | 24 |
 | `--refresh-cache` | Clear the org-report cache and fetch fresh data | False |
+| `--validate-cache` | Validate cached entries against data view modification timestamps before using | False |
 
 Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 

@@ -37,7 +37,6 @@ from cja_auto_sdr.generator import (
 from cja_auto_sdr.org.cache import OrgReportLock
 from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 import time
-import multiprocessing
 
 
 class TestOrgReportLock:
@@ -2604,12 +2603,39 @@ class TestOrgStatsMode:
         assert config.org_stats_only is True
 
     def test_org_stats_skips_similarity(self):
-        """Test that org-stats mode implies skip_similarity behavior"""
-        # When org_stats_only is True, run_analysis should skip similarity
-        # This is verified by checking the config in the analyzer
-        config = OrgReportConfig(org_stats_only=True)
-        # The analyzer will check this in run_analysis
-        assert config.org_stats_only is True
+        """Test that org-stats mode skips similarity computation"""
+        config = OrgReportConfig(org_stats_only=True, skip_lock=True)
+        mock_cja = Mock()
+        # Simulate getDataViews returning a list of data views
+        mock_cja.getDataViews.return_value = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+        # Simulate getDataView returning component details
+        mock_cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "DV 1",
+            "components": [
+                {"id": "m1", "type": "metric", "name": "Metric 1"},
+            ],
+        }
+
+        import logging
+        logger = logging.getLogger("test_org_stats_skip_sim")
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
+
+        with patch.object(analyzer, '_compute_similarity_matrix') as mock_sim:
+            with patch.object(analyzer, '_list_and_filter_data_views', return_value=(
+                [{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}],
+                False,
+                2,
+            )):
+                with patch.object(analyzer, '_fetch_all_data_views', return_value=[
+                    DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
+                    DataViewSummary("dv_2", "DV 2", metric_ids={"m1"}, dimension_ids=set()),
+                ]):
+                    result = analyzer.run_analysis()
+            mock_sim.assert_not_called()
 
 
 class TestNewOrgReportResultFields:
@@ -2859,14 +2885,15 @@ class TestClusteringMethods:
         ]
 
         try:
-            analyzer._compute_clusters(summaries)
-        except ImportError:
-            pytest.skip("scipy not installed")
+            try:
+                analyzer._compute_clusters(summaries)
+            except ImportError:
+                pytest.skip("scipy not installed")
 
-        # Check that no warning about ward/euclidean was logged
-        assert not any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
-
-        logger.removeHandler(handler)
+            # Check that no warning about ward/euclidean was logged
+            assert not any("ward" in w.lower() and "euclidean" in w.lower() for w in handler.warnings)
+        finally:
+            logger.removeHandler(handler)
 
 
 class TestMemoryWarning:
@@ -2941,11 +2968,13 @@ class TestMemoryWarning:
             for i in range(1000)  # Many components
         }
 
-        analyzer._check_memory_warning(component_index)
+        try:
+            analyzer._check_memory_warning(component_index)
 
-        # Should have logged a warning about memory
-        assert any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
-        logger.removeHandler(handler)
+            # Should have logged a warning about memory
+            assert any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
+        finally:
+            logger.removeHandler(handler)
 
     def test_no_warning_when_below_threshold(self, mock_cja):
         """Test that no warning is logged when memory is below threshold"""
@@ -2979,11 +3008,13 @@ class TestMemoryWarning:
             for i in range(10)
         }
 
-        analyzer._check_memory_warning(component_index)
+        try:
+            analyzer._check_memory_warning(component_index)
 
-        # Should NOT have logged a warning about memory
-        assert not any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
-        logger.removeHandler(handler)
+            # Should NOT have logged a warning about memory
+            assert not any("memory" in w.lower() and "threshold" in w.lower() for w in handler.warnings)
+        finally:
+            logger.removeHandler(handler)
 
     def test_warning_disabled_with_zero(self, mock_cja):
         """Test that no warning is logged when threshold is 0 (disabled)"""
@@ -3018,11 +3049,13 @@ class TestMemoryWarning:
             for i in range(1000)
         }
 
-        analyzer._check_memory_warning(component_index)
+        try:
+            analyzer._check_memory_warning(component_index)
 
-        # Should NOT have logged any warning (disabled)
-        assert not any("memory" in w.lower() for w in handler.warnings)
-        logger.removeHandler(handler)
+            # Should NOT have logged any warning (disabled)
+            assert not any("memory" in w.lower() for w in handler.warnings)
+        finally:
+            logger.removeHandler(handler)
 
     def test_warning_disabled_with_none(self, mock_cja):
         """Test that no warning is logged when threshold is None (disabled)"""
@@ -3056,11 +3089,13 @@ class TestMemoryWarning:
             for i in range(1000)
         }
 
-        analyzer._check_memory_warning(component_index)
+        try:
+            analyzer._check_memory_warning(component_index)
 
-        # Should NOT have logged any warning (disabled)
-        assert not any("memory" in w.lower() for w in handler.warnings)
-        logger.removeHandler(handler)
+            # Should NOT have logged any warning (disabled)
+            assert not any("memory" in w.lower() for w in handler.warnings)
+        finally:
+            logger.removeHandler(handler)
 
 
 class TestSmartCacheInvalidation:

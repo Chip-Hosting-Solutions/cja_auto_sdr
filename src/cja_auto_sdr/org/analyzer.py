@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 import re
 import threading
 import time
@@ -38,6 +39,18 @@ if TYPE_CHECKING:
     import cjapy
 
 from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
+
+# Pre-compiled regex patterns for stale component detection.
+# Shared by _audit_naming_conventions and _detect_stale_components so that
+# both code paths use the same unified set of keywords.
+_STALE_KEYWORDS_RE = re.compile(
+    r'(^|[_\-\s])(test|old|temp|tmp|backup|copy|deprecated|legacy|archive|obsolete|unused)([_\-\s]|$)',
+    re.IGNORECASE,
+)
+_VERSION_SUFFIX_RE = re.compile(r'[_\-]v\d+$', re.IGNORECASE)
+_DATE_PATTERN_RE = re.compile(
+    r'[_\-]?(20\d{2}[01]\d[0-3]\d|20\d{2}[_\-][01]\d[_\-][0-3]\d)([_\-]|$)'
+)
 
 
 class OrgComponentAnalyzer:
@@ -180,9 +193,15 @@ class OrgComponentAnalyzer:
         successful_summaries = [summary for summary in summaries if not summary.error]
         distribution = self._compute_distribution(component_index, len(successful_summaries))
 
-        # 5. Compute similarity matrix (if not skipped and not org-stats mode)
+        # 5. Compute pairwise Jaccard distances (shared by similarity & clustering)
+        # Computed once to avoid duplicate O(n²) work.
         similarity_pairs = None
-        if not self.config.skip_similarity and not self.config.org_stats_only:
+        pairwise_data = None
+        need_similarity = not self.config.skip_similarity and not self.config.org_stats_only
+        need_clustering = self.config.enable_clustering and not self.config.org_stats_only
+        similarity_guardrail_blocked = False
+
+        if need_similarity:
             max_dvs = self.config.similarity_max_dvs
             if (
                 max_dvs is not None
@@ -195,23 +214,29 @@ class OrgComponentAnalyzer:
                     len(successful_summaries),
                     max_dvs,
                 )
-            else:
-                self.logger.info("Computing similarity matrix...")
-                similarity_pairs = self._compute_similarity_matrix(summaries)
-                effective_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
-                self.logger.info(
-                    f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
-                )
+                similarity_guardrail_blocked = True
+
+        if (need_similarity and not similarity_guardrail_blocked) or need_clustering:
+            self.logger.info("Computing pairwise Jaccard distances...")
+            pairwise_data = self._compute_pairwise_jaccard(summaries)
+
+        if need_similarity and not similarity_guardrail_blocked:
+            self.logger.info("Computing similarity matrix...")
+            similarity_pairs = self._compute_similarity_matrix(summaries, precomputed=pairwise_data)
+            effective_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
+            self.logger.info(
+                f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
+            )
         elif self.config.org_stats_only:
             self.logger.info("Skipping similarity matrix (--org-stats mode)")
-        else:
+        elif self.config.skip_similarity:
             self.logger.info("Skipping similarity matrix (--skip-similarity)")
 
         # 6. Compute clusters (if enabled and not org-stats mode)
         clusters = None
-        if self.config.enable_clustering and not self.config.org_stats_only:
+        if need_clustering:
             self.logger.info("Computing data view clusters...")
-            clusters = self._compute_clusters(summaries)
+            clusters = self._compute_clusters(summaries, precomputed=pairwise_data)
             if clusters:
                 self.logger.info(f"Found {len(clusters)} clusters")
 
@@ -351,7 +376,6 @@ class OrgComponentAnalyzer:
 
         # Apply sampling (before limit)
         if self.config.sample_size and len(filtered) > self.config.sample_size:
-            import random
             if self.config.sample_stratified:
                 filtered = self._stratified_sample(filtered, self.config.sample_size)
             else:
@@ -379,8 +403,6 @@ class OrgComponentAnalyzer:
         Returns:
             Stratified sample of data views
         """
-        import random
-
         random.seed(self.config.sample_seed)
 
         # Group by prefix (first word or chars before common separators)
@@ -832,7 +854,36 @@ class OrgComponentAnalyzer:
 
         return distribution
 
-    def _compute_similarity_matrix(self, summaries: List[DataViewSummary]) -> List[SimilarityPair]:
+    def _compute_pairwise_jaccard(
+        self, summaries: List[DataViewSummary]
+    ) -> tuple:
+        """Compute all pairwise Jaccard similarities between valid data views.
+
+        Returns the valid summaries list and a dict mapping (i, j) index pairs
+        to Jaccard similarity values. Shared by both similarity matrix and
+        clustering to avoid duplicate O(n²) computation.
+
+        Returns:
+            Tuple of (valid_summaries, pairwise_similarities dict)
+        """
+        valid = [s for s in summaries if s.error is None and s.all_component_ids]
+        pairwise: Dict[tuple, float] = {}
+
+        for i in range(len(valid)):
+            set_i = valid[i].all_component_ids
+            for j in range(i + 1, len(valid)):
+                set_j = valid[j].all_component_ids
+                intersection = len(set_i & set_j)
+                union = len(set_i | set_j)
+                pairwise[(i, j)] = intersection / union if union > 0 else 0.0
+
+        return valid, pairwise
+
+    def _compute_similarity_matrix(
+        self,
+        summaries: List[DataViewSummary],
+        precomputed: Optional[tuple] = None,
+    ) -> List[SimilarityPair]:
         """Compute pairwise Jaccard similarity between data views.
 
         Jaccard similarity = |A ∩ B| / |A ∪ B|
@@ -843,78 +894,82 @@ class OrgComponentAnalyzer:
 
         Args:
             summaries: List of DataViewSummary objects
+            precomputed: Optional (valid_summaries, pairwise_similarities) from
+                _compute_pairwise_jaccard to avoid redundant O(n²) computation.
 
         Returns:
             List of SimilarityPair objects above threshold, sorted by similarity
         """
+        if precomputed is not None:
+            valid_summaries, pairwise = precomputed
+        else:
+            valid_summaries, pairwise = self._compute_pairwise_jaccard(summaries)
+
         pairs = []
-        valid_summaries = [s for s in summaries if s.error is None]
         min_similarity_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
 
-        for i, dv1 in enumerate(valid_summaries):
-            set1 = dv1.all_component_ids
-            if not set1:
-                continue
-
-            for dv2 in valid_summaries[i + 1:]:
+        for (i, j), similarity in pairwise.items():
+            if similarity >= min_similarity_threshold:
+                dv1 = valid_summaries[i]
+                dv2 = valid_summaries[j]
+                set1 = dv1.all_component_ids
                 set2 = dv2.all_component_ids
-                if not set2:
-                    continue
 
                 intersection = len(set1 & set2)
                 union = len(set1 | set2)
 
-                if union > 0:
-                    similarity = intersection / union
+                # Compute drift details if enabled
+                only_in_dv1 = []
+                only_in_dv2 = []
+                only_in_dv1_names = None
+                only_in_dv2_names = None
 
-                    if similarity >= min_similarity_threshold:
-                        # Compute drift details if enabled
-                        only_in_dv1 = []
-                        only_in_dv2 = []
-                        only_in_dv1_names = None
-                        only_in_dv2_names = None
+                if self.config.include_drift:
+                    only_in_dv1 = sorted(list(set1 - set2))
+                    only_in_dv2 = sorted(list(set2 - set1))
 
-                        if self.config.include_drift:
-                            only_in_dv1 = sorted(list(set1 - set2))
-                            only_in_dv2 = sorted(list(set2 - set1))
+                    if self.config.include_names:
+                        only_in_dv1_names = {}
+                        for comp_id in only_in_dv1:
+                            name = dv1.get_component_name(comp_id)
+                            if name:
+                                only_in_dv1_names[comp_id] = name
 
-                            # Get names if available
-                            if self.config.include_names:
-                                only_in_dv1_names = {}
-                                for comp_id in only_in_dv1:
-                                    name = dv1.get_component_name(comp_id)
-                                    if name:
-                                        only_in_dv1_names[comp_id] = name
+                        only_in_dv2_names = {}
+                        for comp_id in only_in_dv2:
+                            name = dv2.get_component_name(comp_id)
+                            if name:
+                                only_in_dv2_names[comp_id] = name
 
-                                only_in_dv2_names = {}
-                                for comp_id in only_in_dv2:
-                                    name = dv2.get_component_name(comp_id)
-                                    if name:
-                                        only_in_dv2_names[comp_id] = name
-
-                        pairs.append(SimilarityPair(
-                            dv1_id=dv1.data_view_id,
-                            dv1_name=dv1.data_view_name,
-                            dv2_id=dv2.data_view_id,
-                            dv2_name=dv2.data_view_name,
-                            jaccard_similarity=round(similarity, 4),
-                            shared_count=intersection,
-                            union_count=union,
-                            only_in_dv1=only_in_dv1,
-                            only_in_dv2=only_in_dv2,
-                            only_in_dv1_names=only_in_dv1_names,
-                            only_in_dv2_names=only_in_dv2_names,
-                        ))
+                pairs.append(SimilarityPair(
+                    dv1_id=dv1.data_view_id,
+                    dv1_name=dv1.data_view_name,
+                    dv2_id=dv2.data_view_id,
+                    dv2_name=dv2.data_view_name,
+                    jaccard_similarity=round(similarity, 4),
+                    shared_count=intersection,
+                    union_count=union,
+                    only_in_dv1=only_in_dv1,
+                    only_in_dv2=only_in_dv2,
+                    only_in_dv1_names=only_in_dv1_names,
+                    only_in_dv2_names=only_in_dv2_names,
+                ))
 
         return sorted(pairs, key=lambda p: p.jaccard_similarity, reverse=True)
 
-    def _compute_clusters(self, summaries: List[DataViewSummary]) -> Optional[List[DataViewCluster]]:
+    def _compute_clusters(
+        self,
+        summaries: List[DataViewSummary],
+        precomputed: Optional[tuple] = None,
+    ) -> Optional[List[DataViewCluster]]:
         """Compute hierarchical clusters of related data views.
 
         Uses scipy for hierarchical clustering based on Jaccard distances.
 
         Args:
             summaries: List of DataViewSummary objects
+            precomputed: Optional (valid_summaries, pairwise_similarities) from
+                _compute_pairwise_jaccard to reuse distances already computed.
 
         Returns:
             List of DataViewCluster objects, or None if clustering fails
@@ -930,25 +985,23 @@ class OrgComponentAnalyzer:
             )
             return None
 
-        valid_summaries = [s for s in summaries if s.error is None and s.all_component_ids]
+        if precomputed is not None:
+            valid_summaries, pairwise = precomputed
+        else:
+            valid_summaries, pairwise = self._compute_pairwise_jaccard(summaries)
+
         if len(valid_summaries) < 2:
             self.logger.info("Not enough data views for clustering")
             return None
 
         n = len(valid_summaries)
 
-        # Build distance matrix (1 - Jaccard similarity)
+        # Build distance matrix from precomputed pairwise Jaccard similarities
         dist_matrix = np.zeros((n, n))
-        for i in range(n):
-            set_i = valid_summaries[i].all_component_ids
-            for j in range(i + 1, n):
-                set_j = valid_summaries[j].all_component_ids
-                intersection = len(set_i & set_j)
-                union = len(set_i | set_j)
-                jaccard = intersection / union if union > 0 else 0
-                distance = 1 - jaccard
-                dist_matrix[i, j] = distance
-                dist_matrix[j, i] = distance
+        for (i, j), jaccard in pairwise.items():
+            distance = 1 - jaccard
+            dist_matrix[i, j] = distance
+            dist_matrix[j, i] = distance
 
         # Convert to condensed form for scipy
         condensed_dist = squareform(dist_matrix)
@@ -1265,11 +1318,6 @@ class OrgComponentAnalyzer:
             'recommendations': []
         }
 
-        # Stale pattern regexes
-        stale_keywords = re.compile(r'(^|[_\-\s])(test|old|temp|tmp|backup|copy|deprecated|legacy|archive)([_\-\s]|$)', re.IGNORECASE)
-        version_suffix = re.compile(r'[_\-]v\d+$', re.IGNORECASE)
-        date_pattern = re.compile(r'[_\-]?(20\d{2}[01]\d[0-3]\d|20\d{2}[_\-][01]\d[_\-][0-3]\d)([_\-]|$)')
-
         for comp_id, info in component_index.items():
             # Use name if available, otherwise use ID
             name = info.name or comp_id
@@ -1299,22 +1347,22 @@ class OrgComponentAnalyzer:
                 audit['prefix_groups'][prefix_lower] = 0
             audit['prefix_groups'][prefix_lower] += 1
 
-            # Detect stale patterns
-            if stale_keywords.search(name):
+            # Detect stale patterns (using module-level compiled regexes)
+            if _STALE_KEYWORDS_RE.search(name):
                 audit['stale_patterns'].append({
                     'component_id': comp_id,
                     'name': name,
                     'pattern': 'stale_keyword',
                     'data_views': list(info.data_views)[:3]  # First 3 DVs
                 })
-            elif version_suffix.search(name):
+            elif _VERSION_SUFFIX_RE.search(name):
                 audit['stale_patterns'].append({
                     'component_id': comp_id,
                     'name': name,
                     'pattern': 'version_suffix',
                     'data_views': list(info.data_views)[:3]
                 })
-            elif date_pattern.search(name):
+            elif _DATE_PATTERN_RE.search(name):
                 audit['stale_patterns'].append({
                     'component_id': comp_id,
                     'name': name,
@@ -1487,23 +1535,16 @@ class OrgComponentAnalyzer:
         """
         stale_components = []
 
-        # Pattern definitions
-        stale_keywords = re.compile(
-            r'(^|[_\-\s])(test|old|temp|tmp|backup|copy|deprecated|legacy|archive|obsolete|unused)([_\-\s]|$)',
-            re.IGNORECASE
-        )
-        version_suffix = re.compile(r'[_\-]v\d+$', re.IGNORECASE)
-        date_pattern = re.compile(r'[_\-]?(20\d{2}[01]\d[0-3]\d|20\d{2}[_\-][01]\d[_\-][0-3]\d)([_\-]|$)')
-
         for comp_id, info in component_index.items():
             name = info.name or comp_id
             pattern_matched = None
 
-            if stale_keywords.search(name):
+            # Use module-level compiled regexes (shared with _audit_naming_conventions)
+            if _STALE_KEYWORDS_RE.search(name):
                 pattern_matched = 'stale_keyword'
-            elif version_suffix.search(name):
+            elif _VERSION_SUFFIX_RE.search(name):
                 pattern_matched = 'version_suffix'
-            elif date_pattern.search(name):
+            elif _DATE_PATTERN_RE.search(name):
                 pattern_matched = 'date_pattern'
 
             if pattern_matched:

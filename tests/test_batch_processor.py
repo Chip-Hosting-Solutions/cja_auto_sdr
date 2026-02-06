@@ -11,6 +11,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.generator import BatchProcessor, ProcessingResult
+from cja_auto_sdr.core.exceptions import OutputError
 
 
 @pytest.fixture
@@ -568,7 +569,7 @@ class TestBatchProcessorEdgeCases:
         mock_setup_logging.return_value = Mock()
 
         with patch('pathlib.Path.mkdir', side_effect=PermissionError("Access denied")):
-            with pytest.raises(SystemExit):
+            with pytest.raises(OutputError, match="Permission denied"):
                 BatchProcessor(
                     config_file=mock_config_file,
                     output_dir="/nonexistent/restricted/path"

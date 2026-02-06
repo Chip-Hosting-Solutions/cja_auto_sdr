@@ -7,10 +7,7 @@ This module contains all dataclasses used for org-wide component analysis.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
+from typing import Any, Dict, List, Optional, Set
 
 
 @dataclass

@@ -55,6 +55,8 @@ __all__ = [
     "format_iso_date",
     "normalize_api_response",
     "validate_required_id",
+    # Lazy-loaded
+    "display_inventory_summary",
 ]
 
 
