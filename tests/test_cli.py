@@ -872,6 +872,43 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.cjapy')
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_empty_json_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections prints empty JSON payload to stdout"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output == {"connections": [], "count": 0}
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_empty_csv_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections prints empty CSV payload to stdout"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='csv')
+
+        assert result is True
+        assert f.getvalue() == "connection_id,connection_name,owner,dataset_id,dataset_name\n"
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_csv(self, mock_profile, mock_configure, mock_cjapy):
         """Test list_connections with CSV output"""
         mock_configure.return_value = (True, 'config', None)
@@ -931,13 +968,8 @@ class TestListDatasetsFunction:
             ]
         }
         mock_cja_instance.getDataViews.return_value = [
-            {'id': 'dv_123', 'name': 'Web Data View'}
+            {'id': 'dv_123', 'name': 'Web Data View', 'parentDataGroupId': 'conn_456'}
         ]
-        mock_cja_instance.getDataView.return_value = {
-            'id': 'dv_123',
-            'name': 'Web Data View',
-            'parentDataGroupId': 'conn_456'
-        }
 
         import io
         from contextlib import redirect_stdout
@@ -950,6 +982,7 @@ class TestListDatasetsFunction:
         assert output['count'] == 1
         assert output['dataViews'][0]['connection']['id'] == 'conn_456'
         assert len(output['dataViews'][0]['datasets']) == 1
+        mock_cja_instance.getDataView.assert_not_called()
 
     @patch('cja_auto_sdr.generator.cjapy')
     @patch('cja_auto_sdr.generator.configure_cjapy')
@@ -962,10 +995,6 @@ class TestListDatasetsFunction:
         mock_cja_instance.getDataViews.return_value = [
             {'id': 'dv_orphan', 'name': 'Orphan View'}
         ]
-        mock_cja_instance.getDataView.return_value = {
-            'id': 'dv_orphan',
-            'name': 'Orphan View'
-        }
 
         import io
         from contextlib import redirect_stdout
@@ -976,6 +1005,7 @@ class TestListDatasetsFunction:
         assert result is True
         output = json.loads(f.getvalue())
         assert output['dataViews'][0]['connection']['name'] == 'Unknown'
+        mock_cja_instance.getDataView.assert_not_called()
 
     @patch('cja_auto_sdr.generator.cjapy')
     @patch('cja_auto_sdr.generator.configure_cjapy')
@@ -994,13 +1024,8 @@ class TestListDatasetsFunction:
             ]
         }
         mock_cja_instance.getDataViews.return_value = [
-            {'id': 'dv_1', 'name': 'View One'}
+            {'id': 'dv_1', 'name': 'View One', 'parentDataGroupId': 'conn_1'}
         ]
-        mock_cja_instance.getDataView.return_value = {
-            'id': 'dv_1',
-            'name': 'View One',
-            'parentDataGroupId': 'conn_1'
-        }
 
         import io
         from contextlib import redirect_stdout
@@ -1014,6 +1039,7 @@ class TestListDatasetsFunction:
         assert 'dv_1' in lines[1]
         assert 'conn_1' in lines[1]
         assert 'ds_1' in lines[1]
+        mock_cja_instance.getDataView.assert_not_called()
 
     @patch('cja_auto_sdr.generator.cjapy')
     @patch('cja_auto_sdr.generator.configure_cjapy')
@@ -1027,3 +1053,44 @@ class TestListDatasetsFunction:
 
         result = list_datasets(output_format='table')
         assert result is True
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_empty_json_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets prints empty JSON payload to stdout"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output == {"dataViews": [], "count": 0}
+        mock_cja_instance.getDataView.assert_not_called()
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_empty_csv_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets prints empty CSV payload to stdout"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='csv')
+
+        assert result is True
+        assert f.getvalue() == "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
+        mock_cja_instance.getDataView.assert_not_called()

@@ -9766,12 +9766,14 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
                 if output_format == 'json':
                     output_data = json.dumps({"connections": [], "count": 0}, indent=2)
                 else:  # csv
-                    output_data = "connection_id,connection_name,owner,dataset_id,dataset_name\n"
+                    output_data = "connection_id,connection_name,owner,dataset_id,dataset_name"
                 if is_stdout:
                     print(output_data)
                 elif output_file:
                     with open(output_file, 'w') as f:
                         f.write(output_data)
+                else:
+                    print(output_data)
             else:
                 print()
                 print(ConsoleColors.warning("No connections found or no access to any connections."))
@@ -9963,21 +9965,23 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                 if output_format == 'json':
                     output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
                 else:  # csv
-                    output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
+                    output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name"
                 if is_stdout:
                     print(output_data)
                 elif output_file:
                     with open(output_file, 'w') as f:
                         f.write(output_data)
+                else:
+                    print(output_data)
             else:
                 print()
                 print(ConsoleColors.warning("No data views found or no access to any data views."))
                 print()
             return True
 
-        # Step 3: Fetch detail for each data view to get parentDataGroupId
+        # Step 3: Build output records using parentDataGroupId from list response
         if not is_machine_readable:
-            print(f"Fetching details for {len(available_dvs)} data view(s)...")
+            print(f"Processing {len(available_dvs)} data view(s)...")
         display_data = []
         for i, dv in enumerate(available_dvs):
             if not isinstance(dv, dict):
@@ -9988,14 +9992,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
             if not is_machine_readable:
                 print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end='\r')
 
-            # Get full data view detail for parentDataGroupId
-            parent_conn_id = None
-            try:
-                dv_detail = cja.getDataView(dv_id, full=True)
-                if isinstance(dv_detail, dict):
-                    parent_conn_id = dv_detail.get('parentDataGroupId')
-            except Exception:
-                pass  # Gracefully skip if detail fetch fails
+            parent_conn_id = dv.get('parentDataGroupId')
 
             conn_info = conn_map.get(parent_conn_id, {}) if parent_conn_id else {}
             conn_name = conn_info.get('name', 'Unknown')
