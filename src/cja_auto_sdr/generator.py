@@ -34,6 +34,8 @@ import textwrap
 import webbrowser
 import platform
 import subprocess
+import csv
+import io
 
 # Attempt to load python-dotenv if available (optional dependency)
 _DOTENV_AVAILABLE = False
@@ -8374,19 +8376,24 @@ Requirements:
         help='Quiet mode - suppress all output except errors and final summary'
     )
 
-    parser.add_argument(
+    discovery_group = parser.add_argument_group(
+        'Discovery',
+        'Commands to explore available CJA resources'
+    )
+
+    discovery_group.add_argument(
         '--list-dataviews',
         action='store_true',
         help='List all accessible data views and exit (no data view ID required)'
     )
 
-    parser.add_argument(
+    discovery_group.add_argument(
         '--list-connections',
         action='store_true',
         help='List all accessible connections with their datasets and exit'
     )
 
-    parser.add_argument(
+    discovery_group.add_argument(
         '--list-datasets',
         action='store_true',
         help='List all data views with their backing connections and datasets, then exit'
@@ -9526,6 +9533,30 @@ def _extract_dataset_info(dataset: Any) -> dict:
     return {'id': str(ds_id), 'name': str(ds_name)}
 
 
+# ==================== LIST HELPERS ====================
+
+def _write_output(data: str, output_file: Optional[str], is_stdout: bool) -> None:
+    """Write output data to stdout, a file, or print to console."""
+    if output_file and not is_stdout:
+        with open(output_file, 'w') as f:
+            f.write(data)
+    else:
+        # print() adds its own newline, so strip any trailing newline from data
+        print(data.rstrip('\n'))
+
+
+def _extract_connections_list(raw_connections: Any) -> list:
+    """Extract the connection list from a raw getConnections API response."""
+    if isinstance(raw_connections, dict):
+        connections = raw_connections.get('content', raw_connections.get('result', []))
+        if not isinstance(connections, list):
+            return [raw_connections]
+        return connections
+    elif isinstance(raw_connections, list):
+        return raw_connections
+    return []
+
+
 # ==================== LIST DATA VIEWS ====================
 
 def list_dataviews(config_file: str = "config.json", output_format: str = "table",
@@ -9543,6 +9574,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
         True if successful, False otherwise
     """
     is_stdout = output_file in ('-', 'stdout')
+    # Suppresses decorative output (banners, progress). Triggered by JSON/CSV format or stdout pipe.
     is_machine_readable = output_format in ('json', 'csv') or is_stdout
 
     # Resolve active profile
@@ -9587,11 +9619,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
                     output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
                 else:  # csv
                     output_data = "id,name,owner\n"
-                if is_stdout:
-                    print(output_data)
-                elif output_file:
-                    with open(output_file, 'w') as f:
-                        f.write(output_data)
+                _write_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No data views found or no access to any data views."))
@@ -9623,28 +9651,14 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
                 "dataViews": display_data,
                 "count": len(display_data)
             }, indent=2)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+            _write_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
-            lines = ["id,name,owner"]
+            buf = io.StringIO(newline='')
+            writer = csv.writer(buf, lineterminator='\n')
+            writer.writerow(['id', 'name', 'owner'])
             for item in display_data:
-                # Escape quotes and commas in CSV
-                name = item['name'].replace('"', '""')
-                owner = item['owner'].replace('"', '""')
-                lines.append(f'{item["id"]},"{name}","{owner}"')
-            output_data = '\n'.join(lines)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+                writer.writerow([item['id'], item['name'], item['owner']])
+            _write_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()
@@ -9677,7 +9691,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
     except FileNotFoundError:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
             print()
@@ -9694,7 +9708,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
     except Exception as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
         return False
@@ -9717,6 +9731,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
         True if successful, False otherwise
     """
     is_stdout = output_file in ('-', 'stdout')
+    # Suppresses decorative output (banners, progress). Triggered by JSON/CSV format or stdout pipe.
     is_machine_readable = output_format in ('json', 'csv') or is_stdout
 
     # Resolve active profile
@@ -9753,13 +9768,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
         raw_connections = cja.getConnections(output='raw')
 
         # Extract connection list from response
-        connections = []
-        if isinstance(raw_connections, dict):
-            connections = raw_connections.get('content', raw_connections.get('result', []))
-            if not isinstance(connections, list):
-                connections = [raw_connections]
-        elif isinstance(raw_connections, list):
-            connections = raw_connections
+        connections = _extract_connections_list(raw_connections)
 
         if not connections:
             if is_machine_readable:
@@ -9767,13 +9776,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
                     output_data = json.dumps({"connections": [], "count": 0}, indent=2)
                 else:  # csv
                     output_data = "connection_id,connection_name,owner,dataset_id,dataset_name"
-                if is_stdout:
-                    print(output_data)
-                elif output_file:
-                    with open(output_file, 'w') as f:
-                        f.write(output_data)
-                else:
-                    print(output_data)
+                _write_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No connections found or no access to any connections."))
@@ -9808,32 +9811,18 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
                 "connections": display_data,
                 "count": len(display_data)
             }, indent=2)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+            _write_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
-            lines = ["connection_id,connection_name,owner,dataset_id,dataset_name"]
+            buf = io.StringIO(newline='')
+            writer = csv.writer(buf, lineterminator='\n')
+            writer.writerow(['connection_id', 'connection_name', 'owner', 'dataset_id', 'dataset_name'])
             for conn in display_data:
-                conn_name_csv = conn['name'].replace('"', '""')
-                owner_csv = conn['owner'].replace('"', '""')
                 if conn['datasets']:
                     for ds in conn['datasets']:
-                        ds_name_csv = ds['name'].replace('"', '""')
-                        lines.append(f'{conn["id"]},"{conn_name_csv}","{owner_csv}",{ds["id"]},"{ds_name_csv}"')
+                        writer.writerow([conn['id'], conn['name'], conn['owner'], ds['id'], ds['name']])
                 else:
-                    lines.append(f'{conn["id"]},"{conn_name_csv}","{owner_csv}",,')
-            output_data = '\n'.join(lines)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+                    writer.writerow([conn['id'], conn['name'], conn['owner'], '', ''])
+            _write_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()
@@ -9856,7 +9845,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
     except FileNotFoundError:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
             print()
@@ -9873,7 +9862,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
     except Exception as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
         return False
@@ -9899,6 +9888,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
         True if successful, False otherwise
     """
     is_stdout = output_file in ('-', 'stdout')
+    # Suppresses decorative output (banners, progress). Triggered by JSON/CSV format or stdout pipe.
     is_machine_readable = output_format in ('json', 'csv') or is_stdout
 
     # Resolve active profile
@@ -9936,13 +9926,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
         # Step 1: Fetch all connections and build lookup map
         raw_connections = cja.getConnections(output='raw')
         conn_map = {}  # connection_id -> {name, datasets}
-        connections_list = []
-        if isinstance(raw_connections, dict):
-            connections_list = raw_connections.get('content', raw_connections.get('result', []))
-            if not isinstance(connections_list, list):
-                connections_list = [raw_connections]
-        elif isinstance(raw_connections, list):
-            connections_list = raw_connections
+        connections_list = _extract_connections_list(raw_connections)
 
         for conn in connections_list:
             if not isinstance(conn, dict):
@@ -9966,13 +9950,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                     output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
                 else:  # csv
                     output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name"
-                if is_stdout:
-                    print(output_data)
-                elif output_file:
-                    with open(output_file, 'w') as f:
-                        f.write(output_data)
-                else:
-                    print(output_data)
+                _write_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No data views found or no access to any data views."))
@@ -10019,33 +9997,20 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                 "dataViews": display_data,
                 "count": len(display_data)
             }, indent=2)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+            _write_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
-            lines = ["dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name"]
+            buf = io.StringIO(newline='')
+            writer = csv.writer(buf, lineterminator='\n')
+            writer.writerow(['dataview_id', 'dataview_name', 'connection_id', 'connection_name', 'dataset_id', 'dataset_name'])
             for entry in display_data:
-                dv_name_csv = entry['name'].replace('"', '""')
-                conn_name_csv = entry['connection']['name'].replace('"', '""')
                 conn_id = entry['connection']['id']
+                conn_name = entry['connection']['name']
                 if entry['datasets']:
                     for ds in entry['datasets']:
-                        ds_name_csv = ds['name'].replace('"', '""')
-                        lines.append(f'{entry["id"]},"{dv_name_csv}",{conn_id},"{conn_name_csv}",{ds["id"]},"{ds_name_csv}"')
+                        writer.writerow([entry['id'], entry['name'], conn_id, conn_name, ds['id'], ds['name']])
                 else:
-                    lines.append(f'{entry["id"]},"{dv_name_csv}",{conn_id},"{conn_name_csv}",,')
-            output_data = '\n'.join(lines)
-            if is_stdout:
-                print(output_data)
-            elif output_file:
-                with open(output_file, 'w') as f:
-                    f.write(output_data)
-            else:
-                print(output_data)
+                    writer.writerow([entry['id'], entry['name'], conn_id, conn_name, '', ''])
+            _write_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()
@@ -10068,7 +10033,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
     except FileNotFoundError:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
             print()
@@ -10085,7 +10050,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
     except Exception as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
+            print(error_json, file=sys.stderr)
         else:
             print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
         return False
