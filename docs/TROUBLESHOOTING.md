@@ -2296,7 +2296,7 @@ For detailed org-wide analysis troubleshooting, see the [Troubleshooting section
 | Some data views show ERROR | Permission denied for specific DVs | Check API credentials have access to those data views |
 | Similarity matrix is slow | O(n²) calculation with many DVs | Use `--skip-similarity` or `--sample N` for large orgs |
 | "scipy not available" with `--cluster` | Optional dependency not installed | Install with: `uv pip install 'cja-auto-sdr[clustering]'` |
-| Cache not working | Cache directory permissions | Check `~/.cja_auto_sdr/cache/` is writable |
+| Cache not working | Cache directory permissions | Check `~/.cja_auto_sdr/cache/` (macOS/Linux) or `%USERPROFILE%\.cja_auto_sdr\cache\` (Windows) is writable |
 | `--owner-summary` shows nothing | Missing metadata | Add `--include-metadata` flag |
 | Exit code 2 unexpectedly | Governance threshold exceeded | Check `--duplicate-threshold` and `--isolated-threshold` values |
 | "Another --org-report is already running" | Concurrent run prevention | Wait for other run to finish, or check if a previous run crashed (lock auto-expires after 1 hour) |
@@ -2307,10 +2307,13 @@ For detailed org-wide analysis troubleshooting, see the [Troubleshooting section
 
 scipy is an optional dependency for the `--cluster` feature. Install it with:
 ```bash
+# macOS/Linux
 uv pip install 'cja-auto-sdr[clustering]'
+uv pip install 'cja-auto-sdr[full]'          # or install all extras
 
-# Or install all optional extras
-uv pip install 'cja-auto-sdr[full]'
+# Windows PowerShell (double quotes required)
+uv pip install "cja-auto-sdr[clustering]"
+uv pip install "cja-auto-sdr[full]"
 ```
 
 Without scipy, the `--cluster` flag is silently skipped and a warning is logged.
@@ -2323,10 +2326,13 @@ Without scipy, the `--cluster` flag is silently skipped and a warning is logged.
 
 **Cache not being used:**
 ```bash
-# Verify cache exists
+# macOS/Linux: Verify cache exists
 ls -la ~/.cja_auto_sdr/cache/org_report_cache.json
 
-# Force refresh and rebuild cache
+# Windows PowerShell: Verify cache exists
+Get-Item "$env:USERPROFILE\.cja_auto_sdr\cache\org_report_cache.json"
+
+# Force refresh and rebuild cache (all platforms)
 cja_auto_sdr --org-report --use-cache --refresh-cache
 ```
 
@@ -2344,8 +2350,11 @@ cja_auto_sdr --org-report --use-cache --cache-max-age 48
 - Run without thresholds first to see actual values
 
 ```bash
-# Debug: see actual values before setting thresholds
+# macOS/Linux: Debug with jq
 cja_auto_sdr --org-report --format json --output - | jq '.summary'
+
+# Windows PowerShell: Debug with ConvertFrom-Json
+cja_auto_sdr --org-report --format json --output - | ConvertFrom-Json | Select-Object -ExpandProperty summary
 ```
 
 ### Performance Issues

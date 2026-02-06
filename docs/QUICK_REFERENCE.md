@@ -106,6 +106,9 @@ cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels "Before" "After"
 
 ## Org-Wide Analysis Commands
 
+> **Windows Users:** All `cja_auto_sdr` commands below work identically on Windows.
+> For clustering extras, use double quotes: `uv pip install "cja-auto-sdr[clustering]"`.
+
 ```bash
 # Analyze all data views in organization (console output)
 cja_auto_sdr --org-report
@@ -148,7 +151,8 @@ cja_auto_sdr --org-report --org-stats --sample 10
 
 ```bash
 # --- Clustering & Similarity ---
-# Requires: uv pip install 'cja-auto-sdr[clustering]'
+# Requires: uv pip install 'cja-auto-sdr[clustering]'  (macOS/Linux)
+#           uv pip install "cja-auto-sdr[clustering]"   (Windows PowerShell)
 
 # Cluster similar data views into families
 cja_auto_sdr --org-report --cluster

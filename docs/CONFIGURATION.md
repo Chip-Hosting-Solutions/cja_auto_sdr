@@ -449,8 +449,17 @@ Profiles are stored in your **user home directory** (not the project directory):
 **Custom location:** Set `CJA_HOME` to override the default `~/.cja` directory:
 
 ```bash
+# macOS/Linux
 export CJA_HOME=/custom/path
 # Profiles will be at: /custom/path/orgs/
+```
+
+```powershell
+# Windows PowerShell (current session)
+$env:CJA_HOME = "C:\custom\path"
+
+# Windows Command Prompt
+set CJA_HOME=C:\custom\path
 ```
 
 ### Creating Profiles

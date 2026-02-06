@@ -182,6 +182,10 @@ pip install cjapy>=0.2.4.post3 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0 nump
 # Optional: Install scipy for clustering support (--cluster flag)
 pip install scipy>=1.14.0
 
+# Or via uv with extras (use double quotes on Windows PowerShell):
+# macOS/Linux:  uv pip install 'cja-auto-sdr[clustering]'
+# Windows:      uv pip install "cja-auto-sdr[clustering]"
+
 # Install the tool in development mode
 pip install -e .
 ```
@@ -389,16 +393,17 @@ dev = ["pytest>=8.3.4", "pytest-cov>=4.1.0"]
 ### Installing Optional Extras
 
 ```bash
-# Install with clustering support (for --cluster flag)
+# macOS/Linux (single quotes)
 uv pip install 'cja-auto-sdr[clustering]'
-
-# Install with .env file support
 uv pip install 'cja-auto-sdr[env]'
-
-# Install everything
 uv pip install 'cja-auto-sdr[full]'
 
-# For development with all features
+# Windows PowerShell (double quotes required)
+uv pip install "cja-auto-sdr[clustering]"
+uv pip install "cja-auto-sdr[env]"
+uv pip install "cja-auto-sdr[full]"
+
+# For development with all features (all platforms)
 uv sync --extra clustering --extra dev
 ```
 

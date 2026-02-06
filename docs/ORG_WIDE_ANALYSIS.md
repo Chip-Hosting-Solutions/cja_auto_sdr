@@ -17,6 +17,11 @@ The org-wide analysis feature allows you to:
 - **Group data views** into clusters based on component similarity
 - **Integrate with CI/CD** using governance threshold exit codes
 
+> **Windows Users:** Most commands in this guide work identically on all platforms. Where shell-specific
+> syntax is needed (scripts, date formatting, piping), both **bash** (macOS/Linux) and **PowerShell**
+> (Windows) variants are shown. On Windows, use double quotes for extras installation:
+> `uv pip install "cja-auto-sdr[clustering]"` instead of single quotes.
+
 ## Quick Start
 
 ```bash
@@ -139,6 +144,10 @@ cja_auto_sdr --org-report --overlap-threshold 0.9
 # Skip similarity calculation for large orgs
 cja_auto_sdr --org-report --skip-similarity
 ```
+
+> **Tip:** To check the exit code after running with `--fail-on-threshold`:
+> - **bash:** `echo $?`
+> - **PowerShell:** `echo $LASTEXITCODE`
 
 ### 5. Recommendations
 
@@ -268,7 +277,9 @@ cja_auto_sdr --org-report --use-cache --refresh-cache
 > data view, the cached entry is treated as valid (optimistic caching). Use
 > `--refresh-cache` to force a full refresh when in doubt.
 
-Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
+Cache is stored in:
+- **macOS/Linux:** `~/.cja_auto_sdr/cache/org_report_cache.json`
+- **Windows:** `%USERPROFILE%\.cja_auto_sdr\cache\org_report_cache.json`
 
 ### Clustering Options
 
@@ -295,7 +306,11 @@ Generates a "Clusters" sheet showing:
 **Note:** Clustering requires the optional `scipy` dependency. Install with:
 
 ```bash
+# macOS/Linux
 uv pip install 'cja-auto-sdr[clustering]'
+
+# Windows PowerShell
+uv pip install "cja-auto-sdr[clustering]"
 ```
 
 If `scipy` is not installed and `--cluster` is used, a warning is logged and clustering is skipped gracefully.
@@ -460,7 +475,11 @@ The JSON output provides a complete component inventory for planning.
 If you want to stream JSON to another tool, send it to stdout and pipe it:
 
 ```bash
+# macOS/Linux
 cja_auto_sdr --org-report --format json --output - | jq '.summary'
+
+# Windows PowerShell
+cja_auto_sdr --org-report --format json --output - | ConvertFrom-Json | Select-Object -ExpandProperty summary
 ```
 
 ### 3. Environment Validation
@@ -561,7 +580,9 @@ If you see this error:
 2. Wait for the existing run to complete
 3. If the previous run crashed, the lock will automatically expire after 1 hour
 
-The lock file is stored in `~/.cja_auto_sdr/locks/`.
+The lock file is stored in:
+- **macOS/Linux:** `~/.cja_auto_sdr/locks/`
+- **Windows:** `%USERPROFILE%\.cja_auto_sdr\locks\`
 
 To force bypass the lock (for testing only):
 ```bash
@@ -578,7 +599,8 @@ Integrate org-report into CI/CD pipelines with threshold-based exit codes.
 ```bash
 # Exit with code 2 if more than 5 high-similarity pairs exist
 cja_auto_sdr --org-report --duplicate-threshold 5 --fail-on-threshold
-echo $?  # 0 = pass, 2 = threshold exceeded
+echo $?              # bash: 0 = pass, 2 = threshold exceeded
+$LASTEXITCODE        # PowerShell equivalent
 
 # Exit with code 2 if isolated components exceed 30%
 cja_auto_sdr --org-report --isolated-threshold 0.3 --fail-on-threshold
@@ -704,12 +726,22 @@ jobs:
 
 #### Local Trending Example
 
+**macOS/Linux (bash):**
 ```bash
 # Save baseline with date
 cja_auto_sdr --org-report --format json --output baseline-$(date +%Y%m%d).json
 
 # Later, compare to baseline
-cja_auto_sdr --org-report --compare-org-report baseline-20240115.json
+cja_auto_sdr --org-report --compare-org-report baseline-20260115.json
+```
+
+**Windows (PowerShell):**
+```powershell
+# Save baseline with date
+cja_auto_sdr --org-report --format json --output "baseline-$(Get-Date -Format yyyyMMdd).json"
+
+# Later, compare to baseline
+cja_auto_sdr --org-report --compare-org-report baseline-20260115.json
 ```
 
 ### Owner/Team Summary
@@ -742,6 +774,7 @@ cja_auto_sdr --org-report --flag-stale
 
 ### Complete Governance CI/CD Example
 
+**macOS/Linux (bash):**
 ```bash
 #!/bin/bash
 # governance-check.sh
@@ -767,6 +800,31 @@ elif [ $EXIT_CODE -ne 0 ]; then
 fi
 
 echo "GOVERNANCE CHECK PASSED"
+```
+
+**Windows (PowerShell):**
+```powershell
+# governance-check.ps1
+
+cja_auto_sdr --org-report `
+  --duplicate-threshold 5 `
+  --isolated-threshold 0.35 `
+  --fail-on-threshold `
+  --audit-naming `
+  --flag-stale `
+  --format json `
+  --output governance-report.json `
+  --quiet
+
+if ($LASTEXITCODE -eq 2) {
+    Write-Host "GOVERNANCE CHECK FAILED: Thresholds exceeded"
+    exit 1
+} elseif ($LASTEXITCODE -ne 0) {
+    Write-Host "GOVERNANCE CHECK ERROR"
+    exit 1
+}
+
+Write-Host "GOVERNANCE CHECK PASSED"
 ```
 
 ## Related Documentation

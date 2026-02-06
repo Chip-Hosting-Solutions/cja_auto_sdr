@@ -63,7 +63,7 @@ cja_auto_sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [DATA_VIEW_ID_OR_NAME ...]
 > - `cja_auto_sdr ...` — after activating the venv: `source .venv/bin/activate` (Unix) or `.venv\Scripts\activate` (Windows)
 > - `cja_auto_sdr ...` — run the script directly (most reliable on Windows)
 >
-> This guide uses `cja_auto_sdr` for brevity. Windows users should substitute with `cja_auto_sdr`.
+> This guide uses `uv run cja_auto_sdr` for macOS/Linux examples. **Windows users** should omit the `uv run` prefix and use `cja_auto_sdr` directly after activating the virtual environment.
 
 ### Alternative Invocations
 
@@ -313,7 +313,7 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 | `--cluster` | Enable hierarchical clustering to group related data views | False |
 | `--cluster-method METHOD` | Clustering linkage method: `average` (recommended) or `complete` | average |
 
-> **Requires:** The `clustering` extra must be installed: `uv pip install 'cja-auto-sdr[clustering]'`
+> **Requires:** The `clustering` extra must be installed: `uv pip install 'cja-auto-sdr[clustering]'` (macOS/Linux) or `uv pip install "cja-auto-sdr[clustering]"` (Windows PowerShell)
 >
 > **Note:** The `average` method is recommended because it works correctly with Jaccard distances (which measure component overlap). The `complete` method is also valid and produces tighter clusters.
 
