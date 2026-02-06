@@ -55,6 +55,12 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | **Git Integration** | Version-Controlled Snapshots | Save SDR snapshots in Git-friendly format with auto-commit |
 | | Audit Trail | Full history of every Data View configuration change |
 | | Team Collaboration | Share snapshots via Git repositories with PR-based review workflows |
+| **Org-Wide Analysis** | Component Distribution | Analyze metrics/dimensions across all data views with `--org-report` |
+| | Similarity Matrix | Identify duplicate or near-duplicate data views via Jaccard similarity |
+| | Data View Clustering | Group related data views using hierarchical clustering |
+| | Governance Recommendations | Automated insights for standardization opportunities |
+| | CI/CD Exit Codes | Threshold-based exit codes for governance automation |
+| | Trending & Drift | Compare reports over time to detect changes |
 | **Multi-Org** | Profile Management | Switch between Adobe Organizations with `--profile client-a` |
 | | Interactive Profile Setup | Create profiles interactively with `--profile-add` |
 | | Profile Testing | Validate credentials with `--profile-test` before use |
@@ -111,12 +117,11 @@ pip install -e .
 
 > **Windows Users:** If you encounter issues with `uv run` or NumPy import errors on Windows, we recommend using Python directly. See the [Windows-Specific Issues](docs/TROUBLESHOOTING.md#windows-specific-issues) section in the troubleshooting guide for detailed solutions.
 
-> **Running commands:** You have three equivalent options:
+> **Running commands:** You have two equivalent options:
 > - `uv run cja_auto_sdr ...` — works immediately on macOS/Linux, may have issues on Windows
 > - `cja_auto_sdr ...` — after activating the venv: `source .venv/bin/activate` (Unix) or `.venv\Scripts\activate` (Windows)
-> - `python cja_sdr_generator.py ...` — run the script directly (most reliable on Windows)
 >
-> This guide uses `uv run`. Windows users should substitute with `python cja_sdr_generator.py`. The [Common Use Cases](#common-use-cases) table omits the prefix for brevity.
+> This guide uses `uv run`. Windows users should activate the venv first (`pip install -e .` makes the command available). The [Common Use Cases](#common-use-cases) table omits the prefix for brevity.
 
 ### 3. Configure Credentials
 
@@ -191,12 +196,12 @@ uv run cja_auto_sdr "Production Analytics"
 .venv\Scripts\activate
 
 # Verify configuration and list available data views
-python cja_sdr_generator.py --validate-config
-python cja_sdr_generator.py --list-dataviews
+cja_auto_sdr --validate-config
+cja_auto_sdr --list-dataviews
 
 # Generate SDR for a data view (by ID or name)
-python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
-python cja_sdr_generator.py "Production Analytics"
+cja_auto_sdr dv_YOUR_DATA_VIEW_ID
+cja_auto_sdr "Production Analytics"
 ```
 
 > **Tip:** You can specify Data Views by **name** in addition to ID. If multiple Data Views share the same name, all matching views will be processed.
@@ -208,9 +213,9 @@ python cja_sdr_generator.py "Production Analytics"
 
 ## Common Use Cases
 
-**Note:** Commands below omit the `uv run` or `python cja_sdr_generator.py` prefix for brevity:
+**Note:** Commands below omit the `uv run` prefix for brevity:
 - **macOS/Linux:** Add `uv run` before each command (e.g., `uv run cja_auto_sdr dv_12345`)
-- **Windows:** Use `python cja_sdr_generator.py` instead (e.g., `python cja_sdr_generator.py dv_12345`)
+- **Windows:** Activate the venv first (`.venv\Scripts\activate`), then run commands directly
 
 | Task | Command |
 |------|---------|
@@ -263,6 +268,22 @@ python cja_sdr_generator.py "Production Analytics"
 | Generate and commit | `cja_auto_sdr dv_12345 --git-commit` |
 | Commit with custom message | `cja_auto_sdr dv_12345 --git-commit --git-message "Weekly audit"` |
 | Commit and push | `cja_auto_sdr dv_12345 --git-commit --git-push` |
+| **Org-Wide Analysis** | |
+| Analyze all data views | `cja_auto_sdr --org-report` |
+| Filter by name pattern | `cja_auto_sdr --org-report --filter "Prod.*"` |
+| Exclude patterns | `cja_auto_sdr --org-report --exclude "Test\|Dev"` |
+| Limit analysis scope | `cja_auto_sdr --org-report --limit 10` |
+| Include component names | `cja_auto_sdr --org-report --include-names` |
+| Skip similarity matrix | `cja_auto_sdr --org-report --skip-similarity` |
+| Export as Excel | `cja_auto_sdr --org-report --format excel` |
+| Export as HTML | `cja_auto_sdr --org-report --format html` |
+| Export as CSV | `cja_auto_sdr --org-report --format csv` |
+| Export all formats | `cja_auto_sdr --org-report --format all` |
+| Custom thresholds | `cja_auto_sdr --org-report --core-threshold 0.7 --overlap-threshold 0.9` |
+| Overlap threshold note | Similarity reporting caps the effective threshold at 90% for governance checks (reports show configured vs. effective when higher) |
+| Quick stats mode | `cja_auto_sdr --org-report --org-stats` |
+| Cluster data views | `cja_auto_sdr --org-report --cluster --format excel` |
+| CI/CD governance check | `cja_auto_sdr --org-report --duplicate-threshold 5 --fail-on-threshold` |
 
 ## Documentation
 
@@ -287,6 +308,7 @@ python cja_sdr_generator.py "Production Analytics"
 | [Data View Names](docs/DATA_VIEW_NAMES.md) | Using Data View names instead of IDs |
 | [Data View Comparison](docs/DIFF_COMPARISON.md) | Compare Data Views, snapshots, CI/CD integration |
 | [Git Integration](docs/GIT_INTEGRATION.md) | Version-controlled snapshots, audit trails, team collaboration |
+| [Org-Wide Analysis](docs/ORG_WIDE_ANALYSIS.md) | Cross-data view component analysis, similarity detection, governance |
 | [Testing](tests/README.md) | Running and writing tests |
 
 ## Requirements
@@ -299,39 +321,51 @@ python cja_sdr_generator.py "Production Analytics"
 
 ```
 cja_auto_sdr/
-├── cja_sdr_generator.py              # Main SDR generator script
-├── cja_calculated_metrics_inventory.py  # Calculated metrics inventory module
-├── cja_derived_fields_inventory.py   # Derived fields inventory module
-├── cja_segments_inventory.py         # Segments inventory module
-├── cja_inventory_utils.py            # Shared inventory utilities
-├── pyproject.toml                    # Project configuration and dependencies
-├── uv.lock                           # Dependency lock file for reproducible builds
-├── README.md                         # This file
-├── CHANGELOG.md                      # Version history and release notes
-├── LICENSE                           # License file
-├── config.json                       # Your credentials (DO NOT COMMIT)
-├── config.json.example               # Config file template
-├── .env.example                      # Environment variable template
-├── docs/                             # Documentation (19 guides)
-│   ├── QUICKSTART_GUIDE.md           # Getting started guide
-│   ├── CONFIGURATION.md              # Profiles, config.json & env vars
-│   ├── CLI_REFERENCE.md              # Command-line reference
-│   ├── INVENTORY_OVERVIEW.md         # Unified inventory guide
-│   ├── DIFF_COMPARISON.md            # Data view comparison guide
-│   ├── GIT_INTEGRATION.md            # Git integration guide
-│   └── ...                           # Additional guides
-├── tests/                            # Test suite
-├── sample_outputs/                   # Example output files
-│   ├── excel/                        # Sample Excel SDR
-│   ├── csv/                          # Sample CSV output
-│   ├── json/                         # Sample JSON output
-│   ├── html/                         # Sample HTML output
-│   ├── markdown/                     # Sample Markdown output
-│   ├── diff/                         # Sample diff comparison outputs
-│   └── git-snapshots/                # Sample Git integration snapshots
-├── snapshots/                        # Saved Data View snapshots
-├── logs/                             # Generated log files
-└── *.xlsx                            # Generated SDR files
+├── src/
+│   └── cja_auto_sdr/        # Main package (src-layout)
+│       ├── __init__.py      # Package init with version
+│       ├── generator.py     # Main SDR generator
+│       ├── inventory/       # Inventory subpackage
+│       │   ├── __init__.py
+│       │   ├── utils.py
+│       │   ├── calculated_metrics.py
+│       │   ├── derived_fields.py
+│       │   └── segments.py
+│       └── org/             # Org-wide analysis subpackage
+│           ├── __init__.py
+│           ├── models.py    # Data classes for org analysis
+│           ├── cache.py     # Report caching
+│           └── analyzer.py  # OrgComponentAnalyzer
+├── scripts/                 # Utility scripts
+├── pyproject.toml           # Project configuration and dependencies
+├── uv.lock                  # Dependency lock file for reproducible builds
+├── README.md                # This file
+├── CHANGELOG.md             # Version history and release notes
+├── LICENSE                  # License file
+├── config.json              # Your credentials (DO NOT COMMIT)
+├── config.json.example      # Config file template
+├── .env.example             # Environment variable template
+├── docs/                    # Documentation (20+ guides)
+│   ├── QUICKSTART_GUIDE.md  # Getting started guide
+│   ├── CONFIGURATION.md     # Profiles, config.json & env vars
+│   ├── CLI_REFERENCE.md     # Command-line reference
+│   ├── INVENTORY_OVERVIEW.md # Unified inventory guide
+│   ├── DIFF_COMPARISON.md   # Data view comparison guide
+│   ├── GIT_INTEGRATION.md   # Git integration guide
+│   ├── ORG_WIDE_ANALYSIS.md # Org-wide report guide
+│   └── ...                  # Additional guides
+├── tests/                   # Test suite (1,231+ tests)
+├── sample_outputs/          # Example output files
+│   ├── excel/               # Sample Excel SDR
+│   ├── csv/                 # Sample CSV output
+│   ├── json/                # Sample JSON output
+│   ├── html/                # Sample HTML output
+│   ├── markdown/            # Sample Markdown output
+│   ├── diff/                # Sample diff comparison outputs
+│   └── git-snapshots/       # Sample Git integration snapshots
+├── snapshots/               # Saved Data View snapshots
+├── logs/                    # Generated log files
+└── *.xlsx                   # Generated SDR files
 ```
 
 ## License

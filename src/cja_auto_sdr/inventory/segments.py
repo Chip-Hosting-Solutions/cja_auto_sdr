@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
-from cja_inventory_utils import (
+from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
     extract_owner,
     extract_short_name,

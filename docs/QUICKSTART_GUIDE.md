@@ -203,7 +203,7 @@ This command:
 
 ```bash
 $ uv run cja_auto_sdr --version
-cja_auto_sdr 3.1.0
+cja_auto_sdr 3.2.0
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
@@ -216,9 +216,9 @@ You have three equivalent options:
 |--------|---------|-------|
 | **uv run** | `uv run cja_auto_sdr ...` | Works immediately on macOS/Linux, may have issues on Windows |
 | **Activated venv** | `cja_auto_sdr ...` | After activating: `source .venv/bin/activate` (Unix) or `.venv\Scripts\activate` (Windows) |
-| **Direct script** | `python cja_sdr_generator.py ...` | Most reliable on Windows |
+| **Direct script** | `cja_auto_sdr ...` | Most reliable on Windows |
 
-This guide uses `uv run`. Windows users should substitute with `python cja_sdr_generator.py`. The command examples below omit the prefix for brevity.
+This guide uses `uv run`. Windows users should substitute with `cja_auto_sdr`. The command examples below omit the prefix for brevity.
 
 **Alternative: Manual activation**
 
@@ -234,7 +234,7 @@ cja_auto_sdr --version
 cja_auto_sdr --version
 ```
 
-> **Windows Users:** If `uv run` doesn't work, use `python cja_sdr_generator.py` instead. This is the most reliable method on Windows. See [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for troubleshooting.
+> **Windows Users:** If `uv run` doesn't work, use `cja_auto_sdr` instead. This is the most reliable method on Windows. See [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for troubleshooting.
 
 ---
 
@@ -353,7 +353,7 @@ List your accessible Data Views to confirm the API connection works:
 uv run cja_auto_sdr --list-dataviews
 ```
 
-> **Windows Users:** If `uv run` doesn't work, use `python cja_sdr_generator.py --list-dataviews` instead.
+> **Windows Users:** If `uv run` doesn't work, use `cja_auto_sdr --list-dataviews` instead.
 
 **Successful output:**
 ```
@@ -460,7 +460,7 @@ uv run cja_auto_sdr dv_677ea9291244fd082f02dd42
 
 **Windows (PowerShell):**
 ```powershell
-python cja_sdr_generator.py dv_677ea9291244fd082f02dd42
+cja_auto_sdr dv_677ea9291244fd082f02dd42
 ```
 
 ### 5.3 Watch the Progress
@@ -545,18 +545,18 @@ Open the generated Excel file. It contains 5 sheets:
 
 ### Sheet 1: Metadata
 
-High-level information about the Data View:
+High-level information about the SDR generation in a key-value format:
 
-| Field | Description |
-|-------|-------------|
-| Data View Name | The display name in CJA |
+| Property | Description |
+|----------|-------------|
+| Generated At | When this SDR was created |
 | Data View ID | The unique identifier |
-| Owner | Email of the Data View owner |
-| Created Date | When the Data View was created |
-| Last Modified | When it was last updated |
+| Data View Name | The display name in CJA |
 | Total Metrics | Count of metrics in the Data View |
+| Metrics Summary | Breakdown of metric types |
 | Total Dimensions | Count of dimensions |
-| Generation Date | When this SDR was created |
+| Dimensions Summary | Breakdown of dimension types |
+| Data Quality Summary | Count of issues found |
 
 ### Sheet 2: Data Quality
 
@@ -564,61 +564,69 @@ Results of automated validation checks:
 
 | Column | Description |
 |--------|-------------|
-| Check Name | The validation performed |
-| Severity | CRITICAL, HIGH, MEDIUM, or LOW |
-| Status | PASSED, WARNING, or FAILED |
-| Details | Specific issues found |
-| Affected Items | Count of items with issues |
-| Recommendations | Suggested remediation |
+| Severity | CRITICAL, HIGH, MEDIUM, LOW, or INFO |
+| Category | Type of check (Duplicates, Naming, etc.) |
+| Type | Component type (Metrics, Dimensions) |
+| Item Name | Name of the affected component |
+| Issue | Description of the problem |
+| Details | Additional context or information |
 
 **Color coding:**
-- **Green rows:** Passed checks
-- **Yellow rows:** Warnings (minor issues)
-- **Red rows:** Failed (critical issues to address)
+- **Red rows:** Critical issues
+- **Orange rows:** High severity issues
+- **Yellow rows:** Medium severity warnings
+- **Gray rows:** Low severity notes
+- **Blue rows:** Informational items
 
-### Sheet 3: DataView
+### Sheet 3: DataView Details
 
-Complete configuration export:
+Data view-level configuration properties in a key-value format:
 
-| Column | Description |
-|--------|-------------|
-| Component Type | "metric" or "dimension" |
-| ID | Unique component identifier |
-| Name | Display name in CJA |
-| Description | Documentation text |
-| Schema Path | XDM schema location |
-| Data Type | String, integer, etc. |
-| ... | Additional configuration fields |
+| Property | Description |
+|----------|-------------|
+| Name | Data view display name |
+| ID | Unique data view identifier (dv_...) |
+| Owner | Email of the data view owner |
+| Description | Data view description text |
+| Parent Connection | Associated connection ID |
+| Sandbox | AEP sandbox name |
+| Created | Creation timestamp |
+| Modified | Last modification timestamp |
+| ... | Additional data view settings |
 
 ### Sheet 4: Metrics
 
-All metrics in the Data View with full configuration:
+All metrics in the Data View with their configuration:
 
 | Column | Description |
 |--------|-------------|
-| ID | Metric identifier |
-| Name | Display name |
-| Description | Documentation |
-| Type | Calculated, derived, etc. |
-| Format | Number, currency, percent |
-| Decimal Places | Precision setting |
-| Attribution | Attribution model settings |
-| Lookback Window | Time window configuration |
+| id | Unique metric identifier |
+| name | Display name in CJA |
+| type | Metric type (e.g., calculated, standard) |
+| title | Title text |
+| description | Documentation text |
+| schemaPath | XDM schema location |
+| format | Display format (number, currency, percent) |
+| precision | Decimal places |
+| attribution | Attribution model settings |
+| ... | Additional metric configuration |
 
 ### Sheet 5: Dimensions
 
-All dimensions with full configuration:
+All dimensions in the Data View with their configuration:
 
 | Column | Description |
 |--------|-------------|
-| ID | Dimension identifier |
-| Name | Display name |
-| Description | Documentation |
-| Schema Path | XDM field location |
-| Persistence | Session, hit, etc. |
-| Allocation | First, last, most recent |
-| Expiration | When values expire |
-| Classification | Classification settings |
+| id | Unique dimension identifier |
+| name | Display name in CJA |
+| type | Dimension type (e.g., string, numeric) |
+| title | Title text |
+| description | Documentation text |
+| schemaPath | XDM schema location |
+| persistence | Persistence setting (hit, visit, person) |
+| allocation | Value allocation (first, last, most recent) |
+| bucketing | Bucketing configuration |
+| ... | Additional dimension configuration |
 
 ---
 
@@ -666,6 +674,19 @@ uv run cja_auto_sdr dv_12345 --snapshot ./baseline.json
 ```
 
 See [Data View Comparison](DIFF_COMPARISON.md) for more details.
+
+### Analyze Org-Wide Component Usage
+
+Understand component usage patterns across all data views in your organization:
+```bash
+# Basic org-wide analysis
+uv run cja_auto_sdr --org-report
+
+# Filter to specific data views and export to Excel
+uv run cja_auto_sdr --org-report --filter "Prod.*" --format excel
+```
+
+See [Org-Wide Analysis](ORG_WIDE_ANALYSIS.md) for governance insights and duplicate detection.
 
 ### Document Component Inventories
 
@@ -765,9 +786,9 @@ PS> uv run cja_auto_sdr --version
 .venv\Scripts\activate
 
 # Run with Python
-python cja_sdr_generator.py --version
-python cja_sdr_generator.py --list-dataviews
-python cja_sdr_generator.py dv_12345
+cja_auto_sdr --version
+cja_auto_sdr --list-dataviews
+cja_auto_sdr dv_12345
 ```
 
 ### Windows: NumPy ImportError
@@ -798,7 +819,7 @@ pip install --only-binary :all: numpy>=2.2.0
 python -c "import numpy; print(numpy.__version__)"
 
 # Then run the tool
-python cja_sdr_generator.py --version
+cja_auto_sdr --version
 ```
 
 **See also:** [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for comprehensive Windows troubleshooting.

@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     ChangeType,
     ComponentDiff,
     MetadataDiff,
@@ -715,7 +715,7 @@ class TestCLIArguments:
 
     def test_parse_ignore_fields(self):
         """Test that --ignore-fields argument is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         # Mock sys.argv
@@ -731,7 +731,7 @@ class TestCLIArguments:
 
     def test_parse_diff_labels(self):
         """Test that --diff-labels argument is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -745,7 +745,7 @@ class TestCLIArguments:
 
     def test_parse_changes_only(self):
         """Test that --changes-only flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -758,7 +758,7 @@ class TestCLIArguments:
 
     def test_parse_summary_flag(self):
         """Test that --summary flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -771,7 +771,7 @@ class TestCLIArguments:
 
     def test_parse_snapshot_argument(self):
         """Test that --snapshot argument is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -785,7 +785,7 @@ class TestCLIArguments:
 
     def test_parse_diff_snapshot_argument(self):
         """Test that --diff-snapshot argument is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1101,7 +1101,7 @@ class TestSideBySideOutput:
 
     def test_side_by_side_console_output(self, logger):
         """Test that side-by-side console output contains table characters"""
-        from cja_sdr_generator import _format_side_by_side
+        from cja_auto_sdr.generator import _format_side_by_side
 
         diff = ComponentDiff(
             id="m1",
@@ -1124,7 +1124,7 @@ class TestSideBySideOutput:
 
     def test_side_by_side_markdown_output(self, logger):
         """Test that side-by-side markdown output creates a table"""
-        from cja_sdr_generator import _format_markdown_side_by_side
+        from cja_auto_sdr.generator import _format_markdown_side_by_side
 
         diff = ComponentDiff(
             id="m1",
@@ -1664,7 +1664,7 @@ class TestNewCLIArguments:
 
     def test_parse_show_only_argument(self):
         """Test that --show-only argument is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1678,7 +1678,7 @@ class TestNewCLIArguments:
 
     def test_parse_metrics_only_flag(self):
         """Test that --metrics-only flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1691,7 +1691,7 @@ class TestNewCLIArguments:
 
     def test_parse_dimensions_only_flag(self):
         """Test that --dimensions-only flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1704,7 +1704,7 @@ class TestNewCLIArguments:
 
     def test_parse_extended_fields_flag(self):
         """Test that --extended-fields flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1717,7 +1717,7 @@ class TestNewCLIArguments:
 
     def test_parse_side_by_side_flag(self):
         """Test that --side-by-side flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -1736,7 +1736,7 @@ class TestDiffSummaryPercentages:
 
     def test_metrics_change_percent(self, logger):
         """Test metrics_change_percent calculation"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             source_metrics_count=100,
@@ -1751,7 +1751,7 @@ class TestDiffSummaryPercentages:
 
     def test_dimensions_change_percent(self, logger):
         """Test dimensions_change_percent calculation"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             source_dimensions_count=50,
@@ -1767,7 +1767,7 @@ class TestDiffSummaryPercentages:
 
     def test_zero_components_percent(self, logger):
         """Test percentage is 0 when no components exist"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             source_metrics_count=0,
@@ -1778,7 +1778,7 @@ class TestDiffSummaryPercentages:
 
     def test_natural_language_summary(self, logger):
         """Test natural_language_summary property"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_added=3,
@@ -1797,14 +1797,14 @@ class TestDiffSummaryPercentages:
 
     def test_natural_language_summary_no_changes(self, logger):
         """Test natural_language_summary when no changes"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary()
         assert summary.natural_language_summary == "No changes detected"
 
     def test_total_added(self, logger):
         """Test total_added property sums across all component types"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_added=5,
@@ -1814,7 +1814,7 @@ class TestDiffSummaryPercentages:
 
     def test_total_removed(self, logger):
         """Test total_removed property sums across all component types"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_removed=2,
@@ -1824,7 +1824,7 @@ class TestDiffSummaryPercentages:
 
     def test_total_modified(self, logger):
         """Test total_modified property sums across all component types"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_modified=3,
@@ -1834,7 +1834,7 @@ class TestDiffSummaryPercentages:
 
     def test_total_summary_with_changes(self, logger):
         """Test total_summary property returns formatted string"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_added=3,
@@ -1851,14 +1851,14 @@ class TestDiffSummaryPercentages:
 
     def test_total_summary_no_changes(self, logger):
         """Test total_summary returns 'No changes' when empty"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary()
         assert summary.total_summary == "No changes"
 
     def test_total_summary_partial_changes(self, logger):
         """Test total_summary only shows non-zero values"""
-        from cja_sdr_generator import DiffSummary
+        from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
             metrics_added=5,
@@ -1875,7 +1875,7 @@ class TestColoredConsoleOutput:
 
     def test_console_output_with_color(self, logger):
         """Test console output includes ANSI color codes when enabled"""
-        from cja_sdr_generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
 
         source = DataViewSnapshot(
             data_view_id="dv_1", data_view_name="Source",
@@ -1897,7 +1897,7 @@ class TestColoredConsoleOutput:
 
     def test_console_output_without_color(self, logger):
         """Test console output has no ANSI codes when disabled"""
-        from cja_sdr_generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
 
         source = DataViewSnapshot(
             data_view_id="dv_1", data_view_name="Source",
@@ -1925,7 +1925,7 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_output(self, logger):
         """Test group by field output format"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_grouped_by_field_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -1957,7 +1957,7 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_default(self, logger):
         """Test that default limit of 10 truncates output"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_grouped_by_field_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -1990,7 +1990,7 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_zero_shows_all(self, logger):
         """Test that limit=0 shows all items without truncation"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_grouped_by_field_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -2026,7 +2026,7 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_custom(self, logger):
         """Test that custom limit value works correctly"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_grouped_by_field_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -2059,7 +2059,7 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_added_removed(self, logger):
         """Test that limit applies to ADDED and REMOVED sections too"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_grouped_by_field_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -2098,7 +2098,7 @@ class TestPRCommentOutput:
 
     def test_pr_comment_output_format(self, logger):
         """Test PR comment markdown format"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_pr_comment_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -2129,7 +2129,7 @@ class TestPRCommentOutput:
 
     def test_pr_comment_breaking_changes(self, logger):
         """Test PR comment shows breaking changes"""
-        from cja_sdr_generator import (
+        from cja_auto_sdr.generator import (
             write_diff_pr_comment_output, DataViewSnapshot,
             DataViewComparator
         )
@@ -2158,7 +2158,7 @@ class TestBreakingChangeDetection:
 
     def test_detect_type_change_as_breaking(self, logger):
         """Test type changes are flagged as breaking"""
-        from cja_sdr_generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
 
         source = DataViewSnapshot(
             data_view_id="dv_1", data_view_name="Source",
@@ -2181,7 +2181,7 @@ class TestBreakingChangeDetection:
 
     def test_detect_removal_as_breaking(self, logger):
         """Test component removal is flagged as breaking"""
-        from cja_sdr_generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
 
         source = DataViewSnapshot(
             data_view_id="dv_1", data_view_name="Source",
@@ -2203,7 +2203,7 @@ class TestBreakingChangeDetection:
 
     def test_no_breaking_changes(self, logger):
         """Test no breaking changes when only non-breaking changes"""
-        from cja_sdr_generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
 
         source = DataViewSnapshot(
             data_view_id="dv_1", data_view_name="Source",
@@ -2229,7 +2229,7 @@ class TestNewCLIFlags:
 
     def test_parse_no_color_flag(self):
         """Test that --no-color flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2242,7 +2242,7 @@ class TestNewCLIFlags:
 
     def test_parse_quiet_diff_flag(self):
         """Test that --quiet-diff flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2255,7 +2255,7 @@ class TestNewCLIFlags:
 
     def test_parse_reverse_diff_flag(self):
         """Test that --reverse-diff flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2268,7 +2268,7 @@ class TestNewCLIFlags:
 
     def test_parse_warn_threshold_flag(self):
         """Test that --warn-threshold flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2281,7 +2281,7 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_flag(self):
         """Test that --group-by-field flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2294,7 +2294,7 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_limit_flag(self):
         """Test that --group-by-field-limit flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2313,7 +2313,7 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_limit_default(self):
         """Test that --group-by-field-limit defaults to 10"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2326,7 +2326,7 @@ class TestNewCLIFlags:
 
     def test_parse_diff_output_flag(self):
         """Test that --diff-output flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2339,7 +2339,7 @@ class TestNewCLIFlags:
 
     def test_parse_format_pr_comment_flag(self):
         """Test that --format-pr-comment flag is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2362,7 +2362,7 @@ class TestAmbiguousNameResolution:
 
     def test_resolve_single_name_to_single_id(self):
         """Test that a unique name resolves to exactly one ID"""
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
@@ -2370,10 +2370,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_67890", "name": "Other View"},
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
                 resolved_ids, name_map = resolve_data_view_names(
                     ["Unique Analytics"], "config.json", logger
@@ -2384,7 +2384,7 @@ class TestAmbiguousNameResolution:
 
     def test_resolve_name_to_multiple_ids(self):
         """Test that an ambiguous name returns ALL matching IDs"""
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
@@ -2394,11 +2394,11 @@ class TestAmbiguousNameResolution:
             {"id": "dv_other_999", "name": "Other View"},
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             # Mock the cached data views function
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
                 resolved_ids, name_map = resolve_data_view_names(
                     ["Analytics"], "config.json", logger
@@ -2417,17 +2417,17 @@ class TestAmbiguousNameResolution:
 
     def test_resolve_explicit_id_unchanged(self):
         """Test that explicit IDs pass through unchanged"""
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_12345", "name": "Analytics"},
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
                 resolved_ids, name_map = resolve_data_view_names(
                     ["dv_12345"], "config.json", logger
@@ -2442,7 +2442,7 @@ class TestAmbiguousNameResolution:
         """Test that diff command rejects ambiguous source name"""
         # This tests the CLI validation logic that should reject
         # names that resolve to multiple data views
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
@@ -2450,10 +2450,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Analytics"},  # Duplicate name
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
                 # When diff receives "Analytics", it should get multiple IDs back
                 resolved_ids, _ = resolve_data_view_names(
@@ -2465,7 +2465,7 @@ class TestAmbiguousNameResolution:
 
     def test_diff_command_handles_source_target_separately(self):
         """Test that diff command resolves source and target independently"""
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
@@ -2473,10 +2473,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
 
                 # Resolve source separately
@@ -2497,7 +2497,7 @@ class TestAmbiguousNameResolution:
 
     def test_mixed_id_and_name_resolution(self):
         """Test resolving mix of explicit IDs and names"""
-        from cja_sdr_generator import resolve_data_view_names
+        from cja_auto_sdr.generator import resolve_data_view_names
         from unittest.mock import patch, MagicMock
 
         mock_data_views = [
@@ -2505,10 +2505,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_sdr_generator.get_cached_data_views', return_value=mock_data_views):
+            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
                 logger = logging.getLogger('test')
 
                 # Source by ID, target by name
@@ -2532,20 +2532,20 @@ class TestLevenshteinDistance:
 
     def test_levenshtein_identical_strings(self):
         """Test that identical strings have distance 0"""
-        from cja_sdr_generator import levenshtein_distance
+        from cja_auto_sdr.generator import levenshtein_distance
         assert levenshtein_distance("hello", "hello") == 0
         assert levenshtein_distance("", "") == 0
         assert levenshtein_distance("Analytics", "Analytics") == 0
 
     def test_levenshtein_empty_string(self):
         """Test distance with empty string"""
-        from cja_sdr_generator import levenshtein_distance
+        from cja_auto_sdr.generator import levenshtein_distance
         assert levenshtein_distance("", "hello") == 5
         assert levenshtein_distance("hello", "") == 5
 
     def test_levenshtein_single_edit(self):
         """Test single character edits"""
-        from cja_sdr_generator import levenshtein_distance
+        from cja_auto_sdr.generator import levenshtein_distance
         # Substitution
         assert levenshtein_distance("cat", "bat") == 1
         # Insertion
@@ -2555,7 +2555,7 @@ class TestLevenshteinDistance:
 
     def test_levenshtein_multiple_edits(self):
         """Test multiple edits"""
-        from cja_sdr_generator import levenshtein_distance
+        from cja_auto_sdr.generator import levenshtein_distance
         assert levenshtein_distance("kitten", "sitting") == 3
         assert levenshtein_distance("saturday", "sunday") == 3
 
@@ -2565,7 +2565,7 @@ class TestFindSimilarNames:
 
     def test_find_exact_case_insensitive_match(self):
         """Test finding exact case-insensitive match"""
-        from cja_sdr_generator import find_similar_names
+        from cja_auto_sdr.generator import find_similar_names
         names = ["Production Analytics", "Staging View", "Dev Environment"]
         similar = find_similar_names("production analytics", names)
 
@@ -2575,7 +2575,7 @@ class TestFindSimilarNames:
 
     def test_find_similar_with_typo(self):
         """Test finding similar names with typos"""
-        from cja_sdr_generator import find_similar_names
+        from cja_auto_sdr.generator import find_similar_names
         names = ["Production Analytics", "Staging View", "Development"]
         similar = find_similar_names("Prodction Analytics", names)  # Missing 'u'
 
@@ -2584,7 +2584,7 @@ class TestFindSimilarNames:
 
     def test_find_similar_limits_results(self):
         """Test that results are limited to max_suggestions"""
-        from cja_sdr_generator import find_similar_names
+        from cja_auto_sdr.generator import find_similar_names
         names = [f"View {i}" for i in range(20)]
         similar = find_similar_names("View", names, max_suggestions=3)
 
@@ -2592,7 +2592,7 @@ class TestFindSimilarNames:
 
     def test_find_similar_respects_max_distance(self):
         """Test that max_distance is respected"""
-        from cja_sdr_generator import find_similar_names
+        from cja_auto_sdr.generator import find_similar_names
         names = ["Analytics", "Completely Different Name"]
         similar = find_similar_names("Analytics", names, max_distance=2)
 
@@ -2601,7 +2601,7 @@ class TestFindSimilarNames:
 
     def test_find_similar_empty_list(self):
         """Test with empty available names"""
-        from cja_sdr_generator import find_similar_names
+        from cja_auto_sdr.generator import find_similar_names
         similar = find_similar_names("Analytics", [])
         assert len(similar) == 0
 
@@ -2613,7 +2613,7 @@ class TestDataViewCache:
 
     def test_cache_set_and_get(self):
         """Test setting and getting from cache"""
-        from cja_sdr_generator import DataViewCache
+        from cja_auto_sdr.generator import DataViewCache
 
         # Create a fresh cache instance for testing
         cache = DataViewCache.__new__(DataViewCache)
@@ -2629,7 +2629,7 @@ class TestDataViewCache:
 
     def test_cache_miss(self):
         """Test cache miss returns None"""
-        from cja_sdr_generator import DataViewCache
+        from cja_auto_sdr.generator import DataViewCache
 
         cache = DataViewCache.__new__(DataViewCache)
         cache._cache = {}
@@ -2641,7 +2641,7 @@ class TestDataViewCache:
 
     def test_cache_clear(self):
         """Test clearing the cache"""
-        from cja_sdr_generator import DataViewCache
+        from cja_auto_sdr.generator import DataViewCache
 
         cache = DataViewCache.__new__(DataViewCache)
         cache._cache = {}
@@ -2657,7 +2657,7 @@ class TestDataViewCache:
 
     def test_cache_ttl_expiry(self):
         """Test that cache expires after TTL"""
-        from cja_sdr_generator import DataViewCache
+        from cja_auto_sdr.generator import DataViewCache
         import time
 
         cache = DataViewCache.__new__(DataViewCache)
@@ -2725,7 +2725,7 @@ class TestSnapshotToSnapshotComparison:
 
     def test_compare_snapshots_basic(self, temp_snapshots):
         """Test basic snapshot-to-snapshot comparison"""
-        from cja_sdr_generator import handle_compare_snapshots_command
+        from cja_auto_sdr.generator import handle_compare_snapshots_command
 
         source_file, target_file = temp_snapshots
         success, has_changes, exit_code = handle_compare_snapshots_command(
@@ -2740,7 +2740,7 @@ class TestSnapshotToSnapshotComparison:
 
     def test_compare_snapshots_identical(self, tmp_path, sample_metrics, sample_dimensions):
         """Test comparing identical snapshots"""
-        from cja_sdr_generator import handle_compare_snapshots_command
+        from cja_auto_sdr.generator import handle_compare_snapshots_command
 
         snapshot_data = {
             "snapshot_version": "1.0",
@@ -2774,7 +2774,7 @@ class TestSnapshotToSnapshotComparison:
 
     def test_compare_snapshots_file_not_found(self, tmp_path):
         """Test error handling for missing snapshot file"""
-        from cja_sdr_generator import handle_compare_snapshots_command
+        from cja_auto_sdr.generator import handle_compare_snapshots_command
 
         success, _, _ = handle_compare_snapshots_command(
             source_file=str(tmp_path / "nonexistent.json"),
@@ -2787,7 +2787,7 @@ class TestSnapshotToSnapshotComparison:
 
     def test_compare_snapshots_with_reverse(self, temp_snapshots):
         """Test reverse comparison flag"""
-        from cja_sdr_generator import handle_compare_snapshots_command
+        from cja_auto_sdr.generator import handle_compare_snapshots_command
 
         source_file, target_file = temp_snapshots
         success, has_changes, _ = handle_compare_snapshots_command(
@@ -2809,7 +2809,7 @@ class TestNewFeatureCLIArguments:
 
     def test_parse_compare_snapshots_argument(self):
         """Test that --compare-snapshots is parsed correctly"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2822,7 +2822,7 @@ class TestNewFeatureCLIArguments:
 
     def test_compare_snapshots_with_options(self):
         """Test --compare-snapshots with additional options"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         import sys
 
         original_argv = sys.argv
@@ -2848,7 +2848,7 @@ class TestPromptForSelection:
 
     def test_prompt_returns_none_for_non_tty(self):
         """Test that prompt returns None when not in interactive terminal"""
-        from cja_sdr_generator import prompt_for_selection
+        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
 
         # Mock sys.stdin.isatty() to return False
@@ -2859,7 +2859,7 @@ class TestPromptForSelection:
 
     def test_prompt_handles_valid_selection(self):
         """Test that valid selection returns correct ID"""
-        from cja_sdr_generator import prompt_for_selection
+        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
 
         options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
@@ -2871,7 +2871,7 @@ class TestPromptForSelection:
 
     def test_prompt_handles_cancel(self):
         """Test that cancel selection returns None"""
-        from cja_sdr_generator import prompt_for_selection
+        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
 
         options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
@@ -2883,7 +2883,7 @@ class TestPromptForSelection:
 
     def test_prompt_handles_eof(self):
         """Test that EOF is handled gracefully"""
-        from cja_sdr_generator import prompt_for_selection
+        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
 
         options = [("dv_1", "Option 1")]
@@ -3043,7 +3043,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_auto_snapshot_flag_default(self):
         """Test that --auto-snapshot defaults to False"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3053,7 +3053,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_auto_snapshot_flag_enabled(self):
         """Test that --auto-snapshot can be enabled"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3063,7 +3063,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_snapshot_dir_default(self):
         """Test that --snapshot-dir has correct default"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3073,7 +3073,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_snapshot_dir_custom(self):
         """Test that --snapshot-dir can be customized"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3083,7 +3083,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_keep_last_default(self):
         """Test that --keep-last defaults to 0 (keep all)"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3093,7 +3093,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_keep_last_custom(self):
         """Test that --keep-last can be set"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3103,7 +3103,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_all_auto_snapshot_flags_together(self):
         """Test all auto-snapshot flags used together"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3120,7 +3120,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_compare_with_prev_flag_default(self):
         """Test that --compare-with-prev defaults to False"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3130,7 +3130,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_compare_with_prev_flag_enabled(self):
         """Test that --compare-with-prev can be enabled"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3140,7 +3140,7 @@ class TestAutoSnapshotCLIArguments:
 
     def test_compare_with_prev_with_snapshot_dir(self):
         """Test --compare-with-prev works with --snapshot-dir"""
-        from cja_sdr_generator import parse_arguments
+        from cja_auto_sdr.generator import parse_arguments
         from unittest.mock import patch
         import sys
 
@@ -3157,7 +3157,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_returns_latest(self):
         """Test that get_most_recent_snapshot returns the most recent snapshot"""
-        from cja_sdr_generator import SnapshotManager, DataViewSnapshot
+        from cja_auto_sdr.generator import SnapshotManager, DataViewSnapshot
         import time
 
         manager = SnapshotManager()
@@ -3191,7 +3191,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_filters_by_data_view(self):
         """Test that get_most_recent_snapshot only returns snapshots for specified data view"""
-        from cja_sdr_generator import SnapshotManager, DataViewSnapshot
+        from cja_auto_sdr.generator import SnapshotManager, DataViewSnapshot
 
         manager = SnapshotManager()
 
@@ -3224,7 +3224,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_returns_none_if_no_snapshots(self):
         """Test that get_most_recent_snapshot returns None when no snapshots exist"""
-        from cja_sdr_generator import SnapshotManager
+        from cja_auto_sdr.generator import SnapshotManager
 
         manager = SnapshotManager()
 
@@ -3234,7 +3234,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_returns_none_for_empty_dir(self):
         """Test that get_most_recent_snapshot returns None for empty directory"""
-        from cja_sdr_generator import SnapshotManager
+        from cja_auto_sdr.generator import SnapshotManager
 
         manager = SnapshotManager()
 
@@ -3244,7 +3244,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_returns_none_for_nonexistent_dir(self):
         """Test that get_most_recent_snapshot returns None for non-existent directory"""
-        from cja_sdr_generator import SnapshotManager
+        from cja_auto_sdr.generator import SnapshotManager
 
         manager = SnapshotManager()
         result = manager.get_most_recent_snapshot("/nonexistent/path", "dv_test")

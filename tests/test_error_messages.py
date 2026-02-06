@@ -5,7 +5,7 @@ Tests the ErrorMessageHelper class and its integration with the codebase.
 """
 
 import pytest
-from cja_sdr_generator import ErrorMessageHelper
+from cja_auto_sdr.generator import ErrorMessageHelper
 
 
 class TestErrorMessageHelper:
@@ -199,7 +199,7 @@ class TestErrorMessageIntegration:
 
     def test_retryable_http_error_integration(self):
         """Test that RetryableHTTPError works with ErrorMessageHelper"""
-        from cja_sdr_generator import RetryableHTTPError
+        from cja_auto_sdr.generator import RetryableHTTPError
 
         # Create a RetryableHTTPError
         error = RetryableHTTPError(429, "Rate limit exceeded")
@@ -213,7 +213,7 @@ class TestErrorMessageIntegration:
 
     def test_error_messages_for_all_retryable_status_codes(self):
         """Test that we have error messages for all retryable status codes"""
-        from cja_sdr_generator import RETRYABLE_STATUS_CODES
+        from cja_auto_sdr.generator import RETRYABLE_STATUS_CODES
 
         # Test that we can generate messages for all retryable status codes
         for status_code in RETRYABLE_STATUS_CODES:

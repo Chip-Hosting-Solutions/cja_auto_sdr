@@ -14,7 +14,7 @@ import json
 import pandas as pd
 from unittest.mock import Mock, MagicMock
 
-from cja_calculated_metrics_inventory import (
+from cja_auto_sdr.inventory.calculated_metrics import (
     CalculatedMetricsInventoryBuilder,
     CalculatedMetricsInventory,
     CalculatedMetricSummary,

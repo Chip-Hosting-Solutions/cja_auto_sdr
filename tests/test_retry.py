@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch, MagicMock
 import sys
 sys.path.insert(0, '.')
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     retry_with_backoff,
     make_api_call_with_retry,
     DEFAULT_RETRY_CONFIG,

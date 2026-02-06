@@ -34,17 +34,21 @@ tests/
 ├── test_circuit_breaker.py          # Circuit breaker pattern tests
 ├── test_shared_cache.py             # Shared validation cache tests
 ├── test_inventory_utils.py          # Inventory utilities tests
+├── test_org_report.py               # Org-wide analysis tests
+├── test_org_report_integration.py   # Org-wide analysis integration tests
 └── README.md                        # This file
 ```
 
-**Total: 1,017 comprehensive tests**
+**Total: 1,231 comprehensive tests**
 
 ### Test Count Breakdown
 
 | Test File | Tests | Coverage Area |
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 159 | Data view diff comparison feature with inventory support |
-| `test_ux_features.py` | 103 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
+| `test_ux_features.py` | 116 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
+| `test_org_report.py` | 144 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
+| `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 76 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
@@ -53,7 +57,7 @@ tests/
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
 | `test_calculated_metrics_inventory.py` | 36 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 33 | Git integration, snapshot management, inventory snapshots |
-| `test_output_formats.py` | 32 | CSV, JSON, HTML, Markdown output generation |
+| `test_output_formats.py` | 36 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 32 | CJA connection and configuration validation |
 | `test_utils.py` | 27 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
@@ -74,7 +78,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,017** | **100% pass rate** |
+| **Total** | **1,231** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -160,7 +164,7 @@ uv run pytest -v
 uv add --dev pytest-cov
 
 # Run with coverage
-uv run pytest --cov=cja_sdr_generator --cov-report=html --cov-report=term
+uv run pytest --cov=cja_auto_sdr --cov-report=html --cov-report=term
 ```
 
 ## Test Categories
@@ -459,23 +463,39 @@ uv run pytest
 4. **Fast execution**: Keep unit tests fast (< 1 second each)
 5. **Descriptive names**: Use clear, descriptive test function names
 
+## Sync Test Counts
+
+Regenerate test counts in docs after adding or removing tests:
+
+```bash
+.venv/bin/python scripts/update_test_counts.py
+```
+
+Check for drift (CI-friendly):
+
+```bash
+.venv/bin/python scripts/update_test_counts.py --check
+```
+
 ## Completed Enhancements
 
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,017 tests total)
-- [x] Profile management tests (test_profiles.py) - 44 tests
-- [x] API worker auto-tuning tests (test_api_tuning.py) - 24 tests
-- [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 23 tests
-- [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
-- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 37 tests
-- [x] Segments inventory tests (test_segments_inventory.py) - 42 tests
-- [x] Derived fields inventory tests (test_derived_inventory.py) - 44 tests
+- [x] Comprehensive test coverage (1,231 tests total)
+- [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
+- [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
+- [x] Profile management tests (test_profiles.py) - 43 tests
+- [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
+- [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
+- [x] Shared validation cache tests (test_shared_cache.py) - 16 tests
+- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 36 tests
+- [x] Segments inventory tests (test_segments_inventory.py) - 41 tests
+- [x] Derived fields inventory tests (test_derived_inventory.py) - 43 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 41 tests
 - [x] Git integration tests (test_git_integration.py) - 33 tests
 - [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 159 tests
-- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 103 tests
+- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 116 tests
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
@@ -490,7 +510,7 @@ uv run pytest
 - [x] Excel formatting tests (test_excel_formatting.py)
 - [x] CJA initialization tests (test_cja_initialization.py)
 - [x] Name resolution tests (test_name_resolution.py)
-- [x] Data view diff comparison tests (test_diff_comparison.py) - 145 tests covering snapshots, comparison logic, output formats, CLI arguments, name resolution
+- [x] Data view diff comparison tests (test_diff_comparison.py) - 159 tests covering snapshots, comparison logic, output formats, CLI arguments, name resolution
 - [x] Edge case tests (test_edge_cases.py) - 39 tests covering custom exceptions, configuration dataclasses, OutputWriter Protocol, boundary conditions
 
 ## Future Enhancements

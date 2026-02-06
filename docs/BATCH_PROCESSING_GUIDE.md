@@ -134,8 +134,8 @@ cja_auto_sdr --batch \
 ```text
 $ cja_auto_sdr
 
-usage: cja_sdr_generator.py [-h] [--batch] ... DATA_VIEW_ID [DATA_VIEW_ID ...]
-cja_sdr_generator.py: error: the following arguments are required: DATA_VIEW_ID
+usage: cja_auto_sdr [-h] [--batch] ... DATA_VIEW_ID [DATA_VIEW_ID ...]
+cja_auto_sdr: error: the following arguments are required: DATA_VIEW_ID
 ```
 
 ### Invalid Data View ID Format
@@ -266,15 +266,15 @@ Throughput: 4.8 data views per minute
 
 ```powershell
 # Create a scheduled task to run nightly at 2 AM
-$action = New-ScheduledTaskAction -Execute "python" `
-  -Argument "cja_sdr_generator.py --batch dv_12345 dv_67890 dv_abcde --output-dir C:\reports --continue-on-error --log-level WARNING" `
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\cja_auto_sdr.exe" `
+  -Argument "--batch dv_12345 dv_67890 dv_abcde --output-dir C:\reports --continue-on-error --log-level WARNING" `
   -WorkingDirectory "C:\path\to\project"
 $trigger = New-ScheduledTaskTrigger -Daily -At 2am
 Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "CJA SDR Nightly" -Description "Generate CJA SDR reports"
 
 # Or create a weekly task for Sunday at midnight
-$weeklyAction = New-ScheduledTaskAction -Execute "python" `
-  -Argument "cja_sdr_generator.py --batch dv_12345 dv_67890 --workers 8 --output-dir C:\weekly_reports --continue-on-error" `
+$weeklyAction = New-ScheduledTaskAction -Execute "C:\path\to\project\.venv\Scripts\cja_auto_sdr.exe" `
+  -Argument "--batch dv_12345 dv_67890 --workers 8 --output-dir C:\weekly_reports --continue-on-error" `
   -WorkingDirectory "C:\path\to\project"
 $weeklyTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 12am
 Register-ScheduledTask -Action $weeklyAction -Trigger $weeklyTrigger -TaskName "CJA SDR Weekly"
@@ -285,8 +285,8 @@ Register-ScheduledTask -Action $weeklyAction -Trigger $weeklyTrigger -TaskName "
 2. Click "Create Basic Task..."
 3. Set schedule (Daily/Weekly)
 4. Action: "Start a program"
-5. Program: `python` (or full path to Python)
-6. Arguments: `cja_sdr_generator.py --batch dv_12345 --output-dir C:\reports`
+5. Program: `C:\path\to\project\.venv\Scripts\cja_auto_sdr.exe`
+6. Arguments: `--batch dv_12345 --output-dir C:\reports`
 7. Start in: `C:\path\to\project`
 
 ## Best Practices
@@ -391,7 +391,7 @@ cja_auto_sdr --batch dv_1 dv_2 dv_3 --workers 2
 ```python
 # Old way: Edit script to change data view
 data_view = "dv_677ea9291244fd082f02dd42"
-python cja_sdr_generator.py
+cja_auto_sdr
 ```
 
 ### After (Command-Line Arguments)
@@ -442,6 +442,7 @@ For issues, questions, or feature requests:
 - [CLI Reference](CLI_REFERENCE.md) - Complete command-line options
 - [Performance Guide](PERFORMANCE.md) - Optimization and caching
 - [Use Cases](USE_CASES.md) - Automation workflows
+- [Org-Wide Analysis](ORG_WIDE_ANALYSIS.md) - Analyze components across all data views
 - [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter documentation
 - [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field documentation
 - [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics documentation

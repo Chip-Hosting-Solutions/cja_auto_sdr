@@ -10,18 +10,37 @@ myconfig.json
 .env
 *.key
 *.pem
+
+# Build artifacts
 build/
 dist/
 wheels/
 *.egg-info
+
+# Office temp files
 ~$*
+
+# Logs
 logs/
-.claude
+
+# IDE
+.idea/
+.vscode/
 
 # Virtual environments
-.venv
-*.xlsx
-CLAUDE.md
+.venv/
 
 # Test output
 out.json
+
+# Temporary files
+plan.md
+
+# Ignore xlsx everywhere except sample_outputs and test fixtures
+*.xlsx
+!sample_outputs/**/*.xlsx
+!tests/fixtures/**/*.xlsx
+
+# Claude Code session files
+.claude/
+CLAUDE.md

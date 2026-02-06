@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     load_credentials_from_env,
     validate_env_credentials,
     _config_from_env,
@@ -136,7 +136,7 @@ class TestConfigFromEnv:
         }
         logger = MagicMock()
 
-        with patch('cja_sdr_generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
             _config_from_env(credentials, logger)
 
             # Verify importConfigFile was called

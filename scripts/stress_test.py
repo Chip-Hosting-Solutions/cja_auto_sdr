@@ -16,9 +16,9 @@ import logging
 import pandas as pd
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     ValidationCache,
     DataQualityChecker,
     PerformanceTracker,

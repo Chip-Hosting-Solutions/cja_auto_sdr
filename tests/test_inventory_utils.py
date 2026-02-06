@@ -6,7 +6,7 @@ import logging
 import pytest
 import pandas as pd
 
-from cja_inventory_utils import (
+from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
     compute_complexity_score,
     extract_owner,

@@ -10,7 +10,7 @@ import os
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import (
+from cja_auto_sdr.generator import (
     setup_logging,
     validate_config_file,
     PerformanceTracker,
@@ -265,7 +265,7 @@ class TestValidationSchema:
 
     def test_validation_schema_integration_with_checker(self):
         """Test VALIDATION_SCHEMA works with DataQualityChecker"""
-        from cja_sdr_generator import DataQualityChecker
+        from cja_auto_sdr.generator import DataQualityChecker
         import pandas as pd
 
         logger = logging.getLogger("test")

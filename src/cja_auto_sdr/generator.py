@@ -2,7 +2,10 @@ import cjapy
 import pandas as pd
 import json
 import re
-from datetime import datetime
+import html
+import math
+import contextlib
+from datetime import datetime, timedelta
 import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
@@ -50,405 +53,128 @@ try:
 except ImportError:
     pass  # argcomplete not installed
 
-# ==================== VERSION ====================
-
-__version__ = "3.1.0"
-
-# ==================== FORMAT ALIASES ====================
-
-# Shorthand format aliases for common output combinations
-FORMAT_ALIASES = {
-    'reports': ['excel', 'markdown'],  # Documentation: Excel + Markdown
-    'data': ['csv', 'json'],            # Data pipelines: CSV + JSON
-    'ci': ['json', 'markdown'],         # CI/CD logs: JSON + Markdown
-}
-
-# File extension to format mapping for auto-detection
-EXTENSION_TO_FORMAT = {
-    '.xlsx': 'excel',
-    '.xls': 'excel',
-    '.csv': 'csv',
-    '.json': 'json',
-    '.html': 'html',
-    '.htm': 'html',
-    '.md': 'markdown',
-    '.markdown': 'markdown',
-}
-
-
-def infer_format_from_path(output_path: str) -> Optional[str]:
-    """
-    Infer output format from file extension.
-
-    Args:
-        output_path: The output file path
-
-    Returns:
-        Format string if recognized extension, None otherwise
-    """
-    if not output_path or output_path in ('-', 'stdout'):
-        return None
-    ext = os.path.splitext(output_path)[1].lower()
-    return EXTENSION_TO_FORMAT.get(ext)
-
-
-def should_generate_format(output_format: str, target_format: str) -> bool:
-    """
-    Check if a specific format should be generated based on the output_format setting.
-
-    Args:
-        output_format: The format requested by user (e.g., 'all', 'reports', 'excel')
-        target_format: The specific format to check (e.g., 'excel', 'json')
-
-    Returns:
-        True if target_format should be generated
-    """
-    if output_format == target_format:
-        return True
-    if output_format == 'all':
-        return target_format in ['excel', 'csv', 'json', 'html', 'markdown']
-    if output_format in FORMAT_ALIASES:
-        return target_format in FORMAT_ALIASES[output_format]
-    return False
-
-
-# ==================== CUSTOM EXCEPTIONS ====================
-
-
-class CJASDRError(Exception):
-    """Base exception for all CJA SDR errors."""
-
-    def __init__(self, message: str, details: Optional[str] = None):
-        self.message = message
-        self.details = details
-        super().__init__(self.message)
-
-    def __str__(self) -> str:
-        if self.details:
-            return f"{self.message}: {self.details}"
-        return self.message
-
-
-class ConfigurationError(CJASDRError):
-    """Exception raised for configuration-related errors.
-
-    Examples:
-        - Missing config file
-        - Invalid JSON in config file
-        - Missing required credentials
-        - Invalid credential format
-    """
-
-    def __init__(self, message: str, config_file: Optional[str] = None,
-                 field: Optional[str] = None, details: Optional[str] = None):
-        self.config_file = config_file
-        self.field = field
-        super().__init__(message, details)
-
-
-class APIError(CJASDRError):
-    """Exception raised for API communication failures.
-
-    Wraps HTTP errors and network failures with context about
-    the operation that failed.
-    """
-
-    def __init__(self, message: str, status_code: Optional[int] = None,
-                 operation: Optional[str] = None, details: Optional[str] = None,
-                 original_error: Optional[Exception] = None):
-        self.status_code = status_code
-        self.operation = operation
-        self.original_error = original_error
-        super().__init__(message, details)
-
-    def __str__(self) -> str:
-        parts = [self.message]
-        if self.status_code:
-            parts.append(f"HTTP {self.status_code}")
-        if self.operation:
-            parts.append(f"during {self.operation}")
-        if self.details:
-            parts.append(self.details)
-        return " - ".join(parts)
-
-
-class ValidationError(CJASDRError):
-    """Exception raised for data quality validation failures.
-
-    Used when validation encounters critical issues that prevent
-    further processing.
-    """
-
-    def __init__(self, message: str, item_type: Optional[str] = None,
-                 issue_count: int = 0, details: Optional[str] = None):
-        self.item_type = item_type
-        self.issue_count = issue_count
-        super().__init__(message, details)
-
-
-class OutputError(CJASDRError):
-    """Exception raised for file writing failures.
-
-    Examples:
-        - Permission denied
-        - Disk full
-        - Invalid path
-        - Serialization error
-    """
-
-    def __init__(self, message: str, output_path: Optional[str] = None,
-                 output_format: Optional[str] = None, details: Optional[str] = None,
-                 original_error: Optional[Exception] = None):
-        self.output_path = output_path
-        self.output_format = output_format
-        self.original_error = original_error
-        super().__init__(message, details)
-
-
-class ProfileError(CJASDRError):
-    """Base exception for profile-related errors.
-
-    Used when operations involving credential profiles fail.
-    """
-
-    def __init__(self, message: str, profile_name: Optional[str] = None,
-                 details: Optional[str] = None):
-        self.profile_name = profile_name
-        super().__init__(message, details)
-
-
-class ProfileNotFoundError(ProfileError):
-    """Raised when a profile directory doesn't exist.
-
-    Examples:
-        - Profile directory not found in ~/.cja/orgs/
-        - Neither config.json nor .env exists in profile directory
-    """
-    pass
-
-
-class ProfileConfigError(ProfileError):
-    """Raised when a profile has invalid configuration.
-
-    Examples:
-        - Invalid JSON in config.json
-        - Missing required credentials
-        - Invalid profile name format
-    """
-    pass
-
-
-class CredentialSourceError(CJASDRError):
-    """Exception raised when credential loading fails from any source.
-
-    Provides consistent error handling across all credential sources
-    (profiles, environment variables, config files).
-
-    Attributes:
-        source: Name of the credential source (e.g., "profile", "env", "config_file")
-        reason: Why the credential loading failed
-    """
-
-    def __init__(self, message: str, source: str,
-                 reason: Optional[str] = None, details: Optional[str] = None):
-        self.source = source
-        self.reason = reason
-        super().__init__(message, details)
-
-    def __str__(self) -> str:
-        parts = [f"[{self.source}] {self.message}"]
-        if self.reason:
-            parts.append(f"Reason: {self.reason}")
-        if self.details:
-            parts.append(self.details)
-        return " - ".join(parts)
-
-
-# ==================== CONFIGURATION DATACLASSES ====================
-
-
-@dataclass
-class RetryConfig:
-    """Configuration for retry logic with exponential backoff.
-
-    Attributes:
-        max_retries: Maximum number of retry attempts (default: 3)
-        base_delay: Initial delay in seconds (default: 1.0)
-        max_delay: Maximum delay cap in seconds (default: 30.0)
-        exponential_base: Multiplier for exponential backoff (default: 2)
-        jitter: Add randomization to delays (default: True)
-    """
-    max_retries: int = 3
-    base_delay: float = 1.0
-    max_delay: float = 30.0
-    exponential_base: int = 2
-    jitter: bool = True
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for backward compatibility."""
-        return {
-            'max_retries': self.max_retries,
-            'base_delay': self.base_delay,
-            'max_delay': self.max_delay,
-            'exponential_base': self.exponential_base,
-            'jitter': self.jitter,
-        }
-
-
-@dataclass
-class CacheConfig:
-    """Configuration for validation result caching.
-
-    Attributes:
-        enabled: Whether caching is enabled (default: False)
-        max_size: Maximum number of cached entries (default: 1000)
-        ttl_seconds: Time-to-live in seconds (default: 3600 = 1 hour)
-    """
-    enabled: bool = False
-    max_size: int = 1000
-    ttl_seconds: int = 3600
-
-
-@dataclass
-class LogConfig:
-    """Configuration for logging behavior.
-
-    Attributes:
-        level: Logging level string (default: "INFO")
-        file_max_bytes: Maximum size per log file (default: 10MB)
-        file_backup_count: Number of backup log files (default: 5)
-    """
-    level: str = "INFO"
-    file_max_bytes: int = 10 * 1024 * 1024  # 10MB
-    file_backup_count: int = 5
-
-
-@dataclass
-class WorkerConfig:
-    """Configuration for parallel processing workers.
-
-    Attributes:
-        api_fetch_workers: Concurrent API fetch threads (default: 3)
-        validation_workers: Concurrent validation threads (default: 2)
-        batch_workers: Batch processing workers (default: 4)
-        max_batch_workers: Maximum allowed batch workers (default: 256)
-    """
-    api_fetch_workers: int = 3
-    validation_workers: int = 2
-    batch_workers: int = 4
-    max_batch_workers: int = 256
-
-
-@dataclass
-class APITuningConfig:
-    """Configuration for API worker auto-tuning.
-
-    Dynamically adjusts the number of API fetch workers based on response times.
-    Opt-in feature enabled via --api-auto-tune CLI flag.
-
-    Attributes:
-        min_workers: Minimum number of workers (default: 1)
-        max_workers: Maximum number of workers (default: 10)
-        scale_up_threshold_ms: Add workers if avg response time below this (default: 200ms)
-        scale_down_threshold_ms: Remove workers if avg response time above this (default: 2000ms)
-        sample_window: Number of requests to average before adjusting (default: 5)
-        cooldown_seconds: Minimum time between adjustments (default: 10s)
-    """
-    min_workers: int = 1
-    max_workers: int = 10
-    scale_up_threshold_ms: float = 200.0
-    scale_down_threshold_ms: float = 2000.0
-    sample_window: int = 5
-    cooldown_seconds: float = 10.0
-
-
-class CircuitState(Enum):
-    """States for the circuit breaker pattern."""
-    CLOSED = "closed"      # Normal operation, requests flow through
-    OPEN = "open"          # Circuit tripped, requests fail fast
-    HALF_OPEN = "half_open"  # Testing if service recovered
-
-
-@dataclass
-class CircuitBreakerConfig:
-    """Configuration for circuit breaker pattern.
-
-    Prevents cascading failures by stopping requests to a failing service.
-    Opt-in feature enabled via --circuit-breaker CLI flag.
-
-    Attributes:
-        failure_threshold: Consecutive failures before opening circuit (default: 5)
-        success_threshold: Successes in half-open to close circuit (default: 2)
-        timeout_seconds: Time before attempting recovery (open→half-open) (default: 30)
-    """
-    failure_threshold: int = 5
-    success_threshold: int = 2
-    timeout_seconds: float = 30.0
-
-
-class CircuitBreakerOpen(Exception):
-    """Exception raised when circuit breaker is open and request is rejected."""
-
-    def __init__(self, message: str = "Circuit breaker is open", time_until_retry: float = 0):
-        self.message = message
-        self.time_until_retry = time_until_retry
-        super().__init__(self.message)
-
-
-@dataclass
-class SDRConfig:
-    """Master configuration for SDR generation.
-
-    Centralizes all configuration options in a single, testable dataclass.
-
-    Attributes:
-        retry: Retry configuration
-        cache: Cache configuration
-        log: Logging configuration
-        workers: Worker configuration
-        output_format: Output format (excel, csv, json, html, markdown, all)
-        output_dir: Output directory path
-        skip_validation: Skip data quality validation
-        max_issues: Maximum issues to report (0 = all)
-        quiet: Suppress non-error output
-    """
-    retry: RetryConfig = field(default_factory=RetryConfig)
-    cache: CacheConfig = field(default_factory=CacheConfig)
-    log: LogConfig = field(default_factory=LogConfig)
-    workers: WorkerConfig = field(default_factory=WorkerConfig)
-    output_format: str = "excel"
-    output_dir: str = "."
-    skip_validation: bool = False
-    max_issues: int = 0
-    quiet: bool = False
-
-    @classmethod
-    def from_args(cls, args: argparse.Namespace) -> 'SDRConfig':
-        """Create configuration from parsed command-line arguments."""
-        return cls(
-            retry=RetryConfig(
-                max_retries=getattr(args, 'max_retries', 3),
-                base_delay=getattr(args, 'retry_base_delay', 1.0),
-                max_delay=getattr(args, 'retry_max_delay', 30.0),
-            ),
-            cache=CacheConfig(
-                enabled=getattr(args, 'enable_cache', False),
-                max_size=getattr(args, 'cache_size', 1000),
-                ttl_seconds=getattr(args, 'cache_ttl', 3600),
-            ),
-            log=LogConfig(
-                level=getattr(args, 'log_level', 'INFO'),
-            ),
-            workers=WorkerConfig(
-                batch_workers=getattr(args, 'workers', 4),
-            ),
-            output_format=getattr(args, 'format', 'excel'),
-            output_dir=getattr(args, 'output_dir', '.'),
-            skip_validation=getattr(args, 'skip_validation', False),
-            max_issues=getattr(args, 'max_issues', 0),
-            quiet=getattr(args, 'quiet', False),
-        )
-
+# ==================== IMPORTS FROM MODULAR SUBPACKAGES ====================
+# These imports are from the new modular structure introduced in v3.2.0
+# They are re-exported here for backwards compatibility
+
+from cja_auto_sdr.core.version import __version__
+from cja_auto_sdr.core.exceptions import (
+    CJASDRError,
+    ConfigurationError,
+    APIError,
+    ValidationError,
+    OutputError,
+    ProfileError,
+    ProfileNotFoundError,
+    ProfileConfigError,
+    CredentialSourceError,
+    CircuitBreakerOpen,
+    RetryableHTTPError,
+)
+from cja_auto_sdr.core.config import (
+    RetryConfig,
+    CacheConfig,
+    LogConfig,
+    WorkerConfig,
+    APITuningConfig,
+    CircuitState,
+    CircuitBreakerConfig,
+    SDRConfig,
+    WizardConfig,
+)
+from cja_auto_sdr.core.constants import (
+    FORMAT_ALIASES,
+    EXTENSION_TO_FORMAT,
+    DEFAULT_API_FETCH_WORKERS,
+    DEFAULT_VALIDATION_WORKERS,
+    DEFAULT_BATCH_WORKERS,
+    MAX_BATCH_WORKERS,
+    AUTO_WORKERS_SENTINEL,
+    DEFAULT_CACHE_SIZE,
+    DEFAULT_CACHE_TTL,
+    LOG_FILE_MAX_BYTES,
+    LOG_FILE_BACKUP_COUNT,
+    DEFAULT_RETRY,
+    DEFAULT_CACHE,
+    DEFAULT_LOG,
+    DEFAULT_WORKERS,
+    DEFAULT_RETRY_CONFIG,
+    VALIDATION_SCHEMA,
+    RETRYABLE_STATUS_CODES,
+    CONFIG_SCHEMA,
+    JWT_DEPRECATED_FIELDS,
+    ENV_VAR_MAPPING,
+    CREDENTIAL_FIELDS,
+    auto_detect_workers,
+    infer_format_from_path,
+    should_generate_format,
+    _get_credential_fields,
+)
+from cja_auto_sdr.core.colors import (
+    ConsoleColors,
+    ANSIColors,
+    format_file_size,
+    open_file_in_default_app,
+    _format_error_msg,
+)
+from cja_auto_sdr.api.resilience import (
+    ErrorMessageHelper,
+    CircuitBreaker,
+    RETRYABLE_EXCEPTIONS,
+    retry_with_backoff,
+    make_api_call_with_retry,
+)
+
+# ==================== LEGACY DEFINITIONS REMOVED ====================
+# The following sections have been moved to cja_auto_sdr.core:
+# - Version (__version__) -> core/version.py
+# - Exceptions (CJASDRError, etc.) -> core/exceptions.py
+# - Config dataclasses (RetryConfig, etc.) -> core/config.py
+# - Constants (FORMAT_ALIASES, etc.) -> core/constants.py
+# - Colors (ConsoleColors, etc.) -> core/colors.py
+#
+# The following sections have been moved to cja_auto_sdr.api:
+# - ErrorMessageHelper -> api/resilience.py
+# - CircuitBreaker -> api/resilience.py
+# - RETRYABLE_EXCEPTIONS -> api/resilience.py
+# - retry_with_backoff -> api/resilience.py
+# - make_api_call_with_retry -> api/resilience.py
+#
+# They are imported above for backwards compatibility.
+
+# ==================== ORG-WIDE ANALYSIS IMPORTS ====================
+# These were moved to cja_auto_sdr.org in v3.2.0
+# They are re-exported here for backwards compatibility
+
+from cja_auto_sdr.org.models import (
+    OrgReportConfig,
+    ComponentInfo,
+    DataViewSummary,
+    SimilarityPair,
+    DataViewCluster,
+    ComponentDistribution,
+    OrgReportResult,
+    OrgReportComparison,
+)
+from cja_auto_sdr.org.cache import OrgReportCache
+from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
+
+
+# ==================== LEGACY ORG-WIDE DEFINITIONS (REMOVED) ====================
+# The following classes have been moved to cja_auto_sdr.org:
+# - OrgReportConfig -> org/models.py
+# - ComponentInfo -> org/models.py
+# - DataViewSummary -> org/models.py
+# - SimilarityPair -> org/models.py
+# - DataViewCluster -> org/models.py
+# - ComponentDistribution -> org/models.py
+# - OrgReportResult -> org/models.py
+# - OrgReportComparison -> org/models.py
+# - OrgReportCache -> org/cache.py
+# - OrgComponentAnalyzer -> org/analyzer.py
+
+
+TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
 
 # ==================== OUTPUT WRITER PROTOCOL ====================
 
@@ -507,1193 +233,15 @@ ValidationIssue = Dict[str, Any]
 T = TypeVar('T')
 
 
-# ==================== DEFAULT CONSTANTS ====================
-# Note: These module-level constants are maintained for backward compatibility.
-# New code should use the corresponding dataclass configurations (SDRConfig,
-# RetryConfig, CacheConfig, LogConfig, WorkerConfig) for better type safety.
-
-# Worker thread/process limits
-DEFAULT_API_FETCH_WORKERS: int = 3      # Concurrent API fetch threads
-DEFAULT_VALIDATION_WORKERS: int = 2     # Concurrent validation threads
-DEFAULT_BATCH_WORKERS: int = 4          # Default batch processing workers
-MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
-AUTO_WORKERS_SENTINEL: int = 0          # Sentinel value to trigger auto-detection
-
-
-def auto_detect_workers(num_data_views: int = 1, total_components: int = 0) -> int:
-    """
-    Auto-detect optimal number of parallel workers based on system resources.
-
-    Uses a heuristic based on:
-    - CPU core count (primary factor)
-    - Number of data views to process
-    - Total component count (if known)
-
-    Args:
-        num_data_views: Number of data views to process
-        total_components: Optional total metrics + dimensions count
-
-    Returns:
-        Recommended number of workers (1 to MAX_BATCH_WORKERS)
-    """
-    # Get CPU count, default to 4 if detection fails
-    try:
-        cpu_count = os.cpu_count() or 4
-    except Exception:
-        cpu_count = 4
-
-    # Base workers on CPU count (leave some headroom for system)
-    base_workers = max(2, cpu_count - 1)
-
-    # For small jobs (1-2 data views), don't over-parallelize
-    if num_data_views <= 2:
-        workers = min(base_workers, num_data_views * 2)
-    else:
-        # Scale with data view count but cap at CPU-based limit
-        workers = min(base_workers, num_data_views)
-
-    # If we know component count, adjust based on complexity
-    # More components = more memory per worker, so use fewer workers
-    if total_components > 0:
-        # Large data views (>5000 components) - reduce workers to manage memory
-        if total_components > 5000:
-            workers = max(2, workers // 2)
-        # Very large (>10000 components) - be conservative
-        elif total_components > 10000:
-            workers = max(1, workers // 3)
-
-    # Ensure within bounds
-    return max(1, min(workers, MAX_BATCH_WORKERS))
-
-# Cache defaults
-DEFAULT_CACHE_SIZE: int = 1000          # Maximum cached validation results
-DEFAULT_CACHE_TTL: int = 3600           # Cache TTL in seconds (1 hour)
-
-# Logging defaults
-LOG_FILE_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB max per log file
-LOG_FILE_BACKUP_COUNT: int = 5              # Number of backup log files to keep
-
-# Default configuration instances (use these for consistent defaults)
-DEFAULT_RETRY = RetryConfig()
-DEFAULT_CACHE = CacheConfig()
-DEFAULT_LOG = LogConfig()
-DEFAULT_WORKERS = WorkerConfig()
-
-# ==================== VALIDATION SCHEMA ====================
-
-# Centralized field definitions for data quality validation.
-# Used by DataQualityChecker to identify:
-#   - Missing required fields (CRITICAL severity)
-#   - Null values in critical fields (MEDIUM severity)
-# Modify these lists as the CJA API evolves or validation requirements change.
-VALIDATION_SCHEMA = {
-    'required_metric_fields': ['id', 'name', 'type'],
-    'required_dimension_fields': ['id', 'name', 'type'],
-    'critical_fields': ['id', 'name', 'title', 'description'],
-}
-
-# ==================== ERROR FORMATTING ====================
-
-def _format_error_msg(operation: str, item_type: str = None, error: Exception = None) -> str:
-    """
-    Format error messages consistently across the application.
-
-    Args:
-        operation: Description of the operation that failed (e.g., "checking duplicates")
-        item_type: Optional item type context (e.g., "Metrics", "Dimensions")
-        error: Optional exception to include in the message
-
-    Returns:
-        Formatted error message string
-    """
-    msg = f"Error {operation}"
-    if item_type:
-        msg += f" for {item_type}"
-    if error:
-        msg += f": {str(error)}"
-    return msg
-
-
-def format_file_size(size_bytes: int) -> str:
-    """
-    Format file size in human-readable format.
-
-    Args:
-        size_bytes: Size in bytes
-
-    Returns:
-        Human-readable string (e.g., "1.5 MB", "256 KB", "42 B")
-    """
-    size = size_bytes
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
-
-def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
-    """
-    Open a file in the default application for its type.
-
-    Works cross-platform (macOS, Linux, Windows).
-
-    Args:
-        file_path: Path to the file to open
-
-    Returns:
-        True if successful, False otherwise
-    """
-    file_path = str(file_path)
-    logger = logging.getLogger(__name__)
-    try:
-        system = platform.system()
-        if system == 'Darwin':  # macOS
-            subprocess.run(['open', file_path], check=True)
-        elif system == 'Windows':
-            os.startfile(file_path)  # type: ignore[attr-defined]
-        else:  # Linux and others
-            subprocess.run(['xdg-open', file_path], check=True)
-        return True
-    except Exception as e:
-        logger.debug(f"Failed to open file with default app: {file_path} - {e}")
-        # Fallback to webbrowser for HTML files
-        if file_path.endswith('.html'):
-            try:
-                webbrowser.open(f'file://{os.path.abspath(file_path)}')
-                return True
-            except Exception as e2:
-                logger.debug(f"Fallback webbrowser.open also failed: {e2}")
-        return False
-
-
-# ==================== CONSOLE COLORS ====================
-
-class ConsoleColors:
-    """ANSI color codes for terminal output.
-
-    Auto-detects TTY support and handles Windows compatibility.
-    Use this class for general CLI output formatting.
-
-    Supports multiple color themes for accessibility:
-    - default: Green/red (standard)
-    - accessible: Blue/orange (deuteranopia/protanopia friendly)
-    """
-    # Base colors
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    ORANGE = '\033[38;5;208m'  # Extended 256-color orange
-    BOLD = '\033[1m'
-    DIM = '\033[90m'  # Bright black / dark gray for dimmed text
-    RESET = '\033[0m'
-    # Regex to strip ANSI escape codes for visible length calculation
-    ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
-
-    # Color themes for accessibility
-    THEMES = {
-        'default': {
-            'added': GREEN,      # Green for additions
-            'removed': RED,      # Red for removals
-            'modified': YELLOW,  # Yellow for modifications
-        },
-        'accessible': {
-            'added': BLUE,       # Blue for additions (accessible)
-            'removed': ORANGE,   # Orange for removals (accessible)
-            'modified': CYAN,    # Cyan for modifications
-        }
-    }
-
-    # Current theme (default)
-    _theme = 'default'
-
-    # Disable colors if not a TTY or on Windows without ANSI support
-    _enabled = sys.stdout.isatty() and (os.name != 'nt' or os.environ.get('TERM'))
-
-    @classmethod
-    def set_theme(cls, theme: str) -> None:
-        """Set the color theme. Valid themes: default, accessible"""
-        if theme in cls.THEMES:
-            cls._theme = theme
-        else:
-            raise ValueError(f"Unknown theme: {theme}. Valid themes: {', '.join(cls.THEMES.keys())}")
-
-    @classmethod
-    def is_enabled(cls) -> bool:
-        """Check if colors are enabled."""
-        return cls._enabled
-
-    @classmethod
-    def success(cls, text: str) -> str:
-        """Format text as success (green)"""
-        if cls._enabled:
-            return f"{cls.GREEN}{text}{cls.RESET}"
-        return text
-
-    # Alias for compatibility with ANSIColors
-    green = success
-
-    @classmethod
-    def error(cls, text: str) -> str:
-        """Format text as error (red)"""
-        if cls._enabled:
-            return f"{cls.RED}{text}{cls.RESET}"
-        return text
-
-    # Alias for compatibility with ANSIColors
-    red = error
-
-    @classmethod
-    def warning(cls, text: str) -> str:
-        """Format text as warning (yellow)"""
-        if cls._enabled:
-            return f"{cls.YELLOW}{text}{cls.RESET}"
-        return text
-
-    # Alias for compatibility with ANSIColors
-    yellow = warning
-
-    @classmethod
-    def info(cls, text: str) -> str:
-        """Format text as info (cyan)"""
-        if cls._enabled:
-            return f"{cls.CYAN}{text}{cls.RESET}"
-        return text
-
-    # Alias for compatibility with ANSIColors
-    cyan = info
-
-    @classmethod
-    def bold(cls, text: str) -> str:
-        """Format text as bold"""
-        if cls._enabled:
-            return f"{cls.BOLD}{text}{cls.RESET}"
-        return text
-
-    @classmethod
-    def dim(cls, text: str) -> str:
-        """Format text as dim/gray"""
-        if cls._enabled:
-            return f"{cls.DIM}{text}{cls.RESET}"
-        return text
-
-    @classmethod
-    def status(cls, success: bool, text: str) -> str:
-        """Format text based on success/failure status"""
-        return cls.success(text) if success else cls.error(text)
-
-    @classmethod
-    def diff_added(cls, text: str) -> str:
-        """Format text for 'added' items (theme-aware)"""
-        if cls._enabled:
-            color = cls.THEMES[cls._theme]['added']
-            return f"{color}{text}{cls.RESET}"
-        return text
-
-    @classmethod
-    def diff_removed(cls, text: str) -> str:
-        """Format text for 'removed' items (theme-aware)"""
-        if cls._enabled:
-            color = cls.THEMES[cls._theme]['removed']
-            return f"{color}{text}{cls.RESET}"
-        return text
-
-    @classmethod
-    def diff_modified(cls, text: str) -> str:
-        """Format text for 'modified' items (theme-aware)"""
-        if cls._enabled:
-            color = cls.THEMES[cls._theme]['modified']
-            return f"{color}{text}{cls.RESET}"
-        return text
-
-    @classmethod
-    def visible_len(cls, text: str) -> int:
-        """Return the visible length of a string, ignoring ANSI escape codes."""
-        return len(cls.ANSI_ESCAPE.sub('', text))
-
-    @classmethod
-    def rjust(cls, text: str, width: int) -> str:
-        """Right-justify a string accounting for ANSI escape codes."""
-        visible = cls.visible_len(text)
-        padding = max(0, width - visible)
-        return ' ' * padding + text
-
-    @classmethod
-    def ljust(cls, text: str, width: int) -> str:
-        """Left-justify a string accounting for ANSI escape codes."""
-        visible = cls.visible_len(text)
-        padding = max(0, width - visible)
-        return text + ' ' * padding
-
-# ==================== RETRY CONFIGURATION ====================
-
-# Default retry settings (dict format for backward compatibility)
-# New code should use DEFAULT_RETRY (RetryConfig dataclass) instead
-DEFAULT_RETRY_CONFIG: Dict[str, Any] = DEFAULT_RETRY.to_dict()
-
-# ==================== ENHANCED ERROR MESSAGES ====================
-
-class ErrorMessageHelper:
-    """Provides contextual error messages with actionable suggestions"""
-
-    # Documentation links
-    DOCS_BASE = "https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs"
-    TROUBLESHOOTING_URL = f"{DOCS_BASE}/TROUBLESHOOTING.md"
-    QUICKSTART_URL = f"{DOCS_BASE}/QUICKSTART_GUIDE.md"
-
-    @staticmethod
-    def get_http_error_message(status_code: int, operation: str = "API call") -> str:
-        """Get detailed error message with suggestions for HTTP status codes"""
-        messages = {
-            400: {
-                "title": "Bad Request",
-                "reason": "The request was malformed or contains invalid parameters",
-                "suggestions": [
-                    "Verify the data view ID format (should start with 'dv_')",
-                    "Check that all required parameters are provided",
-                    "Review the API request structure",
-                ]
-            },
-            401: {
-                "title": "Authentication Failed",
-                "reason": "Your credentials are invalid or have expired",
-                "suggestions": [
-                    "Verify CLIENT_ID and SECRET in config.json or environment variables",
-                    "Check that your ORG_ID ends with '@AdobeOrg'",
-                    "Ensure SCOPES is set (copy from Adobe Developer Console)",
-                    "Regenerate credentials at https://developer.adobe.com/console/",
-                    f"See authentication setup: {ErrorMessageHelper.QUICKSTART_URL}#configure-credentials",
-                ]
-            },
-            403: {
-                "title": "Access Forbidden",
-                "reason": "You don't have permission to access this resource",
-                "suggestions": [
-                    "Verify your Adobe I/O project has CJA API access enabled",
-                    "Check that your user account has permission to access this data view",
-                    "Confirm the data view ID is correct (run --list-dataviews)",
-                    "Contact your Adobe administrator to grant CJA API permissions",
-                ]
-            },
-            404: {
-                "title": "Resource Not Found",
-                "reason": "The requested data view or resource does not exist",
-                "suggestions": [
-                    "Verify the data view ID is correct (double-check for typos)",
-                    "Run 'cja_auto_sdr --list-dataviews' to see available data views",
-                    "The data view may have been deleted or renamed",
-                    "Check that you're connected to the correct Adobe organization",
-                ]
-            },
-            429: {
-                "title": "Rate Limit Exceeded",
-                "reason": "Too many requests sent to the API",
-                "suggestions": [
-                    "Wait a few minutes before retrying",
-                    "Reduce the number of parallel workers (--workers 2)",
-                    "Use --max-retries with longer delays (--retry-max-delay 60)",
-                    "Process data views in smaller batches",
-                    "Enable caching to reduce API calls (--enable-cache)",
-                ]
-            },
-            500: {
-                "title": "Internal Server Error",
-                "reason": "Adobe's API service encountered an error",
-                "suggestions": [
-                    "This is typically a temporary issue - retry in a few minutes",
-                    "Increase retry attempts (--max-retries 5)",
-                    "Check Adobe Status page for known issues",
-                    "If persistent, contact Adobe Support with your request details",
-                ]
-            },
-            502: {
-                "title": "Bad Gateway",
-                "reason": "Upstream server error or network issue",
-                "suggestions": [
-                    "This is typically a temporary network issue",
-                    "Wait a few minutes and retry",
-                    "Increase retry attempts (--max-retries 5)",
-                ]
-            },
-            503: {
-                "title": "Service Unavailable",
-                "reason": "Adobe's API service is temporarily unavailable",
-                "suggestions": [
-                    "The service may be undergoing maintenance",
-                    "Wait 5-10 minutes and retry",
-                    "Check Adobe Status page: https://status.adobe.com/",
-                    "Use --max-retries 5 to automatically retry",
-                ]
-            },
-            504: {
-                "title": "Gateway Timeout",
-                "reason": "The request took too long to complete",
-                "suggestions": [
-                    "The data view may be very large - this is normal",
-                    "Increase timeout with --retry-max-delay 60",
-                    "Try processing during off-peak hours",
-                    "Consider using --skip-validation to reduce processing time",
-                ]
-            },
-        }
-
-        error_info = messages.get(status_code, {
-            "title": f"HTTP {status_code}",
-            "reason": "An unexpected HTTP error occurred",
-            "suggestions": [
-                "Check your network connection",
-                "Verify API credentials are correct",
-                "Review logs for more details",
-                f"See troubleshooting guide: {ErrorMessageHelper.TROUBLESHOOTING_URL}",
-            ]
-        })
-
-        output = [
-            f"{'='*60}",
-            f"HTTP {status_code}: {error_info['title']}",
-            f"{'='*60}",
-            f"Operation: {operation}",
-            "",
-            "Why this happened:",
-            f"  {error_info['reason']}",
-            "",
-            "How to fix it:",
-        ]
-
-        for i, suggestion in enumerate(error_info['suggestions'], 1):
-            output.append(f"  {i}. {suggestion}")
-
-        output.append("")
-        output.append(f"For more help: {ErrorMessageHelper.TROUBLESHOOTING_URL}")
-
-        return "\n".join(output)
-
-    @staticmethod
-    def get_network_error_message(error: Exception, operation: str = "operation") -> str:
-        """Get detailed message for network-related errors"""
-        error_type = type(error).__name__
-
-        messages = {
-            "ConnectionError": {
-                "reason": "Cannot establish connection to Adobe API servers",
-                "suggestions": [
-                    "Check your internet connection",
-                    "Verify you can reach adobe.io in your browser",
-                    "Check if you're behind a corporate firewall or proxy",
-                    "Temporarily disable VPN if you're using one",
-                    "Verify DNS is working (try: ping adobe.io)",
-                ]
-            },
-            "TimeoutError": {
-                "reason": "The request took too long and timed out",
-                "suggestions": [
-                    "Your network connection may be slow or unstable",
-                    "The data view may be very large (this is normal for large views)",
-                    "Increase timeout with --retry-max-delay 60",
-                    "Try processing during off-peak hours",
-                    "Use --max-retries 5 to automatically retry",
-                ]
-            },
-            "SSLError": {
-                "reason": "SSL/TLS certificate verification failed",
-                "suggestions": [
-                    "Your system's SSL certificates may be outdated",
-                    "Update certificates: pip install --upgrade certifi",
-                    "Check system date/time is correct (SSL certs are time-sensitive)",
-                    "Corporate firewalls may be interfering with SSL",
-                ]
-            },
-            "ConnectionResetError": {
-                "reason": "Connection was reset by the remote server",
-                "suggestions": [
-                    "This is usually a temporary network issue",
-                    "Wait a moment and retry",
-                    "Use --max-retries 5 to automatically handle this",
-                ]
-            },
-        }
-
-        error_info = messages.get(error_type, {
-            "reason": "A network error occurred",
-            "suggestions": [
-                "Check your internet connection",
-                "Verify network stability",
-                "Try again in a few moments",
-                f"See troubleshooting guide: {ErrorMessageHelper.TROUBLESHOOTING_URL}#network-errors",
-            ]
-        })
-
-        output = [
-            f"{'='*60}",
-            f"Network Error: {error_type}",
-            f"{'='*60}",
-            f"During: {operation}",
-            f"Error details: {str(error)}",
-            "",
-            "Why this happened:",
-            f"  {error_info['reason']}",
-            "",
-            "How to fix it:",
-        ]
-
-        for i, suggestion in enumerate(error_info['suggestions'], 1):
-            output.append(f"  {i}. {suggestion}")
-
-        output.append("")
-        output.append(f"For more help: {ErrorMessageHelper.TROUBLESHOOTING_URL}#network-errors")
-
-        return "\n".join(output)
-
-    @staticmethod
-    def get_config_error_message(error_type: str, details: str = "") -> str:
-        """Get detailed message for configuration errors"""
-        messages = {
-            "file_not_found": {
-                "title": "Configuration File Not Found",
-                "reason": "The config.json file does not exist",
-                "suggestions": [
-                    "Create a configuration file:",
-                    "  Option 1: cja_auto_sdr --sample-config",
-                    "  Option 2: cp config.json.example config.json",
-                    "",
-                    "Or use environment variables instead:",
-                    "  export ORG_ID='your_org_id@AdobeOrg'",
-                    "  export CLIENT_ID='your_client_id'",
-                    "  export SECRET='your_client_secret'",
-                    "  export SCOPES='your_scopes_from_developer_console'",
-                    "",
-                    f"See setup guide: {ErrorMessageHelper.QUICKSTART_URL}",
-                ]
-            },
-            "invalid_json": {
-                "title": "Invalid JSON in Configuration File",
-                "reason": "The configuration file contains invalid JSON syntax",
-                "suggestions": [
-                    "Common JSON errors:",
-                    "  - Missing quotes around strings",
-                    "  - Trailing commas (not allowed in JSON)",
-                    "  - Missing closing braces or brackets",
-                    "  - Comments (not allowed in standard JSON)",
-                    "",
-                    "Validate your JSON:",
-                    "  - Use a JSON validator: https://jsonlint.com/",
-                    "  - Or check with: python -m json.tool config.json",
-                    "",
-                    "Generate a fresh template:",
-                    "  cja_auto_sdr --sample-config",
-                ]
-            },
-            "missing_credentials": {
-                "title": "Missing Required Credentials",
-                "reason": "One or more required credential fields are missing",
-                "suggestions": [
-                    "Required fields in config.json:",
-                    "  - org_id: Your Adobe Organization ID (ends with @AdobeOrg)",
-                    "  - client_id: OAuth Client ID from Adobe Developer Console",
-                    "  - secret: Client Secret from Adobe Developer Console",
-                    "  - scopes: API scopes (use provided default)",
-                    "",
-                    "Get credentials from:",
-                    "  https://developer.adobe.com/console/",
-                    "",
-                    f"See detailed setup: {ErrorMessageHelper.QUICKSTART_URL}#configure-credentials",
-                ]
-            },
-            "invalid_format": {
-                "title": "Invalid Credential Format",
-                "reason": "One or more credentials have an invalid format",
-                "suggestions": [
-                    "Check credential formats:",
-                    "  - org_id must end with '@AdobeOrg'",
-                    "  - client_id should be a long alphanumeric string",
-                    "  - secret should be a long alphanumeric string",
-                    "  - scopes should be copied from Adobe Developer Console",
-                    "",
-                    "Verify you copied credentials correctly (no extra spaces or line breaks)",
-                    "Try regenerating credentials in Adobe Developer Console",
-                ]
-            },
-        }
-
-        error_info = messages.get(error_type, {
-            "title": "Configuration Error",
-            "reason": details or "A configuration error occurred",
-            "suggestions": [
-                "Run validation to check your config:",
-                "  cja_auto_sdr --validate-config",
-                "",
-                f"See troubleshooting: {ErrorMessageHelper.TROUBLESHOOTING_URL}#configuration-errors",
-            ]
-        })
-
-        output = [
-            f"{'='*60}",
-            f"{error_info['title']}",
-            f"{'='*60}",
-        ]
-
-        if details:
-            output.extend(["", f"Details: {details}", ""])
-
-        output.extend([
-            "Why this happened:",
-            f"  {error_info['reason']}",
-            "",
-            "How to fix it:",
-        ])
-
-        for suggestion in error_info['suggestions']:
-            if suggestion.startswith("  "):
-                output.append(suggestion)
-            else:
-                output.append(f"  {suggestion}")
-
-        return "\n".join(output)
-
-    @staticmethod
-    def get_data_view_error_message(data_view_id: str, available_count: int = None) -> str:
-        """Get detailed message for data view not found errors"""
-        # Determine if the identifier looks like an ID or a name
-        is_id = data_view_id.startswith('dv_')
-
-        output = [
-            f"{'='*60}",
-            "Data View Not Found",
-            f"{'='*60}",
-            f"Requested Data View: {data_view_id}",
-            "",
-            "Why this happened:",
-            "  The data view does not exist or you don't have access to it",
-            "",
-            "How to fix it:",
-        ]
-
-        if is_id:
-            output.extend([
-                "  1. Check for typos in the data view ID",
-                "  2. Verify you have access to this data view in CJA",
-                "  3. List available data views to confirm the ID:",
-                "       cja_auto_sdr --list-dataviews",
-            ])
-        else:
-            output.extend([
-                "  1. Check for typos in the data view name",
-                "  2. Verify the name is an EXACT match (case-sensitive):",
-                "       'Production Analytics' ≠ 'production analytics'",
-                "       'Production Analytics' ≠ 'Production'",
-                "  3. List available data views to confirm the exact name:",
-                "       cja_auto_sdr --list-dataviews",
-                "  4. Use quotes around names with spaces:",
-                "       cja_auto_sdr \"Production Analytics\"",
-            ])
-
-        if available_count is not None:
-            next_num = 4 if is_id else 5
-            output.append(f"  {next_num}. You have access to {available_count} data view(s)")
-            if available_count == 0:
-                output.extend([
-                    "",
-                    "No data views found. This usually means:",
-                    "  - Your API credentials don't have CJA access",
-                    "  - You're connected to the wrong Adobe organization",
-                    "  - No data views exist in this organization",
-                ])
-
-        output.extend([
-            "",
-            f"For more help: {ErrorMessageHelper.TROUBLESHOOTING_URL}#data-view-errors",
-        ])
-
-        return "\n".join(output)
-
-
-# Custom exception for retryable HTTP status codes
-class RetryableHTTPError(Exception):
-    """Exception raised when API returns a retryable HTTP status code."""
-    def __init__(self, status_code: int, message: str = ""):
-        self.status_code = status_code
-        super().__init__(f"HTTP {status_code}: {message}" if message else f"HTTP {status_code}")
-
-
-# Exceptions that should trigger a retry (transient errors)
-RETRYABLE_EXCEPTIONS = (
-    ConnectionError,
-    TimeoutError,
-    OSError,  # Includes network-related errors
-    RetryableHTTPError,  # Custom exception for HTTP status codes
-)
-
-# HTTP status codes that should trigger a retry
-RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-
-
-# ==================== CIRCUIT BREAKER ====================
-
-class CircuitBreaker:
-    """
-    Thread-safe circuit breaker implementation for API resilience.
-
-    The circuit breaker pattern prevents cascading failures by stopping
-    requests to a failing service. It has three states:
-
-    - CLOSED: Normal operation, requests flow through
-    - OPEN: Circuit tripped after too many failures, requests fail fast
-    - HALF_OPEN: Testing if service recovered after timeout
-
-    State Transitions:
-    - CLOSED → OPEN: After failure_threshold consecutive failures
-    - OPEN → HALF_OPEN: After timeout_seconds has elapsed
-    - HALF_OPEN → CLOSED: After success_threshold successful requests
-    - HALF_OPEN → OPEN: After any failure
-
-    Thread Safety:
-    - Uses threading.Lock for all state transitions
-    - Safe for use with ThreadPoolExecutor
-
-    Example:
-        breaker = CircuitBreaker(config=CircuitBreakerConfig(failure_threshold=3))
-
-        if breaker.allow_request():
-            try:
-                result = api_call()
-                breaker.record_success()
-            except Exception as e:
-                breaker.record_failure(e)
-                raise
-        else:
-            raise CircuitBreakerOpen()
-    """
-
-    def __init__(self, config: CircuitBreakerConfig = None, logger: logging.Logger = None):
-        """
-        Initialize the circuit breaker.
-
-        Args:
-            config: Configuration settings (uses defaults if not provided)
-            logger: Logger instance for state change logging
-        """
-        self.config = config or CircuitBreakerConfig()
-        self.logger = logger or logging.getLogger(__name__)
-
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time: Optional[float] = None
-        self._last_state_change_time = time.time()
-        self._lock = threading.Lock()
-
-        # Statistics
-        self._total_requests = 0
-        self._total_failures = 0
-        self._total_rejections = 0
-        self._trips = 0  # Number of times circuit opened
-
-    @property
-    def state(self) -> CircuitState:
-        """Get current circuit state (thread-safe)."""
-        with self._lock:
-            return self._state
-
-    def allow_request(self) -> bool:
-        """
-        Check if a request should be allowed through.
-
-        Returns:
-            True if request is allowed, False if circuit is open
-
-        Side Effects:
-            - Transitions OPEN → HALF_OPEN if timeout has elapsed
-            - Increments rejection counter if request is blocked
-        """
-        with self._lock:
-            self._total_requests += 1
-
-            if self._state == CircuitState.CLOSED:
-                return True
-
-            if self._state == CircuitState.OPEN:
-                # Check if timeout has elapsed for recovery attempt
-                if self._last_failure_time is not None:
-                    elapsed = time.time() - self._last_failure_time
-                    if elapsed >= self.config.timeout_seconds:
-                        self._transition_to(CircuitState.HALF_OPEN)
-                        return True
-
-                # Still in timeout period
-                self._total_rejections += 1
-                return False
-
-            # HALF_OPEN - allow limited requests to test recovery
-            return True
-
-    def record_success(self) -> None:
-        """
-        Record a successful request.
-
-        Side Effects:
-            - Resets failure count in CLOSED state
-            - Increments success count in HALF_OPEN state
-            - Transitions HALF_OPEN → CLOSED if success threshold reached
-        """
-        with self._lock:
-            if self._state == CircuitState.CLOSED:
-                self._failure_count = 0  # Reset consecutive failure count
-            elif self._state == CircuitState.HALF_OPEN:
-                self._success_count += 1
-                if self._success_count >= self.config.success_threshold:
-                    self._transition_to(CircuitState.CLOSED)
-                    self._failure_count = 0
-                    self._success_count = 0
-
-    def record_failure(self, exception: Exception = None) -> None:
-        """
-        Record a failed request.
-
-        Args:
-            exception: The exception that caused the failure (for logging)
-
-        Side Effects:
-            - Increments failure count
-            - Transitions CLOSED → OPEN if failure threshold reached
-            - Transitions HALF_OPEN → OPEN immediately on any failure
-        """
-        with self._lock:
-            self._failure_count += 1
-            self._total_failures += 1
-            self._last_failure_time = time.time()
-
-            if self._state == CircuitState.CLOSED:
-                if self._failure_count >= self.config.failure_threshold:
-                    self._transition_to(CircuitState.OPEN)
-                    self._trips += 1
-            elif self._state == CircuitState.HALF_OPEN:
-                # Any failure in half-open immediately opens the circuit
-                self._transition_to(CircuitState.OPEN)
-                self._success_count = 0
-
-    def _transition_to(self, new_state: CircuitState) -> None:
-        """
-        Transition to a new state (must be called within lock).
-
-        Args:
-            new_state: The state to transition to
-        """
-        old_state = self._state
-        self._state = new_state
-        self._last_state_change_time = time.time()
-
-        if old_state != new_state:
-            self.logger.info(
-                f"Circuit breaker state: {old_state.value} → {new_state.value} "
-                f"(failures={self._failure_count}, successes={self._success_count})"
-            )
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get circuit breaker statistics.
-
-        Returns:
-            Dict with state, counts, and timing information
-        """
-        with self._lock:
-            time_in_state = time.time() - self._last_state_change_time
-            time_until_retry = 0.0
-
-            if self._state == CircuitState.OPEN and self._last_failure_time is not None:
-                time_until_retry = max(0.0, self.config.timeout_seconds - (time.time() - self._last_failure_time))
-
-            return {
-                'state': self._state.value,
-                'failure_count': self._failure_count,
-                'success_count': self._success_count,
-                'total_requests': self._total_requests,
-                'total_failures': self._total_failures,
-                'total_rejections': self._total_rejections,
-                'trips': self._trips,
-                'time_in_state_seconds': time_in_state,
-                'time_until_retry_seconds': time_until_retry,
-            }
-
-    def reset(self) -> None:
-        """Reset the circuit breaker to initial state."""
-        with self._lock:
-            self._state = CircuitState.CLOSED
-            self._failure_count = 0
-            self._success_count = 0
-            self._last_failure_time = None
-            self._last_state_change_time = time.time()
-            self.logger.debug("Circuit breaker reset to CLOSED state")
-
-    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        """
-        Use as a decorator for functions.
-
-        Example:
-            @circuit_breaker
-            def api_call():
-                return requests.get(url)
-        """
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> T:
-            if not self.allow_request():
-                stats = self.get_statistics()
-                raise CircuitBreakerOpen(
-                    f"Circuit breaker is open (will retry in {stats['time_until_retry_seconds']:.1f}s)",
-                    time_until_retry=stats['time_until_retry_seconds']
-                )
-            try:
-                result = func(*args, **kwargs)
-                self.record_success()
-                return result
-            except Exception as e:
-                self.record_failure(e)
-                raise
-        return wrapper
-
-
-def retry_with_backoff(
-    max_retries: Optional[int] = None,
-    base_delay: Optional[float] = None,
-    max_delay: Optional[float] = None,
-    exponential_base: Optional[int] = None,
-    jitter: Optional[bool] = None,
-    retryable_exceptions: Optional[Tuple[type, ...]] = None,
-    logger: Optional[logging.Logger] = None
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator that implements retry logic with exponential backoff.
-
-    Automatically retries failed API calls with increasing delays between attempts.
-    Includes jitter to prevent thundering herd problems when multiple processes retry.
-
-    Args:
-        max_retries: Maximum number of retry attempts (default: 3)
-        base_delay: Initial delay in seconds (default: 1.0)
-        max_delay: Maximum delay cap in seconds (default: 30.0)
-        exponential_base: Multiplier for exponential backoff (default: 2)
-        jitter: Add randomization to delays (default: True)
-        retryable_exceptions: Tuple of exception types to retry (default: network errors)
-        logger: Logger instance for retry messages
-
-    Returns:
-        Decorated function with retry capability
-
-    Example:
-        @retry_with_backoff(max_retries=3, base_delay=1.0)
-        def fetch_data():
-            return api.get_data()
-
-    Backoff Formula:
-        delay = min(base_delay * (exponential_base ** attempt), max_delay)
-        if jitter: delay = delay * random.uniform(0.5, 1.5)
-    """
-    # Use defaults if not specified
-    _max_retries = max_retries if max_retries is not None else DEFAULT_RETRY_CONFIG['max_retries']
-    _base_delay = base_delay if base_delay is not None else DEFAULT_RETRY_CONFIG['base_delay']
-    _max_delay = max_delay if max_delay is not None else DEFAULT_RETRY_CONFIG['max_delay']
-    _exponential_base = exponential_base if exponential_base is not None else DEFAULT_RETRY_CONFIG['exponential_base']
-    _jitter = jitter if jitter is not None else DEFAULT_RETRY_CONFIG['jitter']
-    _retryable_exceptions = retryable_exceptions if retryable_exceptions is not None else RETRYABLE_EXCEPTIONS
-
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            _logger = logger or logging.getLogger(__name__)
-            last_exception = None
-
-            for attempt in range(_max_retries + 1):  # +1 for initial attempt
-                try:
-                    result = func(*args, **kwargs)
-                    # Log success after retry
-                    if attempt > 0:
-                        _logger.info(
-                            f"✓ {func.__name__} succeeded on attempt {attempt + 1}/{_max_retries + 1}"
-                        )
-                    return result
-                except _retryable_exceptions as e:
-                    last_exception = e
-
-                    if attempt == _max_retries:
-                        _logger.error(f"All {_max_retries + 1} attempts failed for {func.__name__}")
-
-                        # Provide enhanced error message based on exception type
-                        if isinstance(e, RetryableHTTPError):
-                            error_msg = ErrorMessageHelper.get_http_error_message(
-                                e.status_code,
-                                operation=func.__name__
-                            )
-                            _logger.error("\n" + error_msg)
-                        elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
-                            error_msg = ErrorMessageHelper.get_network_error_message(
-                                e,
-                                operation=func.__name__
-                            )
-                            _logger.error("\n" + error_msg)
-                        else:
-                            _logger.error(f"Error: {str(e)}")
-                            _logger.error("Troubleshooting: Check network connectivity, verify API credentials, or try again later")
-                        raise
-
-                    # Calculate delay with exponential backoff
-                    delay = min(_base_delay * (_exponential_base ** attempt), _max_delay)
-
-                    # Add jitter to prevent thundering herd
-                    if _jitter:
-                        delay = delay * random.uniform(0.5, 1.5)
-
-                    _logger.warning(
-                        f"⚠ {func.__name__} attempt {attempt + 1}/{_max_retries + 1} failed: {str(e)}. "
-                        f"Retrying in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                except Exception as e:
-                    # Non-retryable exception, raise immediately
-                    _logger.error(f"{func.__name__} failed with non-retryable error: {str(e)}")
-                    raise
-
-            # Should not reach here, but just in case
-            if last_exception:
-                raise last_exception
-
-        return wrapper
-    return decorator
-
-
-def make_api_call_with_retry(
-    api_func: Callable[..., T],
-    *args: Any,
-    logger: Optional[logging.Logger] = None,
-    operation_name: str = "API call",
-    circuit_breaker: Optional[CircuitBreaker] = None,
-    **kwargs: Any
-) -> T:
-    """
-    Execute an API call with retry logic and optional circuit breaker.
-
-    This is a function-based alternative to the decorator for cases where
-    you need more control or are calling methods on objects.
-
-    Args:
-        api_func: The API function to call
-        *args: Positional arguments to pass to the function
-        logger: Logger instance for retry messages
-        operation_name: Human-readable name for logging
-        circuit_breaker: Optional circuit breaker for failure protection
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        Result from the API call
-
-    Raises:
-        CircuitBreakerOpen: If circuit breaker is open and rejecting requests
-        The last exception if all retries fail
-
-    Example:
-        result = make_api_call_with_retry(
-            cja.getMetrics,
-            data_view_id,
-            logger=logger,
-            operation_name="getMetrics",
-            circuit_breaker=my_circuit_breaker
-        )
-    """
-    _logger = logger or logging.getLogger(__name__)
-    max_retries = DEFAULT_RETRY_CONFIG['max_retries']
-    base_delay = DEFAULT_RETRY_CONFIG['base_delay']
-    max_delay = DEFAULT_RETRY_CONFIG['max_delay']
-    exponential_base = DEFAULT_RETRY_CONFIG['exponential_base']
-    jitter = DEFAULT_RETRY_CONFIG['jitter']
-
-    # Check circuit breaker before attempting any calls
-    if circuit_breaker is not None:
-        if not circuit_breaker.allow_request():
-            stats = circuit_breaker.get_statistics()
-            raise CircuitBreakerOpen(
-                f"Circuit breaker is open for {operation_name} "
-                f"(will retry in {stats['time_until_retry_seconds']:.1f}s)",
-                time_until_retry=stats['time_until_retry_seconds']
-            )
-
-    last_exception = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            result = api_func(*args, **kwargs)
-
-            # Check for HTTP status code in response (if exposed by the library)
-            status_code = None
-            if hasattr(result, 'status_code'):
-                status_code = result.status_code
-            elif isinstance(result, dict) and 'status_code' in result:
-                status_code = result['status_code']
-            elif isinstance(result, dict) and 'error' in result and isinstance(result['error'], dict):
-                status_code = result['error'].get('status_code')
-
-            if status_code is not None and status_code in RETRYABLE_STATUS_CODES:
-                raise RetryableHTTPError(status_code, f"Retryable status from {operation_name}")
-
-            # Log success after retry
-            if attempt > 0:
-                _logger.info(
-                    f"✓ {operation_name} succeeded on attempt {attempt + 1}/{max_retries + 1}"
-                )
-
-            # Record success to circuit breaker
-            if circuit_breaker is not None:
-                circuit_breaker.record_success()
-
-            return result
-        except RETRYABLE_EXCEPTIONS as e:
-            last_exception = e
-
-            if attempt == max_retries:
-                _logger.error(f"All {max_retries + 1} attempts failed for {operation_name}")
-
-                # Provide enhanced error message based on exception type
-                if isinstance(e, RetryableHTTPError):
-                    error_msg = ErrorMessageHelper.get_http_error_message(
-                        e.status_code,
-                        operation=operation_name
-                    )
-                    _logger.error("\n" + error_msg)
-                elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
-                    error_msg = ErrorMessageHelper.get_network_error_message(
-                        e,
-                        operation=operation_name
-                    )
-                    _logger.error("\n" + error_msg)
-                else:
-                    _logger.error(f"Error: {str(e)}")
-                    _logger.error("Troubleshooting: Check network connectivity, verify API credentials, or try again later")
-
-                # Record failure to circuit breaker (only after all retries exhausted)
-                if circuit_breaker is not None:
-                    circuit_breaker.record_failure(e)
-                raise
-
-            delay = min(base_delay * (exponential_base ** attempt), max_delay)
-            if jitter:
-                delay = delay * random.uniform(0.5, 1.5)
-
-            _logger.warning(
-                f"⚠ {operation_name} attempt {attempt + 1}/{max_retries + 1} failed: {str(e)}. "
-                f"Retrying in {delay:.1f}s..."
-            )
-            time.sleep(delay)
-        except Exception as e:
-            # Non-retryable exception
-            _logger.error(f"{operation_name} failed with non-retryable error: {str(e)}")
-            # Record failure to circuit breaker
-            if circuit_breaker is not None:
-                circuit_breaker.record_failure(e)
-            raise
-
-    if last_exception:
-        raise last_exception
-
-
+# Note: Constants, error formatting, and ConsoleColors have been moved to
+# cja_auto_sdr.core and are imported above.
+# Note: ErrorMessageHelper, CircuitBreaker, retry_with_backoff, and
+# make_api_call_with_retry have been moved to cja_auto_sdr.api.resilience
+
+# ==================== PLACEHOLDER FOR DELETED API RESILIENCE CODE ====================
+# The following large section (ErrorMessageHelper, RetryableHTTPError, RETRYABLE_EXCEPTIONS,
+# CircuitBreaker, retry_with_backoff, make_api_call_with_retry) has been moved to
+# cja_auto_sdr.api.resilience and imported above.
 # ==================== DATA STRUCTURES ====================
 
 @dataclass
@@ -1737,1703 +285,27 @@ class ProcessingResult:
                 self.derived_fields_high_complexity)
 
 
-# ==================== DIFF COMPARISON DATA STRUCTURES ====================
-
-from enum import Enum
-
-
-class ChangeType(Enum):
-    """Types of changes detected in diff comparison"""
-    ADDED = "added"
-    REMOVED = "removed"
-    MODIFIED = "modified"
-    UNCHANGED = "unchanged"
-
-
-@dataclass
-class ComponentDiff:
-    """Represents a diff for a single component (metric or dimension)"""
-    id: str
-    name: str
-    change_type: ChangeType
-    source_data: Optional[Dict] = None  # Full data from source
-    target_data: Optional[Dict] = None  # Full data from target
-    changed_fields: Optional[Dict[str, Tuple[Any, Any]]] = None  # field -> (source_value, target_value)
-
-    def __post_init__(self):
-        if self.changed_fields is None:
-            self.changed_fields = {}
-
-
-@dataclass
-class MetadataDiff:
-    """Represents changes to data view metadata"""
-    source_name: str
-    target_name: str
-    source_id: str
-    target_id: str
-    source_owner: str = ""
-    target_owner: str = ""
-    source_description: str = ""
-    target_description: str = ""
-    changed_fields: Optional[Dict[str, Tuple[str, str]]] = None
-
-    def __post_init__(self):
-        if self.changed_fields is None:
-            self.changed_fields = {}
-
-
-@dataclass
-class DiffSummary:
-    """Summary statistics for a diff operation"""
-    source_metrics_count: int = 0
-    target_metrics_count: int = 0
-    source_dimensions_count: int = 0
-    target_dimensions_count: int = 0
-    metrics_added: int = 0
-    metrics_removed: int = 0
-    metrics_modified: int = 0
-    metrics_unchanged: int = 0
-    dimensions_added: int = 0
-    dimensions_removed: int = 0
-    dimensions_modified: int = 0
-    dimensions_unchanged: int = 0
-    # Inventory diff counts (optional)
-    source_calc_metrics_count: int = 0
-    target_calc_metrics_count: int = 0
-    calc_metrics_added: int = 0
-    calc_metrics_removed: int = 0
-    calc_metrics_modified: int = 0
-    calc_metrics_unchanged: int = 0
-    source_segments_count: int = 0
-    target_segments_count: int = 0
-    segments_added: int = 0
-    segments_removed: int = 0
-    segments_modified: int = 0
-    segments_unchanged: int = 0
-
-    @property
-    def has_changes(self) -> bool:
-        """Returns True if any changes were detected"""
-        return (self.metrics_added > 0 or self.metrics_removed > 0 or
-                self.metrics_modified > 0 or self.dimensions_added > 0 or
-                self.dimensions_removed > 0 or self.dimensions_modified > 0 or
-                self.has_inventory_changes)
-
-    @property
-    def has_inventory_changes(self) -> bool:
-        """Returns True if any inventory changes were detected"""
-        return (self.calc_metrics_added > 0 or self.calc_metrics_removed > 0 or
-                self.calc_metrics_modified > 0 or self.segments_added > 0 or
-                self.segments_removed > 0 or self.segments_modified > 0)
-
-    @property
-    def total_changes(self) -> int:
-        """Total number of changed items"""
-        return (self.metrics_added + self.metrics_removed + self.metrics_modified +
-                self.dimensions_added + self.dimensions_removed + self.dimensions_modified)
-
-    @property
-    def metrics_changed(self) -> int:
-        """Total metrics that changed (added + removed + modified)"""
-        return self.metrics_added + self.metrics_removed + self.metrics_modified
-
-    @property
-    def dimensions_changed(self) -> int:
-        """Total dimensions that changed (added + removed + modified)"""
-        return self.dimensions_added + self.dimensions_removed + self.dimensions_modified
-
-    @property
-    def metrics_change_percent(self) -> float:
-        """Percentage of metrics that changed (based on max of source/target count)"""
-        total = max(self.source_metrics_count, self.target_metrics_count)
-        if total == 0:
-            return 0.0
-        return (self.metrics_changed / total) * 100
-
-    @property
-    def dimensions_change_percent(self) -> float:
-        """Percentage of dimensions that changed (based on max of source/target count)"""
-        total = max(self.source_dimensions_count, self.target_dimensions_count)
-        if total == 0:
-            return 0.0
-        return (self.dimensions_changed / total) * 100
-
-    @property
-    def calc_metrics_changed(self) -> int:
-        """Total calculated metrics that changed"""
-        return self.calc_metrics_added + self.calc_metrics_removed + self.calc_metrics_modified
-
-    @property
-    def calc_metrics_change_percent(self) -> float:
-        """Percentage of calculated metrics that changed"""
-        total = max(self.source_calc_metrics_count, self.target_calc_metrics_count)
-        if total == 0:
-            return 0.0
-        return (self.calc_metrics_changed / total) * 100
-
-    @property
-    def segments_changed(self) -> int:
-        """Total segments that changed"""
-        return self.segments_added + self.segments_removed + self.segments_modified
-
-    @property
-    def segments_change_percent(self) -> float:
-        """Percentage of segments that changed"""
-        total = max(self.source_segments_count, self.target_segments_count)
-        if total == 0:
-            return 0.0
-        return (self.segments_changed / total) * 100
-
-
-    @property
-    def natural_language_summary(self) -> str:
-        """Human-readable summary of changes for PRs, tickets, messages."""
-        parts = []
-
-        # Metrics changes
-        metric_parts = []
-        if self.metrics_added:
-            metric_parts.append(f"{self.metrics_added} added")
-        if self.metrics_removed:
-            metric_parts.append(f"{self.metrics_removed} removed")
-        if self.metrics_modified:
-            metric_parts.append(f"{self.metrics_modified} modified")
-        if metric_parts:
-            parts.append(f"Metrics: {', '.join(metric_parts)}")
-
-        # Dimensions changes
-        dim_parts = []
-        if self.dimensions_added:
-            dim_parts.append(f"{self.dimensions_added} added")
-        if self.dimensions_removed:
-            dim_parts.append(f"{self.dimensions_removed} removed")
-        if self.dimensions_modified:
-            dim_parts.append(f"{self.dimensions_modified} modified")
-        if dim_parts:
-            parts.append(f"Dimensions: {', '.join(dim_parts)}")
-
-        # Calculated metrics inventory changes
-        calc_parts = []
-        if self.calc_metrics_added:
-            calc_parts.append(f"{self.calc_metrics_added} added")
-        if self.calc_metrics_removed:
-            calc_parts.append(f"{self.calc_metrics_removed} removed")
-        if self.calc_metrics_modified:
-            calc_parts.append(f"{self.calc_metrics_modified} modified")
-        if calc_parts:
-            parts.append(f"Calculated Metrics: {', '.join(calc_parts)}")
-
-        # Segments inventory changes
-        seg_parts = []
-        if self.segments_added:
-            seg_parts.append(f"{self.segments_added} added")
-        if self.segments_removed:
-            seg_parts.append(f"{self.segments_removed} removed")
-        if self.segments_modified:
-            seg_parts.append(f"{self.segments_modified} modified")
-        if seg_parts:
-            parts.append(f"Segments: {', '.join(seg_parts)}")
-
-        if not parts:
-            return "No changes detected"
-
-        return "; ".join(parts)
-
-    @property
-    def total_added(self) -> int:
-        """Total items added across all component types"""
-        return (self.metrics_added + self.dimensions_added +
-                self.calc_metrics_added + self.segments_added)
-
-    @property
-    def total_removed(self) -> int:
-        """Total items removed across all component types"""
-        return (self.metrics_removed + self.dimensions_removed +
-                self.calc_metrics_removed + self.segments_removed)
-
-    @property
-    def total_modified(self) -> int:
-        """Total items modified across all component types"""
-        return (self.metrics_modified + self.dimensions_modified +
-                self.calc_metrics_modified + self.segments_modified)
-
-    @property
-    def total_summary(self) -> str:
-        """One-line summary of total changes: '3 added, 2 removed, 5 modified'"""
-        if not self.has_changes:
-            return "No changes"
-
-        parts = []
-        if self.total_added:
-            parts.append(f"{self.total_added} added")
-        if self.total_removed:
-            parts.append(f"{self.total_removed} removed")
-        if self.total_modified:
-            parts.append(f"{self.total_modified} modified")
-
-        return ", ".join(parts) if parts else "No changes"
-
-
-@dataclass
-class InventoryItemDiff:
-    """Represents a diff for a single inventory item (calculated metric or segment)"""
-    id: str
-    name: str
-    change_type: ChangeType
-    inventory_type: str  # 'calculated_metric' or 'segment'
-    source_data: Optional[Dict] = None
-    target_data: Optional[Dict] = None
-    changed_fields: Optional[Dict[str, Tuple[Any, Any]]] = None
-
-    def __post_init__(self):
-        if self.changed_fields is None:
-            self.changed_fields = {}
-
-
-@dataclass
-class DiffResult:
-    """Complete result of a diff comparison"""
-    summary: DiffSummary
-    metadata_diff: MetadataDiff
-    metric_diffs: List[ComponentDiff]
-    dimension_diffs: List[ComponentDiff]
-    source_label: str = "Source"
-    target_label: str = "Target"
-    generated_at: str = ""
-    tool_version: str = ""
-    # Inventory diffs (optional)
-    calc_metrics_diffs: Optional[List[InventoryItemDiff]] = None
-    segments_diffs: Optional[List[InventoryItemDiff]] = None
-
-    def __post_init__(self):
-        if not self.generated_at:
-            self.generated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if not self.tool_version:
-            self.tool_version = __version__
-
-    @property
-    def has_inventory_diffs(self) -> bool:
-        """Check if any inventory diffs are included."""
-        return any([self.calc_metrics_diffs, self.segments_diffs])
-
-
-@dataclass
-class DataViewSnapshot:
-    """A point-in-time snapshot of a data view for comparison.
-
-    Supports both basic snapshots (metrics/dimensions only) and extended
-    snapshots that include inventory data for calculated metrics, segments,
-    and derived fields.
-
-    Snapshot versions:
-    - 1.0: Basic snapshot (metrics, dimensions)
-    - 2.0: Extended snapshot with optional inventory data
-    """
-    snapshot_version: str = "1.0"
-    created_at: str = ""
-    data_view_id: str = ""
-    data_view_name: str = ""
-    owner: str = ""
-    description: str = ""
-    metrics: List[Dict] = None  # Full metric data from API
-    dimensions: List[Dict] = None  # Full dimension data from API
-    metadata: Dict = None  # Tool version, counts, etc.
-    # Inventory data (optional, v2.0+)
-    calculated_metrics_inventory: Optional[List[Dict]] = None
-    segments_inventory: Optional[List[Dict]] = None
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now().isoformat()
-        if self.metrics is None:
-            self.metrics = []
-        if self.dimensions is None:
-            self.dimensions = []
-        if self.metadata is None:
-            self.metadata = {
-                'tool_version': __version__,
-                'metrics_count': len(self.metrics) if self.metrics else 0,
-                'dimensions_count': len(self.dimensions) if self.dimensions else 0
-            }
-        # Auto-upgrade version if inventory data is present
-        if any([self.calculated_metrics_inventory, self.segments_inventory]):
-            self.snapshot_version = "2.0"
-
-    @property
-    def has_calculated_metrics_inventory(self) -> bool:
-        """Check if snapshot contains calculated metrics inventory."""
-        return self.calculated_metrics_inventory is not None
-
-    @property
-    def has_segments_inventory(self) -> bool:
-        """Check if snapshot contains segments inventory."""
-        return self.segments_inventory is not None
-
-    def get_inventory_summary(self) -> Dict[str, Any]:
-        """Get summary of what inventory data is present in the snapshot."""
-        return {
-            'calculated_metrics': {
-                'present': self.has_calculated_metrics_inventory,
-                'count': len(self.calculated_metrics_inventory) if self.calculated_metrics_inventory else 0
-            },
-            'segments': {
-                'present': self.has_segments_inventory,
-                'count': len(self.segments_inventory) if self.segments_inventory else 0
-            }
-        }
-
-    def to_dict(self) -> Dict:
-        """Convert snapshot to dictionary for JSON serialization"""
-        result = {
-            'snapshot_version': self.snapshot_version,
-            'created_at': self.created_at,
-            'data_view_id': self.data_view_id,
-            'data_view_name': self.data_view_name,
-            'owner': self.owner,
-            'description': self.description,
-            'metrics': self.metrics,
-            'dimensions': self.dimensions,
-            'metadata': {
-                'tool_version': self.metadata.get('tool_version', __version__),
-                'metrics_count': len(self.metrics),
-                'dimensions_count': len(self.dimensions)
-            }
-        }
-        # Include inventory data if present
-        if self.calculated_metrics_inventory is not None:
-            result['calculated_metrics_inventory'] = self.calculated_metrics_inventory
-            result['metadata']['calculated_metrics_count'] = len(self.calculated_metrics_inventory)
-        if self.segments_inventory is not None:
-            result['segments_inventory'] = self.segments_inventory
-            result['metadata']['segments_count'] = len(self.segments_inventory)
-        return result
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> 'DataViewSnapshot':
-        """Create snapshot from dictionary (loaded from JSON)"""
-        return cls(
-            snapshot_version=data.get('snapshot_version', '1.0'),
-            created_at=data.get('created_at', ''),
-            data_view_id=data.get('data_view_id', ''),
-            data_view_name=data.get('data_view_name', ''),
-            owner=data.get('owner', ''),
-            description=data.get('description', ''),
-            metrics=data.get('metrics', []),
-            dimensions=data.get('dimensions', []),
-            metadata=data.get('metadata', {}),
-            calculated_metrics_inventory=data.get('calculated_metrics_inventory'),
-            segments_inventory=data.get('segments_inventory')
-        )
-
-
-# ==================== SNAPSHOT MANAGER ====================
-
-class SnapshotManager:
-    """
-    Manages data view snapshot lifecycle.
-
-    Handles creating snapshots from live data views, saving/loading to JSON files,
-    and listing available snapshots.
-    """
-
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger(__name__)
-
-    def create_snapshot(self, cja, data_view_id: str, quiet: bool = False,
-                        include_calculated_metrics: bool = False,
-                        include_segments: bool = False) -> DataViewSnapshot:
-        """
-        Create a snapshot from a live data view.
-
-        Args:
-            cja: Initialized cjapy.CJA instance
-            data_view_id: The data view ID to snapshot
-            quiet: Suppress progress output
-            include_calculated_metrics: Include calculated metrics inventory in snapshot
-            include_segments: Include segments inventory in snapshot
-
-        Returns:
-            DataViewSnapshot with current state of data view
-        """
-        self.logger.info(f"Creating snapshot for data view: {data_view_id}")
-
-        # Fetch data view info
-        dv_info = cja.getDataView(data_view_id)
-        if not dv_info:
-            raise ValueError(f"Failed to fetch data view info for {data_view_id}")
-
-        dv_name = dv_info.get('name', 'Unknown')
-        dv_owner = dv_info.get('owner', {})
-        owner_name = dv_owner.get('name', '') if isinstance(dv_owner, dict) else str(dv_owner)
-        dv_description = dv_info.get('description', '')
-
-        # Fetch metrics
-        self.logger.info("Fetching metrics...")
-        metrics_df = cja.getMetrics(data_view_id, inclType=True, full=True)
-        metrics_list = []
-        if metrics_df is not None and not metrics_df.empty:
-            metrics_list = metrics_df.to_dict('records')
-        self.logger.info(f"  Fetched {len(metrics_list)} metrics")
-
-        # Fetch dimensions
-        self.logger.info("Fetching dimensions...")
-        dimensions_df = cja.getDimensions(data_view_id, inclType=True, full=True)
-        dimensions_list = []
-        if dimensions_df is not None and not dimensions_df.empty:
-            dimensions_list = dimensions_df.to_dict('records')
-        self.logger.info(f"  Fetched {len(dimensions_list)} dimensions")
-
-        snapshot = DataViewSnapshot(
-            data_view_id=data_view_id,
-            data_view_name=dv_name,
-            owner=owner_name,
-            description=dv_description,
-            metrics=metrics_list,
-            dimensions=dimensions_list
-        )
-
-        # Fetch calculated metrics inventory if requested
-        if include_calculated_metrics:
-            if not quiet:
-                print("Fetching calculated metrics inventory...")
-            try:
-                from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
-                builder = CalculatedMetricsInventoryBuilder(logger=self.logger)
-                inventory = builder.build(cja, data_view_id, dv_name)
-                snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
-                self.logger.info(f"  Fetched {len(snapshot.calculated_metrics_inventory)} calculated metrics")
-                if not quiet:
-                    print(f"  Calculated metrics: {len(snapshot.calculated_metrics_inventory)} items")
-            except ImportError as e:
-                self.logger.warning(f"Could not import calculated metrics inventory module: {e}")
-                if not quiet:
-                    print(ConsoleColors.warning("  Warning: Calculated metrics module not available"))
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch calculated metrics inventory: {e}")
-                if not quiet:
-                    print(ConsoleColors.warning(f"  Warning: Could not fetch calculated metrics: {e}"))
-
-        # Fetch segments inventory if requested
-        if include_segments:
-            if not quiet:
-                print("Fetching segments inventory...")
-            try:
-                from cja_segments_inventory import SegmentsInventoryBuilder
-                builder = SegmentsInventoryBuilder(logger=self.logger)
-                inventory = builder.build(cja, data_view_id, dv_name)
-                snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
-                self.logger.info(f"  Fetched {len(snapshot.segments_inventory)} segments")
-                if not quiet:
-                    print(f"  Segments: {len(snapshot.segments_inventory)} items")
-            except ImportError as e:
-                self.logger.warning(f"Could not import segments inventory module: {e}")
-                if not quiet:
-                    print(ConsoleColors.warning("  Warning: Segments module not available"))
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch segments inventory: {e}")
-                if not quiet:
-                    print(ConsoleColors.warning(f"  Warning: Could not fetch segments: {e}"))
-
-        self.logger.info(f"Snapshot created: {len(metrics_list)} metrics, {len(dimensions_list)} dimensions")
-        return snapshot
-
-    def save_snapshot(self, snapshot: DataViewSnapshot, filepath: str) -> str:
-        """
-        Save a snapshot to a JSON file.
-
-        Args:
-            snapshot: The snapshot to save
-            filepath: Output file path
-
-        Returns:
-            Absolute path to saved file
-        """
-        filepath = os.path.abspath(filepath)
-        os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(snapshot.to_dict(), f, indent=2, ensure_ascii=False)
-
-        self.logger.info(f"Snapshot saved to: {filepath}")
-        return filepath
-
-    def load_snapshot(self, filepath: str) -> DataViewSnapshot:
-        """
-        Load a snapshot from a JSON file.
-
-        Args:
-            filepath: Path to snapshot file
-
-        Returns:
-            DataViewSnapshot loaded from file
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-            json.JSONDecodeError: If file is not valid JSON
-            ValueError: If file is not a valid snapshot
-        """
-        filepath = os.path.abspath(filepath)
-
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Snapshot file not found: {filepath}")
-
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        # Validate it's a snapshot file
-        if 'snapshot_version' not in data:
-            raise ValueError(f"Invalid snapshot file: {filepath} (missing snapshot_version)")
-
-        snapshot = DataViewSnapshot.from_dict(data)
-        self.logger.info(f"Loaded snapshot: {snapshot.data_view_name} ({snapshot.data_view_id})")
-        self.logger.info(f"  Created: {snapshot.created_at}")
-        self.logger.info(f"  Metrics: {len(snapshot.metrics)}, Dimensions: {len(snapshot.dimensions)}")
-
-        return snapshot
-
-    def list_snapshots(self, directory: str) -> List[Dict]:
-        """
-        List available snapshots in a directory.
-
-        Args:
-            directory: Directory to search for snapshots
-
-        Returns:
-            List of snapshot metadata dictionaries
-        """
-        snapshots = []
-        directory = os.path.abspath(directory)
-
-        if not os.path.exists(directory):
-            return snapshots
-
-        for filename in os.listdir(directory):
-            if filename.endswith('.json'):
-                filepath = os.path.join(directory, filename)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    if 'snapshot_version' in data:
-                        snapshots.append({
-                            'filename': filename,
-                            'filepath': filepath,
-                            'data_view_id': data.get('data_view_id', ''),
-                            'data_view_name': data.get('data_view_name', ''),
-                            'created_at': data.get('created_at', ''),
-                            'metrics_count': len(data.get('metrics', [])),
-                            'dimensions_count': len(data.get('dimensions', []))
-                        })
-                except (json.JSONDecodeError, IOError):
-                    continue
-
-        return sorted(snapshots, key=lambda x: x.get('created_at', ''), reverse=True)
-
-    def get_most_recent_snapshot(self, directory: str, data_view_id: str) -> Optional[str]:
-        """
-        Get the filepath of the most recent snapshot for a specific data view.
-
-        Args:
-            directory: Directory to search for snapshots
-            data_view_id: Data view ID to filter by
-
-        Returns:
-            Filepath of the most recent snapshot, or None if no snapshots found
-        """
-        all_snapshots = self.list_snapshots(directory)
-        # Filter to only snapshots for this data view
-        dv_snapshots = [s for s in all_snapshots if s.get('data_view_id') == data_view_id]
-
-        if not dv_snapshots:
-            return None
-
-        # Already sorted by created_at (newest first) from list_snapshots
-        return dv_snapshots[0].get('filepath')
-
-    def apply_retention_policy(self, directory: str, data_view_id: str, keep_last: int) -> List[str]:
-        """
-        Apply retention policy by deleting old snapshots for a specific data view.
-
-        Args:
-            directory: Directory containing snapshots
-            data_view_id: Data view ID to filter snapshots
-            keep_last: Number of most recent snapshots to keep (0 = keep all)
-
-        Returns:
-            List of deleted file paths
-        """
-        if keep_last <= 0:
-            return []
-
-        # Get all snapshots for this data view
-        all_snapshots = self.list_snapshots(directory)
-        dv_snapshots = [s for s in all_snapshots if s.get('data_view_id') == data_view_id]
-
-        # Already sorted by created_at (newest first) from list_snapshots
-        if len(dv_snapshots) <= keep_last:
-            return []
-
-        # Delete old snapshots beyond the retention limit
-        deleted = []
-        for snapshot in dv_snapshots[keep_last:]:
-            filepath = snapshot.get('filepath')
-            if filepath and os.path.exists(filepath):
-                try:
-                    os.remove(filepath)
-                    self.logger.info(f"Retention policy: Deleted old snapshot {filepath}")
-                    deleted.append(filepath)
-                except OSError as e:
-                    self.logger.warning(f"Failed to delete snapshot {filepath}: {e}")
-
-        return deleted
-
-    def apply_date_retention_policy(self, directory: str, data_view_id: str,
-                                     keep_since_days: Optional[int] = None,
-                                     delete_older_than_days: Optional[int] = None) -> List[str]:
-        """
-        Apply date-based retention policy by deleting snapshots outside the time window.
-
-        Args:
-            directory: Directory containing snapshots
-            data_view_id: Data view ID to filter snapshots (use '*' for all)
-            keep_since_days: Keep snapshots from the last N days (delete older ones)
-            delete_older_than_days: Alias for keep_since_days for clarity
-
-        Returns:
-            List of deleted file paths
-        """
-        # Handle alias
-        days = keep_since_days or delete_older_than_days
-        if not days or days <= 0:
-            return []
-
-        # Calculate cutoff date
-        cutoff_date = datetime.now() - __import__('datetime').timedelta(days=days)
-        cutoff_str = cutoff_date.isoformat()
-
-        # Get all snapshots
-        all_snapshots = self.list_snapshots(directory)
-
-        # Filter by data view if specified
-        if data_view_id and data_view_id != '*':
-            snapshots_to_check = [s for s in all_snapshots if s.get('data_view_id') == data_view_id]
-        else:
-            snapshots_to_check = all_snapshots
-
-        # Delete snapshots older than cutoff
-        deleted = []
-        for snapshot in snapshots_to_check:
-            created_at = snapshot.get('created_at', '')
-            if created_at and created_at < cutoff_str:
-                filepath = snapshot.get('filepath')
-                if filepath and os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                        self.logger.info(f"Date retention policy: Deleted snapshot older than {days} days: {filepath}")
-                        deleted.append(filepath)
-                    except OSError as e:
-                        self.logger.warning(f"Failed to delete snapshot {filepath}: {e}")
-
-        if deleted:
-            self.logger.info(f"Date retention: Deleted {len(deleted)} snapshot(s) older than {days} days")
-
-        return deleted
-
-    def generate_snapshot_filename(self, data_view_id: str, data_view_name: str = None) -> str:
-        """
-        Generate a timestamped filename for auto-saved snapshots.
-
-        Args:
-            data_view_id: Data view ID
-            data_view_name: Optional data view name for more readable filenames
-
-        Returns:
-            Filename string (without directory path)
-        """
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        # Sanitize name for use in filename
-        if data_view_name:
-            safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in data_view_name)
-            safe_name = safe_name[:50]  # Limit length
-            return f"{safe_name}_{data_view_id}_{timestamp}.json"
-        return f"{data_view_id}_{timestamp}.json"
-
-
-def parse_retention_period(period_str: str) -> Optional[int]:
-    """
-    Parse a retention period string into days.
-
-    Supports formats:
-    - '7d' or '7D' - 7 days
-    - '2w' or '2W' - 2 weeks (14 days)
-    - '1m' or '1M' - 1 month (30 days)
-    - '30' - 30 days (plain number)
-
-    Args:
-        period_str: The period string to parse
-
-    Returns:
-        Number of days, or None if parsing fails
-    """
-    if not period_str:
-        return None
-
-    period_str = period_str.strip().lower()
-
-    # Plain number = days
-    if period_str.isdigit():
-        return int(period_str)
-
-    # Parse with suffix
-    try:
-        if period_str.endswith('d'):
-            return int(period_str[:-1])
-        elif period_str.endswith('w'):
-            return int(period_str[:-1]) * 7
-        elif period_str.endswith('m'):
-            return int(period_str[:-1]) * 30
-    except ValueError:
-        pass
-
-    return None
-
-
-# ==================== GIT INTEGRATION ====================
-
-def is_git_repository(path: Path) -> bool:
-    """Check if the given path is inside a Git repository.
-
-    Args:
-        path: Directory path to check
-
-    Returns:
-        True if path is inside a Git repository
-    """
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--git-dir'],
-            cwd=str(path),
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-
-
-def git_get_user_info() -> Tuple[str, str]:
-    """Get Git user name and email from config.
-
-    Returns:
-        Tuple of (name, email), with fallbacks if not configured
-    """
-    name = "CJA SDR Generator"
-    email = ""
-
-    try:
-        result = subprocess.run(
-            ['git', 'config', 'user.name'],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            name = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    try:
-        result = subprocess.run(
-            ['git', 'config', 'user.email'],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            email = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    return name, email
-
-
-def save_git_friendly_snapshot(
-    snapshot: DataViewSnapshot,
-    output_dir: Path,
-    quality_issues: List[Dict] = None,
-    logger: logging.Logger = None
-) -> Dict[str, Path]:
-    """Save snapshot in Git-friendly format (separate JSON files).
-
-    Creates a directory structure optimized for Git diffs:
-    - metrics.json: Sorted list of metrics
-    - dimensions.json: Sorted list of dimensions
-    - metadata.json: Data view metadata and quality summary
-    - calculated-metrics.json: Optional, when snapshot includes calculated metrics inventory
-    - segments.json: Optional, when snapshot includes segments inventory
-
-    Args:
-        snapshot: DataViewSnapshot to save
-        output_dir: Directory to save files (will create subdir for data view)
-        quality_issues: Optional list of quality issues to include
-        logger: Optional logger
-
-    Returns:
-        Dict mapping file type to saved file path
-    """
-    logger = logger or logging.getLogger(__name__)
-
-    # Create data view directory
-    safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in snapshot.data_view_name)
-    safe_name = safe_name[:50] if safe_name else snapshot.data_view_id
-    dv_dir = output_dir / f"{safe_name}_{snapshot.data_view_id}"
-    dv_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_files = {}
-
-    # Sort metrics by ID for consistent diffs
-    metrics_sorted = sorted(snapshot.metrics, key=lambda x: x.get('id', ''))
-    metrics_file = dv_dir / "metrics.json"
-    with open(metrics_file, 'w', encoding='utf-8') as f:
-        json.dump(metrics_sorted, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['metrics'] = metrics_file
-    logger.debug(f"Saved {len(metrics_sorted)} metrics to {metrics_file}")
-
-    # Sort dimensions by ID for consistent diffs
-    dimensions_sorted = sorted(snapshot.dimensions, key=lambda x: x.get('id', ''))
-    dimensions_file = dv_dir / "dimensions.json"
-    with open(dimensions_file, 'w', encoding='utf-8') as f:
-        json.dump(dimensions_sorted, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['dimensions'] = dimensions_file
-    logger.debug(f"Saved {len(dimensions_sorted)} dimensions to {dimensions_file}")
-
-    # Save calculated metrics inventory if present
-    if snapshot.calculated_metrics_inventory:
-        calc_metrics_sorted = sorted(
-            snapshot.calculated_metrics_inventory,
-            key=lambda x: x.get('id', x.get('metric_id', ''))
-        )
-        calc_metrics_file = dv_dir / "calculated-metrics.json"
-        with open(calc_metrics_file, 'w', encoding='utf-8') as f:
-            json.dump(calc_metrics_sorted, f, indent=2, ensure_ascii=False, default=str)
-        saved_files['calculated_metrics'] = calc_metrics_file
-        logger.debug(f"Saved {len(calc_metrics_sorted)} calculated metrics to {calc_metrics_file}")
-
-    # Save segments inventory if present
-    if snapshot.segments_inventory:
-        segments_sorted = sorted(
-            snapshot.segments_inventory,
-            key=lambda x: x.get('id', x.get('segment_id', ''))
-        )
-        segments_file = dv_dir / "segments.json"
-        with open(segments_file, 'w', encoding='utf-8') as f:
-            json.dump(segments_sorted, f, indent=2, ensure_ascii=False, default=str)
-        saved_files['segments'] = segments_file
-        logger.debug(f"Saved {len(segments_sorted)} segments to {segments_file}")
-
-    # Create metadata file
-    metadata = {
-        'snapshot_version': snapshot.snapshot_version,
-        'created_at': snapshot.created_at,
-        'data_view_id': snapshot.data_view_id,
-        'data_view_name': snapshot.data_view_name,
-        'owner': snapshot.owner,
-        'description': snapshot.description,
-        'tool_version': __version__,
-        'summary': {
-            'metrics_count': len(snapshot.metrics),
-            'dimensions_count': len(snapshot.dimensions),
-            'total_components': len(snapshot.metrics) + len(snapshot.dimensions)
-        }
-    }
-
-    # Add inventory summary if present
-    if snapshot.calculated_metrics_inventory or snapshot.segments_inventory:
-        metadata['inventory'] = {}
-        if snapshot.calculated_metrics_inventory:
-            metadata['inventory']['calculated_metrics_count'] = len(snapshot.calculated_metrics_inventory)
-        if snapshot.segments_inventory:
-            metadata['inventory']['segments_count'] = len(snapshot.segments_inventory)
-
-    # Add quality summary if provided
-    if quality_issues:
-        severity_counts = {}
-        for issue in quality_issues:
-            sev = issue.get('Severity', 'UNKNOWN')
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        metadata['quality'] = {
-            'total_issues': len(quality_issues),
-            'by_severity': severity_counts
-        }
-
-    metadata_file = dv_dir / "metadata.json"
-    with open(metadata_file, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['metadata'] = metadata_file
-    logger.debug(f"Saved metadata to {metadata_file}")
-
-    return saved_files
-
-
-def generate_git_commit_message(
-    data_view_id: str,
-    data_view_name: str,
-    metrics_count: int,
-    dimensions_count: int,
-    quality_issues: List[Dict] = None,
-    diff_result: 'DiffResult' = None,
-    custom_message: str = None
-) -> str:
-    """Generate a descriptive Git commit message for SDR snapshot.
-
-    Args:
-        data_view_id: Data view ID
-        data_view_name: Data view name
-        metrics_count: Number of metrics
-        dimensions_count: Number of dimensions
-        quality_issues: Optional list of quality issues
-        diff_result: Optional diff result (for change summary)
-        custom_message: Optional custom message to prepend
-
-    Returns:
-        Formatted commit message
-    """
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
-
-    # Subject line
-    if custom_message:
-        subject = f"[{data_view_id}] {custom_message}"
-    else:
-        subject = f"[{data_view_id}] SDR snapshot {timestamp}"
-
-    lines = [subject, ""]
-
-    # Data view info
-    lines.append(f"Data View: {data_view_name}")
-    lines.append(f"ID: {data_view_id}")
-    lines.append(f"Components: {metrics_count} metrics, {dimensions_count} dimensions")
-    lines.append("")
-
-    # Change summary if diff available
-    if diff_result and diff_result.summary.has_changes:
-        summary = diff_result.summary
-        lines.append("Changes:")
-        if summary.metrics_added > 0:
-            lines.append(f"  + {summary.metrics_added} metrics added")
-        if summary.metrics_removed > 0:
-            lines.append(f"  - {summary.metrics_removed} metrics removed")
-        if summary.metrics_modified > 0:
-            lines.append(f"  ~ {summary.metrics_modified} metrics modified")
-        if summary.dimensions_added > 0:
-            lines.append(f"  + {summary.dimensions_added} dimensions added")
-        if summary.dimensions_removed > 0:
-            lines.append(f"  - {summary.dimensions_removed} dimensions removed")
-        if summary.dimensions_modified > 0:
-            lines.append(f"  ~ {summary.dimensions_modified} dimensions modified")
-        lines.append("")
-
-    # Quality summary
-    if quality_issues:
-        severity_counts = {}
-        for issue in quality_issues:
-            sev = issue.get('Severity', 'UNKNOWN')
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-
-        lines.append("Quality:")
-        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
-            count = severity_counts.get(sev, 0)
-            if count > 0:
-                lines.append(f"  {sev}: {count}")
-        lines.append("")
-
-    # Footer
-    lines.append(f"Generated by CJA SDR Generator v{__version__}")
-
-    return "\n".join(lines)
-
-
-def git_commit_snapshot(
-    snapshot_dir: Path,
-    data_view_id: str,
-    data_view_name: str,
-    metrics_count: int,
-    dimensions_count: int,
-    quality_issues: List[Dict] = None,
-    diff_result: 'DiffResult' = None,
-    custom_message: str = None,
-    push: bool = False,
-    logger: logging.Logger = None
-) -> Tuple[bool, str]:
-    """Commit snapshot files to Git with auto-generated message.
-
-    Args:
-        snapshot_dir: Directory containing the snapshot files
-        data_view_id: Data view ID
-        data_view_name: Data view name
-        metrics_count: Number of metrics
-        dimensions_count: Number of dimensions
-        quality_issues: Optional quality issues for commit message
-        diff_result: Optional diff result for change summary
-        custom_message: Optional custom message to include
-        push: Whether to push after committing
-        logger: Optional logger
-
-    Returns:
-        Tuple of (success, commit_sha or error message)
-    """
-    logger = logger or logging.getLogger(__name__)
-
-    # Check if Git is available
-    if not is_git_repository(snapshot_dir):
-        return False, f"Not a Git repository: {snapshot_dir}"
-
-    try:
-        # Stage the snapshot files
-        logger.info(f"Staging snapshot files in {snapshot_dir}")
-        result = subprocess.run(
-            ['git', 'add', '.'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return False, f"git add failed: {result.stderr}"
-
-        # Check if there are changes to commit
-        result = subprocess.run(
-            ['git', 'diff', '--cached', '--quiet'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            logger.info("No changes to commit (snapshot unchanged)")
-            return True, "no_changes"
-
-        # Generate commit message
-        commit_message = generate_git_commit_message(
-            data_view_id=data_view_id,
-            data_view_name=data_view_name,
-            metrics_count=metrics_count,
-            dimensions_count=dimensions_count,
-            quality_issues=quality_issues,
-            diff_result=diff_result,
-            custom_message=custom_message
-        )
-
-        # Commit
-        logger.info("Committing snapshot to Git")
-        result = subprocess.run(
-            ['git', 'commit', '-m', commit_message],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return False, f"git commit failed: {result.stderr}"
-
-        # Get commit SHA
-        result = subprocess.run(
-            ['git', 'rev-parse', 'HEAD'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        commit_sha = result.stdout.strip()[:8] if result.returncode == 0 else "unknown"
-
-        logger.info(f"Committed snapshot: {commit_sha}")
-
-        # Push if requested
-        if push:
-            logger.info("Pushing to remote")
-            result = subprocess.run(
-                ['git', 'push'],
-                cwd=str(snapshot_dir),
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if result.returncode != 0:
-                logger.warning(f"git push failed: {result.stderr}")
-                return True, f"{commit_sha} (push failed: {result.stderr.strip()})"
-            logger.info("Pushed to remote successfully")
-
-        return True, commit_sha
-
-    except subprocess.TimeoutExpired:
-        return False, "Git operation timed out"
-    except FileNotFoundError:
-        return False, "Git not found - ensure Git is installed and in PATH"
-    except Exception as e:
-        return False, f"Git error: {str(e)}"
-
-
-def git_init_snapshot_repo(
-    directory: Path,
-    logger: logging.Logger = None
-) -> Tuple[bool, str]:
-    """Initialize a new Git repository for snapshots.
-
-    Args:
-        directory: Directory to initialize
-        logger: Optional logger
-
-    Returns:
-        Tuple of (success, message)
-    """
-    logger = logger or logging.getLogger(__name__)
-
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-
-        if is_git_repository(directory):
-            return True, "Already a Git repository"
-
-        logger.info(f"Initializing Git repository in {directory}")
-        result = subprocess.run(
-            ['git', 'init'],
-            cwd=str(directory),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode != 0:
-            return False, f"git init failed: {result.stderr}"
-
-        # Create .gitignore
-        gitignore = directory / ".gitignore"
-        gitignore.write_text("# CJA SDR Snapshots\n*.log\n*.tmp\n.DS_Store\n")
-
-        # Create README
-        readme = directory / "README.md"
-        readme.write_text(f"""# CJA SDR Snapshots
-
-This repository contains Solution Design Reference (SDR) snapshots from Adobe Customer Journey Analytics.
-
-## Structure
-
-```
-<data_view_name>_<data_view_id>/
-├── metrics.json      # All metrics (sorted by ID)
-├── dimensions.json   # All dimensions (sorted by ID)
-└── metadata.json     # Data view info and quality summary
-```
-
-## Usage
-
-View history:
-```bash
-git log --oneline
-```
-
-Compare versions:
-```bash
-git diff HEAD~1 HEAD -- <data_view_dir>/metrics.json
-```
-
----
-Generated by CJA SDR Generator v{__version__}
-""")
-
-        # Initial commit
-        subprocess.run(['git', 'add', '.'], cwd=str(directory), capture_output=True, timeout=30)
-        subprocess.run(
-            ['git', 'commit', '-m', 'Initialize SDR snapshot repository'],
-            cwd=str(directory),
-            capture_output=True,
-            timeout=30
-        )
-
-        logger.info(f"Initialized Git repository: {directory}")
-        return True, "Repository initialized"
-
-    except Exception as e:
-        return False, f"Initialization failed: {str(e)}"
-
-
-# ==================== DATA VIEW COMPARATOR ====================
-
-class DataViewComparator:
-    """
-    Compares two data view snapshots and produces a DiffResult.
-
-    Supports comparing:
-    - Two live data views
-    - A live data view against a saved snapshot
-    - Two saved snapshots
-
-    Features:
-    - Matches components by ID
-    - Detects additions, removals, and modifications
-    - Configurable field comparison
-    - Field ignore list support
-    - Extended field comparison including attribution, format settings
-    """
-
-    # Default fields to compare for change detection (basic set)
-    DEFAULT_COMPARE_FIELDS = ['name', 'title', 'description', 'type', 'schemaPath']
-
-    # Extended fields for comprehensive comparison (includes configuration settings)
-    EXTENDED_COMPARE_FIELDS = [
-        # Basic identification
-        'name', 'title', 'description', 'type', 'schemaPath',
-        # Component configuration
-        'hidden', 'hideFromReporting', 'precision', 'format',
-        # Behavioral settings
-        'segmentable', 'reportable', 'componentType',
-        # Attribution settings (for metrics)
-        'attribution', 'attributionModel', 'lookbackWindow',
-        # Data settings
-        'dataType', 'hasData', 'approved',
-        # Bucketing (for dimensions)
-        'bucketing', 'bucketingSetting',
-        # Persistence
-        'persistence', 'persistenceSetting', 'allocation',
-        # Derived/calculated
-        'formula', 'isCalculated', 'derivedFieldId',
-    ]
-
-    # Fields to compare for calculated metrics inventory
-    CALC_METRICS_COMPARE_FIELDS = [
-        'name', 'description', 'owner', 'complexity_score', 'approved',
-        'functions_used', 'formula_summary', 'metric_references', 'segment_references',
-        'nesting_depth', 'tags',
-    ]
-
-    # Fields to compare for segments inventory
-    SEGMENTS_COMPARE_FIELDS = [
-        'name', 'description', 'owner', 'complexity_score', 'approved',
-        'functions_used', 'definition_summary', 'metric_references', 'segment_references',
-        'dimension_references', 'nesting_depth', 'tags',
-    ]
-
-    def __init__(self, logger: logging.Logger = None, ignore_fields: List[str] = None,
-                 compare_fields: List[str] = None, use_extended_fields: bool = False,
-                 show_only: Optional[List[str]] = None, metrics_only: bool = False,
-                 dimensions_only: bool = False,
-                 include_calc_metrics: bool = False, include_segments: bool = False):
-        """
-        Initialize the comparator.
-
-        Args:
-            logger: Logger instance
-            ignore_fields: Fields to ignore during comparison
-            compare_fields: Fields to compare (overrides default)
-            use_extended_fields: Use extended field set for comprehensive comparison
-            show_only: Filter to show only specific change types ('added', 'removed', 'modified', 'unchanged')
-            metrics_only: Only include metrics in comparison
-            dimensions_only: Only include dimensions in comparison
-            include_calc_metrics: Include calculated metrics inventory in comparison
-            include_segments: Include segments inventory in comparison
-        """
-        self.logger = logger or logging.getLogger(__name__)
-        self.ignore_fields = set(ignore_fields or [])
-        if compare_fields:
-            self.compare_fields = compare_fields
-        elif use_extended_fields:
-            self.compare_fields = self.EXTENDED_COMPARE_FIELDS
-        else:
-            self.compare_fields = self.DEFAULT_COMPARE_FIELDS
-        self.show_only = set(show_only) if show_only else None
-        self.metrics_only = metrics_only
-        self.dimensions_only = dimensions_only
-        self.include_calc_metrics = include_calc_metrics
-        self.include_segments = include_segments
-
-    def compare(self, source: DataViewSnapshot, target: DataViewSnapshot,
-                source_label: str = "Source", target_label: str = "Target") -> DiffResult:
-        """
-        Compare two data view snapshots.
-
-        Args:
-            source: Source snapshot (baseline)
-            target: Target snapshot (current state)
-            source_label: Label for source in output
-            target_label: Label for target in output
-
-        Returns:
-            DiffResult with all differences
-        """
-        self.logger.info(f"Comparing data views:")
-        self.logger.info(f"  {source_label}: {source.data_view_name} ({source.data_view_id})")
-        self.logger.info(f"  {target_label}: {target.data_view_name} ({target.data_view_id})")
-
-        # Compare metrics (unless dimensions_only is set)
-        if self.dimensions_only:
-            metric_diffs = []
-        else:
-            metric_diffs = self._compare_components(
-                source.metrics, target.metrics, "metrics"
-            )
-            # Apply show_only filter if set
-            metric_diffs = self._apply_show_only_filter(metric_diffs)
-
-        # Compare dimensions (unless metrics_only is set)
-        if self.metrics_only:
-            dimension_diffs = []
-        else:
-            dimension_diffs = self._compare_components(
-                source.dimensions, target.dimensions, "dimensions"
-            )
-            # Apply show_only filter if set
-            dimension_diffs = self._apply_show_only_filter(dimension_diffs)
-
-        # Compare inventory items if requested
-        calc_metrics_diffs = None
-        segments_diffs = None
-
-        if self.include_calc_metrics:
-            calc_metrics_diffs = self._compare_inventory_items(
-                source.calculated_metrics_inventory or [],
-                target.calculated_metrics_inventory or [],
-                'calculated_metric',
-                id_field='metric_id',
-                name_field='metric_name'
-            )
-            self.logger.info(f"  Calculated Metrics: {self._count_changes(calc_metrics_diffs)}")
-
-        if self.include_segments:
-            segments_diffs = self._compare_inventory_items(
-                source.segments_inventory or [],
-                target.segments_inventory or [],
-                'segment',
-                id_field='segment_id',
-                name_field='segment_name'
-            )
-            self.logger.info(f"  Segments: {self._count_changes(segments_diffs)}")
-
-        # Build metadata diff
-        metadata_diff = self._build_metadata_diff(source, target)
-
-        # Build summary (use original lists for accurate counts)
-        summary = self._build_summary(
-            source, target, metric_diffs, dimension_diffs,
-            calc_metrics_diffs, segments_diffs
-        )
-
-        self.logger.info(f"Comparison complete:")
-        self.logger.info(f"  Metrics: +{summary.metrics_added} -{summary.metrics_removed} ~{summary.metrics_modified}")
-        self.logger.info(f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}")
-
-        return DiffResult(
-            summary=summary,
-            metadata_diff=metadata_diff,
-            metric_diffs=metric_diffs,
-            dimension_diffs=dimension_diffs,
-            source_label=source_label,
-            target_label=target_label,
-            calc_metrics_diffs=calc_metrics_diffs,
-            segments_diffs=segments_diffs
-        )
-
-    def _count_changes(self, diffs: Optional[List[InventoryItemDiff]]) -> str:
-        """Format change counts for logging."""
-        if not diffs:
-            return "0 items"
-        added = sum(1 for d in diffs if d.change_type == ChangeType.ADDED)
-        removed = sum(1 for d in diffs if d.change_type == ChangeType.REMOVED)
-        modified = sum(1 for d in diffs if d.change_type == ChangeType.MODIFIED)
-        return f"+{added} -{removed} ~{modified}"
-
-    def _compare_inventory_items(
-        self,
-        source_list: List[Dict],
-        target_list: List[Dict],
-        inventory_type: str,
-        id_field: str = 'id',
-        name_field: str = 'name'
-    ) -> List[InventoryItemDiff]:
-        """Compare two lists of inventory items by ID."""
-        diffs = []
-
-        # Build lookup maps by ID
-        source_map = {item.get(id_field): item for item in source_list if item.get(id_field)}
-        target_map = {item.get(id_field): item for item in target_list if item.get(id_field)}
-
-        all_ids = set(source_map.keys()) | set(target_map.keys())
-
-        for item_id in sorted(all_ids):
-            source_item = source_map.get(item_id)
-            target_item = target_map.get(item_id)
-
-            if source_item and not target_item:
-                # Removed
-                diffs.append(InventoryItemDiff(
-                    id=item_id,
-                    name=source_item.get(name_field, 'Unknown'),
-                    change_type=ChangeType.REMOVED,
-                    inventory_type=inventory_type,
-                    source_data=source_item,
-                    target_data=None
-                ))
-            elif target_item and not source_item:
-                # Added
-                diffs.append(InventoryItemDiff(
-                    id=item_id,
-                    name=target_item.get(name_field, 'Unknown'),
-                    change_type=ChangeType.ADDED,
-                    inventory_type=inventory_type,
-                    source_data=None,
-                    target_data=target_item
-                ))
-            else:
-                # Both exist - check for modifications
-                changed_fields = self._find_inventory_changed_fields(source_item, target_item, inventory_type)
-                if changed_fields:
-                    diffs.append(InventoryItemDiff(
-                        id=item_id,
-                        name=target_item.get(name_field, 'Unknown'),
-                        change_type=ChangeType.MODIFIED,
-                        inventory_type=inventory_type,
-                        source_data=source_item,
-                        target_data=target_item,
-                        changed_fields=changed_fields
-                    ))
-                else:
-                    diffs.append(InventoryItemDiff(
-                        id=item_id,
-                        name=target_item.get(name_field, 'Unknown'),
-                        change_type=ChangeType.UNCHANGED,
-                        inventory_type=inventory_type,
-                        source_data=source_item,
-                        target_data=target_item
-                    ))
-
-        return diffs
-
-    def _find_inventory_changed_fields(self, source: Dict, target: Dict, inventory_type: str) -> Dict[str, Tuple[Any, Any]]:
-        """Find fields that differ between source and target inventory items.
-
-        Args:
-            source: Source inventory item dict
-            target: Target inventory item dict
-            inventory_type: Type of inventory ('calculated_metric', 'segment', 'derived_field')
-
-        Returns:
-            Dict mapping field names to (source_value, target_value) tuples
-        """
-        changed = {}
-
-        # Select appropriate field list based on inventory type
-        if inventory_type == 'calculated_metric':
-            compare_fields = self.CALC_METRICS_COMPARE_FIELDS
-        elif inventory_type == 'segment':
-            compare_fields = self.SEGMENTS_COMPARE_FIELDS
-        elif inventory_type == 'derived_field':
-            compare_fields = self.DERIVED_FIELDS_COMPARE_FIELDS
-        else:
-            # Fallback to calc metrics fields
-            compare_fields = self.CALC_METRICS_COMPARE_FIELDS
-
-        for field in compare_fields:
-            if field in self.ignore_fields:
-                continue
-
-            source_val = source.get(field)
-            target_val = target.get(field)
-
-            # Normalize for comparison
-            source_normalized = self._normalize_value(source_val)
-            target_normalized = self._normalize_value(target_val)
-
-            if source_normalized != target_normalized:
-                changed[field] = (source_val, target_val)
-
-        return changed
-
-    def _apply_show_only_filter(self, diffs: List[ComponentDiff]) -> List[ComponentDiff]:
-        """Apply show_only filter to diff results."""
-        if not self.show_only:
-            return diffs
-
-        # Map show_only strings to ChangeType enum values
-        type_map = {
-            'added': ChangeType.ADDED,
-            'removed': ChangeType.REMOVED,
-            'modified': ChangeType.MODIFIED,
-            'unchanged': ChangeType.UNCHANGED,
-        }
-
-        allowed_types = {type_map[t] for t in self.show_only if t in type_map}
-
-        return [d for d in diffs if d.change_type in allowed_types]
-
-    def _compare_components(self, source_list: List[Dict], target_list: List[Dict],
-                           component_type: str) -> List[ComponentDiff]:
-        """Compare two lists of components by ID"""
-        diffs = []
-
-        # Build lookup maps by ID
-        source_map = {item.get('id'): item for item in source_list if item.get('id')}
-        target_map = {item.get('id'): item for item in target_list if item.get('id')}
-
-        all_ids = set(source_map.keys()) | set(target_map.keys())
-
-        for item_id in sorted(all_ids):
-            source_item = source_map.get(item_id)
-            target_item = target_map.get(item_id)
-
-            if source_item and not target_item:
-                # Removed
-                diffs.append(ComponentDiff(
-                    id=item_id,
-                    name=source_item.get('name', source_item.get('title', 'Unknown')),
-                    change_type=ChangeType.REMOVED,
-                    source_data=source_item,
-                    target_data=None
-                ))
-            elif target_item and not source_item:
-                # Added
-                diffs.append(ComponentDiff(
-                    id=item_id,
-                    name=target_item.get('name', target_item.get('title', 'Unknown')),
-                    change_type=ChangeType.ADDED,
-                    source_data=None,
-                    target_data=target_item
-                ))
-            else:
-                # Both exist - check for modifications
-                changed_fields = self._find_changed_fields(source_item, target_item)
-                if changed_fields:
-                    diffs.append(ComponentDiff(
-                        id=item_id,
-                        name=target_item.get('name', target_item.get('title', 'Unknown')),
-                        change_type=ChangeType.MODIFIED,
-                        source_data=source_item,
-                        target_data=target_item,
-                        changed_fields=changed_fields
-                    ))
-                else:
-                    diffs.append(ComponentDiff(
-                        id=item_id,
-                        name=target_item.get('name', target_item.get('title', 'Unknown')),
-                        change_type=ChangeType.UNCHANGED,
-                        source_data=source_item,
-                        target_data=target_item
-                    ))
-
-        return diffs
-
-    def _find_changed_fields(self, source: Dict, target: Dict) -> Dict[str, Tuple[Any, Any]]:
-        """Find fields that differ between source and target, including nested structures."""
-        changed = {}
-
-        for field in self.compare_fields:
-            if field in self.ignore_fields:
-                continue
-
-            source_val = source.get(field)
-            target_val = target.get(field)
-
-            # Normalize for comparison (handle None vs empty string, nested dicts)
-            source_normalized = self._normalize_value(source_val)
-            target_normalized = self._normalize_value(target_val)
-
-            if source_normalized != target_normalized:
-                changed[field] = (source_val, target_val)
-
-        return changed
-
-    def _normalize_value(self, value: Any) -> Any:
-        """Normalize a value for comparison, handling nested structures."""
-        if value is None:
-            return ''
-        # Handle NaN values (pandas/numpy NaN, float nan)
-        # Must check before string since pd.isna works on scalars
-        try:
-            if pd.isna(value):
-                return ''
-        except (TypeError, ValueError):
-            # pd.isna can fail on some types like dicts/lists
-            pass
-        if isinstance(value, str):
-            return value.strip()
-        if isinstance(value, dict):
-            # Recursively normalize dict values and sort keys for consistent comparison
-            return self._normalize_dict(value)
-        if isinstance(value, list):
-            # Normalize list items
-            return [self._normalize_value(v) for v in value]
-        return value
-
-    def _normalize_dict(self, d: Dict) -> Dict:
-        """Normalize a dictionary for comparison."""
-        if not d:
-            return {}
-        result = {}
-        for k, v in sorted(d.items()):
-            normalized = self._normalize_value(v)
-            # Skip empty values for cleaner comparison
-            if normalized != '' and normalized != {} and normalized != []:
-                result[k] = normalized
-        return result
-
-    def _build_metadata_diff(self, source: DataViewSnapshot, target: DataViewSnapshot) -> MetadataDiff:
-        """Build metadata diff between snapshots"""
-        changed_fields = {}
-
-        if source.data_view_name != target.data_view_name:
-            changed_fields['name'] = (source.data_view_name, target.data_view_name)
-        if source.owner != target.owner:
-            changed_fields['owner'] = (source.owner, target.owner)
-        if source.description != target.description:
-            changed_fields['description'] = (source.description, target.description)
-
-        return MetadataDiff(
-            source_name=source.data_view_name,
-            target_name=target.data_view_name,
-            source_id=source.data_view_id,
-            target_id=target.data_view_id,
-            source_owner=source.owner,
-            target_owner=target.owner,
-            source_description=source.description,
-            target_description=target.description,
-            changed_fields=changed_fields
-        )
-
-    def _build_summary(
-        self,
-        source: DataViewSnapshot,
-        target: DataViewSnapshot,
-        metric_diffs: List[ComponentDiff],
-        dimension_diffs: List[ComponentDiff],
-        calc_metrics_diffs: Optional[List[InventoryItemDiff]] = None,
-        segments_diffs: Optional[List[InventoryItemDiff]] = None
-    ) -> DiffSummary:
-        """Build summary statistics from diffs"""
-        summary = DiffSummary(
-            source_metrics_count=len(source.metrics),
-            target_metrics_count=len(target.metrics),
-            source_dimensions_count=len(source.dimensions),
-            target_dimensions_count=len(target.dimensions),
-            metrics_added=sum(1 for d in metric_diffs if d.change_type == ChangeType.ADDED),
-            metrics_removed=sum(1 for d in metric_diffs if d.change_type == ChangeType.REMOVED),
-            metrics_modified=sum(1 for d in metric_diffs if d.change_type == ChangeType.MODIFIED),
-            metrics_unchanged=sum(1 for d in metric_diffs if d.change_type == ChangeType.UNCHANGED),
-            dimensions_added=sum(1 for d in dimension_diffs if d.change_type == ChangeType.ADDED),
-            dimensions_removed=sum(1 for d in dimension_diffs if d.change_type == ChangeType.REMOVED),
-            dimensions_modified=sum(1 for d in dimension_diffs if d.change_type == ChangeType.MODIFIED),
-            dimensions_unchanged=sum(1 for d in dimension_diffs if d.change_type == ChangeType.UNCHANGED)
-        )
-
-        # Add inventory counts if present
-        if calc_metrics_diffs is not None:
-            summary.source_calc_metrics_count = len(source.calculated_metrics_inventory or [])
-            summary.target_calc_metrics_count = len(target.calculated_metrics_inventory or [])
-            summary.calc_metrics_added = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.ADDED)
-            summary.calc_metrics_removed = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.REMOVED)
-            summary.calc_metrics_modified = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.MODIFIED)
-            summary.calc_metrics_unchanged = sum(1 for d in calc_metrics_diffs if d.change_type == ChangeType.UNCHANGED)
-
-        if segments_diffs is not None:
-            summary.source_segments_count = len(source.segments_inventory or [])
-            summary.target_segments_count = len(target.segments_inventory or [])
-            summary.segments_added = sum(1 for d in segments_diffs if d.change_type == ChangeType.ADDED)
-            summary.segments_removed = sum(1 for d in segments_diffs if d.change_type == ChangeType.REMOVED)
-            summary.segments_modified = sum(1 for d in segments_diffs if d.change_type == ChangeType.MODIFIED)
-            summary.segments_unchanged = sum(1 for d in segments_diffs if d.change_type == ChangeType.UNCHANGED)
-
-        return summary
+# ==================== DIFF COMPARISON ====================
+
+from cja_auto_sdr.diff.comparator import DataViewComparator
+from cja_auto_sdr.diff.git import (
+    generate_git_commit_message,
+    git_commit_snapshot,
+    git_get_user_info,
+    git_init_snapshot_repo,
+    is_git_repository,
+    save_git_friendly_snapshot,
+)
+from cja_auto_sdr.diff.models import (
+    ChangeType,
+    ComponentDiff,
+    DataViewSnapshot,
+    DiffResult,
+    DiffSummary,
+    InventoryItemDiff,
+    MetadataDiff,
+)
+from cja_auto_sdr.diff.snapshot import SnapshotManager, parse_retention_period
 
 
 # ==================== LOGGING SETUP ====================
@@ -3591,6 +463,8 @@ def setup_logging(
 
 class PerformanceTracker:
     """Track execution time for operations"""
+    MAX_METRICS = 500
+
     def __init__(self, logger: logging.Logger):
         self.metrics = {}
         self.logger = logger
@@ -3604,6 +478,10 @@ class PerformanceTracker:
         """End timing an operation"""
         if operation_name in self.start_times:
             duration = time.time() - self.start_times[operation_name]
+            if len(self.metrics) >= self.MAX_METRICS:
+                # Drop oldest entry to prevent unbounded growth
+                oldest = next(iter(self.metrics))
+                del self.metrics[oldest]
             self.metrics[operation_name] = duration
 
             # Log individual operations only in DEBUG mode for performance
@@ -4170,9 +1048,7 @@ class SharedValidationCache:
 
         with self._lock:
             if cache_key not in self._cache:
-                stats = dict(self._stats)
-                stats['misses'] = stats.get('misses', 0) + 1
-                self._stats.update(stats)
+                self._stats['misses'] = self._stats.get('misses', 0) + 1
                 return None, cache_key
 
             cached_data = self._cache[cache_key]
@@ -4184,16 +1060,12 @@ class SharedValidationCache:
                 del self._cache[cache_key]
                 if cache_key in self._access_times:
                     del self._access_times[cache_key]
-                stats = dict(self._stats)
-                stats['misses'] = stats.get('misses', 0) + 1
-                self._stats.update(stats)
+                self._stats['misses'] = self._stats.get('misses', 0) + 1
                 return None, cache_key
 
             # Cache hit - update access time and stats
             self._access_times[cache_key] = time.time()
-            stats = dict(self._stats)
-            stats['hits'] = stats.get('hits', 0) + 1
-            self._stats.update(stats)
+            self._stats['hits'] = self._stats.get('hits', 0) + 1
 
             # Return copy to prevent mutation
             return [issue.copy() for issue in cached_issues], cache_key
@@ -4244,9 +1116,7 @@ class SharedValidationCache:
         if lru_key in self._access_times:
             del self._access_times[lru_key]
 
-        stats = dict(self._stats)
-        stats['evictions'] = stats.get('evictions', 0) + 1
-        self._stats.update(stats)
+        self._stats['evictions'] = self._stats.get('evictions', 0) + 1
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -4452,10 +1322,10 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
     credentials = load_profile_config_json(profile_path) or {}
     json_source = bool(credentials)
 
-    # Override with .env values
+    # Override with .env values (skip empty values to avoid overwriting valid config)
     env_credentials = load_profile_dotenv(profile_path)
     if env_credentials:
-        credentials.update(env_credentials)
+        credentials.update({k: v for k, v in env_credentials.items() if v})
 
     if not credentials:
         raise ProfileConfigError(
@@ -4845,67 +1715,6 @@ def test_profile(profile_name: str) -> bool:
         print("  - API project not provisioned for CJA")
         print()
         return False
-
-
-# ==================== CONFIG SCHEMA ====================
-
-# Configuration schema definition for validation
-# Uses OAuth Server-to-Server authentication: org_id, client_id, secret, scopes
-CONFIG_SCHEMA = {
-    # Fields required for OAuth Server-to-Server authentication
-    'base_required_fields': {
-        'org_id': {'type': str, 'description': 'Adobe Organization ID'},
-        'client_id': {'type': str, 'description': 'OAuth Client ID'},
-        'secret': {'type': str, 'description': 'Client Secret'},
-    },
-    'optional_fields': {
-        'scopes': {'type': str, 'description': 'OAuth scopes'},
-        'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
-    }
-}
-
-# Deprecated JWT authentication fields (removed in v3.0.8)
-# These fields indicate a user is trying to use the old JWT auth method
-JWT_DEPRECATED_FIELDS = {
-    'tech_acct': 'Technical Account ID (JWT auth)',
-    'private_key': 'Private key file path (JWT auth)',
-    'pathToKey': 'Private key file path (JWT auth)',
-}
-
-# Environment variable to config field mapping (for credentials)
-ENV_VAR_MAPPING = {
-    'org_id': 'ORG_ID',
-    'client_id': 'CLIENT_ID',
-    'secret': 'SECRET',
-    'scopes': 'SCOPES',
-    'sandbox': 'SANDBOX',
-}
-
-# Additional environment variables (non-credential settings)
-# OUTPUT_DIR - Output directory for generated files (used by --output-dir)
-
-
-# ==================== CREDENTIAL FIELDS (Single Source of Truth) ====================
-
-# Derive allowed credential fields from CONFIG_SCHEMA
-# This ensures consistency across all credential loading sources
-def _get_credential_fields() -> Dict[str, set]:
-    """Get credential field sets derived from CONFIG_SCHEMA.
-
-    Returns:
-        Dictionary with 'required', 'optional', and 'all' field sets.
-    """
-    required = set(CONFIG_SCHEMA['base_required_fields'].keys())
-    optional = set(CONFIG_SCHEMA['optional_fields'].keys())
-    return {
-        'required': required,
-        'optional': optional,
-        'all': required | optional,
-    }
-
-
-# Module-level constant for credential fields
-CREDENTIAL_FIELDS = _get_credential_fields()
 
 
 # ==================== CONFIG VALIDATION HELPERS ====================
@@ -5520,16 +2329,16 @@ def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
         logger: Logger instance
     """
     # cjapy.importConfigFile expects a JSON file, so we create a temporary one
-    # This is cleaned up on exit
+    # This is cleaned up on exit. Use restrictive permissions (0o600) since it contains credentials.
     temp_config = tempfile.NamedTemporaryFile(
         mode='w',
         suffix='.json',
         delete=False,
         prefix='cja_env_config_'
     )
-
     json.dump(credentials, temp_config)
     temp_config.close()
+    os.chmod(temp_config.name, 0o600)
 
     logger.debug(f"Created temporary config file: {temp_config.name}")
 
@@ -5786,6 +2595,7 @@ def initialize_cja(
         ConfigurationError: If credentials are invalid or missing
         APIError: If API connection fails
     """
+    logger = logger or logging.getLogger(__name__)
     try:
         logger.info("=" * 60)
         logger.info("INITIALIZING CJA CONNECTION")
@@ -6113,7 +2923,7 @@ class ParallelAPIFetcher:
                 total=len(tasks),
                 desc="Fetching API data",
                 unit="item",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                bar_format=TQDM_BAR_FORMAT,
                 leave=False,
                 disable=self.quiet
             ) as pbar:
@@ -6160,25 +2970,24 @@ class ParallelAPIFetcher:
         Execute an API call with timing for auto-tuning.
 
         Wraps make_api_call_with_retry with timing measurement and tuner feedback.
+        Only records timing on successful calls so retries don't inflate metrics.
         """
         start_time = time.time()
-        try:
-            result = make_api_call_with_retry(
-                api_func,
-                *args,
-                logger=self.logger,
-                operation_name=operation_name,
-                circuit_breaker=self.circuit_breaker,
-                **kwargs
-            )
-            return result
-        finally:
-            # Record response time for tuning (regardless of success/failure)
-            if self.tuner is not None:
-                duration_ms = (time.time() - start_time) * 1000
-                new_workers = self.tuner.record_response_time(duration_ms)
-                if new_workers is not None:
-                    self.max_workers = new_workers
+        result = make_api_call_with_retry(
+            api_func,
+            *args,
+            logger=self.logger,
+            operation_name=operation_name,
+            circuit_breaker=self.circuit_breaker,
+            **kwargs
+        )
+        # Record response time only on success to avoid retry delays inflating metrics
+        if self.tuner is not None:
+            duration_ms = (time.time() - start_time) * 1000
+            new_workers = self.tuner.record_response_time(duration_ms)
+            if new_workers is not None:
+                self.max_workers = new_workers
+        return result
 
     def _fetch_metrics(self, data_view_id: str) -> pd.DataFrame:
         """Fetch metrics with error handling and retry"""
@@ -6655,7 +3464,7 @@ class DataQualityChecker:
                     total=len(tasks),
                     desc="Validating data",
                     unit="check",
-                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]",
+                    bar_format=TQDM_BAR_FORMAT,
                     leave=False,
                     disable=self.quiet
                 ) as pbar:
@@ -6787,8 +3596,8 @@ class ExcelFormatCache:
             xlsxwriter Format object
         """
         # Convert dict to a hashable key (sorted tuple of items)
-        # Handle nested values by converting to string representation
-        cache_key = tuple(sorted((k, str(v)) for k, v in properties.items()))
+        # Use repr() for nested values to avoid collisions (e.g. [1,2] vs '[1, 2]')
+        cache_key = tuple(sorted((k, repr(v)) for k, v in properties.items()))
 
         if cache_key not in self._cache:
             self._cache[cache_key] = self.workbook.add_format(properties)
@@ -6864,10 +3673,9 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
             worksheet.write(1, 1, "Count", summary_header)
 
             # Write severity counts in order
-            severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
             row = 2
             total_count = 0
-            for sev in severity_order:
+            for sev in DataQualityChecker.SEVERITY_ORDER:
                 count = severity_counts.get(sev, 0)
                 if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:  # Always show main levels
                     worksheet.write(row, 0, sev, summary_cell)
@@ -7119,6 +3927,56 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
         raise
 
 # ==================== OUTPUT FORMAT WRITERS ====================
+
+def write_excel_output(
+    data_dict: Dict[str, pd.DataFrame],
+    base_filename: str,
+    output_dir: Union[str, Path],
+    logger: logging.Logger
+) -> str:
+    """
+    Write data to a formatted Excel workbook.
+
+    Args:
+        data_dict: Dictionary mapping sheet names to DataFrames
+        base_filename: Base filename without extension
+        output_dir: Output directory path
+        logger: Logger instance
+
+    Returns:
+        Path to Excel output file
+    """
+    try:
+        logger.info("Generating Excel output...")
+
+        excel_file = os.path.join(output_dir, f"{base_filename}.xlsx")
+        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+            format_cache = ExcelFormatCache(writer.book)
+            for sheet_name, df in data_dict.items():
+                if df.empty:
+                    placeholder_df = pd.DataFrame(
+                        {'Note': [f'No data available for {sheet_name}']}
+                    )
+                    apply_excel_formatting(
+                        writer, placeholder_df, sheet_name, logger, format_cache
+                    )
+                else:
+                    apply_excel_formatting(writer, df, sheet_name, logger, format_cache)
+
+        logger.info(f"Excel file created: {excel_file}")
+        return excel_file
+
+    except PermissionError as e:
+        logger.error(f"Permission denied creating Excel file: {e}")
+        logger.error("Check write permissions for the output directory")
+        raise
+    except OSError as e:
+        logger.error(f"OS error creating Excel file: {e}")
+        logger.error("Check disk space and path validity")
+        raise
+    except Exception as e:
+        logger.error(_format_error_msg("creating Excel file", error=e))
+        raise
 
 def write_csv_output(
     data_dict: Dict[str, pd.DataFrame],
@@ -7613,9 +4471,8 @@ def write_markdown_output(
                 md_parts.append("| Severity | Count |")
                 md_parts.append("| --- | --- |")
 
-                severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
                 severity_emojis = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '⚪', 'INFO': '🔵'}
-                for sev in severity_order:
+                for sev in DataQualityChecker.SEVERITY_ORDER:
                     count = severity_counts.get(sev, 0)
                     if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
                         emoji = severity_emojis.get(sev, '')
@@ -9632,7 +6489,8 @@ def display_inventory_summary(
         if high_complexity_items:
             print(ConsoleColors.warning(f"High-Complexity Items ({len(high_complexity_items)}):"))
             for item in high_complexity_items[:10]:  # Show top 10
-                print(f"  {ConsoleColors.bold(f'{item["complexity"]:3}')} {item['type']:18} {item['name']}")
+                complexity = item["complexity"]
+                print(f"  {ConsoleColors.bold(f'{complexity:3}')} {item['type']:18} {item['name']}")
                 if item['summary']:
                     print(f"       {ConsoleColors.dim(item['summary'])}")
             if len(high_complexity_items) > 10:
@@ -9710,7 +6568,7 @@ def process_inventory_summary(
     # Fetch derived fields inventory
     if include_derived:
         try:
-            from cja_derived_fields_inventory import DerivedFieldInventoryBuilder
+            from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
             # Need metrics and dimensions for derived fields
             metrics_data = cja.dataviews.get_metrics(data_view_id)
@@ -9992,7 +6850,7 @@ def process_single_dataview(
             logger.info("=" * 60)
 
             try:
-                from cja_derived_fields_inventory import DerivedFieldInventoryBuilder
+                from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
                 builder = DerivedFieldInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
@@ -10020,7 +6878,7 @@ def process_single_dataview(
             logger.info("=" * 60)
 
             try:
-                from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+                from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
 
                 builder = CalculatedMetricsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
@@ -10047,7 +6905,7 @@ def process_single_dataview(
             logger.info("=" * 60)
 
             try:
-                from cja_segments_inventory import SegmentsInventoryBuilder
+                from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
 
                 builder = SegmentsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
@@ -10563,6 +7421,14 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     Returns:
         ProcessingResult
     """
+    # Propagate retry config from parent process via env vars (for spawned workers)
+    if 'MAX_RETRIES' in os.environ:
+        DEFAULT_RETRY_CONFIG['max_retries'] = int(os.environ['MAX_RETRIES'])
+    if 'RETRY_BASE_DELAY' in os.environ:
+        DEFAULT_RETRY_CONFIG['base_delay'] = float(os.environ['RETRY_BASE_DELAY'])
+    if 'RETRY_MAX_DELAY' in os.environ:
+        DEFAULT_RETRY_CONFIG['max_delay'] = float(os.environ['RETRY_MAX_DELAY'])
+
     # Handle varying tuple lengths for backward compatibility
     shared_cache = None
     api_tuning_config = None
@@ -10590,7 +7456,10 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
         data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory = args
     elif len(args) >= 20:
         # With tuning/breaker but no derived
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args[:20]
+    elif len(args) == 19:
+        # With api_tuning_config only (no circuit_breaker_config)
+        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config = args
     elif len(args) == 18:
         # With shared_cache only
         data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache = args
@@ -10698,13 +7567,15 @@ class BatchProcessor:
         try:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
         except PermissionError:
-            print(ConsoleColors.error(f"ERROR: Permission denied creating output directory: {output_dir}"), file=sys.stderr)
-            print("       Check that you have write permissions for the parent directory.", file=sys.stderr)
-            sys.exit(1)
+            raise OutputError(
+                f"Permission denied creating output directory: {output_dir}. "
+                "Check that you have write permissions for the parent directory."
+            )
         except OSError as e:
-            print(ConsoleColors.error(f"ERROR: Cannot create output directory '{output_dir}': {e}"), file=sys.stderr)
-            print("       Verify the path is valid and the disk has available space.", file=sys.stderr)
-            sys.exit(1)
+            raise OutputError(
+                f"Cannot create output directory '{output_dir}': {e}. "
+                "Verify the path is valid and the disk has available space."
+            )
 
     def process_batch(self, data_view_ids: List[str]) -> Dict:
         """
@@ -11123,6 +7994,17 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
 # ==================== COMMAND-LINE INTERFACE ====================
 
+def _bounded_float(min_val: float, max_val: float):
+    """Argparse type factory for a float bounded to [min_val, max_val]."""
+    def _type(value: str) -> float:
+        f = float(value)
+        if f < min_val or f > max_val:
+            raise argparse.ArgumentTypeError(f"must be between {min_val} and {max_val}, got {f}")
+        return f
+    _type.__name__ = f"float[{min_val}-{max_val}]"
+    return _type
+
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
@@ -11511,6 +8393,19 @@ Requirements:
         action='store_true',
         help='Show configuration status (source, fields, masked credentials) without API call. '
              'Faster than --validate-config for quick troubleshooting'
+    )
+
+    parser.add_argument(
+        '--config-json',
+        action='store_true',
+        help='Output --config-status as machine-readable JSON (for scripting and CI/CD)'
+    )
+
+    parser.add_argument(
+        '--yes', '-y',
+        action='store_true',
+        dest='assume_yes',
+        help='Skip confirmation prompts (e.g., for large batch operations)'
     )
 
     parser.add_argument(
@@ -11913,6 +8808,305 @@ Requirements:
              '--include-calculated, and --include-derived. With --snapshot or --git-commit, '
              'enables only --include-segments and --include-calculated (derived fields are '
              'not supported in snapshots).'
+    )
+
+    # ==================== ORG-WIDE ANALYSIS ARGUMENTS ====================
+
+    org_group = parser.add_argument_group(
+        'Org-Wide Analysis',
+        'Analyze component distribution across all data views in the organization'
+    )
+
+    org_group.add_argument(
+        '--org-report',
+        action='store_true',
+        help='Generate org-wide component analysis report. Analyzes all accessible '
+             'data views to show component distribution, similarity matrix, and '
+             'governance recommendations. No data view arguments required.'
+    )
+
+    org_group.add_argument(
+        '--filter',
+        type=str,
+        metavar='PATTERN',
+        dest='org_filter',
+        help='Include only data views whose name matches this regex pattern '
+             '(e.g., "Prod.*" or "prod|production"). Avoid complex nested quantifiers'
+    )
+
+    org_group.add_argument(
+        '--exclude',
+        type=str,
+        metavar='PATTERN',
+        dest='org_exclude',
+        help='Exclude data views whose name matches this regex pattern '
+             '(e.g., "Test.*|Dev.*|sandbox"). Avoid complex nested quantifiers'
+    )
+
+    org_group.add_argument(
+        '--limit',
+        type=int,
+        metavar='N',
+        dest='org_limit',
+        help='Limit the number of data views to analyze (useful for testing or large orgs)'
+    )
+
+    org_group.add_argument(
+        '--core-threshold',
+        type=float,
+        default=0.5,
+        metavar='PERCENT',
+        help='Threshold for "core" components as fraction of data views '
+             '(default: 0.5 = components in >= 50%% of DVs are core)'
+    )
+
+    org_group.add_argument(
+        '--core-min-count',
+        type=int,
+        metavar='N',
+        help='Minimum absolute count for "core" components (overrides --core-threshold). '
+             'E.g., --core-min-count 5 means components in >= 5 DVs are core'
+    )
+
+    org_group.add_argument(
+        '--overlap-threshold',
+        type=_bounded_float(0.0, 1.0),
+        default=0.8,
+        metavar='PERCENT',
+        help='Threshold for "high overlap" pairs in similarity analysis '
+             '(default: 0.8). Note: For governance checks (--fail-on-threshold), '
+             'values above 0.9 are capped at 90%% to ensure duplicate detection'
+    )
+
+    org_group.add_argument(
+        '--skip-similarity',
+        action='store_true',
+        help='Skip the O(n^2) pairwise similarity matrix calculation. '
+             'Useful for very large orgs with many data views'
+    )
+
+    org_group.add_argument(
+        '--similarity-max-dvs',
+        type=int,
+        metavar='N',
+        dest='org_similarity_max_dvs',
+        default=250,
+        help='Guardrail to skip similarity when data views exceed N (default: 250). '
+             'Use --force-similarity to override.'
+    )
+
+    org_group.add_argument(
+        '--force-similarity',
+        action='store_true',
+        dest='org_force_similarity',
+        help='Force similarity matrix even if guardrails would skip it'
+    )
+
+    org_group.add_argument(
+        '--include-names',
+        action='store_true',
+        dest='org_include_names',
+        help='Include component names in the report (slower - requires fetching full component details)'
+    )
+
+    org_group.add_argument(
+        '--org-summary',
+        action='store_true',
+        help='Show only summary statistics, suppress detailed component lists'
+    )
+
+    org_group.add_argument(
+        '--org-verbose',
+        action='store_true',
+        help='Include full component lists and detailed breakdowns in output'
+    )
+
+    # Component type breakdown (enabled by default)
+    org_group.add_argument(
+        '--no-component-types',
+        action='store_true',
+        dest='no_component_types',
+        help='Disable component type breakdown (standard vs derived metrics/dimensions)'
+    )
+
+    # Metadata
+    org_group.add_argument(
+        '--include-metadata',
+        action='store_true',
+        dest='org_include_metadata',
+        help='Include data view metadata (owner, creation/modification dates, descriptions)'
+    )
+
+    # Drift detection
+    org_group.add_argument(
+        '--include-drift',
+        action='store_true',
+        dest='org_include_drift',
+        help='Include component drift details showing exact differences between similar DV pairs'
+    )
+
+    org_group.add_argument(
+        '--org-shared-client',
+        action='store_true',
+        dest='org_shared_client',
+        help='Use a single shared cjapy client across threads. WARNING: This is experimental '
+             'and may cause race conditions if cjapy is not thread-safe. Use only if you have '
+             'tested with your cjapy version. Default creates one client per thread (safer)'
+    )
+
+    # Sampling options
+    org_group.add_argument(
+        '--sample',
+        type=int,
+        metavar='N',
+        dest='org_sample_size',
+        help='Randomly sample N data views (useful for very large orgs)'
+    )
+
+    org_group.add_argument(
+        '--sample-seed',
+        type=int,
+        metavar='SEED',
+        dest='org_sample_seed',
+        help='Random seed for reproducible sampling'
+    )
+
+    org_group.add_argument(
+        '--sample-stratified',
+        action='store_true',
+        dest='org_sample_stratified',
+        help='Stratify sample by data view name prefix'
+    )
+
+    # Caching options
+    org_group.add_argument(
+        '--use-cache',
+        action='store_true',
+        dest='org_use_cache',
+        help='Enable caching of data view components for faster repeat runs'
+    )
+
+    org_group.add_argument(
+        '--cache-max-age',
+        type=int,
+        metavar='HOURS',
+        default=24,
+        dest='org_cache_max_age',
+        help='Maximum cache age in hours (default: 24)'
+    )
+
+    org_group.add_argument(
+        '--refresh-cache',
+        action='store_true',
+        dest='org_clear_cache',
+        help='Clear the org-report cache and fetch fresh data'
+    )
+
+    org_group.add_argument(
+        '--validate-cache',
+        action='store_true',
+        dest='org_validate_cache',
+        help='Validate cached entries against data view modification timestamps before using'
+    )
+
+    org_group.add_argument(
+        '--memory-warning',
+        type=int,
+        metavar='MB',
+        default=100,
+        dest='org_memory_warning',
+        help='Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)'
+    )
+
+    org_group.add_argument(
+        '--memory-limit',
+        type=int,
+        metavar='MB',
+        default=None,
+        dest='org_memory_limit',
+        help='Abort if component index exceeds this size in MB. Protects against OOM for very large orgs (default: no limit)'
+    )
+
+    # Clustering options
+    org_group.add_argument(
+        '--cluster',
+        action='store_true',
+        dest='org_cluster',
+        help="Enable hierarchical clustering to group related data views (requires 'clustering' extra: uv pip install 'cja-auto-sdr[clustering]')"
+    )
+
+    org_group.add_argument(
+        '--cluster-method',
+        type=str,
+        choices=['average', 'complete'],
+        default='average',
+        dest='org_cluster_method',
+        help='Clustering linkage method: average (recommended) or complete. Both work correctly with Jaccard distances'
+    )
+
+    # Feature 1: Governance exit codes
+    org_group.add_argument(
+        '--duplicate-threshold',
+        type=int,
+        metavar='N',
+        dest='org_duplicate_threshold',
+        help='Maximum allowed high-similarity pairs (>=90%%). Exit with code 2 if exceeded when --fail-on-threshold is set'
+    )
+
+    org_group.add_argument(
+        '--isolated-threshold',
+        type=_bounded_float(0.0, 1.0),
+        metavar='PERCENT',
+        dest='org_isolated_threshold',
+        help='Maximum isolated component percentage (0.0-1.0). Exit with code 2 if exceeded when --fail-on-threshold is set'
+    )
+
+    org_group.add_argument(
+        '--fail-on-threshold',
+        action='store_true',
+        dest='org_fail_on_threshold',
+        help='Enable exit code 2 when governance thresholds are exceeded (for CI/CD integration)'
+    )
+
+    # Feature 2: Org summary stats mode
+    org_group.add_argument(
+        '--org-stats',
+        action='store_true',
+        dest='org_stats_only',
+        help='Quick summary stats only - skips similarity matrix and clustering for faster results'
+    )
+
+    # Feature 3: Naming convention audit
+    org_group.add_argument(
+        '--audit-naming',
+        action='store_true',
+        dest='org_audit_naming',
+        help='Detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes, etc.)'
+    )
+
+    # Feature 4: Trending/drift report
+    org_group.add_argument(
+        '--compare-org-report',
+        type=str,
+        metavar='PREV.json',
+        dest='org_compare_report',
+        help='Compare current org-report to a previous JSON report for trending/drift analysis'
+    )
+
+    # Feature 5: Owner/team summary
+    org_group.add_argument(
+        '--owner-summary',
+        action='store_true',
+        dest='org_owner_summary',
+        help='Group statistics by data view owner (requires --include-metadata)'
+    )
+
+    # Feature 6: Stale component heuristics
+    org_group.add_argument(
+        '--flag-stale',
+        action='store_true',
+        dest='org_flag_stale',
+        help='Flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns)'
     )
 
     # Enable shell tab-completion if argcomplete is installed
@@ -13001,7 +10195,8 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 # ==================== CONFIG STATUS ====================
 
 def show_config_status(config_file: str = "config.json",
-                       profile: Optional[str] = None) -> bool:
+                       profile: Optional[str] = None,
+                       output_json: bool = False) -> bool:
     """
     Show configuration status without connecting to API.
 
@@ -13013,19 +10208,24 @@ def show_config_status(config_file: str = "config.json",
     Args:
         config_file: Path to CJA configuration file
         profile: Optional profile name to use for credentials
+        output_json: If True, output machine-readable JSON instead of human-readable text
 
     Returns:
         True if valid configuration found, False otherwise
     """
-    print()
-    print("=" * 60)
-    print("CONFIGURATION STATUS")
-    print("=" * 60)
-    print()
+    # For JSON output, we'll collect data and print at the end
+    if not output_json:
+        print()
+        print("=" * 60)
+        print("CONFIGURATION STATUS")
+        print("=" * 60)
+        print()
 
     config_source = None
+    config_source_type = None  # 'profile', 'environment', 'file'
     config_data = {}
     logger = logging.getLogger(__name__)
+    error_message = None
 
     # Priority 1: Profile credentials
     if profile:
@@ -13033,9 +10233,14 @@ def show_config_status(config_file: str = "config.json",
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
                 config_source = f"Profile: {profile}"
+                config_source_type = "profile"
                 config_data = profile_creds
         except (ProfileNotFoundError, ProfileConfigError) as e:
-            print(ConsoleColors.error(f"ERROR: Profile '{profile}' - {e}"))
+            error_message = f"Profile '{profile}' - {e}"
+            if output_json:
+                print(json.dumps({"error": error_message, "valid": False}, indent=2))
+            else:
+                print(ConsoleColors.error(f"ERROR: {error_message}"))
             return False
 
     # Priority 2: Environment variables
@@ -13043,6 +10248,7 @@ def show_config_status(config_file: str = "config.json",
         env_credentials = load_credentials_from_env()
         if env_credentials and validate_env_credentials(env_credentials, logger):
             config_source = "Environment variables"
+            config_source_type = "environment"
             config_data = env_credentials
 
     # Priority 3: Config file
@@ -13053,27 +10259,36 @@ def show_config_status(config_file: str = "config.json",
                 with open(config_file, 'r') as f:
                     config_data = json.load(f)
                 config_source = f"Config file: {config_path.resolve()}"
+                config_source_type = "file"
             except json.JSONDecodeError:
-                print(ConsoleColors.error(f"ERROR: {config_file} is not valid JSON"))
+                error_message = f"{config_file} is not valid JSON"
+                if output_json:
+                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
+                else:
+                    print(ConsoleColors.error(f"ERROR: {error_message}"))
                 return False
             except Exception as e:
-                print(ConsoleColors.error(f"ERROR: Cannot read {config_file}: {e}"))
+                error_message = f"Cannot read {config_file}: {e}"
+                if output_json:
+                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
+                else:
+                    print(ConsoleColors.error(f"ERROR: {error_message}"))
                 return False
         else:
-            print(ConsoleColors.error(f"ERROR: No configuration found"))
-            print()
-            print("Options:")
-            print(f"  1. Create config file: {config_file}")
-            print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
-            print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
-            print()
-            print("Generate a sample config with:")
-            print("  cja_auto_sdr --sample-config")
+            error_message = "No configuration found"
+            if output_json:
+                print(json.dumps({"error": error_message, "valid": False}, indent=2))
+            else:
+                print(ConsoleColors.error(f"ERROR: {error_message}"))
+                print()
+                print("Options:")
+                print(f"  1. Create config file: {config_file}")
+                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
+                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
+                print()
+                print("Generate a sample config with:")
+                print("  cja_auto_sdr --sample-config")
             return False
-
-    print(f"Source: {config_source}")
-    print()
-    print("Credentials:")
 
     # Define field display order and metadata
     fields = [
@@ -13084,42 +10299,78 @@ def show_config_status(config_file: str = "config.json",
         ('sandbox', 'SANDBOX', False, False),
     ]
 
+    # Build credentials info with masked values
     all_required_set = True
+    credentials_info = {}
+
     for key, display_name, required, sensitive in fields:
         value = config_data.get(key, '')
         if value:
             if sensitive:
                 # Mask sensitive values
-                if len(value) > 8:
+                if isinstance(value, str) and len(value) > 8:
                     masked = value[:4] + '*' * (len(value) - 8) + value[-4:]
                 else:
-                    masked = '*' * len(value)
+                    masked = '****'
                 display_value = masked
             else:
                 display_value = value
-            status = ConsoleColors.success("✓")
-            print(f"  {status} {display_name}: {display_value}")
+            credentials_info[key] = {
+                "value": display_value,
+                "set": True,
+                "required": required
+            }
         else:
+            credentials_info[key] = {
+                "value": None,
+                "set": False,
+                "required": required
+            }
             if required:
-                status = ConsoleColors.error("✗")
-                print(f"  {status} {display_name}: not set (required)")
                 all_required_set = False
-            else:
-                print(f"  - {display_name}: not set (optional)")
 
-    print()
-    if all_required_set:
-        print(ConsoleColors.success("Configuration is complete."))
-        print()
-        print("To verify API connectivity, run:")
-        print("  cja_auto_sdr --validate-config")
+    # Output based on format
+    if output_json:
+        result = {
+            "source": config_source,
+            "source_type": config_source_type,
+            "profile": profile,
+            "config_file": str(Path(config_file).resolve()) if config_source_type == "file" else None,
+            "credentials": credentials_info,
+            "valid": all_required_set
+        }
+        print(json.dumps(result, indent=2))
     else:
-        print(ConsoleColors.error("Configuration is incomplete."))
+        print(f"Source: {config_source}")
         print()
-        print("See documentation:")
-        print("  https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs/CONFIGURATION.md")
+        print("Credentials:")
 
-    print()
+        for key, display_name, required, sensitive in fields:
+            info = credentials_info[key]
+            if info["set"]:
+                status = ConsoleColors.success("✓")
+                print(f"  {status} {display_name}: {info['value']}")
+            else:
+                if required:
+                    status = ConsoleColors.error("✗")
+                    print(f"  {status} {display_name}: not set (required)")
+                else:
+                    print(f"  - {display_name}: not set (optional)")
+
+        print()
+        if all_required_set:
+            print(ConsoleColors.success("Configuration is complete."))
+            print()
+            print("To verify API connectivity, run:")
+            print("  cja_auto_sdr --validate-config")
+        else:
+            print(ConsoleColors.error("Configuration is incomplete."))
+            print()
+            print("See documentation:")
+            print("  https://github.com/brian-a-au/cja_auto_sdr/blob/main/docs/CONFIGURATION.md")
+
+        print()
+
     return all_required_set
 
 
@@ -13436,21 +10687,21 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
                 max_name_width = min(40, max(len('Name'), max(len(s['name']) for s in stats_data)) + 2)
 
                 # Print header
-                header = f"{'ID':<{max_id_width}} {'Name':<{max_name_width}} {'Metrics':>8} {'Dims':>8} {'Total':>8}"
+                header = f"{'ID':<{max_id_width}} {'Name':<{max_name_width}} {'Metrics':>8} {'Dimensions':>10} {'Total':>8}"
                 print(header)
                 print("-" * len(header))
 
                 # Print data
                 for item in stats_data:
                     name = item['name'][:max_name_width-2] + '..' if len(item['name']) > max_name_width-2 else item['name']
-                    print(f"{item['id']:<{max_id_width}} {name:<{max_name_width}} {item['metrics']:>8} {item['dimensions']:>8} {item['total_components']:>8}")
+                    print(f"{item['id']:<{max_id_width}} {name:<{max_name_width}} {item['metrics']:>8} {item['dimensions']:>10} {item['total_components']:>8}")
 
                 # Print totals
                 print("-" * len(header))
                 total_metrics = sum(s['metrics'] for s in stats_data)
                 total_dims = sum(s['dimensions'] for s in stats_data)
                 total_all = sum(s['total_components'] for s in stats_data)
-                print(f"{'TOTAL':<{max_id_width}} {'':<{max_name_width}} {total_metrics:>8} {total_dims:>8} {total_all:>8}")
+                print(f"{'TOTAL':<{max_id_width}} {'':<{max_name_width}} {total_metrics:>8} {total_dims:>10} {total_all:>8}")
 
             print()
             print("=" * 60)
@@ -13478,6 +10729,1923 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
         else:
             print(ConsoleColors.error(f"ERROR: Failed to get stats: {str(e)}"))
         return False
+
+
+
+def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgReportComparison:
+    """Compare current org-report to a previous report for trending analysis (Feature 4).
+
+    Args:
+        current: Current OrgReportResult
+        previous_path: Path to previous org-report JSON file
+
+    Returns:
+        OrgReportComparison with delta information
+    """
+    # Load previous report
+    with open(previous_path, 'r', encoding='utf-8') as f:
+        prev_data = json.load(f)
+
+    # Extract data view IDs from both
+    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.error}
+    current_dv_names = {s.data_view_id: s.data_view_name for s in current.data_view_summaries}
+
+    prev_dv_ids = set()
+    prev_dv_names = {}
+    for dv in prev_data.get('data_views', []):
+        dv_id = dv.get('data_view_id', dv.get('id', ''))
+        if dv_id:
+            prev_dv_ids.add(dv_id)
+            prev_dv_names[dv_id] = dv.get('data_view_name', dv.get('name', 'Unknown'))
+
+    # Compute deltas
+    added_ids = list(current_dv_ids - prev_dv_ids)
+    removed_ids = list(prev_dv_ids - current_dv_ids)
+
+    # Component counts
+    current_components = len(current.component_index)
+    prev_components = prev_data.get('summary', {}).get('total_unique_components', 0)
+
+    # Distribution deltas
+    current_core = current.distribution.total_core
+    current_isolated = current.distribution.total_isolated
+    prev_dist = prev_data.get('distribution', {})
+    prev_core = prev_dist.get('core', {}).get('total')
+    prev_isolated = prev_dist.get('isolated', {}).get('total')
+
+    # Backward/forward compatible totals from metrics/dimensions counts
+    if prev_core is None:
+        prev_core = (
+            prev_dist.get('core', {}).get('metrics_count', 0) +
+            prev_dist.get('core', {}).get('dimensions_count', 0)
+        )
+    if prev_isolated is None:
+        prev_isolated = (
+            prev_dist.get('isolated', {}).get('metrics_count', 0) +
+            prev_dist.get('isolated', {}).get('dimensions_count', 0)
+        )
+
+    # High-similarity pairs comparison (normalize order for stability)
+    def _pair_key(dv1: str, dv2: str) -> Tuple[str, str]:
+        return tuple(sorted([dv1, dv2]))
+
+    current_high_sim = set()
+    if current.similarity_pairs:
+        for p in current.similarity_pairs:
+            if p.jaccard_similarity >= 0.9:
+                current_high_sim.add(_pair_key(p.dv1_id, p.dv2_id))
+
+    prev_high_sim = set()
+    for p in prev_data.get('similarity_pairs', []):
+        if p.get('jaccard_similarity', 0) >= 0.9:
+            if 'dv1_id' in p or 'dv2_id' in p:
+                dv1 = p.get('dv1_id', '')
+                dv2 = p.get('dv2_id', '')
+            else:
+                dv1 = p.get('data_view_1', {}).get('id', '')
+                dv2 = p.get('data_view_2', {}).get('id', '')
+            if dv1 and dv2:
+                prev_high_sim.add(_pair_key(dv1, dv2))
+
+    new_pairs = current_high_sim - prev_high_sim
+    resolved_pairs = prev_high_sim - current_high_sim
+
+    return OrgReportComparison(
+        current_timestamp=current.timestamp,
+        previous_timestamp=prev_data.get('generated_at', prev_data.get('timestamp', 'unknown')),
+        data_views_added=added_ids,
+        data_views_removed=removed_ids,
+        data_views_added_names=[current_dv_names.get(dv_id, 'Unknown') for dv_id in added_ids],
+        data_views_removed_names=[prev_dv_names.get(dv_id, 'Unknown') for dv_id in removed_ids],
+        components_added=max(0, current_components - prev_components),
+        components_removed=max(0, prev_components - current_components),
+        core_delta=current_core - prev_core,
+        isolated_delta=current_isolated - prev_isolated,
+        new_high_similarity_pairs=[{'dv1_id': p[0], 'dv2_id': p[1]} for p in new_pairs],
+        resolved_pairs=[{'dv1_id': p[0], 'dv2_id': p[1]} for p in resolved_pairs],
+        summary={
+            'data_views_delta': len(current_dv_ids) - len(prev_dv_ids),
+            'components_delta': current_components - prev_components,
+            'core_delta': current_core - prev_core,
+            'isolated_delta': current_isolated - prev_isolated,
+            'new_duplicates': len(new_pairs),
+            'resolved_duplicates': len(resolved_pairs),
+        }
+    )
+
+
+def _render_distribution_bar(count: int, total: int, width: int = 30) -> str:
+    """Render ASCII progress bar for distribution visualization.
+
+    Args:
+        count: Number of items in this bucket
+        total: Total items across all buckets
+        width: Width of the bar in characters
+
+    Returns:
+        ASCII bar string like "████████░░░░░░░░ 45%"
+    """
+    if total == 0:
+        return "░" * width + "  0%"
+
+    pct = count / total
+    filled = int(pct * width)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"{bar} {pct*100:>3.0f}%"
+
+
+def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, quiet: bool = False) -> None:
+    """Write org report to console with ASCII distribution bars.
+
+    Args:
+        result: OrgReportResult from analysis
+        config: OrgReportConfig used for analysis
+        quiet: Suppress decorative output
+    """
+    if quiet:
+        return
+
+    total_dvs = result.successful_data_views
+    print()
+    print("=" * 110)
+    title = f"ORG-WIDE COMPONENT ANALYSIS REPORT: {result.org_id}"
+    if result.is_sampled:
+        title += " [SAMPLED]"
+    print(title)
+    print("=" * 110)
+    print(f"Generated: {result.timestamp}")
+    if result.is_sampled:
+        print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views} (sampled from {result.total_available_data_views})")
+    else:
+        print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views}")
+    print(f"Analysis Duration: {result.duration:.2f}s")
+    print()
+
+    # Data Views Summary Table
+    print("-" * 110)
+    print("DATA VIEWS")
+    print("-" * 110)
+    print(f"{'Name':<50} {'ID':<30} {'Metrics':>8} {'Dimensions':>10} {'Status':<8}")
+    print("-" * 110)
+
+    for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
+        name = dv.data_view_name[:48] + ".." if len(dv.data_view_name) > 50 else dv.data_view_name
+        if dv.error:
+            print(f"{name:<50} {dv.data_view_id:<30} {'ERROR':>8} {'':>10} {dv.status:<8}")
+        else:
+            print(f"{name:<50} {dv.data_view_id:<30} {dv.metric_count:>8} {dv.dimension_count:>10} {dv.status:<8}")
+
+    print()
+
+    # Component Summary
+    print("-" * 110)
+    print("COMPONENT SUMMARY")
+    print("-" * 110)
+
+    total_metrics = result.total_unique_metrics
+    total_dims = result.total_unique_dimensions
+    total_all = result.total_unique_components
+
+    # Calculate total aggregates (non-unique counts across all data views)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_fields = total_derived_metrics + total_derived_dimensions
+
+    dist = result.distribution
+    # Build correct label for core threshold: "50% DVs" for percentage, ">=5 DVs" for absolute count
+    if config.core_min_count is None:
+        core_threshold_label = f"{int(config.core_threshold * 100)}%"
+    else:
+        core_threshold_label = f">={config.core_min_count}"
+
+    print(f"{'':30} {'Metrics':>12} {'Dimensions':>12} {'Total':>10}")
+    print(f"{'Total unique components':<30} {total_metrics:>12} {total_dims:>12} {total_all:>10}")
+    print(f"{'Total (non-unique)':<30} {total_metrics_aggregate:>12} {total_dimensions_aggregate:>12} {total_components_aggregate:>10}")
+    print(f"{'Derived fields (non-unique)':<30} {total_derived_metrics:>12} {total_derived_dimensions:>12} {total_derived_fields:>10}")
+    # Add "+" suffix only for percentage labels; absolute labels already have ">="
+    core_label_suffix = " DVs" if config.core_min_count is not None else "+ DVs"
+    print(f"{'Core (in ' + core_threshold_label + core_label_suffix + ')':<30} {len(dist.core_metrics):>12} {len(dist.core_dimensions):>12} {dist.total_core:>10}")
+    print(f"{'Common (in 25-49% DVs)':<30} {len(dist.common_metrics):>12} {len(dist.common_dimensions):>12} {dist.total_common:>10}")
+    print(f"{'Limited (in 2+ DVs)':<30} {len(dist.limited_metrics):>12} {len(dist.limited_dimensions):>12} {dist.total_limited:>10}")
+    print(f"{'Isolated (in 1 DV only)':<30} {len(dist.isolated_metrics):>12} {len(dist.isolated_dimensions):>12} {dist.total_isolated:>10}")
+    print()
+
+    # Distribution Visualization
+    print("-" * 110)
+    print("DISTRIBUTION")
+    print("-" * 110)
+
+    print("Metrics by data view coverage:")
+    print(f"  Core:     {_render_distribution_bar(len(dist.core_metrics), total_metrics)} ({len(dist.core_metrics)})")
+    print(f"  Common:   {_render_distribution_bar(len(dist.common_metrics), total_metrics)} ({len(dist.common_metrics)})")
+    print(f"  Limited:  {_render_distribution_bar(len(dist.limited_metrics), total_metrics)} ({len(dist.limited_metrics)})")
+    print(f"  Isolated: {_render_distribution_bar(len(dist.isolated_metrics), total_metrics)} ({len(dist.isolated_metrics)})")
+    print()
+
+    print("Dimensions by data view coverage:")
+    print(f"  Core:     {_render_distribution_bar(len(dist.core_dimensions), total_dims)} ({len(dist.core_dimensions)})")
+    print(f"  Common:   {_render_distribution_bar(len(dist.common_dimensions), total_dims)} ({len(dist.common_dimensions)})")
+    print(f"  Limited:  {_render_distribution_bar(len(dist.limited_dimensions), total_dims)} ({len(dist.limited_dimensions)})")
+    print(f"  Isolated: {_render_distribution_bar(len(dist.isolated_dimensions), total_dims)} ({len(dist.isolated_dimensions)})")
+    print()
+
+    # Core Components (if not summary only)
+    if not config.summary_only and dist.total_core > 0:
+        print("-" * 110)
+        print(f"CORE COMPONENTS (in {core_threshold_label}{core_label_suffix})")
+        print("-" * 110)
+
+        if dist.core_metrics:
+            print("\nCore Metrics:")
+            for comp_id in dist.core_metrics[:15]:  # Limit to 15
+                info = result.component_index.get(comp_id)
+                if info:
+                    if info.name:
+                        display = f"{info.name} ({comp_id})"
+                        display = display[:55] + ".." if len(display) > 57 else display
+                        print(f"  {display:<57} {info.presence_count}/{total_dvs} DVs")
+                    else:
+                        print(f"  {comp_id:<57} {info.presence_count}/{total_dvs} DVs")
+            if len(dist.core_metrics) > 15:
+                print(f"  ... and {len(dist.core_metrics) - 15} more")
+
+        if dist.core_dimensions:
+            print("\nCore Dimensions:")
+            for comp_id in dist.core_dimensions[:15]:
+                info = result.component_index.get(comp_id)
+                if info:
+                    if info.name:
+                        display = f"{info.name} ({comp_id})"
+                        display = display[:55] + ".." if len(display) > 57 else display
+                        print(f"  {display:<57} {info.presence_count}/{total_dvs} DVs")
+                    else:
+                        print(f"  {comp_id:<57} {info.presence_count}/{total_dvs} DVs")
+            if len(dist.core_dimensions) > 15:
+                print(f"  ... and {len(dist.core_dimensions) - 15} more")
+        print()
+
+    # Similarity Matrix (if computed)
+    if result.similarity_pairs:
+        print("-" * 110)
+        print("HIGH OVERLAP PAIRS")
+        print("-" * 110)
+        effective_threshold = min(config.overlap_threshold, 0.9)
+        threshold_note = ""
+        if config.overlap_threshold > 0.9:
+            threshold_note = f" (configured {config.overlap_threshold*100:.0f}%, capped at 90% for governance checks)"
+        print(f"Pairs with >= {effective_threshold*100:.0f}% Jaccard similarity{threshold_note}:")
+        print()
+
+        for pair in result.similarity_pairs[:10]:  # Limit to top 10
+            name1 = pair.dv1_name[:25] + ".." if len(pair.dv1_name) > 27 else pair.dv1_name
+            name2 = pair.dv2_name[:25] + ".." if len(pair.dv2_name) > 27 else pair.dv2_name
+            print(f"  {name1:<27} <-> {name2:<27} {pair.jaccard_similarity*100:>5.1f}%")
+            print(f"  {'':27}     {'':27} ({pair.shared_count} shared)")
+
+        if len(result.similarity_pairs) > 10:
+            print(f"\n  ... and {len(result.similarity_pairs) - 10} more pairs")
+
+        # Show drift details if enabled
+        if config.include_drift:
+            has_drift = any(pair.only_in_dv1 or pair.only_in_dv2 for pair in result.similarity_pairs[:5])
+            if has_drift:
+                print()
+                print("Drift Details (top pairs):")
+                for pair in result.similarity_pairs[:5]:
+                    if pair.only_in_dv1 or pair.only_in_dv2:
+                        print(f"\n  {pair.dv1_name} <-> {pair.dv2_name}:")
+                        if pair.only_in_dv1:
+                            print(f"    Only in {pair.dv1_name[:20]}: {len(pair.only_in_dv1)} components")
+                            for comp_id in pair.only_in_dv1[:3]:
+                                name = pair.only_in_dv1_names.get(comp_id, '') if pair.only_in_dv1_names else ''
+                                display = f"{name} ({comp_id})" if name else comp_id
+                                print(f"      - {display[:50]}")
+                            if len(pair.only_in_dv1) > 3:
+                                print(f"      ... and {len(pair.only_in_dv1) - 3} more")
+                        if pair.only_in_dv2:
+                            print(f"    Only in {pair.dv2_name[:20]}: {len(pair.only_in_dv2)} components")
+                            for comp_id in pair.only_in_dv2[:3]:
+                                name = pair.only_in_dv2_names.get(comp_id, '') if pair.only_in_dv2_names else ''
+                                display = f"{name} ({comp_id})" if name else comp_id
+                                print(f"      - {display[:50]}")
+                            if len(pair.only_in_dv2) > 3:
+                                print(f"      ... and {len(pair.only_in_dv2) - 3} more")
+        print()
+
+    # Component Type Breakdown (if enabled)
+    if config.include_component_types and not config.summary_only:
+        # Aggregate type counts
+        total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.error)
+        total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.error)
+        total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.error)
+        total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.error)
+
+        if total_standard_metrics + total_derived_metrics > 0:
+            print("-" * 110)
+            print("COMPONENT TYPES (aggregate counts across DVs, standard vs derived field breakdown)")
+            print("-" * 110)
+            total_metrics = total_standard_metrics + total_derived_metrics
+            total_dims = total_standard_dims + total_derived_dims
+            # Calculate percentages
+            std_metric_pct = (total_standard_metrics / total_metrics * 100) if total_metrics > 0 else 0
+            der_metric_pct = (total_derived_metrics / total_metrics * 100) if total_metrics > 0 else 0
+            std_dim_pct = (total_standard_dims / total_dims * 100) if total_dims > 0 else 0
+            der_dim_pct = (total_derived_dims / total_dims * 100) if total_dims > 0 else 0
+            print(f"{'':18} {'Total':>10} {'Standard':>12} {'% Total':>8} {'Derived':>10} {'% Total':>8}")
+            print(f"{'Metrics':<18} {total_metrics:>10} {total_standard_metrics:>12} {std_metric_pct:>7.1f}% {total_derived_metrics:>10} {der_metric_pct:>7.1f}%")
+            print(f"{'Dimensions':<18} {total_dims:>10} {total_standard_dims:>12} {std_dim_pct:>7.1f}% {total_derived_dims:>10} {der_dim_pct:>7.1f}%")
+            print()
+
+    # Clusters (if enabled)
+    if result.clusters:
+        print("-" * 110)
+        print("DATA VIEW CLUSTERS")
+        print("-" * 110)
+        print(f"Found {len(result.clusters)} clusters:")
+        print()
+        for cluster in result.clusters[:10]:
+            name = cluster.cluster_name or f"Cluster {cluster.cluster_id}"
+            print(f"  [{cluster.cluster_id}] {name} ({cluster.size} DVs, cohesion: {cluster.cohesion_score:.0%})")
+            for dv_name in cluster.data_view_names[:3]:
+                print(f"      - {dv_name[:50]}")
+            if cluster.size > 3:
+                print(f"      ... and {cluster.size - 3} more")
+        if len(result.clusters) > 10:
+            print(f"\n  ... and {len(result.clusters) - 10} more clusters")
+        print()
+
+    # Governance Violations (Feature 1)
+    if result.governance_violations:
+        print("-" * 110)
+        print("GOVERNANCE VIOLATIONS")
+        print("-" * 110)
+        for violation in result.governance_violations:
+            print(f"\n[!] {violation.get('message', '')}")
+            print(f"    Threshold: {violation.get('threshold')}, Actual: {violation.get('actual')}")
+        print()
+
+    # Owner Summary (Feature 5)
+    if result.owner_summary:
+        print("-" * 110)
+        print("OWNER SUMMARY")
+        print("-" * 110)
+        owner_data = result.owner_summary.get('by_owner', {})
+        sorted_owners = result.owner_summary.get('owners_sorted_by_dv_count', [])
+        print(f"{'Owner':<30} {'DVs':>6} {'Metrics':>10} {'Dimensions':>12} {'Avg/DV':>8}")
+        print("-" * 110)
+        for owner in sorted_owners[:15]:
+            stats = owner_data.get(owner, {})
+            print(f"{owner[:30]:<30} {stats.get('data_view_count', 0):>6} "
+                  f"{stats.get('total_metrics', 0):>10} {stats.get('total_dimensions', 0):>12} "
+                  f"{stats.get('avg_components_per_dv', 0):>8.1f}")
+        if len(sorted_owners) > 15:
+            print(f"  ... and {len(sorted_owners) - 15} more owners")
+        print()
+
+    # Naming Audit (Feature 3)
+    if result.naming_audit:
+        print("-" * 110)
+        print("NAMING AUDIT")
+        print("-" * 110)
+        audit = result.naming_audit
+        styles = audit.get('case_styles', {})
+        print("Case styles distribution:")
+        for style, count in sorted(styles.items(), key=lambda x: -x[1]):
+            pct = count / audit.get('total_components', 1) * 100
+            print(f"  {style:<15} {count:>6} ({pct:>5.1f}%)")
+        if audit.get('recommendations'):
+            print("\nNaming Recommendations:")
+            for rec in audit['recommendations']:
+                print(f"  [{rec.get('severity', 'info')}] {rec.get('message', '')}")
+        print()
+
+    # Stale Components (Feature 6)
+    if result.stale_components:
+        print("-" * 110)
+        print("STALE COMPONENTS")
+        print("-" * 110)
+        print(f"Found {len(result.stale_components)} components with stale naming patterns:")
+        print()
+        # Group by pattern type
+        by_pattern: Dict[str, List] = {}
+        for comp in result.stale_components:
+            pattern = comp.get('pattern', 'unknown')
+            if pattern not in by_pattern:
+                by_pattern[pattern] = []
+            by_pattern[pattern].append(comp)
+        for pattern, comps in by_pattern.items():
+            print(f"  {pattern} ({len(comps)} components):")
+            for comp in comps[:5]:
+                name = comp.get('name', comp.get('component_id', ''))[:50]
+                print(f"    - {name}")
+            if len(comps) > 5:
+                print(f"    ... and {len(comps) - 5} more")
+        print()
+
+    # Recommendations
+    if result.recommendations:
+        print("-" * 110)
+        print("RECOMMENDATIONS")
+        print("-" * 110)
+
+        for i, rec in enumerate(result.recommendations, 1):
+            severity_icon = {"high": "!", "medium": "?", "low": "i"}.get(rec.get('severity', 'low'), "·")
+            print(f"\n[{severity_icon}] {rec.get('reason', 'No details')}")
+
+            if rec.get('data_view'):
+                print(f"    Data View: {rec.get('data_view_name', '')} ({rec.get('data_view')})")
+            if rec.get('data_view_1'):
+                print(f"    Pair: {rec.get('data_view_1_name', '')} <-> {rec.get('data_view_2_name', '')}")
+
+        print()
+
+
+def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) -> None:
+    """Write minimal org-report stats to console (Feature 2: --org-stats mode).
+
+    Args:
+        result: OrgReportResult from analysis
+        quiet: Suppress output
+    """
+    if quiet:
+        return
+
+    print()
+    print("=" * 60)
+    print(f"ORG STATS: {result.org_id}")
+    print("=" * 60)
+    print(f"Data Views: {result.successful_data_views} analyzed")
+    print(f"Components: {result.total_unique_components} unique")
+    print(f"  Metrics:    {result.total_unique_metrics}")
+    print(f"  Dimensions: {result.total_unique_dimensions}")
+    print(f"Distribution:")
+    dist = result.distribution
+    total = result.total_unique_components or 1
+    print(f"  Core:     {dist.total_core:>6} ({dist.total_core/total*100:>5.1f}%)")
+    print(f"  Common:   {dist.total_common:>6} ({dist.total_common/total*100:>5.1f}%)")
+    print(f"  Limited:  {dist.total_limited:>6} ({dist.total_limited/total*100:>5.1f}%)")
+    print(f"  Isolated: {dist.total_isolated:>6} ({dist.total_isolated/total*100:>5.1f}%)")
+    print(f"Duration: {result.duration:.2f}s")
+    print("=" * 60)
+    print()
+
+
+def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: bool = False) -> None:
+    """Write org-report comparison to console with trending arrows (Feature 4).
+
+    Args:
+        comparison: OrgReportComparison from compare_org_reports()
+        quiet: Suppress output
+    """
+    if quiet:
+        return
+
+    def trend_arrow(delta: int) -> str:
+        if delta > 0:
+            return f"↑{delta}"
+        elif delta < 0:
+            return f"↓{abs(delta)}"
+        return "→0"
+
+    print()
+    print("=" * 70)
+    print("ORG REPORT COMPARISON (TRENDING)")
+    print("=" * 70)
+    print(f"Previous: {comparison.previous_timestamp}")
+    print(f"Current:  {comparison.current_timestamp}")
+    print()
+
+    summary = comparison.summary
+    print("-" * 70)
+    print("CHANGES")
+    print("-" * 70)
+    print(f"Data Views:  {trend_arrow(summary.get('data_views_delta', 0))}")
+    print(f"Components:  {trend_arrow(summary.get('components_delta', 0))}")
+    print(f"Core:        {trend_arrow(summary.get('core_delta', 0))}")
+    print(f"Isolated:    {trend_arrow(summary.get('isolated_delta', 0))}")
+    print()
+
+    if comparison.data_views_added:
+        print(f"Data Views Added ({len(comparison.data_views_added)}):")
+        for i, dv_name in enumerate(comparison.data_views_added_names[:5]):
+            print(f"  + {dv_name}")
+        if len(comparison.data_views_added) > 5:
+            print(f"  ... and {len(comparison.data_views_added) - 5} more")
+
+    if comparison.data_views_removed:
+        print(f"Data Views Removed ({len(comparison.data_views_removed)}):")
+        for dv_name in comparison.data_views_removed_names[:5]:
+            print(f"  - {dv_name}")
+        if len(comparison.data_views_removed) > 5:
+            print(f"  ... and {len(comparison.data_views_removed) - 5} more")
+
+    if comparison.new_high_similarity_pairs:
+        print(f"\nNew High-Similarity Pairs ({len(comparison.new_high_similarity_pairs)}):")
+        for pair in comparison.new_high_similarity_pairs[:3]:
+            print(f"  ! {pair.get('dv1_id', '')} <-> {pair.get('dv2_id', '')}")
+
+    if comparison.resolved_pairs:
+        print(f"\nResolved High-Similarity Pairs ({len(comparison.resolved_pairs)}):")
+        for pair in comparison.resolved_pairs[:3]:
+            print(f"  ✓ {pair.get('dv1_id', '')} <-> {pair.get('dv2_id', '')}")
+
+    print()
+    print("=" * 70)
+    print()
+
+
+def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
+    """Build org report JSON payload."""
+    effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
+    return {
+        "report_type": "org_analysis",
+        "version": "1.0",
+        "generated_at": result.timestamp,
+        "org_id": result.org_id,
+
+        "parameters": {
+            "filter_pattern": result.parameters.filter_pattern,
+            "exclude_pattern": result.parameters.exclude_pattern,
+            "limit": result.parameters.limit,
+            "core_threshold": result.parameters.core_threshold,
+            "core_min_count": result.parameters.core_min_count,
+            "overlap_threshold": result.parameters.overlap_threshold,
+            "overlap_threshold_effective": effective_overlap_threshold,
+            "include_component_types": result.parameters.include_component_types,
+            "include_metadata": result.parameters.include_metadata,
+            "include_drift": result.parameters.include_drift,
+            "sample_size": result.parameters.sample_size,
+            "sample_seed": result.parameters.sample_seed,
+            "enable_clustering": result.parameters.enable_clustering,
+        },
+
+        "summary": {
+            "data_views_total": result.total_data_views,
+            "data_views_analyzed": result.successful_data_views,
+            "total_available_data_views": result.total_available_data_views,
+            "is_sampled": result.is_sampled,
+            "total_unique_metrics": result.total_unique_metrics,
+            "total_unique_dimensions": result.total_unique_dimensions,
+            "total_unique_components": result.total_unique_components,
+            "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if not dv.error),
+            "total_dimensions_non_unique": sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error),
+            "total_components_non_unique": sum(dv.total_components for dv in result.data_view_summaries if not dv.error),
+            "derived_metrics_non_unique": sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error),
+            "derived_dimensions_non_unique": sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error),
+            "total_derived_fields_non_unique": sum(dv.derived_metric_count + dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error),
+            "analysis_duration_seconds": round(result.duration, 2),
+        },
+
+        "distribution": {
+            "core": {
+                "metrics_count": len(result.distribution.core_metrics),
+                "dimensions_count": len(result.distribution.core_dimensions),
+                "metrics": result.distribution.core_metrics,
+                "dimensions": result.distribution.core_dimensions,
+            },
+            "common": {
+                "metrics_count": len(result.distribution.common_metrics),
+                "dimensions_count": len(result.distribution.common_dimensions),
+                "metrics": result.distribution.common_metrics,
+                "dimensions": result.distribution.common_dimensions,
+            },
+            "limited": {
+                "metrics_count": len(result.distribution.limited_metrics),
+                "dimensions_count": len(result.distribution.limited_dimensions),
+                "metrics": result.distribution.limited_metrics,
+                "dimensions": result.distribution.limited_dimensions,
+            },
+            "isolated": {
+                "metrics_count": len(result.distribution.isolated_metrics),
+                "dimensions_count": len(result.distribution.isolated_dimensions),
+                "metrics": result.distribution.isolated_metrics,
+                "dimensions": result.distribution.isolated_dimensions,
+            },
+        },
+
+        "data_views": [
+            {
+                "id": dv.data_view_id,
+                "name": dv.data_view_name,
+                "metrics_count": dv.metric_count,
+                "dimensions_count": dv.dimension_count,
+                "total_components": dv.total_components,
+                "status": dv.status,
+                "error": dv.error,
+                # Component type breakdown
+                "standard_metrics": dv.standard_metric_count,
+                "derived_metrics": dv.derived_metric_count,
+                "standard_dimensions": dv.standard_dimension_count,
+                "derived_dimensions": dv.derived_dimension_count,
+                # Metadata
+                "owner": dv.owner,
+                "owner_id": dv.owner_id,
+                "created": dv.created,
+                "modified": dv.modified,
+                "description": dv.description,
+                "has_description": dv.has_description,
+            }
+            for dv in result.data_view_summaries
+        ],
+
+        "component_index": {
+            comp_id: {
+                "type": info.component_type,
+                "name": info.name,
+                "data_view_count": info.presence_count,
+                "data_views": list(info.data_views),
+            }
+            for comp_id, info in result.component_index.items()
+        },
+
+        "similarity_pairs": [
+            {
+                "data_view_1": {"id": pair.dv1_id, "name": pair.dv1_name},
+                "data_view_2": {"id": pair.dv2_id, "name": pair.dv2_name},
+                "jaccard_similarity": pair.jaccard_similarity,
+                "shared_components": pair.shared_count,
+                "union_size": pair.union_count,
+                # Drift detection
+                "only_in_dv1": pair.only_in_dv1,
+                "only_in_dv2": pair.only_in_dv2,
+                "only_in_dv1_names": pair.only_in_dv1_names,
+                "only_in_dv2_names": pair.only_in_dv2_names,
+            }
+            for pair in (result.similarity_pairs or [])
+        ],
+
+        "clusters": [
+            {
+                "cluster_id": cluster.cluster_id,
+                "cluster_name": cluster.cluster_name,
+                "data_view_ids": cluster.data_view_ids,
+                "data_view_names": cluster.data_view_names,
+                "size": cluster.size,
+                "cohesion_score": cluster.cohesion_score,
+            }
+            for cluster in (result.clusters or [])
+        ] if result.clusters else None,
+
+        "recommendations": result.recommendations,
+
+        # New features
+        "governance_violations": result.governance_violations,
+        "thresholds_exceeded": result.thresholds_exceeded,
+        "naming_audit": result.naming_audit,
+        "owner_summary": result.owner_summary,
+        "stale_components": result.stale_components,
+    }
+
+
+def write_org_report_json(result: OrgReportResult, output_path: Optional[Path],
+                          output_dir: str, logger: logging.Logger) -> str:
+    """Write org report as structured JSON.
+
+    Args:
+        result: OrgReportResult from analysis
+        output_path: Optional specific output path
+        output_dir: Output directory if no path specified
+        logger: Logger instance
+
+    Returns:
+        Path to created JSON file
+    """
+    if output_path:
+        file_path = output_path if str(output_path).endswith('.json') else Path(f"{output_path}.json")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.json"
+
+    json_data = build_org_report_json_data(result)
+
+    # Write JSON
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"JSON report written to {file_path}")
+    return str(file_path)
+
+
+def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
+                           output_dir: str, logger: logging.Logger) -> str:
+    """Write org report as multi-sheet Excel workbook.
+
+    Sheets:
+    - Summary: Overview statistics
+    - Data Views: List of all analyzed data views
+    - Core Components: Components in threshold% of DVs
+    - Distribution: Component distribution breakdown
+    - Similarity: High-overlap pairs
+    - Recommendations: Actionable items
+
+    Args:
+        result: OrgReportResult from analysis
+        output_path: Optional specific output path
+        output_dir: Output directory if no path specified
+        logger: Logger instance
+
+    Returns:
+        Path to created Excel file
+    """
+    if output_path:
+        file_path = output_path if str(output_path).endswith('.xlsx') else Path(f"{output_path}.xlsx")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.xlsx"
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+        workbook = writer.book
+
+        # Define formats
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#366092',
+            'font_color': 'white',
+            'border': 1
+        })
+        number_format = workbook.add_format({'num_format': '#,##0'})
+        percent_format = workbook.add_format({'num_format': '0.0%'})
+
+        # Sheet 1: Summary
+        # Calculate total aggregates (non-unique counts across all data views)
+        total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
+        total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
+        total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
+        total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
+        total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+        total_derived_fields = total_derived_metrics + total_derived_dimensions
+        effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
+
+        metrics = [
+            'Organization ID',
+            'Report Generated',
+            'Data Views Total',
+            'Data Views Analyzed',
+            'Total Unique Metrics',
+            'Total Unique Dimensions',
+            'Total Unique Components',
+            'Total Metrics (Non-Unique)',
+            'Total Dimensions (Non-Unique)',
+            'Total Components (Non-Unique)',
+            'Derived Metrics (Non-Unique)',
+            'Derived Dimensions (Non-Unique)',
+            'Total Derived Fields (Non-Unique)',
+            'Core Components',
+            'Common Components',
+            'Limited Components',
+            'Isolated Components',
+            'Overlap Threshold (Configured)',
+            'Overlap Threshold (Effective)',
+            'Analysis Duration (seconds)',
+        ]
+        values = [
+            result.org_id,
+            result.timestamp,
+            result.total_data_views,
+            result.successful_data_views,
+            result.total_unique_metrics,
+            result.total_unique_dimensions,
+            result.total_unique_components,
+            total_metrics_aggregate,
+            total_dimensions_aggregate,
+            total_components_aggregate,
+            total_derived_metrics,
+            total_derived_dimensions,
+            total_derived_fields,
+            result.distribution.total_core,
+            result.distribution.total_common,
+            result.distribution.total_limited,
+            result.distribution.total_isolated,
+            result.parameters.overlap_threshold,
+            effective_overlap_threshold,
+            round(result.duration, 2),
+        ]
+        # Add sampling info
+        if result.is_sampled:
+            metrics.extend(['Is Sampled', 'Total Available DVs', 'Sample Seed'])
+            values.extend(['Yes', result.total_available_data_views, result.parameters.sample_seed])
+        # Add clustering info
+        if result.clusters:
+            metrics.append('Cluster Count')
+            values.append(len(result.clusters))
+        summary_data = {'Metric': metrics, 'Value': values}
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        worksheet = writer.sheets['Summary']
+        worksheet.set_column('A:A', 30)
+        worksheet.set_column('B:B', 25)
+
+        # Sheet 2: Data Views
+        dv_data = []
+        for dv in result.data_view_summaries:
+            row = {
+                'ID': dv.data_view_id,
+                'Name': dv.data_view_name,
+                'Metrics': dv.metric_count,
+                'Dimensions': dv.dimension_count,
+                'Total': dv.total_components,
+                'Status': dv.status,
+                'Error': dv.error or '',
+            }
+            # Add component type columns if enabled
+            if result.parameters.include_component_types:
+                row['Standard Metrics'] = dv.standard_metric_count
+                row['Derived Metrics'] = dv.derived_metric_count
+                row['Standard Dimensions'] = dv.standard_dimension_count
+                row['Derived Dimensions'] = dv.derived_dimension_count
+            # Add metadata columns if enabled
+            if result.parameters.include_metadata:
+                row['Owner'] = dv.owner or ''
+                row['Created'] = dv.created or ''
+                row['Modified'] = dv.modified or ''
+                row['Has Description'] = 'Yes' if dv.has_description else 'No'
+            dv_data.append(row)
+        dv_df = pd.DataFrame(dv_data)
+        dv_df.to_excel(writer, sheet_name='Data Views', index=False)
+
+        worksheet = writer.sheets['Data Views']
+        worksheet.set_column('A:A', 20)
+        worksheet.set_column('B:B', 40)
+        worksheet.set_column('C:G', 12)
+        if result.parameters.include_component_types:
+            worksheet.set_column('H:K', 18)  # 4 columns: Standard/Derived Metrics/Dimensions
+        if result.parameters.include_metadata:
+            worksheet.set_column('L:O', 18)
+
+        # Sheet 3: Core Components
+        core_data = []
+        for comp_id in result.distribution.core_metrics:
+            info = result.component_index.get(comp_id)
+            if info:
+                core_data.append({
+                    'Component ID': comp_id,
+                    'Type': 'Metric',
+                    'Name': info.name or '',
+                    'Data View Count': info.presence_count,
+                    'Coverage %': info.presence_count / result.successful_data_views if result.successful_data_views > 0 else 0,
+                })
+        for comp_id in result.distribution.core_dimensions:
+            info = result.component_index.get(comp_id)
+            if info:
+                core_data.append({
+                    'Component ID': comp_id,
+                    'Type': 'Dimension',
+                    'Name': info.name or '',
+                    'Data View Count': info.presence_count,
+                    'Coverage %': info.presence_count / result.successful_data_views if result.successful_data_views > 0 else 0,
+                })
+
+        if core_data:
+            core_df = pd.DataFrame(core_data)
+            core_df.to_excel(writer, sheet_name='Core Components', index=False)
+            worksheet = writer.sheets['Core Components']
+            worksheet.set_column('A:A', 40)
+            worksheet.set_column('B:B', 12)
+            worksheet.set_column('C:C', 30)
+            worksheet.set_column('D:E', 15)
+
+        # Sheet 4: Isolated by Data View
+        isolated_data = []
+        for dv in result.data_view_summaries:
+            if dv.error:
+                continue
+            isolated_metrics = [
+                c for c in result.distribution.isolated_metrics
+                if dv.data_view_id in result.component_index.get(c, ComponentInfo('', '')).data_views
+            ]
+            isolated_dims = [
+                c for c in result.distribution.isolated_dimensions
+                if dv.data_view_id in result.component_index.get(c, ComponentInfo('', '')).data_views
+            ]
+            if isolated_metrics or isolated_dims:
+                isolated_data.append({
+                    'Data View ID': dv.data_view_id,
+                    'Data View Name': dv.data_view_name,
+                    'Isolated Metrics': len(isolated_metrics),
+                    'Isolated Dimensions': len(isolated_dims),
+                    'Total Isolated': len(isolated_metrics) + len(isolated_dims),
+                })
+
+        if isolated_data:
+            isolated_df = pd.DataFrame(isolated_data)
+            isolated_df = isolated_df.sort_values('Total Isolated', ascending=False)
+            isolated_df.to_excel(writer, sheet_name='Isolated by DV', index=False)
+            worksheet = writer.sheets['Isolated by DV']
+            worksheet.set_column('A:A', 20)
+            worksheet.set_column('B:B', 40)
+            worksheet.set_column('C:E', 18)
+
+        # Sheet 5: Similarity Matrix
+        if result.similarity_pairs:
+            sim_data = []
+            for pair in result.similarity_pairs:
+                row = {
+                    'Data View 1 ID': pair.dv1_id,
+                    'Data View 1 Name': pair.dv1_name,
+                    'Data View 2 ID': pair.dv2_id,
+                    'Data View 2 Name': pair.dv2_name,
+                    'Similarity %': pair.jaccard_similarity,
+                    'Shared Components': pair.shared_count,
+                    'Union Size': pair.union_count,
+                }
+                if result.parameters.include_drift:
+                    row['Only in DV1'] = len(pair.only_in_dv1)
+                    row['Only in DV2'] = len(pair.only_in_dv2)
+                    row['Drift Total'] = len(pair.only_in_dv1) + len(pair.only_in_dv2)
+                sim_data.append(row)
+            sim_df = pd.DataFrame(sim_data)
+            sim_df.to_excel(writer, sheet_name='Similarity', index=False)
+            worksheet = writer.sheets['Similarity']
+            worksheet.set_column('A:A', 20)
+            worksheet.set_column('B:B', 35)
+            worksheet.set_column('C:C', 20)
+            worksheet.set_column('D:D', 35)
+            worksheet.set_column('E:J', 15)
+
+        # Sheet 5b: Drift Details (if enabled)
+        if result.parameters.include_drift and result.similarity_pairs:
+            drift_data = []
+            for pair in result.similarity_pairs:
+                if pair.only_in_dv1 or pair.only_in_dv2:
+                    for comp_id in pair.only_in_dv1:
+                        name = pair.only_in_dv1_names.get(comp_id, '') if pair.only_in_dv1_names else ''
+                        drift_data.append({
+                            'DV1 ID': pair.dv1_id,
+                            'DV1 Name': pair.dv1_name,
+                            'DV2 ID': pair.dv2_id,
+                            'DV2 Name': pair.dv2_name,
+                            'Component ID': comp_id,
+                            'Component Name': name,
+                            'Location': f'Only in {pair.dv1_name}',
+                        })
+                    for comp_id in pair.only_in_dv2:
+                        name = pair.only_in_dv2_names.get(comp_id, '') if pair.only_in_dv2_names else ''
+                        drift_data.append({
+                            'DV1 ID': pair.dv1_id,
+                            'DV1 Name': pair.dv1_name,
+                            'DV2 ID': pair.dv2_id,
+                            'DV2 Name': pair.dv2_name,
+                            'Component ID': comp_id,
+                            'Component Name': name,
+                            'Location': f'Only in {pair.dv2_name}',
+                        })
+            if drift_data:
+                drift_df = pd.DataFrame(drift_data)
+                drift_df.to_excel(writer, sheet_name='Drift Details', index=False)
+                worksheet = writer.sheets['Drift Details']
+                worksheet.set_column('A:A', 20)
+                worksheet.set_column('B:B', 30)
+                worksheet.set_column('C:C', 20)
+                worksheet.set_column('D:D', 30)
+                worksheet.set_column('E:E', 40)
+                worksheet.set_column('F:F', 30)
+                worksheet.set_column('G:G', 25)
+
+        # Sheet 5c: Clusters (if enabled)
+        if result.clusters:
+            cluster_data = []
+            for cluster in result.clusters:
+                for dv_id, dv_name in zip(cluster.data_view_ids, cluster.data_view_names):
+                    cluster_data.append({
+                        'Cluster ID': cluster.cluster_id,
+                        'Cluster Name': cluster.cluster_name or f'Cluster {cluster.cluster_id}',
+                        'Cluster Size': cluster.size,
+                        'Cohesion': cluster.cohesion_score,
+                        'Data View ID': dv_id,
+                        'Data View Name': dv_name,
+                    })
+            if cluster_data:
+                cluster_df = pd.DataFrame(cluster_data)
+                cluster_df.to_excel(writer, sheet_name='Clusters', index=False)
+                worksheet = writer.sheets['Clusters']
+                worksheet.set_column('A:A', 12)
+                worksheet.set_column('B:B', 25)
+                worksheet.set_column('C:C', 12)
+                worksheet.set_column('D:D', 12)
+                worksheet.set_column('E:E', 20)
+                worksheet.set_column('F:F', 40)
+
+        # Sheet 6: Recommendations
+        if result.recommendations:
+            rec_data = []
+            for rec in result.recommendations:
+                rec_data.append({
+                    'Type': rec.get('type', ''),
+                    'Severity': rec.get('severity', ''),
+                    'Description': rec.get('reason', ''),
+                    'Data View': rec.get('data_view', rec.get('data_view_1', '')),
+                    'Details': json.dumps({k: v for k, v in rec.items()
+                                          if k not in ['type', 'severity', 'reason', 'data_view', 'data_view_1']})
+                })
+            rec_df = pd.DataFrame(rec_data)
+            rec_df.to_excel(writer, sheet_name='Recommendations', index=False)
+            worksheet = writer.sheets['Recommendations']
+            worksheet.set_column('A:B', 20)
+            worksheet.set_column('C:C', 60)
+            worksheet.set_column('D:E', 25)
+
+    logger.info(f"Excel report written to {file_path}")
+    return str(file_path)
+
+
+def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Path],
+                              output_dir: str, logger: logging.Logger) -> str:
+    """Write org report as GitHub-flavored markdown.
+
+    Args:
+        result: OrgReportResult from analysis
+        output_path: Optional specific output path
+        output_dir: Output directory if no path specified
+        logger: Logger instance
+
+    Returns:
+        Path to created Markdown file
+    """
+    if output_path:
+        file_path = output_path if str(output_path).endswith('.md') else Path(f"{output_path}.md")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.md"
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = []
+
+    # Header
+    lines.append(f"# Org-Wide Component Analysis Report: {result.org_id}")
+    lines.append("")
+    lines.append(f"**Organization:** {result.org_id}")
+    lines.append(f"**Generated:** {result.timestamp}")
+    lines.append("")
+
+    # Summary Table
+    # Calculate total aggregates (non-unique counts across all data views)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_fields = total_derived_metrics + total_derived_dimensions
+
+    lines.append("## Summary")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append(f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |")
+    lines.append(f"| Total Unique Metrics | {result.total_unique_metrics:,} |")
+    lines.append(f"| Total Unique Dimensions | {result.total_unique_dimensions:,} |")
+    lines.append(f"| Total Unique Components | {result.total_unique_components:,} |")
+    lines.append(f"| Total Metrics (Non-Unique) | {total_metrics_aggregate:,} |")
+    lines.append(f"| Total Dimensions (Non-Unique) | {total_dimensions_aggregate:,} |")
+    lines.append(f"| Total Components (Non-Unique) | {total_components_aggregate:,} |")
+    lines.append(f"| Derived Metrics (Non-Unique) | {total_derived_metrics:,} |")
+    lines.append(f"| Derived Dimensions (Non-Unique) | {total_derived_dimensions:,} |")
+    lines.append(f"| Total Derived Fields (Non-Unique) | {total_derived_fields:,} |")
+    lines.append(f"| Analysis Duration | {result.duration:.2f}s |")
+    lines.append("")
+
+    # Distribution
+    lines.append("## Component Distribution")
+    lines.append("")
+    lines.append("| Category | Metrics | Dimensions | Total |")
+    lines.append("|----------|--------:|----------:|------:|")
+
+    dist = result.distribution
+    # Build correct label for core threshold
+    if result.parameters.core_min_count is None:
+        core_label = f"{int(result.parameters.core_threshold*100)}%+"
+        core_desc = f"{int(result.parameters.core_threshold*100)}% or more of"
+    else:
+        core_label = f">={result.parameters.core_min_count}"
+        core_desc = f"{result.parameters.core_min_count} or more"
+
+    lines.append(f"| Core ({core_label} DVs) | {len(dist.core_metrics)} | {len(dist.core_dimensions)} | {dist.total_core} |")
+    lines.append(f"| Common (25-49% DVs) | {len(dist.common_metrics)} | {len(dist.common_dimensions)} | {dist.total_common} |")
+    lines.append(f"| Limited (2+ DVs) | {len(dist.limited_metrics)} | {len(dist.limited_dimensions)} | {dist.total_limited} |")
+    lines.append(f"| Isolated (1 DV only) | {len(dist.isolated_metrics)} | {len(dist.isolated_dimensions)} | {dist.total_isolated} |")
+    lines.append("")
+
+    # Data Views Table
+    lines.append("## Data Views")
+    lines.append("")
+    lines.append("| Name | ID | Metrics | Dimensions | Status |")
+    lines.append("|------|----|---------:|----------:|--------|")
+
+    for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
+        name = dv.data_view_name.replace('|', '\\|')
+        if dv.error:
+            lines.append(f"| {name} | `{dv.data_view_id}` | ERROR | - | {dv.status} |")
+        else:
+            lines.append(f"| {name} | `{dv.data_view_id}` | {dv.metric_count} | {dv.dimension_count} | {dv.status} |")
+    lines.append("")
+
+    # Core Components
+    if dist.total_core > 0:
+        lines.append("## Core Components")
+        lines.append("")
+        lines.append(f"Components present in {core_desc} data views.")
+        lines.append("")
+
+        # Check if any components have names
+        has_names = any(info.name for info in result.component_index.values())
+
+        if dist.core_metrics:
+            lines.append("### Core Metrics")
+            lines.append("")
+            if has_names:
+                lines.append("| Component ID | Name | Data View Count |")
+                lines.append("|--------------|------|----------------:|")
+            else:
+                lines.append("| Component ID | Data View Count |")
+                lines.append("|--------------|----------------:|")
+            for comp_id in dist.core_metrics[:20]:
+                info = result.component_index.get(comp_id)
+                if info:
+                    if has_names:
+                        name = (info.name or '-').replace('|', '\\|')
+                        lines.append(f"| `{comp_id}` | {name} | {info.presence_count} |")
+                    else:
+                        lines.append(f"| `{comp_id}` | {info.presence_count} |")
+            if len(dist.core_metrics) > 20:
+                if has_names:
+                    lines.append(f"| *... {len(dist.core_metrics) - 20} more* | | |")
+                else:
+                    lines.append(f"| *... {len(dist.core_metrics) - 20} more* | |")
+            lines.append("")
+
+        if dist.core_dimensions:
+            lines.append("### Core Dimensions")
+            lines.append("")
+            if has_names:
+                lines.append("| Component ID | Name | Data View Count |")
+                lines.append("|--------------|------|----------------:|")
+            else:
+                lines.append("| Component ID | Data View Count |")
+                lines.append("|--------------|----------------:|")
+            for comp_id in dist.core_dimensions[:20]:
+                info = result.component_index.get(comp_id)
+                if info:
+                    if has_names:
+                        name = (info.name or '-').replace('|', '\\|')
+                        lines.append(f"| `{comp_id}` | {name} | {info.presence_count} |")
+                    else:
+                        lines.append(f"| `{comp_id}` | {info.presence_count} |")
+            if len(dist.core_dimensions) > 20:
+                if has_names:
+                    lines.append(f"| *... {len(dist.core_dimensions) - 20} more* | | |")
+                else:
+                    lines.append(f"| *... {len(dist.core_dimensions) - 20} more* | |")
+            lines.append("")
+
+    # Similarity Matrix
+    if result.similarity_pairs:
+        lines.append("## High Overlap Pairs")
+        lines.append("")
+        effective_threshold = min(result.parameters.overlap_threshold, 0.9)
+        threshold_note = ""
+        if result.parameters.overlap_threshold > 0.9:
+            threshold_note = f" (configured {int(result.parameters.overlap_threshold*100)}%, capped at 90% for governance checks)"
+        lines.append(
+            f"Data view pairs with >= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}."
+        )
+        lines.append("")
+        lines.append("| Data View 1 | Data View 2 | Similarity | Shared |")
+        lines.append("|-------------|-------------|------------|-------:|")
+
+        for pair in result.similarity_pairs[:15]:
+            name1 = pair.dv1_name.replace('|', '\\|')
+            name2 = pair.dv2_name.replace('|', '\\|')
+            lines.append(f"| {name1} | {name2} | {pair.jaccard_similarity*100:.1f}% | {pair.shared_count} |")
+
+        if len(result.similarity_pairs) > 15:
+            lines.append(f"| *... {len(result.similarity_pairs) - 15} more pairs* | | | |")
+        lines.append("")
+
+    # Recommendations
+    if result.recommendations:
+        lines.append("## Recommendations")
+        lines.append("")
+
+        for i, rec in enumerate(result.recommendations, 1):
+            severity = rec.get('severity', 'low')
+            severity_badge = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(severity, "⚪")
+            lines.append(f"### {i}. {severity_badge} {rec.get('type', 'Unknown').replace('_', ' ').title()}")
+            lines.append("")
+            lines.append(rec.get('reason', 'No details provided.'))
+            lines.append("")
+
+            if rec.get('data_view'):
+                lines.append(f"- **Data View:** {rec.get('data_view_name', '')} (`{rec.get('data_view')}`)")
+            if rec.get('data_view_1'):
+                lines.append(f"- **Pair:** {rec.get('data_view_1_name', '')} ↔ {rec.get('data_view_2_name', '')}")
+            lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append("")
+    lines.append(f"*Report generated by CJA SDR Generator v{__version__}*")
+
+    # Write file
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+    logger.info(f"Markdown report written to {file_path}")
+    return str(file_path)
+
+
+def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
+                          output_dir: str, logger: logging.Logger) -> str:
+    """Write org report as styled HTML.
+
+    Args:
+        result: OrgReportResult from analysis
+        output_path: Optional specific output path
+        output_dir: Output directory if no path specified
+        logger: Logger instance
+
+    Returns:
+        Path to created HTML file
+    """
+    if output_path:
+        file_path = output_path if str(output_path).endswith('.html') else Path(f"{output_path}.html")
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.html"
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    dist = result.distribution
+    has_names = any(info.name for info in result.component_index.values())
+
+    # Escape org_id for HTML output
+    org_id_escaped = html.escape(result.org_id)
+
+    # Calculate total aggregates (non-unique counts across all data views)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_fields = total_derived_metrics + total_derived_dimensions
+
+    html_out = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Org-Wide Component Analysis Report</title>
+    <style>
+        :root {{
+            --primary: #1a73e8;
+            --success: #34a853;
+            --warning: #fbbc04;
+            --danger: #ea4335;
+            --bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text: #202124;
+            --text-secondary: #5f6368;
+            --border: #dadce0;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 2rem;
+        }}
+        .container {{ max-width: 1200px; margin: 0 auto; }}
+        h1 {{ color: var(--primary); margin-bottom: 0.5rem; }}
+        h2 {{ color: var(--text); margin: 2rem 0 1rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }}
+        h3 {{ color: var(--text-secondary); margin: 1.5rem 0 0.75rem; }}
+        .meta {{ color: var(--text-secondary); margin-bottom: 2rem; }}
+        .card {{
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }}
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }}
+        .stat-card {{
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            border: 1px solid var(--border);
+        }}
+        .stat-value {{ font-size: 2rem; font-weight: bold; color: var(--primary); }}
+        .stat-label {{ color: var(--text-secondary); font-size: 0.875rem; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }}
+        th, td {{
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }}
+        th {{ background: var(--bg); font-weight: 600; }}
+        tr:hover {{ background: #f1f3f4; }}
+        .badge {{
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }}
+        .badge-core {{ background: #e8f5e9; color: #2e7d32; }}
+        .badge-common {{ background: #e3f2fd; color: #1565c0; }}
+        .badge-limited {{ background: #fff3e0; color: #ef6c00; }}
+        .badge-isolated {{ background: #fce4ec; color: #c2185b; }}
+        .badge-high {{ background: var(--danger); color: white; }}
+        .badge-medium {{ background: var(--warning); color: #333; }}
+        .badge-low {{ background: var(--primary); color: white; }}
+        .progress-bar {{
+            background: #e0e0e0;
+            border-radius: 4px;
+            height: 20px;
+            overflow: hidden;
+        }}
+        .progress-fill {{
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s;
+        }}
+        code {{ background: #f1f3f4; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.85rem; }}
+        .recommendation {{ padding: 1rem; border-left: 4px solid var(--primary); margin: 1rem 0; background: #f8f9fa; }}
+        .recommendation.high {{ border-color: var(--danger); }}
+        .recommendation.medium {{ border-color: var(--warning); }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Org-Wide Component Analysis Report</h1>
+        <p class="meta">Organization: {org_id_escaped} | Generated: {result.timestamp} | Duration: {result.duration:.2f}s</p>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{result.successful_data_views}/{result.total_data_views}</div>
+                <div class="stat-label">Data Views Analyzed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{result.total_unique_metrics:,}</div>
+                <div class="stat-label">Unique Metrics</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{result.total_unique_dimensions:,}</div>
+                <div class="stat-label">Unique Dimensions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{result.total_unique_components:,}</div>
+                <div class="stat-label">Total Unique Components</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{total_components_aggregate:,}</div>
+                <div class="stat-label">Total Components (Non-Unique)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{total_derived_fields:,}</div>
+                <div class="stat-label">Total Derived Fields (Non-Unique)</div>
+            </div>
+        </div>
+
+        <h2>Component Distribution</h2>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th>Category</th><th>Metrics</th><th>Dimensions</th><th>Total</th><th>Distribution</th></tr>
+                </thead>
+                <tbody>
+'''
+
+    total = result.total_unique_components or 1
+
+    # Build correct label for core threshold
+    if result.parameters.core_min_count is None:
+        core_label = f"{int(result.parameters.core_threshold*100)}%+"
+        core_desc = f"{int(result.parameters.core_threshold*100)}% or more of"
+    else:
+        core_label = f"&gt;={result.parameters.core_min_count}"
+        core_desc = f"{result.parameters.core_min_count} or more"
+
+    for bucket, m_list, d_list, badge_class in [
+        (f"Core ({core_label} DVs)", dist.core_metrics, dist.core_dimensions, "core"),
+        ("Common (25-49% DVs)", dist.common_metrics, dist.common_dimensions, "common"),
+        ("Limited (2+ DVs)", dist.limited_metrics, dist.limited_dimensions, "limited"),
+        ("Isolated (1 DV)", dist.isolated_metrics, dist.isolated_dimensions, "isolated"),
+    ]:
+        bucket_total = len(m_list) + len(d_list)
+        pct = bucket_total / total * 100
+        html_out += f'''                    <tr>
+                        <td><span class="badge badge-{badge_class}">{bucket}</span></td>
+                        <td>{len(m_list)}</td>
+                        <td>{len(d_list)}</td>
+                        <td>{bucket_total}</td>
+                        <td><div class="progress-bar"><div class="progress-fill" style="width: {pct:.1f}%"></div></div></td>
+                    </tr>
+'''
+
+    html_out += '''                </tbody>
+            </table>
+        </div>
+
+        <h2>Data Views</h2>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>ID</th><th>Metrics</th><th>Dimensions</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+'''
+
+    for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
+        # Escape user-sourced strings to prevent HTML injection
+        dv_name_escaped = html.escape(dv.data_view_name)
+        dv_id_escaped = html.escape(dv.data_view_id)
+        if dv.error:
+            error_escaped = html.escape(dv.error)
+            html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td colspan="2">ERROR: {error_escaped}</td><td>{dv.status}</td></tr>\n'
+        else:
+            html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td>{dv.metric_count}</td><td>{dv.dimension_count}</td><td>{dv.status}</td></tr>\n'
+
+    html_out += '''                </tbody>
+            </table>
+        </div>
+'''
+
+    # Core Components
+    if dist.total_core > 0:
+        html_out += f'''
+        <h2>Core Components</h2>
+        <p>Components present in {core_desc} data views.</p>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th>Component ID</th>{"<th>Name</th>" if has_names else ""}<th>Type</th><th>Data View Count</th></tr>
+                </thead>
+                <tbody>
+'''
+        for comp_id in (dist.core_metrics + dist.core_dimensions)[:30]:
+            info = result.component_index.get(comp_id)
+            if info:
+                comp_id_escaped = html.escape(comp_id)
+                name_escaped = html.escape(info.name) if info.name else '-'
+                name_col = f"<td>{name_escaped}</td>" if has_names else ""
+                html_out += f'                    <tr><td><code>{comp_id_escaped}</code></td>{name_col}<td>{info.component_type.title()}</td><td>{info.presence_count}</td></tr>\n'
+
+        if dist.total_core > 30:
+            html_out += f'                    <tr><td colspan="{"4" if has_names else "3"}"><em>... and {dist.total_core - 30} more</em></td></tr>\n'
+
+        html_out += '''                </tbody>
+            </table>
+        </div>
+'''
+
+    # Similarity Pairs
+    if result.similarity_pairs:
+        effective_threshold = min(result.parameters.overlap_threshold, 0.9)
+        threshold_note = ""
+        if result.parameters.overlap_threshold > 0.9:
+            threshold_note = (
+                f" (configured {int(result.parameters.overlap_threshold*100)}%, "
+                "capped at 90% for governance checks)"
+            )
+        html_out += f'''
+        <h2>High Overlap Pairs</h2>
+        <p>Data view pairs with &gt;= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}.</p>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th>Data View 1</th><th>Data View 2</th><th>Similarity</th><th>Shared</th></tr>
+                </thead>
+                <tbody>
+'''
+        for pair in result.similarity_pairs[:20]:
+            dv1_escaped = html.escape(pair.dv1_name)
+            dv2_escaped = html.escape(pair.dv2_name)
+            html_out += f'                    <tr><td>{dv1_escaped}</td><td>{dv2_escaped}</td><td>{pair.jaccard_similarity*100:.1f}%</td><td>{pair.shared_count}</td></tr>\n'
+
+        if len(result.similarity_pairs) > 20:
+            html_out += f'                    <tr><td colspan="4"><em>... and {len(result.similarity_pairs) - 20} more pairs</em></td></tr>\n'
+
+        html_out += '''                </tbody>
+            </table>
+        </div>
+'''
+
+    # Recommendations
+    if result.recommendations:
+        html_out += '''
+        <h2>Recommendations</h2>
+'''
+        for rec in result.recommendations:
+            severity = rec.get('severity', 'low')
+            rec_type = html.escape(rec.get('type', 'Unknown').replace('_', ' ').title())
+            rec_reason = html.escape(rec.get('reason', 'No details provided.'))
+            html_out += f'''        <div class="recommendation {severity}">
+            <strong><span class="badge badge-{severity}">{severity.upper()}</span> {rec_type}</strong>
+            <p>{rec_reason}</p>
+        </div>
+'''
+
+    html_out += '''
+        <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border);">
+        <p style="color: var(--text-secondary); font-size: 0.875rem;">Generated by CJA SDR Generator</p>
+    </div>
+</body>
+</html>'''
+
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(html_out)
+
+    logger.info(f"HTML report written to {file_path}")
+    return str(file_path)
+
+
+def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
+                         output_dir: str, logger: logging.Logger) -> str:
+    """Write org report as multiple CSV files.
+
+    Creates the following CSV files:
+    - org_report_summary.csv: High-level statistics
+    - org_report_data_views.csv: Per-data-view breakdown
+    - org_report_components.csv: Component index with names and coverage
+    - org_report_similarity.csv: Similarity pairs (if computed)
+    - org_report_distribution.csv: Distribution bucket counts
+
+    Args:
+        result: OrgReportResult from analysis
+        output_path: Optional base path (suffix will be added)
+        output_dir: Output directory if no path specified
+        logger: Logger instance
+
+    Returns:
+        Path to the created directory containing CSV files
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Determine output directory
+    if output_path:
+        csv_dir = Path(output_path)
+        if csv_dir.suffix == '.csv':
+            csv_dir = csv_dir.parent / csv_dir.stem
+    else:
+        csv_dir = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}"
+
+    csv_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Summary CSV
+    # Calculate total aggregates (non-unique counts across all data views)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_derived_fields = total_derived_metrics + total_derived_dimensions
+    effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
+
+    summary_data = [{
+        'Report Type': 'Org-Wide Component Analysis',
+        'Generated At': result.timestamp,
+        'Org ID': result.org_id,
+        'Total Data Views': result.total_data_views,
+        'Successful Data Views': result.successful_data_views,
+        'Total Unique Metrics': result.total_unique_metrics,
+        'Total Unique Dimensions': result.total_unique_dimensions,
+        'Total Unique Components': result.total_unique_components,
+        'Total Metrics (Non-Unique)': total_metrics_aggregate,
+        'Total Dimensions (Non-Unique)': total_dimensions_aggregate,
+        'Total Components (Non-Unique)': total_components_aggregate,
+        'Derived Metrics (Non-Unique)': total_derived_metrics,
+        'Derived Dimensions (Non-Unique)': total_derived_dimensions,
+        'Total Derived Fields (Non-Unique)': total_derived_fields,
+        'Core Threshold': result.parameters.core_threshold,
+        'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
+        'Overlap Threshold (Effective)': effective_overlap_threshold,
+        'Analysis Duration (s)': round(result.duration, 2),
+    }]
+    summary_df = pd.DataFrame(summary_data)
+    summary_path = csv_dir / "org_report_summary.csv"
+    summary_df.to_csv(summary_path, index=False)
+
+    # 2. Data Views CSV
+    dv_data = []
+    for dv in result.data_view_summaries:
+        dv_data.append({
+            'Data View ID': dv.data_view_id,
+            'Data View Name': dv.data_view_name,
+            'Metrics Count': dv.metric_count,
+            'Dimensions Count': dv.dimension_count,
+            'Total Components': dv.total_components,
+            'Status': dv.status,
+            'Error': dv.error or '',
+            'Fetch Duration (s)': round(dv.fetch_duration, 3),
+        })
+    dv_df = pd.DataFrame(dv_data)
+    dv_path = csv_dir / "org_report_data_views.csv"
+    dv_df.to_csv(dv_path, index=False)
+
+    # 3. Components CSV
+    comp_data = []
+    for comp_id, info in result.component_index.items():
+        # Determine distribution bucket
+        if comp_id in result.distribution.core_metrics or comp_id in result.distribution.core_dimensions:
+            bucket = 'Core'
+        elif comp_id in result.distribution.common_metrics or comp_id in result.distribution.common_dimensions:
+            bucket = 'Common'
+        elif comp_id in result.distribution.limited_metrics or comp_id in result.distribution.limited_dimensions:
+            bucket = 'Limited'
+        else:
+            bucket = 'Isolated'
+
+        coverage_pct = (info.presence_count / result.successful_data_views * 100) if result.successful_data_views > 0 else 0
+
+        comp_data.append({
+            'Component ID': comp_id,
+            'Component Type': info.component_type.title(),
+            'Name': info.name or '',
+            'Data View Count': info.presence_count,
+            'Coverage (%)': round(coverage_pct, 1),
+            'Distribution Bucket': bucket,
+            'Data Views': ';'.join(sorted(info.data_views)),
+        })
+    comp_df = pd.DataFrame(comp_data)
+    comp_df = comp_df.sort_values(['Distribution Bucket', 'Data View Count'], ascending=[True, False])
+    comp_path = csv_dir / "org_report_components.csv"
+    comp_df.to_csv(comp_path, index=False)
+
+    # 4. Distribution CSV
+    dist = result.distribution
+    dist_data = [
+        {'Bucket': 'Core', 'Metrics': len(dist.core_metrics), 'Dimensions': len(dist.core_dimensions), 'Total': dist.total_core},
+        {'Bucket': 'Common', 'Metrics': len(dist.common_metrics), 'Dimensions': len(dist.common_dimensions), 'Total': dist.total_common},
+        {'Bucket': 'Limited', 'Metrics': len(dist.limited_metrics), 'Dimensions': len(dist.limited_dimensions), 'Total': dist.total_limited},
+        {'Bucket': 'Isolated', 'Metrics': len(dist.isolated_metrics), 'Dimensions': len(dist.isolated_dimensions), 'Total': dist.total_isolated},
+    ]
+    dist_df = pd.DataFrame(dist_data)
+    dist_path = csv_dir / "org_report_distribution.csv"
+    dist_df.to_csv(dist_path, index=False)
+
+    # 5. Similarity CSV (if computed)
+    if result.similarity_pairs:
+        effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
+        sim_data = []
+        for pair in result.similarity_pairs:
+            sim_data.append({
+                'Data View 1 ID': pair.dv1_id,
+                'Data View 1 Name': pair.dv1_name,
+                'Data View 2 ID': pair.dv2_id,
+                'Data View 2 Name': pair.dv2_name,
+                'Jaccard Similarity': pair.jaccard_similarity,
+                'Shared Components': pair.shared_count,
+                'Union Size': pair.union_count,
+                'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
+                'Overlap Threshold (Effective)': effective_overlap_threshold,
+            })
+        sim_df = pd.DataFrame(sim_data)
+        sim_path = csv_dir / "org_report_similarity.csv"
+        sim_df.to_csv(sim_path, index=False)
+
+    # 6. Recommendations CSV (if any)
+    if result.recommendations:
+        rec_data = []
+        for rec in result.recommendations:
+            rec_data.append({
+                'Type': rec.get('type', ''),
+                'Severity': rec.get('severity', ''),
+                'Description': rec.get('reason', ''),
+                'Data View': rec.get('data_view', rec.get('data_view_1', '')),
+                'Data View Name': rec.get('data_view_name', rec.get('data_view_1_name', '')),
+            })
+        rec_df = pd.DataFrame(rec_data)
+        rec_path = csv_dir / "org_report_recommendations.csv"
+        rec_df.to_csv(rec_path, index=False)
+
+    logger.info(f"CSV reports written to {csv_dir}")
+    return str(csv_dir)
+
+
+def run_org_report(
+    config_file: str,
+    output_format: str,
+    output_path: Optional[str],
+    output_dir: str,
+    org_config: OrgReportConfig,
+    profile: Optional[str] = None,
+    quiet: bool = False,
+) -> Tuple[bool, bool]:
+    """Run org-wide component analysis and generate report.
+
+    Args:
+        config_file: Path to CJA configuration file
+        output_format: Output format (console, json, excel, markdown, html, csv, all)
+        output_path: Optional specific output file path
+        output_dir: Output directory for generated files
+        org_config: OrgReportConfig with analysis parameters
+        profile: Optional profile name for credentials
+        quiet: Suppress progress output
+
+    Returns:
+        Tuple of (success, thresholds_exceeded) - thresholds_exceeded triggers exit code 2
+    """
+    # Setup logging
+    logger = logging.getLogger('org_report')
+    logger.setLevel(logging.INFO if not quiet else logging.WARNING)
+
+    output_to_stdout = output_path in ('-', 'stdout')
+    status_to_stderr = output_to_stdout and output_format == 'json'
+    status_stream = sys.stderr if status_to_stderr else sys.stdout
+
+    def _status_print(*args, **kwargs) -> None:
+        kwargs.setdefault("file", status_stream)
+        print(*args, **kwargs)
+
+    if not quiet:
+        _status_print()
+        _status_print("=" * 110)
+        _status_print("ORG-WIDE COMPONENT ANALYSIS")
+        _status_print("=" * 110)
+        if profile:
+            _status_print(f"\nUsing profile: {profile}")
+        _status_print()
+
+    try:
+        # Configure CJA connection
+        success, source, credentials = configure_cjapy(profile, config_file)
+        if not success:
+            _status_print(ConsoleColors.error(f"ERROR: {source}"))
+            return False, False
+
+        # Extract org_id from credentials
+        org_id = credentials.get('org_id', 'unknown') if credentials else 'unknown'
+
+        cja = cjapy.CJA()
+
+        # Create cache if caching enabled
+        cache = None
+        if org_config.use_cache:
+            cache = OrgReportCache()
+            if not quiet:
+                stats = cache.get_stats()
+                if stats['entries'] > 0:
+                    _status_print(f"Cache: {stats['entries']} entries available")
+
+        # Run analysis
+        analyzer = OrgComponentAnalyzer(cja, org_config, logger, org_id=org_id, cache=cache)
+        result = analyzer.run_analysis()
+
+        if result.total_data_views == 0:
+            _status_print(ConsoleColors.warning("No data views found matching criteria"))
+            return False, False
+
+        # Handle org-report comparison (Feature 4)
+        comparison = None
+        if org_config.compare_org_report:
+            try:
+                if not quiet:
+                    _status_print(f"\nComparing to previous report: {org_config.compare_org_report}")
+                comparison = compare_org_reports(result, org_config.compare_org_report)
+                with contextlib.redirect_stdout(status_stream):
+                    write_org_report_comparison_console(comparison, quiet)
+            except FileNotFoundError:
+                _status_print(ConsoleColors.error(f"ERROR: Previous report not found: {org_config.compare_org_report}"))
+            except json.JSONDecodeError:
+                _status_print(ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"))
+            except Exception as e:
+                _status_print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
+
+        # Generate output based on format
+        output_path_obj = Path(output_path) if output_path and not output_to_stdout else None
+
+        # Handle org-stats mode (Feature 2) - minimal output
+        if org_config.org_stats_only:
+            with contextlib.redirect_stdout(status_stream):
+                write_org_report_stats_only(result, quiet)
+            # Still output JSON if requested for CI integration
+            if output_format == 'json':
+                if output_to_stdout:
+                    json.dump(build_org_report_json_data(result), sys.stdout, indent=2, ensure_ascii=False)
+                    print()
+                else:
+                    file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
+                    if not quiet:
+                        _status_print(f"JSON saved to: {file_path}")
+            return True, result.thresholds_exceeded
+
+        # Handle format aliases (reports, data, ci)
+        if output_format in FORMAT_ALIASES:
+            formats_to_generate = FORMAT_ALIASES[output_format]
+            generated_files = []
+            alias_base = output_path_obj.with_suffix('') if output_path_obj else None
+            for fmt in formats_to_generate:
+                if fmt == 'json':
+                    path = write_org_report_json(result, alias_base, output_dir, logger)
+                    generated_files.append(f"JSON: {path}")
+                elif fmt == 'excel':
+                    path = write_org_report_excel(result, alias_base, output_dir, logger)
+                    generated_files.append(f"Excel: {path}")
+                elif fmt == 'markdown':
+                    path = write_org_report_markdown(result, alias_base, output_dir, logger)
+                    generated_files.append(f"Markdown: {path}")
+                elif fmt == 'csv':
+                    path = write_org_report_csv(result, alias_base, output_dir, logger)
+                    generated_files.append(f"CSV: {path}")
+                elif fmt == 'html':
+                    path = write_org_report_html(result, alias_base, output_dir, logger)
+                    generated_files.append(f"HTML: {path}")
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} Reports saved ({output_format} alias):")
+                for f in generated_files:
+                    _status_print(f"  - {f}")
+        elif output_format == 'console' or (output_format is None and output_path is None):
+            write_org_report_console(result, org_config, quiet)
+        elif output_format == 'json':
+            if output_to_stdout:
+                json.dump(build_org_report_json_data(result), sys.stdout, indent=2, ensure_ascii=False)
+                print()
+            else:
+                file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
+                if not quiet:
+                    _status_print(f"\n{ConsoleColors.success('✓')} JSON report saved to: {file_path}")
+        elif output_format == 'excel':
+            file_path = write_org_report_excel(result, output_path_obj, output_dir, logger)
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} Excel report saved to: {file_path}")
+        elif output_format == 'markdown':
+            file_path = write_org_report_markdown(result, output_path_obj, output_dir, logger)
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} Markdown report saved to: {file_path}")
+        elif output_format == 'html':
+            file_path = write_org_report_html(result, output_path_obj, output_dir, logger)
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} HTML report saved to: {file_path}")
+        elif output_format == 'csv':
+            if output_to_stdout:
+                _status_print(ConsoleColors.error("ERROR: CSV output for org-report writes multiple files and cannot be sent to stdout. Use --output-dir or a file path."))
+                return False, False
+            csv_dir = write_org_report_csv(result, output_path_obj, output_dir, logger)
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} CSV reports saved to: {csv_dir}")
+        elif output_format == 'all':
+            # Generate all formats
+            write_org_report_console(result, org_config, quiet)
+            all_base = output_path_obj.with_suffix('') if output_path_obj else None
+            json_path = write_org_report_json(result, all_base, output_dir, logger)
+            excel_path = write_org_report_excel(result, all_base, output_dir, logger)
+            md_path = write_org_report_markdown(result, all_base, output_dir, logger)
+            html_path = write_org_report_html(result, all_base, output_dir, logger)
+            csv_dir = write_org_report_csv(result, all_base, output_dir, logger)
+            if not quiet:
+                _status_print(f"\n{ConsoleColors.success('✓')} Reports saved:")
+                _status_print(f"  - JSON: {json_path}")
+                _status_print(f"  - Excel: {excel_path}")
+                _status_print(f"  - Markdown: {md_path}")
+                _status_print(f"  - HTML: {html_path}")
+                _status_print(f"  - CSV: {csv_dir}")
+        else:
+            # Unknown format - raise clear error instead of silent fallback
+            _status_print(ConsoleColors.error(f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"))
+            return False, False
+
+        if not quiet:
+            _status_print()
+            _status_print("=" * 110)
+            _status_print(f"Analysis completed in {result.duration:.2f}s")
+            # Show governance violation summary if thresholds exceeded
+            if result.thresholds_exceeded and org_config.fail_on_threshold:
+                _status_print(ConsoleColors.warning(f"GOVERNANCE THRESHOLDS EXCEEDED - {len(result.governance_violations or [])} violation(s)"))
+            _status_print("=" * 110)
+
+        return True, result.thresholds_exceeded
+
+    except FileNotFoundError:
+        _status_print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        return False, False
+
+    except (KeyboardInterrupt, SystemExit):
+        if not quiet:
+            _status_print()
+            _status_print(ConsoleColors.warning("Operation cancelled."))
+        raise
+
+    except Exception as e:
+        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {str(e)}"))
+        logger.exception("Org report error")
+        return False, False
 
 
 # ==================== DIFF AND SNAPSHOT COMMAND HANDLERS ====================
@@ -13895,7 +13063,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
 
             if include_calc_metrics:
                 try:
-                    from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder
+                    from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
                     builder = CalculatedMetricsInventoryBuilder(logger=logger)
                     inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
                     target_snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
@@ -13906,7 +13074,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
 
             if include_segments:
                 try:
-                    from cja_segments_inventory import SegmentsInventoryBuilder
+                    from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
                     builder = SegmentsInventoryBuilder(logger=logger)
                     inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
                     target_snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
@@ -14286,6 +13454,10 @@ def main():
     DEFAULT_RETRY_CONFIG['max_retries'] = args.max_retries
     DEFAULT_RETRY_CONFIG['base_delay'] = args.retry_base_delay
     DEFAULT_RETRY_CONFIG['max_delay'] = args.retry_max_delay
+    # Also set env vars so child processes (ProcessPoolExecutor) inherit the values
+    os.environ['MAX_RETRIES'] = str(args.max_retries)
+    os.environ['RETRY_BASE_DELAY'] = str(args.retry_base_delay)
+    os.environ['RETRY_MAX_DELAY'] = str(args.retry_max_delay)
 
     # Handle --output for stdout - implies quiet mode
     output_to_stdout = getattr(args, 'output', None) in ('-', 'stdout')
@@ -14423,8 +13595,14 @@ def main():
         sys.exit(0 if success else 1)
 
     # Handle --config-status mode (no data view required, no API call)
-    if getattr(args, 'config_status', False):
-        success = show_config_status(args.config_file, profile=getattr(args, 'profile', None))
+    # --config-json implies --config-status
+    if getattr(args, 'config_status', False) or getattr(args, 'config_json', False):
+        output_json = getattr(args, 'config_json', False)
+        success = show_config_status(
+            args.config_file,
+            profile=getattr(args, 'profile', None),
+            output_json=output_json
+        )
         sys.exit(0 if success else 1)
 
     # Handle --validate-config mode (no data view required)
@@ -14493,6 +13671,76 @@ def main():
             profile=getattr(args, 'profile', None)
         )
         sys.exit(0 if success else 1)
+
+    # Handle --org-report mode (no data views required)
+    if getattr(args, 'org_report', False):
+        # Build config from args
+        org_config = OrgReportConfig(
+            filter_pattern=getattr(args, 'org_filter', None),
+            exclude_pattern=getattr(args, 'org_exclude', None),
+            limit=getattr(args, 'org_limit', None),
+            core_threshold=getattr(args, 'core_threshold', 0.5),
+            core_min_count=getattr(args, 'core_min_count', None),
+            overlap_threshold=getattr(args, 'overlap_threshold', 0.8),
+            summary_only=getattr(args, 'org_summary', False) or getattr(args, 'summary', False),
+            verbose=getattr(args, 'org_verbose', False),
+            include_names=getattr(args, 'org_include_names', False),
+            skip_similarity=getattr(args, 'skip_similarity', False),
+            similarity_max_dvs=getattr(args, 'org_similarity_max_dvs', 250),
+            force_similarity=getattr(args, 'org_force_similarity', False),
+            # Existing options
+            include_component_types=not getattr(args, 'no_component_types', False),
+            include_metadata=getattr(args, 'org_include_metadata', False),
+            include_drift=getattr(args, 'org_include_drift', False),
+            sample_size=getattr(args, 'org_sample_size', None),
+            sample_seed=getattr(args, 'org_sample_seed', None),
+            sample_stratified=getattr(args, 'org_sample_stratified', False),
+            use_cache=getattr(args, 'org_use_cache', False),
+            cache_max_age_hours=getattr(args, 'org_cache_max_age', 24),
+            clear_cache=getattr(args, 'org_clear_cache', False),
+            validate_cache=getattr(args, 'org_validate_cache', False),
+            memory_warning_threshold_mb=getattr(args, 'org_memory_warning', 100),
+            memory_limit_mb=getattr(args, 'org_memory_limit', None),
+            enable_clustering=getattr(args, 'org_cluster', False),
+            cluster_method=getattr(args, 'org_cluster_method', 'average'),
+            quiet=args.quiet,
+            cja_per_thread=not getattr(args, 'org_shared_client', False),
+            # Feature 1: Governance thresholds
+            duplicate_threshold=getattr(args, 'org_duplicate_threshold', None),
+            isolated_threshold=getattr(args, 'org_isolated_threshold', None),
+            fail_on_threshold=getattr(args, 'org_fail_on_threshold', False),
+            # Feature 2: Org-stats mode
+            org_stats_only=getattr(args, 'org_stats_only', False),
+            # Feature 3: Naming audit
+            audit_naming=getattr(args, 'org_audit_naming', False),
+            # Feature 4: Trending/drift report
+            compare_org_report=getattr(args, 'org_compare_report', None),
+            # Feature 5: Owner summary
+            include_owner_summary=getattr(args, 'org_owner_summary', False),
+            # Feature 6: Stale component heuristics
+            flag_stale=getattr(args, 'org_flag_stale', False),
+        )
+
+        # Determine output format (default to console for org reports)
+        output_format = args.format if args.format else 'console'
+
+        success, thresholds_exceeded = run_org_report(
+            config_file=args.config_file,
+            output_format=output_format,
+            output_path=getattr(args, 'output', None),
+            output_dir=args.output_dir,
+            org_config=org_config,
+            profile=getattr(args, 'profile', None),
+            quiet=args.quiet,
+        )
+
+        # Exit code: 0 = success, 1 = error, 2 = thresholds exceeded (with --fail-on-threshold)
+        if success:
+            if thresholds_exceeded and org_config.fail_on_threshold:
+                sys.exit(2)
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
     # Parse ignore_fields if provided
     ignore_fields = None
@@ -14970,6 +14218,54 @@ def main():
                     print(f"      - {dv_id}")
         print()
 
+    # Check for duplicate data view IDs and deduplicate
+    original_count = len(data_views)
+    seen = set()
+    duplicates = []
+    unique_data_views = []
+    for dv in data_views:
+        if dv in seen:
+            duplicates.append(dv)
+        else:
+            seen.add(dv)
+            unique_data_views.append(dv)
+
+    if duplicates and not args.quiet:
+        print(ConsoleColors.warning(f"Duplicate data view IDs removed: {set(duplicates)}"))
+        print(f"  Processing {len(unique_data_views)} unique data view(s) instead of {original_count}")
+        print()
+
+    data_views = unique_data_views
+
+    # Large batch confirmation (unless --yes or --quiet)
+    LARGE_BATCH_THRESHOLD = 20
+    if (len(data_views) >= LARGE_BATCH_THRESHOLD
+            and not getattr(args, 'assume_yes', False)
+            and not args.quiet
+            and not getattr(args, 'dry_run', False)
+            and sys.stdin.isatty()):
+        print(ConsoleColors.warning(f"Large batch detected: {len(data_views)} data views"))
+        print()
+        print("Estimated processing:")
+        print(f"  • API calls: ~{len(data_views) * 3} requests (metrics, dimensions, info per DV)")
+        print(f"  • Duration: ~{len(data_views) * 2}-{len(data_views) * 5} seconds")
+        print()
+        print("Tips:")
+        print("  • Use --filter to narrow scope: --filter 'prod*'")
+        print("  • Use --limit N to process only first N data views")
+        print("  • Use --yes to skip this prompt in CI/CD")
+        print()
+
+        try:
+            response = input("Continue? [y/N]: ").strip().lower()
+            if response not in ('y', 'yes'):
+                print("Cancelled.")
+                sys.exit(0)
+            print()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            sys.exit(0)
+
     # Validate the resolved data view IDs
     if not args.quiet and names_provided:
         print(ConsoleColors.info(f"Processing {len(data_views)} data view(s) total..."))
@@ -15014,6 +14310,22 @@ def main():
     if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
         print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
         sys.exit(1)
+
+    # Proactive output directory write check - fail fast before API calls
+    output_dir = Path(args.output_dir)
+    if output_dir.exists():
+        # Directory exists - check write permissions
+        if not os.access(output_dir, os.W_OK):
+            print(ConsoleColors.error(f"ERROR: Cannot write to output directory: {output_dir}"), file=sys.stderr)
+            print("Check permissions and try again.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Directory doesn't exist - check we can create it by checking parent
+        parent_dir = output_dir.parent
+        if parent_dir.exists() and not os.access(parent_dir, os.W_OK):
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {output_dir}"), file=sys.stderr)
+            print(f"Parent directory {parent_dir} is not writable.", file=sys.stderr)
+            sys.exit(1)
 
     # Process data views - start timing here for accurate processing-only runtime
     processing_start_time = time.time()

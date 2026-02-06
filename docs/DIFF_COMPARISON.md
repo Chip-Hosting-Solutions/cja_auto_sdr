@@ -670,7 +670,7 @@ cja_auto_sdr --diff dv_12345 dv_67890 --format excel
 # CSV files
 cja_auto_sdr --diff dv_12345 dv_67890 --format csv
 
-# All formats at once
+# All formats at once (includes console output plus all file formats)
 cja_auto_sdr --diff dv_12345 dv_67890 --format all
 ```
 
@@ -856,12 +856,14 @@ Basic snapshot without inventory data:
     { "id": "dimensions/page", "name": "Page", "type": "string", ... }
   ],
   "metadata": {
-    "tool_version": "3.1.0",
+    "tool_version": "x.y.z",
     "metrics_count": 150,
     "dimensions_count": 75
   }
 }
 ```
+
+> **Note:** `tool_version` reflects the version of the tool that created the snapshot.
 
 ### Version 2.0 (With Inventory)
 
@@ -904,7 +906,7 @@ When created with `--include-calculated`, `--include-segments`, or `--include-al
     }
   ],
   "metadata": {
-    "tool_version": "3.1.0",
+    "tool_version": "x.y.z",
     "metrics_count": 150,
     "dimensions_count": 75,
     "calculated_metrics_count": 25,
@@ -1451,7 +1453,7 @@ python -m pytest tests/test_diff_comparison.py::TestSideBySideOutput -v
 python -m pytest tests/test_diff_comparison.py::TestLargeDatasetPerformance -v
 
 # Run with coverage
-python -m pytest tests/test_diff_comparison.py --cov=cja_sdr_generator --cov-report=term-missing
+python -m pytest tests/test_diff_comparison.py --cov=cja_auto_sdr --cov-report=term-missing
 ```
 
 ### Key Test Scenarios

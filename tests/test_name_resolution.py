@@ -9,7 +9,7 @@ import pandas as pd
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import is_data_view_id, resolve_data_view_names, _data_view_cache
+from cja_auto_sdr.generator import is_data_view_id, resolve_data_view_names, _data_view_cache
 
 
 class TestDataViewIDDetection:
@@ -56,7 +56,7 @@ class TestDataViewNameResolution:
             {'id': 'dv_dup003', 'name': 'Duplicate Name'},  # Three with same name
         ]
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_single_id(self, mock_cjapy):
         """Test resolving a single data view ID (should pass through)"""
         mock_cja_instance = MagicMock()
@@ -69,7 +69,7 @@ class TestDataViewNameResolution:
         assert ids == ['dv_prod123']
         assert name_map == {}  # No name resolution needed
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_single_name(self, mock_cjapy):
         """Test resolving a single data view name"""
         mock_cja_instance = MagicMock()
@@ -82,7 +82,7 @@ class TestDataViewNameResolution:
         assert ids == ['dv_prod123']
         assert name_map == {'Production Analytics': ['dv_prod123']}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_duplicate_name(self, mock_cjapy):
         """Test resolving a name that matches multiple data views"""
         mock_cja_instance = MagicMock()
@@ -97,7 +97,7 @@ class TestDataViewNameResolution:
         assert 'Duplicate Name' in name_map
         assert len(name_map['Duplicate Name']) == 3
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_mixed_ids_and_names(self, mock_cjapy):
         """Test resolving a mix of IDs and names"""
         mock_cja_instance = MagicMock()
@@ -117,7 +117,7 @@ class TestDataViewNameResolution:
         assert 'dv_stage789' in ids
         assert name_map == {'Test Environment': ['dv_test456']}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_nonexistent_name(self, mock_cjapy):
         """Test resolving a name that doesn't exist"""
         mock_cja_instance = MagicMock()
@@ -130,7 +130,7 @@ class TestDataViewNameResolution:
         assert ids == []  # Name not found, not added to results
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_nonexistent_id(self, mock_cjapy):
         """Test resolving an ID that doesn't exist (should still pass through with warning)"""
         mock_cja_instance = MagicMock()
@@ -144,7 +144,7 @@ class TestDataViewNameResolution:
         assert ids == ['dv_nonexistent']
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_with_dataframe_response(self, mock_cjapy):
         """Test resolving when API returns a DataFrame"""
         mock_cja_instance = MagicMock()
@@ -158,7 +158,7 @@ class TestDataViewNameResolution:
         assert ids == ['dv_prod123']
         assert name_map == {'Production Analytics': ['dv_prod123']}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_with_empty_response(self, mock_cjapy):
         """Test resolving when no data views are available"""
         mock_cja_instance = MagicMock()
@@ -171,7 +171,7 @@ class TestDataViewNameResolution:
         assert ids == []
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_with_none_response(self, mock_cjapy):
         """Test resolving when API returns None"""
         mock_cja_instance = MagicMock()
@@ -184,7 +184,7 @@ class TestDataViewNameResolution:
         assert ids == []
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_with_config_error(self, mock_cjapy):
         """Test resolving when config file is not found"""
         mock_cjapy.importConfigFile.side_effect = FileNotFoundError("Config not found")
@@ -194,7 +194,7 @@ class TestDataViewNameResolution:
         assert ids == []
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_with_api_error(self, mock_cjapy):
         """Test resolving when API call fails"""
         mock_cja_instance = MagicMock()
@@ -207,7 +207,7 @@ class TestDataViewNameResolution:
         assert ids == []
         assert name_map == {}
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_case_sensitive(self, mock_cjapy):
         """Test that name resolution is case-sensitive"""
         mock_cja_instance = MagicMock()
@@ -227,7 +227,7 @@ class TestDataViewNameResolution:
         ids3, _ = resolve_data_view_names(['PRODUCTION ANALYTICS'], 'config.json', self.logger)
         assert len(ids3) == 0
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_resolve_multiple_names_all_duplicate(self, mock_cjapy):
         """Test resolving multiple names where all have duplicates"""
         mock_dataviews_multi = [

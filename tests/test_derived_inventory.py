@@ -13,7 +13,7 @@ import pytest
 import json
 import pandas as pd
 
-from cja_derived_fields_inventory import (
+from cja_auto_sdr.inventory.derived_fields import (
     DerivedFieldInventoryBuilder,
     DerivedFieldInventory,
     DerivedFieldSummary,

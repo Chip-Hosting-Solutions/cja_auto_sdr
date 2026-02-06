@@ -20,6 +20,9 @@ Common scenarios and recommended practices for the CJA SDR Generator.
   - [Component Inventory & Governance](#component-inventory--governance)
   - [Complexity Analysis & Technical Debt](#complexity-analysis--technical-debt)
   - [Dependency Mapping](#dependency-mapping)
+  - [Org-Wide Governance & Standardization](#org-wide-governance--standardization)
+  - [Data View Consolidation Planning](#data-view-consolidation-planning)
+  - [Cross-Team Component Sharing](#cross-team-component-sharing)
 - [Best Practices](#best-practices)
   - [Scheduling](#scheduling)
   - [Automation Scripts](#automation-scripts)
@@ -463,6 +466,225 @@ cja_auto_sdr $DATA_VIEW --include-calculated -f json 2>/dev/null | \
   '
 ```
 
+### Org-Wide Governance & Standardization
+
+Analyze component usage patterns across all data views in your organization using **org-wide analysis**:
+- Identify **core components** used organization-wide (50%+ of data views)
+- Detect **duplicate data views** with high Jaccard similarity
+- Find **standardization opportunities** (components in 70-99% of DVs)
+- Generate **governance recommendations** based on usage patterns
+
+**Best for:** Analytics governance, org audits, standardization initiatives
+
+```bash
+# Basic org-wide analysis (console output)
+cja_auto_sdr --org-report
+
+# Filter to specific data views
+cja_auto_sdr --org-report --filter "Prod.*" --exclude "Test|Sandbox"
+
+# Export governance report to Excel
+cja_auto_sdr --org-report --format excel --output-dir ./governance
+
+# Include component names for readability
+cja_auto_sdr --org-report --include-names --format excel
+
+# Custom thresholds for classification
+cja_auto_sdr --org-report --core-threshold 0.7 --overlap-threshold 0.9
+
+# JSON output for programmatic analysis
+cja_auto_sdr --org-report --format json --output org_analysis.json
+```
+
+**Understanding Distribution Buckets:**
+
+| Bucket | Criteria | Interpretation |
+|--------|----------|----------------|
+| **Core** | 50%+ of DVs | Foundation components, org-wide standards |
+| **Common** | 25-49% of DVs | Shared across teams, potential standards |
+| **Limited** | 2+ DVs, < 25% | Team-specific or use-case specific |
+| **Isolated** | 1 DV only | Unique to single data view, review for orphans |
+
+**Governance Audit Workflow:**
+
+```bash
+#!/bin/bash
+# org_governance_audit.sh - Generate comprehensive governance report
+
+OUTPUT_DIR="./governance/$(date +%Y%m%d)"
+mkdir -p "$OUTPUT_DIR"
+
+# Full report in all formats
+cja_auto_sdr --org-report \
+  --include-names \
+  --format all \
+  --output-dir "$OUTPUT_DIR"
+
+echo "Governance report saved to: $OUTPUT_DIR"
+
+# Extract high-priority recommendations
+cja_auto_sdr --org-report --format json --output - | \
+  jq '.recommendations[] | select(.severity == "high")'
+```
+
+### Data View Consolidation Planning
+
+Use org-wide analysis to plan data view consolidation:
+- Identify near-duplicate data views (90%+ similarity)
+- Find candidates for merging based on component overlap
+- Validate prod/staging parity before deployments
+
+**Best for:** Platform optimization, cost reduction, architecture simplification
+
+```bash
+# Find duplicate data views (high similarity pairs)
+cja_auto_sdr --org-report --overlap-threshold 0.9 --format json --output - | \
+  jq '.similarity_pairs[] | select(.similarity >= 0.9)'
+
+# Note: For governance checks, pairs with >= 90% similarity are always included,
+# even if `--overlap-threshold` is set above 0.9.
+# Validate prod/staging alignment
+cja_auto_sdr --org-report --filter "Prod|Staging" --overlap-threshold 0.95
+
+# Analyze specific environment group
+cja_auto_sdr --org-report --filter "^Marketing" --exclude "Test"
+
+# Quick test with limited data views
+cja_auto_sdr --org-report --limit 10
+```
+
+### Cross-Team Component Sharing
+
+Identify components that could be shared across teams:
+- Find **near-universal** components (in 70-99% of DVs) that should be standardized
+- Identify **isolated** components that may be orphaned or redundant
+- Track component adoption across business units
+
+**Best for:** Platform teams, analytics CoE, component standardization
+
+```bash
+# Find standardization opportunities
+cja_auto_sdr --org-report --format json --output - | \
+  jq '.recommendations[] | select(.type == "standardization_opportunity")'
+
+# Analyze isolated components per data view
+cja_auto_sdr --org-report --format excel --include-names
+
+# Quick summary without full analysis
+cja_auto_sdr --org-report --skip-similarity
+```
+
+### Data View Clustering & Family Detection
+
+Group related data views into clusters to understand organizational patterns:
+
+**Best for:** Understanding data view relationships, identifying teams/domains, planning reorganization
+
+```bash
+# Enable clustering to find data view families
+cja_auto_sdr --org-report --cluster --format excel
+
+# Use different linkage methods
+cja_auto_sdr --org-report --cluster --cluster-method complete
+
+# Combine with metadata for owner context
+cja_auto_sdr --org-report --cluster --include-metadata --owner-summary
+```
+
+### Trending & Drift Analysis
+
+Track changes in your org's analytics landscape over time:
+
+**Best for:** Quarterly reviews, detecting drift, compliance reporting
+
+```bash
+# Save baseline report
+cja_auto_sdr --org-report --format json --output ./baselines/q1_2026.json
+
+# Later, compare to baseline
+cja_auto_sdr --org-report --compare-org-report ./baselines/q1_2026.json
+
+# Shows:
+# - Data views added/removed
+# - Component count changes (↑ / ↓)
+# - New high-similarity pairs
+# - Resolved recommendations
+```
+
+### Naming Convention Audit
+
+Detect and flag inconsistent naming patterns across your org:
+
+**Best for:** Standardization initiatives, cleanup campaigns
+
+```bash
+# Run naming audit
+cja_auto_sdr --org-report --audit-naming
+
+# Flag stale components (test, old, temp patterns)
+cja_auto_sdr --org-report --flag-stale
+
+# Combined audit with full report
+cja_auto_sdr --org-report --audit-naming --flag-stale --format excel
+```
+
+### Automated Governance Checks with Thresholds
+
+Integrate org-wide governance into CI/CD pipelines with exit codes:
+
+**Best for:** DevOps, automated compliance gates, deployment pipelines
+
+```bash
+# Exit with code 2 if more than 5 duplicate pairs exist
+cja_auto_sdr --org-report --duplicate-threshold 5 --fail-on-threshold
+
+# Exit with code 2 if isolated components exceed 30%
+cja_auto_sdr --org-report --isolated-threshold 0.3 --fail-on-threshold
+
+# Combined thresholds for comprehensive check
+cja_auto_sdr --org-report \
+  --duplicate-threshold 3 \
+  --isolated-threshold 0.4 \
+  --fail-on-threshold \
+  --quiet
+```
+
+**CI/CD Integration for Governance:**
+
+```yaml
+# GitHub Actions - Weekly Governance Check
+name: Org Governance Audit
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly Monday 9 AM
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install uv && uv sync
+
+      - name: Generate Governance Report
+        run: |
+          cja_auto_sdr --org-report \
+            --include-names \
+            --format all \
+            --output-dir ./reports
+        env:
+          ORG_ID: ${{ secrets.ORG_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          SECRET: ${{ secrets.SECRET }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: governance-reports
+          path: ./reports/
+```
+
 ## Best Practices
 
 ### Scheduling
@@ -737,18 +959,21 @@ cja_auto_sdr dv_12345 \
 | Audience | Key Use Case | Recommended Workflow |
 |----------|--------------|---------------------|
 | Analytics Teams | Regular SDR documentation | Weekly automated runs |
-| DevOps Engineers | CI/CD integration | Pipeline automation |
-| Data Governance | Audit trails, component inventory | Monthly comprehensive reports with `--include-all-inventory` |
+| DevOps Engineers | CI/CD integration, governance gates | `--org-report --fail-on-threshold` in pipelines |
+| Data Governance | Audit trails, component inventory, org-wide governance | Monthly `--org-report` + `--include-all-inventory` |
 | Solution Architects | Complexity analysis, dependency mapping | `--include-all-inventory --inventory-only -f json` |
-| Consultants | Multi-client management | Batch processing per client |
-| Enterprise | Compliance documentation | Scheduled + on-demand with `--include-all-inventory` |
-| Technical Leads | Technical debt assessment | `--include-all-inventory --inventory-summary` for quick checks |
+| Platform Teams | Org-wide standardization, duplicate detection | `--org-report --cluster --include-names --format excel` |
+| Consultants | Multi-client management | Batch processing per client with profiles |
+| Enterprise | Compliance documentation, cross-DV governance | `--org-report --compare-org-report` for trending |
+| Technical Leads | Technical debt assessment, naming audits | `--org-report --audit-naming --flag-stale` |
+| Analytics CoE | Component standardization, cross-team sharing | `--org-report --owner-summary --include-metadata` |
 
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - config.json, environment variables, multi-environment setup
 - [CLI Reference](CLI_REFERENCE.md) - All command options
 - [Data View Comparison Guide](DIFF_COMPARISON.md) - Diff, snapshots, and CI/CD integration
+- [Org-Wide Analysis Guide](ORG_WIDE_ANALYSIS.md) - Cross-data-view component analysis and governance
 - [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter documentation and complexity analysis
 - [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field logic and schema references
 - [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metric formulas and dependencies

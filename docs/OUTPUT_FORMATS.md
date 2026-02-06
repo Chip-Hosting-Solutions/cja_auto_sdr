@@ -1,6 +1,6 @@
 # Output Format Flexibility
 
-Version 3.0 supports multiple output formats beyond Excel, providing flexible integration options for different use cases.
+Version 3.2 supports multiple output formats beyond Excel, providing flexible integration options for different use cases including SDR generation, diff comparison, and org-wide analysis.
 
 ## Supported Formats
 
@@ -11,7 +11,41 @@ Version 3.0 supports multiple output formats beyond Excel, providing flexible in
 | **JSON** | Hierarchical structured data | APIs, automation, integration with tools |
 | **HTML** | Professional web-ready report | Web viewing, sharing, presentations |
 | **Markdown** (.md) | GitHub/Confluence compatible tables | Documentation, version control, PRs |
-| **All** | Generate all formats simultaneously | Complete documentation package |
+| **Console** | Terminal output with ASCII formatting | Quick review, diff comparison, org-wide analysis |
+| **All** | Generate all formats simultaneously (includes console in diff/org-wide modes) | Complete documentation package |
+
+### Format Availability by Mode
+
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis |
+|--------|----------------|-----------------|-------------------|
+| Excel | ✓ (default) | ✓ | ✓ |
+| CSV | ✓ | ✓ | ✓ |
+| JSON | ✓ | ✓ | ✓ |
+| HTML | ✓ | ✓ | ✓ |
+| Markdown | ✓ | ✓ | ✓ |
+| Console | ✗ | ✓ (default) | ✓ (default) |
+| All | ✓ | ✓ | ✓ |
+
+### Format Aliases (v3.2.0)
+
+For convenience, format aliases provide shortcuts to common format combinations:
+
+| Alias | Generates | Best For |
+|-------|-----------|----------|
+| `reports` | Excel + Markdown | Documentation and stakeholder sharing |
+| `data` | CSV + JSON | Data pipelines, automation, integrations |
+| `ci` | JSON + Markdown | CI/CD logs and PR comments |
+
+```bash
+# Generate Excel and Markdown reports
+cja_auto_sdr dv_12345 --format reports
+
+# Generate CSV and JSON for data pipelines
+cja_auto_sdr dv_12345 --format data
+
+# Generate JSON and Markdown for CI/CD
+cja_auto_sdr --org-report --format ci
+```
 
 ---
 
@@ -357,17 +391,23 @@ pandoc CJA_DataView_myview_SDR.md -o report.pdf
 
 Generate all output formats in a single run for complete documentation packages.
 
-**Output:**
+**Output (SDR mode):**
 - `CJA_DataView_{name}_SDR.xlsx` (Excel)
 - `CJA_DataView_{name}_SDR_csv/` (CSV directory)
 - `CJA_DataView_{name}_SDR.json` (JSON)
 - `CJA_DataView_{name}_SDR.html` (HTML)
 - `CJA_DataView_{name}_SDR.md` (Markdown)
 
+**Output (diff/org-wide modes):**
+- All file formats above, plus console output displayed in terminal
+
 **Example:**
 ```bash
-# Generate complete documentation package
+# Generate complete documentation package (SDR)
 cja_auto_sdr dv_12345 --format all --output-dir ./documentation
+
+# Generate all formats including console output (diff mode)
+cja_auto_sdr --diff dv_12345 dv_67890 --format all --output-dir ./reports
 ```
 
 **Best for:**
@@ -410,7 +450,7 @@ import subprocess
 
 # Generate JSON output
 subprocess.run([
-    'python', 'cja_sdr_generator.py',
+    'cja_auto_sdr',
     'dv_12345',
     '--format', 'json'
 ])
@@ -438,7 +478,7 @@ import subprocess
 
 # Generate CSV outputs
 subprocess.run([
-    'python', 'cja_sdr_generator.py',
+    'cja_auto_sdr',
     'dv_12345',
     '--format', 'csv'
 ])
@@ -579,7 +619,7 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 
 ## Testing
 
-The implementation includes 32 comprehensive tests covering:
+The implementation includes 36 comprehensive tests covering:
 
 - CSV file generation and data integrity
 - JSON structure and validity
@@ -661,7 +701,7 @@ with open('large.json', 'rb') as f:
 
 ### Issue: Need specific CSV encoding
 
-**Modification:** Edit `write_csv_output()` in `cja_sdr_generator.py` to change encoding:
+**Modification:** Edit `write_csv_output()` in `src/cja_auto_sdr/generator.py` to change encoding:
 
 ```python
 df.to_csv(csv_file, index=False, encoding='latin1')  # or other encoding
@@ -677,10 +717,59 @@ Output format flexibility provides:
 - **Easy CLI Selection:** Simple `--format` flag
 - **Consistent Data:** Same data in all formats
 - **Optimized for Use Cases:** Right format for the right purpose
-- **Fully Tested:** 32 comprehensive tests
+- **Fully Tested:** 36 comprehensive tests
 - **Production Ready:** Zero breaking changes
 
 **Result:** Flexible integration options for automation, APIs, web viewing, documentation, and traditional reporting.
+
+---
+
+## Org-Wide Analysis Output (v3.2.0)
+
+The org-wide analysis mode (`--org-report`) generates specialized output showing component distribution across all data views.
+
+### Console Output (Default)
+
+```bash
+# Console output with distribution buckets
+cja_auto_sdr --org-report
+```
+
+Output includes:
+- **Distribution Summary:** Core, Common, Limited, Isolated component counts
+- **Similarity Matrix:** Jaccard similarity between data views (unless `--skip-similarity`). For governance checks, the effective overlap threshold is capped at 90% and reports note the configured vs. effective threshold when higher.
+- **Governance Recommendations:** Based on component distribution patterns
+
+### Excel/File Output
+
+```bash
+# Full org report in Excel
+cja_auto_sdr --org-report --format excel
+
+# Quick stats only (minimal output)
+cja_auto_sdr --org-report --stats-only
+
+# All formats for comprehensive documentation
+cja_auto_sdr --org-report --format all --output-dir ./reports
+```
+
+Excel sheets include:
+- **Summary:** Organization overview and statistics
+- **Component Distribution:** Core, Common, Limited, Isolated buckets
+- **Similarity Matrix:** Data view similarity scores
+- **Data View Details:** Per-data-view component breakdown
+
+### Trending and Comparison
+
+```bash
+# Compare org reports over time
+cja_auto_sdr --org-report --compare-org-report ./previous_report.json
+
+# Export for later comparison
+cja_auto_sdr --org-report --format json --output ./current_report.json
+```
+
+See [Org-Wide Analysis](ORG_WIDE_ANALYSIS.md) for detailed documentation.
 
 ---
 
@@ -765,6 +854,7 @@ cja_auto_sdr dv_12345 --include-segments --inventory-only -f all
 - [Configuration Guide](CONFIGURATION.md) - Setup and output directory options
 - [CLI Reference](CLI_REFERENCE.md) - Complete output options
 - [Batch Processing Guide](BATCH_PROCESSING_GUIDE.md) - Multi-format batch output
+- [Org-Wide Analysis](ORG_WIDE_ANALYSIS.md) - Org report output options
 - [Data Quality Guide](DATA_QUALITY.md) - Understanding the Data Quality sheet
 - [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter analysis
 - [Derived Field Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field analysis

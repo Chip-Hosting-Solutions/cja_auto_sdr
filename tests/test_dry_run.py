@@ -9,7 +9,7 @@ import os
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import run_dry_run, validate_config_file
+from cja_auto_sdr.generator import run_dry_run, validate_config_file
 
 
 class TestDryRunMode:
@@ -60,7 +60,7 @@ class TestDryRunMode:
         )
         assert result is False
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_with_api_connection_failure(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run handles API connection failures"""
         # Mock CJA to raise an exception
@@ -73,7 +73,7 @@ class TestDryRunMode:
         )
         assert result is False
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_success_with_valid_data_views(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run succeeds with valid configuration and data views"""
         # Mock CJA instance
@@ -99,7 +99,7 @@ class TestDryRunMode:
         )
         assert result is True
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_fails_with_invalid_data_view(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run fails when data view is not accessible"""
         # Mock CJA instance
@@ -119,7 +119,7 @@ class TestDryRunMode:
         )
         assert result is False
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_partial_success(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run reports partial success when some data views fail"""
         # Mock CJA instance
@@ -147,7 +147,7 @@ class TestDryRunMode:
         # Should fail because not all data views are valid
         assert result is False
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_handles_api_exception_for_data_view(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run handles exceptions when checking individual data views"""
         # Mock CJA instance
@@ -167,7 +167,7 @@ class TestDryRunMode:
         )
         assert result is False
 
-    @patch('cja_sdr_generator.cjapy')
+    @patch('cja_auto_sdr.generator.cjapy')
     def test_dry_run_with_none_data_views_response(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run handles None response from getDataViews"""
         # Mock CJA instance

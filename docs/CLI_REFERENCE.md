@@ -18,6 +18,7 @@ Complete command-line interface documentation for the CJA SDR Generator.
   - [Caching](#caching)
   - [Retry Configuration](#retry-configuration)
   - [Diff Comparison](#diff-comparison)
+  - [Org-Wide Analysis](#org-wide-analysis)
   - [Git Integration](#git-integration)
   - [Reliability & Auto-Tuning](#reliability--auto-tuning)
   - [Inventory Options](#inventory-options)
@@ -33,6 +34,7 @@ Complete command-line interface documentation for the CJA SDR Generator.
   - [Output Formats](#output-formats)
   - [Production Examples](#production-examples)
   - [Data View Comparison (Diff)](#data-view-comparison-diff)
+  - [Org-Wide Analysis Examples](#org-wide-analysis-1)
   - [Git Integration Examples](#git-integration)
   - [Inventory Options Examples](#inventory-options-1)
 - [Output Files](#output-files)
@@ -59,9 +61,9 @@ cja_auto_sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [DATA_VIEW_ID_OR_NAME ...]
 > **Running commands:** You have three equivalent options:
 > - `uv run cja_auto_sdr ...` — works immediately on macOS/Linux, may have issues on Windows
 > - `cja_auto_sdr ...` — after activating the venv: `source .venv/bin/activate` (Unix) or `.venv\Scripts\activate` (Windows)
-> - `python cja_sdr_generator.py ...` — run the script directly (most reliable on Windows)
+> - `cja_auto_sdr ...` — run the script directly (most reliable on Windows)
 >
-> This guide uses `cja_auto_sdr` for brevity. Windows users should substitute with `python cja_sdr_generator.py`.
+> This guide uses `uv run cja_auto_sdr` for macOS/Linux examples. **Windows users** should omit the `uv run` prefix and use `cja_auto_sdr` directly after activating the virtual environment.
 
 ### Alternative Invocations
 
@@ -90,6 +92,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `-q, --quiet` | Suppress output except errors | False |
 | `--open` | Open generated file(s) in default application after creation | False |
 | `--show-timings` | Display performance timing breakdown after processing | False |
+| `--config-json` | Output `--config-status` as machine-readable JSON (for scripting and CI/CD) | False |
+| `--yes, -y` | Skip confirmation prompts (e.g., for large batch operations) | False |
 
 ### Processing
 
@@ -112,17 +116,19 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 
 **Format Availability by Mode:**
 
-| Format | SDR Generation | Diff Comparison |
-|--------|----------------|-----------------|
-| `excel` | ✓ (default) | ✓ |
-| `csv` | ✓ | ✓ |
-| `json` | ✓ | ✓ |
-| `html` | ✓ | ✓ |
-| `markdown` | ✓ | ✓ |
-| `console` | ✗ | ✓ (default) |
-| `all` | ✓ | ✓ |
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis |
+|--------|----------------|-----------------|-------------------|
+| `excel` | ✓ (default) | ✓ | ✓ |
+| `csv` | ✓ | ✓ | ✓ |
+| `json` | ✓ | ✓ | ✓ |
+| `html` | ✓ | ✓ | ✓ |
+| `markdown` | ✓ | ✓ | ✓ |
+| `console` | ✗ | ✓ (default) | ✓ (default) |
+| `all` | ✓ | ✓ | ✓ |
 
-> **Note:** Console format is only supported for diff comparison. Using `--format console` with SDR generation will show an error with suggested alternatives.
+> **Note:** Console format is only supported for diff comparison and org-wide analysis. Using `--format console` with SDR generation will show an error with suggested alternatives.
+>
+> **Note:** In diff and org-wide modes, `--format all` includes console output (displayed in terminal) in addition to all file formats.
 
 ### Configuration
 
@@ -237,6 +243,115 @@ cja_auto_sdr --list-dataviews
 | `--snapshot-dir DIR` | Directory for auto-saved snapshots | ./snapshots |
 | `--keep-last N` | Retention: keep only last N snapshots per data view (0=all) | 0 |
 | `--keep-since PERIOD` | Date-based retention: delete snapshots older than PERIOD. Formats: `7d`, `2w`, `1m`, `30` (days) | - |
+
+### Org-Wide Analysis
+
+Analyze component usage patterns across all data views in your organization.
+
+#### Basic Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--org-report` | Enable org-wide analysis mode. Analyzes all accessible data views and generates a governance report | False |
+| `--filter PATTERN` | Include only data views matching regex pattern (case-insensitive) | - |
+| `--exclude PATTERN` | Exclude data views matching regex pattern (case-insensitive) | - |
+| `--limit N` | Analyze only the first N data views (useful for testing) | - |
+| `--include-names` | Fetch and display component names (slower but more readable) | False |
+| `--skip-similarity` | Skip O(n²) pairwise similarity calculation (faster for large orgs) | False |
+| `--similarity-max-dvs N` | Guardrail to skip similarity when data views exceed N. Similarity has O(n²) complexity—250 DVs means ~31K comparisons. Use `--force-similarity` to override | 250 |
+| `--force-similarity` | Force similarity matrix even if guardrails would skip it | False |
+| `--memory-warning MB` | Warn if component index estimated memory exceeds this threshold in MB (0 to disable) | 100 |
+| `--memory-limit MB` | Abort if component index exceeds this size in MB. Protects against OOM for very large orgs | - |
+| `--org-summary` | Show only summary statistics, suppress detailed component lists | False |
+| `--org-verbose` | Include full component lists and detailed breakdowns in output | False |
+
+#### Threshold Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--core-threshold FLOAT` | Fraction of data views for "core" classification (0.0-1.0) | 0.5 |
+| `--core-min-count N` | Absolute count for "core" classification (overrides threshold) | - |
+| `--overlap-threshold FLOAT` | Minimum Jaccard similarity to flag as "high overlap" (0.0-1.0; capped at 0.9 for governance checks) | 0.8 |
+
+#### Component Type & Metadata Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--no-component-types` | Disable component type breakdown (standard vs derived metrics/dimensions) | False |
+| `--include-metadata` | Include data view metadata (owner, creation/modification dates, descriptions) | False |
+| `--include-drift` | Include component drift details showing exact differences between similar DV pairs | False |
+
+#### Sampling Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--sample N` | Randomly sample N data views (useful for very large orgs) | - |
+| `--sample-seed SEED` | Random seed for reproducible sampling | - |
+| `--sample-stratified` | Stratify sample by data view name prefix | False |
+
+#### Caching Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--use-cache` | Enable caching of data view components for faster repeat runs | False |
+| `--cache-max-age HOURS` | Maximum cache age before refresh | 24 |
+| `--refresh-cache` | Clear the org-report cache and fetch fresh data | False |
+| `--validate-cache` | Validate cached entries against data view modification timestamps before using | False |
+
+Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
+
+#### Concurrency Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--org-shared-client` | Use a single shared cjapy client across threads (faster, but may be unsafe if cjapy is not thread-safe) | False |
+
+#### Clustering Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--cluster` | Enable hierarchical clustering to group related data views | False |
+| `--cluster-method METHOD` | Clustering linkage method: `average` (recommended) or `complete` | average |
+
+> **Requires:** The `clustering` extra must be installed: `uv pip install 'cja-auto-sdr[clustering]'` (macOS/Linux) or `uv pip install "cja-auto-sdr[clustering]"` (Windows PowerShell)
+>
+> **Note:** The `average` method is recommended because it works correctly with Jaccard distances (which measure component overlap). The `complete` method is also valid and produces tighter clusters.
+
+#### Governance & CI/CD Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--duplicate-threshold N` | Maximum allowed high-similarity pairs (>=90%). Exit code 2 if exceeded with `--fail-on-threshold` | - |
+| `--isolated-threshold PERCENT` | Maximum isolated component percentage (0.0-1.0). Exit code 2 if exceeded with `--fail-on-threshold` | - |
+| `--fail-on-threshold` | Enable exit code 2 when governance thresholds are exceeded (for CI/CD integration) | False |
+
+#### Advanced Analysis Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--org-stats` | Quick summary stats only - skips similarity matrix and clustering for faster results | False |
+| `--audit-naming` | Detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes, etc.) | False |
+| `--compare-org-report PREV.json` | Compare current org-report to a previous JSON report for trending/drift analysis | - |
+| `--owner-summary` | Group statistics by data view owner (requires `--include-metadata`) | False |
+| `--flag-stale` | Flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns) | False |
+
+**Format Support:** All formats are supported (`console`, `json`, `excel`, `markdown`, `html`, `csv`, `all`). Default is `console`.
+
+**Format Aliases:**
+| Alias | Expands To | Use Case |
+|-------|------------|----------|
+| `reports` | excel + markdown | Documentation and sharing |
+| `data` | csv + json | Data pipelines and analysis |
+| `ci` | json + markdown | CI/CD integration |
+
+**Output Structure:**
+- **Summary**: Data views analyzed, unique metrics/dimensions, analysis duration
+- **Distribution**: Component distribution across Core/Common/Limited/Isolated buckets
+- **Component Index**: Full index of all components with data view membership
+- **Similarity Pairs**: Data view pairs with high overlap (potential duplicates)
+- **Recommendations**: Governance recommendations based on analysis
+- **Clusters**: Related data view groups (when `--cluster` is enabled)
+- **Owner Summary**: Stats grouped by owner (when `--owner-summary` is enabled)
 
 ### Git Integration
 
@@ -568,6 +683,129 @@ cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-since 30d
 cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
 ```
 
+### Org-Wide Analysis
+
+```bash
+# Basic org-wide report (console output)
+cja_auto_sdr --org-report
+
+# Filter data views by name pattern
+cja_auto_sdr --org-report --filter "Prod.*"
+
+# Exclude test/dev data views
+cja_auto_sdr --org-report --exclude "Test|Dev|Sandbox"
+
+# Combine filter and exclude
+cja_auto_sdr --org-report --filter "Analytics" --exclude "Test"
+
+# Limit to first N data views (for testing)
+cja_auto_sdr --org-report --limit 10
+
+# Include component names (slower but more readable)
+cja_auto_sdr --org-report --include-names
+
+# Skip similarity matrix (faster for large orgs)
+cja_auto_sdr --org-report --skip-similarity
+
+# Custom classification thresholds
+cja_auto_sdr --org-report --core-threshold 0.7 --overlap-threshold 0.9
+
+# Export to Excel
+cja_auto_sdr --org-report --format excel
+
+# Export to JSON for programmatic processing
+cja_auto_sdr --org-report --format json --output org_analysis.json
+
+# Export all formats
+cja_auto_sdr --org-report --format all --output-dir ./reports
+
+# Use format aliases
+cja_auto_sdr --org-report --format reports  # excel + markdown
+cja_auto_sdr --org-report --format data     # csv + json
+cja_auto_sdr --org-report --format ci       # json + markdown
+
+# Full governance report with names
+cja_auto_sdr --org-report --include-names --format excel --output-dir ./governance
+
+# Quiet mode for scripting
+cja_auto_sdr --org-report --format json --quiet --output ./reports/org.json
+
+# --- Advanced Options ---
+
+# Include data view metadata (owner, dates)
+cja_auto_sdr --org-report --include-metadata
+
+# Include drift details between similar data view pairs
+cja_auto_sdr --org-report --include-drift --include-names
+
+# Quick stats only (fast health check)
+cja_auto_sdr --org-report --org-stats
+
+# Sampling for very large orgs
+cja_auto_sdr --org-report --sample 20 --sample-seed 42
+cja_auto_sdr --org-report --sample 30 --sample-stratified
+
+# Caching for faster repeat runs
+cja_auto_sdr --org-report --use-cache
+cja_auto_sdr --org-report --use-cache --refresh-cache  # Force refresh
+cja_auto_sdr --org-report --use-cache --cache-max-age 48  # Custom TTL
+
+# Clustering to find related data view groups
+cja_auto_sdr --org-report --cluster --format excel
+cja_auto_sdr --org-report --cluster --cluster-method complete
+
+# Naming convention audit
+cja_auto_sdr --org-report --audit-naming
+
+# Flag stale components
+cja_auto_sdr --org-report --flag-stale
+
+# Owner/team summary (requires --include-metadata)
+cja_auto_sdr --org-report --include-metadata --owner-summary
+
+# Compare to previous report for trending/drift analysis
+cja_auto_sdr --org-report --format json --output current.json
+cja_auto_sdr --org-report --compare-org-report ./baseline.json
+
+# --- CI/CD Governance Checks ---
+
+# Exit with code 2 if more than 5 high-similarity pairs exist
+cja_auto_sdr --org-report --duplicate-threshold 5 --fail-on-threshold
+
+# Exit with code 2 if isolated components exceed 30%
+cja_auto_sdr --org-report --isolated-threshold 0.3 --fail-on-threshold
+
+# Combined governance thresholds
+cja_auto_sdr --org-report \
+  --duplicate-threshold 3 \
+  --isolated-threshold 0.4 \
+  --fail-on-threshold \
+  --format json --output governance-report.json
+
+# Full governance CI/CD check
+cja_auto_sdr --org-report \
+  --duplicate-threshold 5 \
+  --isolated-threshold 0.35 \
+  --fail-on-threshold \
+  --audit-naming \
+  --flag-stale \
+  --format json --quiet
+
+# --- Data Analysis Examples ---
+
+# Find high-similarity pairs (potential duplicates)
+cja_auto_sdr --org-report --overlap-threshold 0.9 --format json --output - | \
+  jq '.similarity_pairs[] | select(.similarity >= 0.9)'
+
+# Extract high-priority recommendations
+cja_auto_sdr --org-report --format json --output - | \
+  jq '.recommendations[] | select(.severity == "high")'
+
+# List core components used across the org
+cja_auto_sdr --org-report --include-names --format json --output - | \
+  jq '.component_index | to_entries[] | select(.value.bucket == "core")'
+```
+
 ### Git Integration
 
 ```bash
@@ -822,6 +1060,7 @@ DEBUG  INFO  WARNING  ERROR  CRITICAL
 - [Output Formats](OUTPUT_FORMATS.md)
 - [Performance Guide](PERFORMANCE.md)
 - [Data View Comparison Guide](DIFF_COMPARISON.md)
+- [Org-Wide Analysis Guide](ORG_WIDE_ANALYSIS.md) - Cross-data-view component analysis
 - [Git Integration Guide](GIT_INTEGRATION.md)
 - [Derived Field Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field analysis
 - [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics analysis

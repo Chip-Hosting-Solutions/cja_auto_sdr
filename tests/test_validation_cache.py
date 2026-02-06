@@ -19,7 +19,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_sdr_generator import ValidationCache, DataQualityChecker
+from cja_auto_sdr.generator import ValidationCache, DataQualityChecker
 
 
 class TestValidationCache:

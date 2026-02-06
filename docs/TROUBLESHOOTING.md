@@ -1702,7 +1702,7 @@ uv run cja_auto_sdr dv_1 dv_2 dv_3 --workers 2 --retry-base-delay 1.5
 
 ## Dependency Issues
 
-> **Recommended cjapy version:** v3.1.0 requires cjapy 0.2.4-3 or later for improved OAuth error handling. Users on older versions may see confusing errors when authentication fails. Upgrade with: `uv add --upgrade cjapy`
+> **Recommended cjapy version:** v3.2.0 requires cjapy 0.2.4-3 or later for improved OAuth error handling. Users on older versions may see confusing errors when authentication fails. Upgrade with: `uv add --upgrade cjapy`
 
 ### Module Not Found
 
@@ -1801,8 +1801,8 @@ If `uv run` doesn't work, use Python directly:
 pip install -e .
 
 # Run the tool directly
-python cja_sdr_generator.py --version
-python cja_sdr_generator.py dv_YOUR_DATA_VIEW_ID
+cja_auto_sdr --version
+cja_auto_sdr dv_YOUR_DATA_VIEW_ID
 ```
 
 **Solution 2: Reinstall Python and dependencies**
@@ -1873,16 +1873,16 @@ cja_auto_sdr --version
 cja_auto_sdr dv_12345
 
 # Or run the script directly
-python cja_sdr_generator.py --version
-python cja_sdr_generator.py dv_12345
+cja_auto_sdr --version
+cja_auto_sdr dv_12345
 ```
 
 **Option 2: Use full Python path**
 
 ```text
 # Without activating venv
-.venv\Scripts\python.exe cja_sdr_generator.py --version
-.venv\Scripts\python.exe cja_sdr_generator.py dv_12345
+.venv\Scripts\cja_auto_sdr.exe --version
+.venv\Scripts\cja_auto_sdr.exe dv_12345
 ```
 
 **Option 3: Fix uv PATH (if you prefer using uv)**
@@ -2052,8 +2052,8 @@ For the most reliable Windows experience:
 
 4. **Run the tool using Python directly**
    ```text
-   python cja_sdr_generator.py --version
-   python cja_sdr_generator.py dv_12345
+   cja_auto_sdr --version
+   cja_auto_sdr dv_12345
    ```
 
 ---
@@ -2284,12 +2284,98 @@ If you encounter issues not covered here:
 
 ---
 
+## Org-Wide Analysis Issues
+
+For detailed org-wide analysis troubleshooting, see the [Troubleshooting section](ORG_WIDE_ANALYSIS.md#troubleshooting) in the Org-Wide Analysis Guide.
+
+### Common Issues
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "No data views found matching criteria" | Filter/exclude patterns too restrictive | Check regex patterns, run `--list-dataviews` to see available names |
+| Some data views show ERROR | Permission denied for specific DVs | Check API credentials have access to those data views |
+| Similarity matrix is slow | O(n²) calculation with many DVs | Use `--skip-similarity` or `--sample N` for large orgs |
+| "scipy not available" with `--cluster` | Optional dependency not installed | Install with: `uv pip install 'cja-auto-sdr[clustering]'` |
+| Cache not working | Cache directory permissions | Check `~/.cja_auto_sdr/cache/` (macOS/Linux) or `%USERPROFILE%\.cja_auto_sdr\cache\` (Windows) is writable |
+| `--owner-summary` shows nothing | Missing metadata | Add `--include-metadata` flag |
+| Exit code 2 unexpectedly | Governance threshold exceeded | Check `--duplicate-threshold` and `--isolated-threshold` values |
+| "Another --org-report is already running" | Concurrent run prevention | Wait for other run to finish, or check if a previous run crashed (lock auto-expires after 1 hour) |
+
+### Clustering Issues
+
+**"scipy not available - skipping clustering":**
+
+scipy is an optional dependency for the `--cluster` feature. Install it with:
+```bash
+# macOS/Linux
+uv pip install 'cja-auto-sdr[clustering]'
+uv pip install 'cja-auto-sdr[full]'          # or install all extras
+
+# Windows PowerShell (double quotes required)
+uv pip install "cja-auto-sdr[clustering]"
+uv pip install "cja-auto-sdr[full]"
+```
+
+Without scipy, the `--cluster` flag is silently skipped and a warning is logged.
+
+**Cluster results seem incorrect:**
+- Use `--cluster-method average` (default) for Jaccard distances
+- The `complete` method is also valid and produces tighter clusters
+
+### Caching Issues
+
+**Cache not being used:**
+```bash
+# macOS/Linux: Verify cache exists
+ls -la ~/.cja_auto_sdr/cache/org_report_cache.json
+
+# Windows PowerShell: Verify cache exists
+Get-Item "$env:USERPROFILE\.cja_auto_sdr\cache\org_report_cache.json"
+
+# Force refresh and rebuild cache (all platforms)
+cja_auto_sdr --org-report --use-cache --refresh-cache
+```
+
+**Cache too old:**
+```bash
+# Adjust cache max age (default: 24 hours)
+cja_auto_sdr --org-report --use-cache --cache-max-age 48
+```
+
+### CI/CD Integration Issues
+
+**Exit code 2 when expecting 0:**
+- Check if `--fail-on-threshold` is enabled
+- Verify `--duplicate-threshold` and `--isolated-threshold` values are appropriate
+- Run without thresholds first to see actual values
+
+```bash
+# macOS/Linux: Debug with jq
+cja_auto_sdr --org-report --format json --output - | jq '.summary'
+
+# Windows PowerShell: Debug with ConvertFrom-Json
+cja_auto_sdr --org-report --format json --output - | ConvertFrom-Json | Select-Object -ExpandProperty summary
+```
+
+### Performance Issues
+
+**Analysis taking too long:**
+```bash
+# Quick options for large orgs:
+cja_auto_sdr --org-report --skip-similarity --org-stats
+cja_auto_sdr --org-report --sample 20 --sample-seed 42
+cja_auto_sdr --org-report --use-cache  # Faster on repeat runs
+```
+
+---
+
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - config.json, environment variables, validation rules
 - [Installation Guide](INSTALLATION.md) - Setup instructions
 - [CLI Reference](CLI_REFERENCE.md) - Complete command options
 - [Data View Comparison Guide](DIFF_COMPARISON.md) - Diff, snapshots, and CI/CD integration
+- [Org-Wide Analysis Guide](ORG_WIDE_ANALYSIS.md) - Cross-data-view component analysis
 - [Segments Inventory](SEGMENTS_INVENTORY.md) - Segment filter inventory documentation
 - [Derived Fields Inventory](DERIVED_FIELDS_INVENTORY.md) - Derived field inventory documentation
 - [Calculated Metrics Inventory](CALCULATED_METRICS_INVENTORY.md) - Calculated metrics inventory documentation

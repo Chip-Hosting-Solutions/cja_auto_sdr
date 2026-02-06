@@ -11,7 +11,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cja_sdr_generator import apply_excel_formatting
+from cja_auto_sdr.generator import apply_excel_formatting
 
 
 @pytest.fixture
