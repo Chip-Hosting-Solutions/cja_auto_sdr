@@ -39,7 +39,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,225 comprehensive tests**
+**Total: 1,231 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -57,7 +57,7 @@ tests/
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
 | `test_calculated_metrics_inventory.py` | 36 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 33 | Git integration, snapshot management, inventory snapshots |
-| `test_output_formats.py` | 32 | CSV, JSON, HTML, Markdown output generation |
+| `test_output_formats.py` | 36 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 32 | CJA connection and configuration validation |
 | `test_utils.py` | 27 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
@@ -78,7 +78,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,225** | **Collected via pytest --collect-only** |
+| **Total** | **1,231** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -482,7 +482,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,225 tests total)
+- [x] Comprehensive test coverage (1,231 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 43 tests
