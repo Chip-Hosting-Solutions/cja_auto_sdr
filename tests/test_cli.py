@@ -908,6 +908,49 @@ class TestListDataviewsFunction:
     @patch('cja_auto_sdr.generator.cjapy')
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_owner_dict_with_null_name_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_dataviews shows N/A when owner is {'name': None}"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'Test View', 'owner': {'name': None}}
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['dataViews'][0]['owner'] == 'N/A'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_owner_dict_with_null_name_table(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_dataviews table output shows N/A when owner is {'name': None}"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'Test View', 'owner': {'name': None}}
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'N/A' in output
+        assert 'None' not in output
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_dataviews_missing_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
         """Test list_dataviews shows N/A when owner key is absent"""
         mock_configure.return_value = (True, 'config', None)
@@ -942,7 +985,7 @@ class TestListConnectionsFunction:
                 {
                     'id': 'conn_123',
                     'name': 'Production Connection',
-                    'owner': {'name': 'John Doe'},
+                    'ownerFullName': 'John Doe',
                     'dataSets': [
                         {'id': 'ds_456', 'name': 'Web Events'},
                         {'id': 'ds_789', 'name': 'Mobile Events'}
@@ -1027,7 +1070,7 @@ class TestListConnectionsFunction:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': {'name': 'Owner'},
+                    'ownerFullName': 'Owner',
                     'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
                 }
             ]
@@ -1049,7 +1092,7 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_null_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
-        """Test list_connections shows N/A when owner is null (not the string 'None')"""
+        """Test list_connections shows N/A when ownerFullName is null (not the string 'None')"""
         mock_configure.return_value = (True, 'config', None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
@@ -1057,7 +1100,7 @@ class TestListConnectionsFunction:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': None,
+                    'ownerFullName': None,
                     'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
                 }
             ]
@@ -1077,7 +1120,7 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_null_owner_table(self, mock_profile, mock_configure, mock_cjapy):
-        """Test list_connections table output shows N/A for null owner"""
+        """Test list_connections table output shows N/A for null ownerFullName"""
         mock_configure.return_value = (True, 'config', None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
@@ -1085,7 +1128,7 @@ class TestListConnectionsFunction:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': None,
+                    'ownerFullName': None,
                     'dataSets': []
                 }
             ]
@@ -1128,6 +1171,63 @@ class TestListConnectionsFunction:
         assert result is True
         output = json.loads(f.getvalue())
         assert output['connections'][0]['owner'] == 'N/A'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_owner_dict_with_null_name_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections shows N/A when ownerFullName is empty string"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'ownerFullName': '',
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['connections'][0]['owner'] == 'N/A'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_owner_dict_with_null_name_table(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections table output shows N/A when ownerFullName is empty"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'ownerFullName': '',
+                    'dataSets': []
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'Owner: N/A' in output
+        assert 'Owner: None' not in output
 
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
@@ -1387,7 +1487,7 @@ class TestFileOutput:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': {'name': 'Owner'},
+                    'ownerFullName': 'Owner',
                     'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
                 }
             ]
@@ -1414,7 +1514,7 @@ class TestFileOutput:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': {'name': 'Owner'},
+                    'ownerFullName': 'Owner',
                     'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
                 }
             ]
@@ -1491,7 +1591,7 @@ class TestFileOutput:
                 {
                     'id': 'conn_1',
                     'name': 'Test Conn',
-                    'owner': {'name': 'Owner'},
+                    'ownerFullName': 'Owner',
                     'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
                 }
             ]
@@ -1518,7 +1618,7 @@ class TestFileOutput:
                 {
                     'id': 'conn_1',
                     'name': 'Test',
-                    'owner': {'name': 'Owner'},
+                    'ownerFullName': 'Owner',
                     'dataSets': []
                 }
             ]
