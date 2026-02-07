@@ -9515,7 +9515,7 @@ def _extract_dataset_info(dataset: Any) -> dict:
     if not isinstance(dataset, dict):
         return {'id': str(dataset) if dataset else 'N/A', 'name': 'N/A'}
 
-    # Try common ID field names
+    # Try common ID field names (prefer canonical/camelCase, keep snake_case for compatibility)
     ds_id = (dataset.get('id')
              or dataset.get('datasetId')
              or dataset.get('dataSetId')
@@ -9535,9 +9535,12 @@ def _extract_dataset_info(dataset: Any) -> dict:
 
 # ==================== LIST HELPERS ====================
 
-def _write_output(data: str, output_file: Optional[str], is_stdout: bool) -> None:
-    """Write output data to stdout, a file, or print to console."""
+def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None:
+    """Emit output data to a file, stdout pipe, or the console."""
     if output_file and not is_stdout:
+        parent = os.path.dirname(output_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(output_file, 'w') as f:
             f.write(data)
     else:
@@ -9603,7 +9606,10 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
             logger=logger
         )
         if not success:
-            if not is_machine_readable:
+            if is_machine_readable:
+                error_json = json.dumps({"error": f"Configuration error: {source}"})
+                print(error_json, file=sys.stderr)
+            else:
                 print(f"Configuration error: {source}")
             return False
         cja = cjapy.CJA()
@@ -9619,7 +9625,7 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
                     output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
                 else:  # csv
                     output_data = "id,name,owner\n"
-                _write_output(output_data, output_file, is_stdout)
+                _emit_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No data views found or no access to any data views."))
@@ -9646,19 +9652,19 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
                 })
 
         # Output based on format
-        if output_format == 'json' or (is_stdout and output_format != 'csv'):
+        if output_format == 'json':
             output_data = json.dumps({
                 "dataViews": display_data,
                 "count": len(display_data)
             }, indent=2)
-            _write_output(output_data, output_file, is_stdout)
+            _emit_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
             buf = io.StringIO(newline='')
             writer = csv.writer(buf, lineterminator='\n')
             writer.writerow(['id', 'name', 'owner'])
             for item in display_data:
                 writer.writerow([item['id'], item['name'], item['owner']])
-            _write_output(buf.getvalue(), output_file, is_stdout)
+            _emit_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()
@@ -9758,7 +9764,10 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
             logger=logger
         )
         if not success:
-            if not is_machine_readable:
+            if is_machine_readable:
+                error_json = json.dumps({"error": f"Configuration error: {source}"})
+                print(error_json, file=sys.stderr)
+            else:
                 print(f"Configuration error: {source}")
             return False
         cja = cjapy.CJA()
@@ -9775,8 +9784,8 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
                 if output_format == 'json':
                     output_data = json.dumps({"connections": [], "count": 0}, indent=2)
                 else:  # csv
-                    output_data = "connection_id,connection_name,owner,dataset_id,dataset_name"
-                _write_output(output_data, output_file, is_stdout)
+                    output_data = "connection_id,connection_name,owner,dataset_id,dataset_name\n"
+                _emit_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No connections found or no access to any connections."))
@@ -9806,12 +9815,12 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
             })
 
         # Output based on format
-        if output_format == 'json' or (is_stdout and output_format != 'csv'):
+        if output_format == 'json':
             output_data = json.dumps({
                 "connections": display_data,
                 "count": len(display_data)
             }, indent=2)
-            _write_output(output_data, output_file, is_stdout)
+            _emit_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
             buf = io.StringIO(newline='')
             writer = csv.writer(buf, lineterminator='\n')
@@ -9822,7 +9831,7 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
                         writer.writerow([conn['id'], conn['name'], conn['owner'], ds['id'], ds['name']])
                 else:
                     writer.writerow([conn['id'], conn['name'], conn['owner'], '', ''])
-            _write_output(buf.getvalue(), output_file, is_stdout)
+            _emit_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()
@@ -9915,7 +9924,10 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
             logger=logger
         )
         if not success:
-            if not is_machine_readable:
+            if is_machine_readable:
+                error_json = json.dumps({"error": f"Configuration error: {source}"})
+                print(error_json, file=sys.stderr)
+            else:
                 print(f"Configuration error: {source}")
             return False
         cja = cjapy.CJA()
@@ -9949,8 +9961,8 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                 if output_format == 'json':
                     output_data = json.dumps({"dataViews": [], "count": 0}, indent=2)
                 else:  # csv
-                    output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name"
-                _write_output(output_data, output_file, is_stdout)
+                    output_data = "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
+                _emit_output(output_data, output_file, is_stdout)
             else:
                 print()
                 print(ConsoleColors.warning("No data views found or no access to any data views."))
@@ -9971,6 +9983,10 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                 print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end='\r')
 
             parent_conn_id = dv.get('parentDataGroupId')
+            # DataFrame-backed records can carry missing values as NaN/NA.
+            # Normalize to None so machine-readable output emits "N/A", not NaN.
+            if parent_conn_id is not None and pd.isna(parent_conn_id):
+                parent_conn_id = None
 
             conn_info = conn_map.get(parent_conn_id, {}) if parent_conn_id else {}
             conn_name = conn_info.get('name', 'Unknown')
@@ -9992,12 +10008,12 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
             print(" " * 80, end='\r')
 
         # Output based on format
-        if output_format == 'json' or (is_stdout and output_format != 'csv'):
+        if output_format == 'json':
             output_data = json.dumps({
                 "dataViews": display_data,
                 "count": len(display_data)
             }, indent=2)
-            _write_output(output_data, output_file, is_stdout)
+            _emit_output(output_data, output_file, is_stdout)
         elif output_format == 'csv':
             buf = io.StringIO(newline='')
             writer = csv.writer(buf, lineterminator='\n')
@@ -10010,7 +10026,7 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
                         writer.writerow([entry['id'], entry['name'], conn_id, conn_name, ds['id'], ds['name']])
                 else:
                     writer.writerow([entry['id'], entry['name'], conn_id, conn_name, '', ''])
-            _write_output(buf.getvalue(), output_file, is_stdout)
+            _emit_output(buf.getvalue(), output_file, is_stdout)
         else:
             # Table format (default)
             print()

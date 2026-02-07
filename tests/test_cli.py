@@ -820,6 +820,11 @@ class TestExtractDatasetInfo:
         result = _extract_dataset_info({'dataSetId': 'ds_222', 'dataSetName': 'Events'})
         assert result == {'id': 'ds_222', 'name': 'Events'}
 
+    def test_snake_case_fields(self):
+        """Test extraction with snake_case dataset fields"""
+        result = _extract_dataset_info({'dataset_id': 'ds_333', 'dataset_name': 'Legacy Events'})
+        assert result == {'id': 'ds_333', 'name': 'Legacy Events'}
+
 
 class TestListConnectionsFunction:
     """Test list_connections() function with mocks"""
@@ -942,8 +947,31 @@ class TestListConnectionsFunction:
         """Test list_connections when configuration fails"""
         mock_configure.return_value = (False, 'Missing credentials', None)
 
-        result = list_connections(output_format='json')
+        import io
+        from contextlib import redirect_stderr
+        f = io.StringIO()
+        with redirect_stderr(f):
+            result = list_connections(output_format='json')
+
         assert result is False
+        error = json.loads(f.getvalue())
+        assert error == {"error": "Configuration error: Missing credentials"}
+
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_config_failure_csv_emits_json_error(self, mock_profile, mock_configure):
+        """Test list_connections emits machine-readable error in CSV mode on config failure"""
+        mock_configure.return_value = (False, 'Missing credentials', None)
+
+        import io
+        from contextlib import redirect_stderr
+        f = io.StringIO()
+        with redirect_stderr(f):
+            result = list_connections(output_format='csv')
+
+        assert result is False
+        error = json.loads(f.getvalue())
+        assert error == {"error": "Configuration error: Missing credentials"}
 
 
 class TestListDatasetsFunction:
@@ -1005,6 +1033,34 @@ class TestListDatasetsFunction:
         assert result is True
         output = json.loads(f.getvalue())
         assert output['dataViews'][0]['connection']['name'] == 'Unknown'
+        assert output['dataViews'][0]['connection']['id'] == 'N/A'
+        mock_cja_instance.getDataView.assert_not_called()
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_nan_parent_connection_id_json(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_datasets normalizes NaN parentDataGroupId in JSON output"""
+        import pandas as pd
+
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = pd.DataFrame([
+            {'id': 'dv_orphan_nan', 'name': 'Orphan NaN', 'parentDataGroupId': float('nan')}
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='json')
+
+        assert result is True
+        output_text = f.getvalue()
+        assert '"id": NaN' not in output_text
+        output = json.loads(output_text)
+        assert output['dataViews'][0]['connection']['id'] == 'N/A'
         mock_cja_instance.getDataView.assert_not_called()
 
     @patch('cja_auto_sdr.generator.cjapy')
@@ -1094,3 +1150,35 @@ class TestListDatasetsFunction:
         assert result is True
         assert f.getvalue() == "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
         mock_cja_instance.getDataView.assert_not_called()
+
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_config_failure_json_emits_json_error(self, mock_profile, mock_configure):
+        """Test list_datasets emits machine-readable error in JSON mode on config failure"""
+        mock_configure.return_value = (False, 'Missing credentials', None)
+
+        import io
+        from contextlib import redirect_stderr
+        f = io.StringIO()
+        with redirect_stderr(f):
+            result = list_datasets(output_format='json')
+
+        assert result is False
+        error = json.loads(f.getvalue())
+        assert error == {"error": "Configuration error: Missing credentials"}
+
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_config_failure_csv_emits_json_error(self, mock_profile, mock_configure):
+        """Test list_datasets emits machine-readable error in CSV mode on config failure"""
+        mock_configure.return_value = (False, 'Missing credentials', None)
+
+        import io
+        from contextlib import redirect_stderr
+        f = io.StringIO()
+        with redirect_stderr(f):
+            result = list_datasets(output_format='csv')
+
+        assert result is False
+        error = json.loads(f.getvalue())
+        assert error == {"error": "Configuration error: Missing credentials"}
