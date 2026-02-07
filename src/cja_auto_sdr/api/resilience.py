@@ -712,7 +712,6 @@ def retry_with_backoff(
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             _logger = logger or logging.getLogger(__name__)
-            last_exception = None
 
             for attempt in range(_max_retries + 1):  # +1 for initial attempt
                 try:
@@ -722,8 +721,6 @@ def retry_with_backoff(
                         _logger.info(f"✓ {func.__name__} succeeded on attempt {attempt + 1}/{_max_retries + 1}")
                     return result
                 except _retryable_exceptions as e:
-                    last_exception = e
-
                     if attempt == _max_retries:
                         _logger.error(f"All {_max_retries + 1} attempts failed for {func.__name__}")
 
@@ -759,10 +756,6 @@ def retry_with_backoff(
                     # Non-retryable exception, raise immediately
                     _logger.error(f"{func.__name__} failed with non-retryable error: {e!s}")
                     raise
-
-            # Should not reach here, but just in case
-            if last_exception:
-                raise last_exception
 
         return wrapper
 
