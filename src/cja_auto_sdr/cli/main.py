@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """CLI entrypoint (current implementation lives in generator)."""
 
 __all__ = ["main"]

@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """Worker functions for multiprocessing (current implementation lives in generator)."""
 
 __all__ = ["process_single_dataview_worker"]

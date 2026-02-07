@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """Excel formatting helpers (current implementation lives in generator)."""
 
 __all__ = ["ExcelFormatCache", "apply_excel_formatting"]

@@ -20,11 +20,6 @@ cja-auto-sdr = "cja_auto_sdr.generator:main"
 clustering = [
     "scipy>=1.14.0",
 ]
-dev = [
-    "pytest>=8.3.4",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.9.0",
-]
 env = [
     "python-dotenv>=1.0.0",
 ]
@@ -69,24 +64,31 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-    "SIM", # flake8-simplify
-    "RUF", # ruff-specific rules
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+    "PERF", # perflint
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "SIM108", # ternary operator (readability preference)
-    "B905",   # zip strict (Python 3.10+ only pattern)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False
-"tests/**" = ["B", "SIM", "RUF012"]
+"src/cja_auto_sdr/api/*.py" = ["F822"]       # lazy forwarding modules (resolved via __getattr__)
+"src/cja_auto_sdr/cli/*.py" = ["F822"]       # lazy forwarding modules
+"src/cja_auto_sdr/core/profiles.py" = ["F822"]  # lazy forwarding module
+"src/cja_auto_sdr/diff/*.py" = ["F822"]      # lazy forwarding modules
+"src/cja_auto_sdr/inventory/*.py" = ["F822"] # lazy forwarding modules
+"src/cja_auto_sdr/output/**/*.py" = ["F822"] # lazy forwarding modules
+"src/cja_auto_sdr/pipeline/*.py" = ["F822"]  # lazy forwarding modules
+"tests/**" = ["B", "SIM", "RUF012", "PERF"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["cja_auto_sdr"]

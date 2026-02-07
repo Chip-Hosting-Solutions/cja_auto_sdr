@@ -410,7 +410,7 @@ class OrgComponentAnalyzer:
         # Sample proportionally from each group
         sampled = []
         total = len(data_views)
-        for _prefix, group in groups.items():
+        for group in groups.values():
             # Proportional allocation
             group_sample_size = max(1, int(sample_size * len(group) / total))
             if len(group) <= group_sample_size:
@@ -1111,28 +1111,28 @@ class OrgComponentAnalyzer:
 
         # Recommendation: High overlap pairs
         if similarity_pairs:
-            for pair in similarity_pairs:
-                if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD:
-                    recommendations.append(
-                        {
-                            "type": "review_overlap",
-                            "severity": "high",
-                            "data_view_1": pair.dv1_id,
-                            "data_view_1_name": pair.dv1_name,
-                            "data_view_2": pair.dv2_id,
-                            "data_view_2_name": pair.dv2_name,
-                            "similarity": pair.jaccard_similarity,
-                            "reason": f"{pair.jaccard_similarity * 100:.0f}% similarity - "
-                            "likely prod/staging pair or potential duplicate. Verify if intentional.",
-                        }
-                    )
+            recommendations.extend(
+                {
+                    "type": "review_overlap",
+                    "severity": "high",
+                    "data_view_1": pair.dv1_id,
+                    "data_view_1_name": pair.dv1_name,
+                    "data_view_2": pair.dv2_id,
+                    "data_view_2_name": pair.dv2_name,
+                    "similarity": pair.jaccard_similarity,
+                    "reason": f"{pair.jaccard_similarity * 100:.0f}% similarity - "
+                    "likely prod/staging pair or potential duplicate. Verify if intentional.",
+                }
+                for pair in similarity_pairs
+                if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD
+            )
 
         # Recommendation: Core component standardization
         total_successful = len([s for s in summaries if s.error is None])
         if total_successful > 3:
             # Check for near-core components (in 70-99% of DVs but not all)
             near_core_count = 0
-            for _comp_id, info in index.items():
+            for info in index.values():
                 pct = info.presence_count / total_successful
                 if 0.7 <= pct < 1.0:
                     near_core_count += 1
@@ -1431,7 +1431,7 @@ class OrgComponentAnalyzer:
             stats["total_derived"] += summary.derived_metric_count + summary.derived_dimension_count
 
         # Compute averages
-        for _owner, stats in owner_stats.items():
+        for stats in owner_stats.values():
             dv_count = stats["data_view_count"]
             stats["avg_metrics_per_dv"] = round(stats["total_metrics"] / dv_count, 1) if dv_count > 0 else 0
             stats["avg_dimensions_per_dv"] = round(stats["total_dimensions"] / dv_count, 1) if dv_count > 0 else 0

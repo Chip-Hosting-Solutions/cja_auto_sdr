@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """CLI argument parsing (current implementation lives in generator)."""
 
 __all__ = ["parse_arguments"]
