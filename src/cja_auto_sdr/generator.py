@@ -9540,6 +9540,9 @@ def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None
     """Emit output data to a file, stdout pipe, or the console.
 
     When output_file is None (no --output flag), falls through to print().
+    When writing to a TTY and the output exceeds the terminal height,
+    the text is piped through the system pager (``$PAGER``, defaulting
+    to ``less -R``).
     """
     if output_file and not is_stdout:
         parent = os.path.dirname(output_file)
@@ -9548,9 +9551,27 @@ def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None
         with open(output_file, 'w') as f:
             f.write(data)
     else:
-        # output_file is None (console) or "-"/"stdout" (pipe) — write to stdout.
-        # print() adds its own newline, so strip any trailing newline from data.
-        print(data.rstrip('\n'))
+        text = data.rstrip('\n')
+        # Use a pager when output is longer than the terminal and stdout
+        # is an interactive TTY (not a pipe / redirect).
+        if not is_stdout and sys.stdout.isatty():
+            line_count = text.count('\n') + 1
+            try:
+                term_height = os.get_terminal_size().lines
+            except OSError:
+                term_height = 0
+            if term_height and line_count > term_height:
+                pager = os.environ.get('PAGER', 'less')
+                try:
+                    proc = subprocess.Popen(
+                        [pager, '-R'] if pager == 'less' else [pager],
+                        stdin=subprocess.PIPE,
+                    )
+                    proc.communicate(text.encode())
+                    return
+                except (OSError, FileNotFoundError):
+                    pass  # pager unavailable — fall through to plain print
+        print(text)
 
 
 def _extract_connections_list(raw_connections: Any) -> list:
@@ -9692,7 +9713,7 @@ def _fetch_dataviews(output_format: str) -> Callable:
             if isinstance(dv, dict):
                 dv_id = dv.get('id', 'N/A')
                 dv_name = dv.get('name', 'N/A')
-                dv_owner = dv.get('owner', {})
+                dv_owner = dv.get('owner') or {}
                 owner_name = dv_owner.get('name', 'N/A') if isinstance(dv_owner, dict) else str(dv_owner)
                 display_data.append({'id': dv_id, 'name': dv_name, 'owner': owner_name})
 
@@ -9821,7 +9842,7 @@ def _fetch_connections(output_format: str) -> Callable:
                 continue
             conn_id = conn.get('id', 'N/A')
             conn_name = conn.get('name', 'N/A')
-            conn_owner = conn.get('owner', {})
+            conn_owner = conn.get('owner') or {}
             owner_name = conn_owner.get('name', 'N/A') if isinstance(conn_owner, dict) else str(conn_owner)
 
             raw_datasets = conn.get('dataSets', conn.get('datasets', []))
@@ -10085,7 +10106,7 @@ def interactive_select_dataviews(config_file: str = "config.json",
             if isinstance(dv, dict):
                 dv_id = dv.get('id', 'N/A')
                 dv_name = dv.get('name', 'N/A')
-                dv_owner = dv.get('owner', {})
+                dv_owner = dv.get('owner') or {}
                 owner_name = dv_owner.get('name', 'N/A') if isinstance(dv_owner, dict) else str(dv_owner)
                 display_data.append({
                     'id': dv_id,

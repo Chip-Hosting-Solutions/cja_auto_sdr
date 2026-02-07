@@ -3,14 +3,15 @@ import pytest
 import sys
 import os
 import json
+import subprocess
 import tempfile
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import argparse
 
 
 # Import the function we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import parse_arguments, generate_sample_config, _extract_dataset_info, list_connections, list_datasets, list_dataviews
+from cja_auto_sdr.generator import parse_arguments, generate_sample_config, _extract_dataset_info, list_connections, list_datasets, list_dataviews, _emit_output
 
 
 class TestCLIArguments:
@@ -858,6 +859,74 @@ class TestExtractDatasetInfo:
         assert result == {'id': 'ds_333', 'name': 'Legacy Events'}
 
 
+class TestListDataviewsFunction:
+    """Test list_dataviews() function with mocks"""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_null_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_dataviews shows N/A when owner is null (not the string 'None')"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'Test View', 'owner': None}
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['dataViews'][0]['owner'] == 'N/A'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_null_owner_table(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_dataviews table output shows N/A for null owner"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'Test View', 'owner': None}
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'N/A' in output
+        assert 'Owner: None' not in output
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_missing_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_dataviews shows N/A when owner key is absent"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'Test View'}
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['dataViews'][0]['owner'] == 'N/A'
+
+
 class TestListConnectionsFunction:
     """Test list_connections() function with mocks"""
 
@@ -975,6 +1044,90 @@ class TestListConnectionsFunction:
         assert lines[0] == 'connection_id,connection_name,owner,dataset_id,dataset_name'
         assert 'conn_1' in lines[1]
         assert 'ds_1' in lines[1]
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_null_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections shows N/A when owner is null (not the string 'None')"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': None,
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['connections'][0]['owner'] == 'N/A'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_null_owner_table(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections table output shows N/A for null owner"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': None,
+                    'dataSets': []
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'Owner: N/A' in output
+        assert 'Owner: None' not in output
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_missing_owner_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Test list_connections shows N/A when owner key is absent"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'dataSets': []
+                }
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output['connections'][0]['owner'] == 'N/A'
 
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
@@ -1416,6 +1569,100 @@ class TestFileOutput:
         assert 'ds_2' in lines[2]
         assert 'dv_1' in lines[1]
         assert 'conn_1' in lines[1]
+
+
+class TestEmitOutputPager:
+    """Test _emit_output auto-pager behaviour for long console output."""
+
+    def test_uses_pager_when_output_exceeds_terminal(self):
+        """Test that _emit_output invokes a pager when output is taller than terminal"""
+        long_text = '\n'.join(f'line {i}' for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with patch('sys.stdout') as mock_stdout, \
+             patch('os.get_terminal_size', return_value=os.terminal_size((80, 24))), \
+             patch('subprocess.Popen', return_value=mock_proc) as mock_popen:
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(['less', '-R'], stdin=subprocess.PIPE)
+        mock_proc.communicate.assert_called_once_with(long_text.rstrip('\n').encode())
+
+    def test_no_pager_when_output_fits_terminal(self):
+        """Test that _emit_output prints normally when output fits in terminal"""
+        short_text = '\n'.join(f'line {i}' for i in range(5))
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+
+        with patch('os.get_terminal_size', return_value=os.terminal_size((80, 24))), \
+             redirect_stdout(f):
+            _emit_output(short_text, None, False)
+
+        assert 'line 0' in f.getvalue()
+        assert 'line 4' in f.getvalue()
+
+    def test_no_pager_when_not_tty(self):
+        """Test that _emit_output does not page when stdout is not a TTY (piped)"""
+        long_text = '\n'.join(f'line {i}' for i in range(200))
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+
+        with redirect_stdout(f):
+            # StringIO.isatty() returns False, so no pager should be used
+            _emit_output(long_text, None, False)
+
+        assert 'line 0' in f.getvalue()
+        assert 'line 199' in f.getvalue()
+
+    def test_no_pager_for_stdout_pipe_mode(self):
+        """Test that _emit_output does not page when is_stdout=True (--output -)"""
+        long_text = '\n'.join(f'line {i}' for i in range(200))
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+
+        with redirect_stdout(f):
+            _emit_output(long_text, None, True)
+
+        assert 'line 0' in f.getvalue()
+
+    def test_pager_respects_PAGER_env(self):
+        """Test that _emit_output uses $PAGER when set"""
+        long_text = '\n'.join(f'line {i}' for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with patch('sys.stdout') as mock_stdout, \
+             patch('os.get_terminal_size', return_value=os.terminal_size((80, 24))), \
+             patch.dict(os.environ, {'PAGER': 'more'}), \
+             patch('subprocess.Popen', return_value=mock_proc) as mock_popen:
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(['more'], stdin=subprocess.PIPE)
+
+    def test_pager_fallback_on_error(self):
+        """Test that _emit_output falls back to print when pager is unavailable"""
+        long_text = '\n'.join(f'line {i}' for i in range(200))
+
+        import io
+        from contextlib import redirect_stdout
+
+        with patch('sys.stdout') as mock_stdout, \
+             patch('os.get_terminal_size', return_value=os.terminal_size((80, 24))), \
+             patch('subprocess.Popen', side_effect=FileNotFoundError):
+            mock_stdout.isatty.return_value = True
+            # When pager fails, should fall through to print() — we need
+            # to verify it doesn't raise.  Since stdout is mocked, check
+            # that write was called as a fallback.
+            _emit_output(long_text, None, False)
+            mock_stdout.write.assert_called()
 
 
 class TestConnectionsPermissionsFallback:
