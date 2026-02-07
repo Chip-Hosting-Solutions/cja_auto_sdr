@@ -18,5 +18,5 @@ jobs:
         run: pip install uv
       - name: Sync dependencies
         run: uv sync --dev
-      - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+      - name: Run tests with coverage
+        run: uv run pytest tests/ -v --tb=short --cov=cja_auto_sdr --cov-report=term

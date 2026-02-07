@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,11 +15,12 @@ import textwrap
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NoReturn, Optional, Protocol, Tuple, TypeVar, Union, runtime_checkable
+from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
 
 import cjapy
 import pandas as pd
@@ -191,9 +193,9 @@ class OutputWriter(Protocol):
         self,
         metrics_df: pd.DataFrame,
         dimensions_df: pd.DataFrame,
-        dataview_info: Dict[str, Any],
+        dataview_info: dict[str, Any],
         output_path: Path,
-        quality_results: Optional[List[Dict[str, Any]]] = None,
+        quality_results: list[dict[str, Any]] | None = None,
     ) -> str:
         """Write output in the implemented format.
 
@@ -214,7 +216,7 @@ class OutputWriter(Protocol):
 
 
 # Type alias for validation issues
-ValidationIssue = Dict[str, Any]
+ValidationIssue = dict[str, Any]
 
 # Type variable for generic return types
 T = TypeVar("T")
@@ -294,7 +296,7 @@ class WorkerArgs:
     show_timings: bool = False
     metrics_only: bool = False
     dimensions_only: bool = False
-    profile: Optional[str] = None
+    profile: str | None = None
     shared_cache: Any = None
     api_tuning_config: Any = None
     circuit_breaker_config: Any = None
@@ -302,7 +304,7 @@ class WorkerArgs:
     include_calculated_metrics: bool = False
     include_segments_inventory: bool = False
     inventory_only: bool = False
-    inventory_order: Optional[str] = None
+    inventory_order: str | None = None
 
 
 def _exit_error(msg: str) -> NoReturn:
@@ -313,17 +315,17 @@ def _exit_error(msg: str) -> NoReturn:
 
 # ==================== DIFF COMPARISON ====================
 
-from cja_auto_sdr.api.cache import SharedValidationCache, ValidationCache  # noqa: F811
+from cja_auto_sdr.api.cache import SharedValidationCache, ValidationCache
 
 # ==================== API WORKER TUNER (moved to api/tuning.py) ====================
-from cja_auto_sdr.api.tuning import APIWorkerTuner  # noqa: F811
+from cja_auto_sdr.api.tuning import APIWorkerTuner
 
 # ==================== LOGGING SETUP ====================
 # ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, setup_logging  # noqa: F811
+from cja_auto_sdr.core.logging import JSONFormatter, setup_logging
 
 # ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
-from cja_auto_sdr.core.perf import PerformanceTracker  # noqa: F811
+from cja_auto_sdr.core.perf import PerformanceTracker
 from cja_auto_sdr.diff.comparator import DataViewComparator
 from cja_auto_sdr.diff.git import (
     generate_git_commit_message,
@@ -380,7 +382,7 @@ def get_profile_path(profile_name: str) -> Path:
     return get_profiles_dir() / profile_name
 
 
-def validate_profile_name(name: str) -> Tuple[bool, Optional[str]]:
+def validate_profile_name(name: str) -> tuple[bool, str | None]:
     """Validate profile name (alphanumeric, dashes, underscores only).
 
     Args:
@@ -404,7 +406,7 @@ def validate_profile_name(name: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def load_profile_config_json(profile_path: Path) -> Optional[Dict[str, str]]:
+def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
     """Load credentials from profile's config.json.
 
     Args:
@@ -418,16 +420,16 @@ def load_profile_config_json(profile_path: Path) -> Optional[Dict[str, str]]:
         return None
 
     try:
-        with open(config_file, "r") as f:
+        with open(config_file) as f:
             config = json.load(f)
         if isinstance(config, dict):
             return {k: str(v).strip() for k, v in config.items() if v}
         return None
-    except json.JSONDecodeError, IOError:
+    except OSError, json.JSONDecodeError:
         return None
 
 
-def load_profile_dotenv(profile_path: Path) -> Optional[Dict[str, str]]:
+def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
     """Load credentials from profile's .env file.
 
     Args:
@@ -442,7 +444,7 @@ def load_profile_dotenv(profile_path: Path) -> Optional[Dict[str, str]]:
 
     credentials = {}
     try:
-        with open(env_file, "r") as f:
+        with open(env_file) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -457,13 +459,13 @@ def load_profile_dotenv(profile_path: Path) -> Optional[Dict[str, str]]:
                         # Use CREDENTIAL_FIELDS for allowed fields (single source of truth)
                         if config_key in CREDENTIAL_FIELDS["all"]:
                             credentials[config_key] = value
-    except IOError:
+    except OSError:
         return None
 
     return credentials if credentials else None
 
 
-def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optional[Dict[str, str]]:
+def load_profile_credentials(profile_name: str, logger: logging.Logger) -> dict[str, str] | None:
     """Load and merge credentials from profile (config.json + .env).
 
     Precedence within profile:
@@ -526,7 +528,7 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
     return credentials
 
 
-def resolve_active_profile(cli_profile: Optional[str] = None) -> Optional[str]:
+def resolve_active_profile(cli_profile: str | None = None) -> str | None:
     """Resolve active profile: --profile > CJA_PROFILE > None.
 
     Args:
@@ -677,7 +679,7 @@ def add_profile_interactive(profile_name: str) -> bool:
             import getpass
 
             secret = getpass.getpass("Client Secret: ").strip()
-        except Exception:
+        except ImportError, getpass.GetPassWarning:
             secret = input("Client Secret: ").strip()
 
         if not secret:
@@ -702,7 +704,7 @@ def add_profile_interactive(profile_name: str) -> bool:
             json.dump(config, f, indent=2)
         # Set restrictive permissions
         config_file.chmod(0o600)
-    except IOError as e:
+    except OSError as e:
         print(f"Error writing config file: {e}")
         return False
 
@@ -883,15 +885,15 @@ def test_profile(profile_name: str) -> bool:
 
 # ==================== CONFIG VALIDATION (moved to core/config_validation.py) ====================
 # ==================== CJA CLIENT (moved to api/client.py) ====================
-from cja_auto_sdr.api.client import _config_from_env, configure_cjapy, initialize_cja  # noqa: F811,E402
-from cja_auto_sdr.core.config_validation import (  # noqa: F811,E402
+from cja_auto_sdr.api.client import _config_from_env, configure_cjapy, initialize_cja
+from cja_auto_sdr.core.config_validation import (
     ConfigValidator,
     validate_config_file,
     validate_credentials,
 )
 
 # ==================== CREDENTIAL LOADING (moved to core/credentials.py) ====================
-from cja_auto_sdr.core.credentials import (  # noqa: F811,E402
+from cja_auto_sdr.core.credentials import (
     CredentialLoader,
     CredentialResolver,
     DotenvCredentialLoader,
@@ -946,7 +948,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             logger.debug(f"AttributeError details: {e}")
             return False
         except Exception as api_error:
-            logger.error(f"API call failed: {str(api_error)}")
+            logger.error(f"API call failed: {api_error!s}")
             logger.error("Possible reasons:")
             logger.error("  1. Data view does not exist")
             logger.error("  2. You don't have permission to access this data view")
@@ -972,7 +974,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
                         logger.info(f"  ... and {available_count - 10} more")
                     logger.info("")
             except Exception as list_error:
-                logger.debug(f"Could not list available data views: {str(list_error)}")
+                logger.debug(f"Could not list available data views: {list_error!s}")
 
             # Show enhanced error message
             error_msg = ErrorMessageHelper.get_data_view_error_message(data_view_id, available_count=available_count)
@@ -1010,7 +1012,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
-        logger.error(f"Unexpected error during validation: {str(e)}")
+        logger.error(f"Unexpected error during validation: {e!s}")
         logger.exception("Full error details:")
         logger.error("")
         logger.error("Please verify:")
@@ -1021,10 +1023,10 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
 
 # ==================== OPTIMIZED API DATA FETCHING (moved to api/fetch.py) ====================
-from cja_auto_sdr.api.fetch import ParallelAPIFetcher  # noqa: F811
+from cja_auto_sdr.api.fetch import ParallelAPIFetcher
 
 # ==================== DATA QUALITY VALIDATION (moved to api/quality.py) ====================
-from cja_auto_sdr.api.quality import DataQualityChecker  # noqa: F811
+from cja_auto_sdr.api.quality import DataQualityChecker
 
 # ==================== EXCEL GENERATION ====================
 
@@ -1044,9 +1046,9 @@ class ExcelFormatCache:
 
     def __init__(self, workbook):
         self.workbook = workbook
-        self._cache: Dict[tuple, Any] = {}
+        self._cache: dict[tuple, Any] = {}
 
-    def get_format(self, properties: Dict[str, Any]) -> Any:
+    def get_format(self, properties: dict[str, Any]) -> Any:
         """Get or create a format with the given properties.
 
         Args:
@@ -1066,7 +1068,7 @@ class ExcelFormatCache:
 
 
 def apply_excel_formatting(
-    writer, df, sheet_name, logger: logging.Logger, format_cache: Optional[ExcelFormatCache] = None
+    writer, df, sheet_name, logger: logging.Logger, format_cache: ExcelFormatCache | None = None
 ):
     """Apply formatting to Excel sheets with error handling.
 
@@ -1381,7 +1383,7 @@ def apply_excel_formatting(
 
 
 def write_excel_output(
-    data_dict: Dict[str, pd.DataFrame], base_filename: str, output_dir: Union[str, Path], logger: logging.Logger
+    data_dict: dict[str, pd.DataFrame], base_filename: str, output_dir: str | Path, logger: logging.Logger
 ) -> str:
     """
     Write data to a formatted Excel workbook.
@@ -1425,7 +1427,7 @@ def write_excel_output(
 
 
 def write_csv_output(
-    data_dict: Dict[str, pd.DataFrame], base_filename: str, output_dir: Union[str, Path], logger: logging.Logger
+    data_dict: dict[str, pd.DataFrame], base_filename: str, output_dir: str | Path, logger: logging.Logger
 ) -> str:
     """
     Write data to CSV files (one per sheet)
@@ -1469,12 +1471,12 @@ def write_csv_output(
 
 
 def write_json_output(
-    data_dict: Dict[str, pd.DataFrame],
-    metadata_dict: Dict[str, Any],
+    data_dict: dict[str, pd.DataFrame],
+    metadata_dict: dict[str, Any],
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
-    inventory_objects: Optional[Dict[str, Any]] = None,
+    inventory_objects: dict[str, Any] | None = None,
 ) -> str:
     """
     Write data to JSON format with hierarchical structure
@@ -1525,19 +1527,19 @@ def write_json_output(
                 json_data["data_view"] = records[0] if records else {}
             elif sheet_name == "Derived Fields":
                 # Use inventory object's to_json() for detailed output if available
-                if "derived" in inventory_objects and inventory_objects["derived"]:
+                if inventory_objects.get("derived"):
                     json_data["derived_fields"] = inventory_objects["derived"].to_json()
                 else:
                     json_data["derived_fields"] = {"fields": records}
             elif sheet_name == "Calculated Metrics":
                 # Use inventory object's to_json() for detailed output if available
-                if "calculated" in inventory_objects and inventory_objects["calculated"]:
+                if inventory_objects.get("calculated"):
                     json_data["calculated_metrics"] = inventory_objects["calculated"].to_json()
                 else:
                     json_data["calculated_metrics"] = {"metrics": records}
             elif sheet_name == "Segments":
                 # Use inventory object's to_json() for detailed output if available
-                if "segments" in inventory_objects and inventory_objects["segments"]:
+                if inventory_objects.get("segments"):
                     json_data["segments"] = inventory_objects["segments"].to_json()
                 else:
                     json_data["segments"] = {"segments": records}
@@ -1568,10 +1570,10 @@ def write_json_output(
 
 
 def write_html_output(
-    data_dict: Dict[str, pd.DataFrame],
-    metadata_dict: Dict[str, Any],
+    data_dict: dict[str, pd.DataFrame],
+    metadata_dict: dict[str, Any],
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
 ) -> str:
     """
@@ -1811,10 +1813,10 @@ def write_html_output(
 
 
 def write_markdown_output(
-    data_dict: Dict[str, pd.DataFrame],
-    metadata_dict: Dict[str, Any],
+    data_dict: dict[str, pd.DataFrame],
+    metadata_dict: dict[str, Any],
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
 ) -> str:
     """
@@ -1878,7 +1880,7 @@ def write_markdown_output(
 
             data_rows = df.apply(format_row, axis=1).tolist()
 
-            return "\n".join([header_row, separator_row] + data_rows)
+            return "\n".join([header_row, separator_row, *data_rows])
 
         md_parts = []
 
@@ -1895,7 +1897,7 @@ def write_markdown_output(
         # Table of contents
         md_parts.append("## 📑 Table of Contents\n")
         toc_items = []
-        for sheet_name in data_dict.keys():
+        for sheet_name in data_dict:
             # Create anchor-safe links
             anchor = sheet_name.lower().replace(" ", "-").replace("_", "-")
             toc_items.append(f"- [{sheet_name}](#{anchor})")
@@ -2350,7 +2352,7 @@ def _get_inventory_change_detail(diff: InventoryItemDiff, truncate: bool = True)
 
 def _format_side_by_side(
     diff: ComponentDiff, source_label: str, target_label: str, col_width: int = 35, max_col_width: int = 60
-) -> List[str]:
+) -> list[str]:
     """
     Format a component diff as a side-by-side comparison table.
 
@@ -2435,7 +2437,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
     lines.append("=" * 80)
 
     # Collect all changed fields across all components
-    field_changes: Dict[str, List[Tuple[str, str, Any, Any]]] = {}  # field -> [(id, name, old, new), ...]
+    field_changes: dict[str, list[tuple[str, str, Any, Any]]] = {}  # field -> [(id, name, old, new), ...]
 
     # Also track breaking changes (type or schemaPath changes)
     breaking_changes = []
@@ -2466,7 +2468,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("")
         lines.append(ANSIColors.red("⚠  BREAKING CHANGES DETECTED", c))
         lines.append("-" * 40)
-        for comp_id, comp_name, field, old_val, new_val in breaking_changes:
+        for comp_id, _comp_name, field, old_val, new_val in breaking_changes:
             lines.append(f"  {comp_id}: {field} changed")
             lines.append(
                 f"    '{_format_diff_value(old_val, truncate=False)}' → '{_format_diff_value(new_val, truncate=False)}'"
@@ -2483,7 +2485,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append(f"{ANSIColors.cyan(field, c)} ({len(changes)} component{'s' if len(changes) != 1 else ''}):")
 
         items_to_show = changes if limit == 0 else changes[:limit]
-        for comp_id, comp_name, old_val, new_val in items_to_show:
+        for comp_id, _comp_name, old_val, new_val in items_to_show:
             old_str = _format_diff_value(old_val, truncate=True)
             new_str = _format_diff_value(new_val, truncate=True)
             lines.append(f"  {comp_id}: '{old_str}' → '{new_str}'")
@@ -2628,7 +2630,7 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
     return "\n".join(lines)
 
 
-def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
+def detect_breaking_changes(diff_result: DiffResult) -> list[dict[str, Any]]:
     """
     Detect breaking changes in a diff result.
 
@@ -2696,7 +2698,7 @@ def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
 def write_diff_json_output(
     diff_result: DiffResult,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
 ) -> str:
@@ -2719,7 +2721,7 @@ def write_diff_json_output(
         summary = diff_result.summary
         meta = diff_result.metadata_diff
 
-        def serialize_component_diff(d: ComponentDiff) -> Dict:
+        def serialize_component_diff(d: ComponentDiff) -> dict:
             return {
                 "id": d.id,
                 "name": d.name,
@@ -2729,7 +2731,7 @@ def write_diff_json_output(
                 "target_data": d.target_data,
             }
 
-        def serialize_inventory_diff(d: InventoryItemDiff) -> Dict:
+        def serialize_inventory_diff(d: InventoryItemDiff) -> dict:
             return {
                 "id": d.id,
                 "name": d.name,
@@ -2842,7 +2844,7 @@ def write_diff_json_output(
 def write_diff_markdown_output(
     diff_result: DiffResult,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
     side_by_side: bool = False,
@@ -3022,7 +3024,7 @@ def _get_change_emoji(change_type: ChangeType) -> str:
     return emojis.get(change_type, "")
 
 
-def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target_label: str) -> List[str]:
+def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target_label: str) -> list[str]:
     """
     Format a component diff as a side-by-side markdown table.
 
@@ -3067,7 +3069,7 @@ def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target
 def write_diff_html_output(
     diff_result: DiffResult,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
 ) -> str:
@@ -3297,7 +3299,7 @@ def write_diff_html_output(
             html_parts.append(f'<p class="total-changes">Total changes: {summary.total_changes}</p>')
 
         # Helper function to generate diff table
-        def generate_diff_table(diffs: List[ComponentDiff], title: str):
+        def generate_diff_table(diffs: list[ComponentDiff], title: str):
             changes = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
             if not changes and changes_only:
                 return ""
@@ -3339,7 +3341,7 @@ def write_diff_html_output(
         # Inventory diff sections (if present)
         if diff_result.has_inventory_diffs:
 
-            def generate_inventory_diff_table(diffs: Optional[List[InventoryItemDiff]], title: str):
+            def generate_inventory_diff_table(diffs: list[InventoryItemDiff] | None, title: str):
                 if diffs is None:
                     return ""
                 changes = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
@@ -3410,7 +3412,7 @@ def write_diff_html_output(
 def write_diff_excel_output(
     diff_result: DiffResult,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
 ) -> str:
@@ -3523,7 +3525,7 @@ def write_diff_excel_output(
             metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
 
             # Helper function to write diff sheet
-            def write_diff_sheet(diffs: List[ComponentDiff], sheet_name: str):
+            def write_diff_sheet(diffs: list[ComponentDiff], sheet_name: str):
                 if changes_only:
                     diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
@@ -3565,7 +3567,7 @@ def write_diff_excel_output(
             write_diff_sheet(diff_result.dimension_diffs, "Dimensions Diff")
 
             # Helper function to write inventory diff sheet
-            def write_inventory_diff_sheet(diffs: Optional[List[InventoryItemDiff]], sheet_name: str):
+            def write_inventory_diff_sheet(diffs: list[InventoryItemDiff] | None, sheet_name: str):
                 if diffs is None:
                     return
 
@@ -3623,7 +3625,7 @@ def write_diff_excel_output(
 def write_diff_csv_output(
     diff_result: DiffResult,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
 ) -> str:
@@ -3730,7 +3732,7 @@ def write_diff_csv_output(
         logger.info("  Created: metadata.csv")
 
         # Helper function to write diff CSV
-        def write_diff_csv(diffs: List[ComponentDiff], filename: str):
+        def write_diff_csv(diffs: list[ComponentDiff], filename: str):
             if changes_only:
                 diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
@@ -3752,7 +3754,7 @@ def write_diff_csv_output(
         write_diff_csv(diff_result.dimension_diffs, "dimensions_diff.csv")
 
         # Helper function to write inventory diff CSV
-        def write_inventory_diff_csv(diffs: Optional[List[InventoryItemDiff]], filename: str):
+        def write_inventory_diff_csv(diffs: list[InventoryItemDiff] | None, filename: str):
             if diffs is None:
                 return
 
@@ -3791,7 +3793,7 @@ def write_diff_output(
     diff_result: DiffResult,
     output_format: str,
     base_filename: str,
-    output_dir: Union[str, Path],
+    output_dir: str | Path,
     logger: logging.Logger,
     changes_only: bool = False,
     summary_only: bool = False,
@@ -3799,7 +3801,7 @@ def write_diff_output(
     use_color: bool = True,
     group_by_field: bool = False,
     group_by_field_limit: int = 10,
-) -> Optional[str]:
+) -> str | None:
     """
     Write diff comparison output in specified format(s).
 
@@ -3869,14 +3871,14 @@ def write_diff_output(
 def display_inventory_summary(
     data_view_id: str,
     data_view_name: str,
-    derived_inventory: Optional[Any] = None,
-    calculated_inventory: Optional[Any] = None,
-    segments_inventory: Optional[Any] = None,
+    derived_inventory: Any | None = None,
+    calculated_inventory: Any | None = None,
+    segments_inventory: Any | None = None,
     output_format: str = "console",
-    output_dir: Union[str, Path] = ".",
+    output_dir: str | Path = ".",
     quiet: bool = False,
-    inventory_order: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    inventory_order: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Display inventory summary statistics without generating full inventory sheets.
 
@@ -4068,16 +4070,16 @@ def display_inventory_summary(
 def process_inventory_summary(
     data_view_id: str,
     config_file: str = "config.json",
-    output_dir: Union[str, Path] = ".",
+    output_dir: str | Path = ".",
     log_level: str = "INFO",
     output_format: str = "console",
     quiet: bool = False,
-    profile: Optional[str] = None,
+    profile: str | None = None,
     include_derived: bool = False,
     include_calculated: bool = False,
     include_segments: bool = False,
-    inventory_order: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    inventory_order: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Process inventory summary mode - fetch inventory data and display statistics.
 
@@ -4183,7 +4185,7 @@ def process_inventory_summary(
 def process_single_dataview(
     data_view_id: str,
     config_file: str = "config.json",
-    output_dir: Union[str, Path] = ".",
+    output_dir: str | Path = ".",
     log_level: str = "INFO",
     log_format: str = "text",
     output_format: str = "excel",
@@ -4197,15 +4199,15 @@ def process_single_dataview(
     show_timings: bool = False,
     metrics_only: bool = False,
     dimensions_only: bool = False,
-    profile: Optional[str] = None,
-    shared_cache: Optional[SharedValidationCache] = None,
-    api_tuning_config: Optional[APITuningConfig] = None,
-    circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+    profile: str | None = None,
+    shared_cache: SharedValidationCache | None = None,
+    api_tuning_config: APITuningConfig | None = None,
+    circuit_breaker_config: CircuitBreakerConfig | None = None,
     include_derived_inventory: bool = False,
     include_calculated_metrics: bool = False,
     include_segments_inventory: bool = False,
     inventory_only: bool = False,
-    inventory_order: Optional[List[str]] = None,
+    inventory_order: list[str] | None = None,
 ) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
@@ -4636,7 +4638,7 @@ def process_single_dataview(
                     return json.dumps(value, indent=2)
                 return value
             except Exception as e:
-                logger.warning(f"Error formatting JSON cell: {str(e)}")
+                logger.warning(f"Error formatting JSON cell: {e!s}")
                 return str(value)
 
         try:
@@ -4808,7 +4810,7 @@ def process_single_dataview(
                                 else:
                                     apply_excel_formatting(writer, sheet_data, sheet_name, logger, format_cache)
                             except Exception as e:
-                                logger.error(f"Failed to write sheet {sheet_name}: {str(e)}")
+                                logger.error(f"Failed to write sheet {sheet_name}: {e!s}")
                                 continue
 
                     logger.info(f"✓ Excel file created: {output_path}")
@@ -4876,7 +4878,7 @@ def process_single_dataview(
                 try:
                     if os.path.isdir(file_path):
                         # For CSV directories, sum all files
-                        for root, dirs, files in os.walk(file_path):
+                        for root, _dirs, files in os.walk(file_path):
                             for f in files:
                                 total_size += os.path.getsize(os.path.join(root, f))
                     else:
@@ -4942,16 +4944,16 @@ def process_single_dataview(
                 data_view_name=dv_name,
                 success=False,
                 duration=time.time() - start_time,
-                error_message=f"Permission denied: {str(e)}",
+                error_message=f"Permission denied: {e!s}",
             )
         except Exception as e:
-            logger.critical(f"Failed to generate Excel file: {str(e)}")
+            logger.critical(f"Failed to generate Excel file: {e!s}")
             logger.exception("Full exception details:")
             logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")
             logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
-            logger.info(f"Error: {str(e)}")
+            logger.info(f"Error: {e!s}")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             for handler in logger.handlers:
@@ -4965,13 +4967,13 @@ def process_single_dataview(
             )
 
     except Exception as e:
-        logger.critical(f"Unexpected error processing data view {data_view_id}: {str(e)}")
+        logger.critical(f"Unexpected error processing data view {data_view_id}: {e!s}")
         logger.exception("Full exception details:")
         logger.info("=" * BANNER_WIDTH)
         logger.info("EXECUTION FAILED")
         logger.info("=" * BANNER_WIDTH)
         logger.info(f"Data View ID: {data_view_id}")
-        logger.info(f"Error: {str(e)}")
+        logger.info(f"Error: {e!s}")
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
         logger.info("=" * BANNER_WIDTH)
         for handler in logger.handlers:
@@ -4997,13 +4999,8 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
     Returns:
         ProcessingResult
     """
-    # Propagate retry config from parent process via env vars (for spawned workers)
-    if "MAX_RETRIES" in os.environ:
-        DEFAULT_RETRY_CONFIG["max_retries"] = int(os.environ["MAX_RETRIES"])
-    if "RETRY_BASE_DELAY" in os.environ:
-        DEFAULT_RETRY_CONFIG["base_delay"] = float(os.environ["RETRY_BASE_DELAY"])
-    if "RETRY_MAX_DELAY" in os.environ:
-        DEFAULT_RETRY_CONFIG["max_delay"] = float(os.environ["RETRY_MAX_DELAY"])
+    # Retry config is propagated via env vars and resolved at call time
+    # by _effective_retry_config() in resilience.py — no global mutation needed.
 
     return process_single_dataview(
         args.data_view_id,
@@ -5087,15 +5084,15 @@ class BatchProcessor:
         show_timings: bool = False,
         metrics_only: bool = False,
         dimensions_only: bool = False,
-        profile: Optional[str] = None,
+        profile: str | None = None,
         shared_cache: bool = False,
-        api_tuning_config: Optional[APITuningConfig] = None,
-        circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+        api_tuning_config: APITuningConfig | None = None,
+        circuit_breaker_config: CircuitBreakerConfig | None = None,
         include_derived_inventory: bool = False,
         include_calculated_metrics: bool = False,
         include_segments_inventory: bool = False,
         inventory_only: bool = False,
-        inventory_order: Optional[List[str]] = None,
+        inventory_order: list[str] | None = None,
     ):
         self.config_file = config_file
         self.output_dir = output_dir
@@ -5128,7 +5125,7 @@ class BatchProcessor:
         self.logger.info(f"Batch ID: {self.batch_id}")
 
         # Create shared validation cache if enabled
-        self._shared_cache: Optional[SharedValidationCache] = None
+        self._shared_cache: SharedValidationCache | None = None
         if shared_cache and enable_cache and not skip_validation:
             self._shared_cache = SharedValidationCache(max_size=cache_size, ttl_seconds=cache_ttl)
             self.logger.info(f"[{self.batch_id}] Shared validation cache enabled (max_size={cache_size})")
@@ -5136,18 +5133,18 @@ class BatchProcessor:
         # Create output directory if it doesn't exist
         try:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
-        except PermissionError:
+        except PermissionError as e:
             raise OutputError(
                 f"Permission denied creating output directory: {output_dir}. "
                 "Check that you have write permissions for the parent directory."
-            )
+            ) from e
         except OSError as e:
             raise OutputError(
                 f"Cannot create output directory '{output_dir}': {e}. "
                 "Verify the path is valid and the disk has available space."
-            )
+            ) from e
 
-    def process_batch(self, data_view_ids: List[str]) -> Dict:
+    def process_batch(self, data_view_ids: list[str]) -> dict:
         """
         Process multiple data views in parallel
 
@@ -5246,7 +5243,7 @@ class BatchProcessor:
                             f.cancel()
                         raise
                     except Exception as e:
-                        self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {str(e)}")
+                        self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
                         results["failed"].append(
                             ProcessingResult(
                                 data_view_id=dv_id,
@@ -5281,7 +5278,7 @@ class BatchProcessor:
 
         return results
 
-    def print_summary(self, results: Dict):
+    def print_summary(self, results: dict):
         """Print detailed batch processing summary with color-coded output"""
         total = results["total"]
         successful_count = len(results["successful"])
@@ -5369,7 +5366,7 @@ class BatchProcessor:
 # ==================== DRY-RUN MODE ====================
 
 
-def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger, profile: Optional[str] = None) -> bool:
+def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger, profile: str | None = None) -> bool:
     """
     Validate configuration and connectivity without generating reports.
 
@@ -5457,7 +5454,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
     except Exception as e:
-        print(f"  ✗ API connection failed: {str(e)}")
+        print(f"  ✗ API connection failed: {e!s}")
         all_passed = False
         print()
         print("=" * BANNER_WIDTH)
@@ -5472,10 +5469,8 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
     # Build set of available data view IDs for quick lookup
     available_ids = set()
     if available_dvs is not None and (
-        isinstance(available_dvs, pd.DataFrame)
-        and not available_dvs.empty
-        or not isinstance(available_dvs, pd.DataFrame)
-        and available_dvs
+        (isinstance(available_dvs, pd.DataFrame) and not available_dvs.empty)
+        or (not isinstance(available_dvs, pd.DataFrame) and available_dvs)
     ):
         for dv in available_dvs:
             if isinstance(dv, dict):
@@ -5535,7 +5530,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
             print(ConsoleColors.warning("Validation cancelled."))
             raise
         except Exception as e:
-            print(f"  ✗ {dv_id}: Error - {str(e)}")
+            print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
 
@@ -6695,8 +6690,8 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 
 
 def find_similar_names(
-    target: str, available_names: List[str], max_suggestions: int = 3, max_distance: int = None
-) -> List[Tuple[str, int]]:
+    target: str, available_names: list[str], max_suggestions: int = 3, max_distance: int | None = None
+) -> list[tuple[str, int]]:
     """
     Find names similar to the target using Levenshtein distance.
 
@@ -6758,11 +6753,11 @@ class DataViewCache:
     def __init__(self):
         if self._initialized:
             return
-        self._cache: Dict[str, Tuple[List[Dict], float]] = {}
+        self._cache: dict[str, tuple[list[dict], float]] = {}
         self._ttl_seconds = 300  # 5 minute default TTL
         self._initialized = True
 
-    def get(self, config_file: str) -> Optional[List[Dict]]:
+    def get(self, config_file: str) -> list[dict] | None:
         """
         Get cached data views for a config file.
 
@@ -6781,7 +6776,7 @@ class DataViewCache:
                 del self._cache[config_file]
             return None
 
-    def set(self, config_file: str, data: List[Dict]) -> None:
+    def set(self, config_file: str, data: list[dict]) -> None:
         """
         Cache data views for a config file.
 
@@ -6806,7 +6801,7 @@ class DataViewCache:
 _data_view_cache = DataViewCache()
 
 
-def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> List[Dict]:
+def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> list[dict]:
     """
     Get data views with caching support.
 
@@ -6842,7 +6837,7 @@ def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> List
     return available_dvs
 
 
-def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Optional[str]:
+def prompt_for_selection(options: list[tuple[str, str]], prompt_text: str) -> str | None:
     """
     Prompt user to select from a list of options interactively.
 
@@ -6886,12 +6881,12 @@ def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Op
 
 
 def resolve_data_view_names(
-    identifiers: List[str],
+    identifiers: list[str],
     config_file: str = "config.json",
-    logger: logging.Logger = None,
+    logger: logging.Logger | None = None,
     suggest_similar: bool = True,
-    profile: Optional[str] = None,
-) -> Tuple[List[str], Dict[str, List[str]]]:
+    profile: str | None = None,
+) -> tuple[list[str], dict[str, list[str]]]:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
     If it's a name, look up all data views with that exact name.
@@ -7000,7 +6995,7 @@ def resolve_data_view_names(
         logger.error(f"Configuration file '{config_file}' not found")
         return [], {}
     except Exception as e:
-        logger.error(f"Failed to resolve data view names: {str(e)}")
+        logger.error(f"Failed to resolve data view names: {e!s}")
         return [], {}
 
 
@@ -7044,7 +7039,7 @@ def _extract_dataset_info(dataset: Any) -> dict:
 # ==================== LIST HELPERS ====================
 
 
-def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None:
+def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
     """Emit output data to a file, stdout pipe, or the console.
 
     When output_file is None (no --output flag), falls through to print().
@@ -7070,15 +7065,19 @@ def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None
                 term_height = 0
             if term_height and line_count > term_height:
                 pager = os.environ.get("PAGER", "less")
-                try:
-                    proc = subprocess.Popen(
-                        [pager, "-R"] if pager == "less" else [pager],
-                        stdin=subprocess.PIPE,
-                    )
-                    proc.communicate(text.encode())
-                    return
-                except OSError, FileNotFoundError:
-                    pass  # pager unavailable — fall through to plain print
+                if shutil.which(pager):
+                    try:
+                        proc = subprocess.Popen(
+                            [pager, "-R"] if pager == "less" else [pager],
+                            stdin=subprocess.PIPE,
+                        )
+                        proc.communicate(text.encode(), timeout=300)
+                        return
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    # pager unavailable or timed out — fall through to plain print
         print(text)
 
 
@@ -7104,7 +7103,7 @@ def _format_as_table(
     header_line: str,
     items: list[dict],
     columns: list[str],
-    col_labels: Optional[list[str]] = None,
+    col_labels: list[str] | None = None,
 ) -> str:
     """Format discovery items as an aligned text table.
 
@@ -7126,7 +7125,7 @@ def _format_as_table(
     lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths)))
     lines.append("-" * sum(widths))
     for item in items:
-        lines.append("".join(f"{str(item.get(col, '')):<{w}}" for col, w in zip(columns, widths)))
+        lines.append("".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths)))
     lines.append("")
     return "\n".join(lines)
 
@@ -7173,8 +7172,8 @@ def _run_list_command(
     fetch_and_format: Callable,
     config_file: str = "config.json",
     output_format: str = "table",
-    output_file: Optional[str] = None,
-    profile: Optional[str] = None,
+    output_file: str | None = None,
+    profile: str | None = None,
 ) -> bool:
     """Shared boilerplate for list-* discovery commands.
 
@@ -7258,9 +7257,9 @@ def _run_list_command(
 
     except Exception as e:
         if is_machine_readable:
-            print(json.dumps({"error": f"Failed to connect to CJA API: {str(e)}"}), file=sys.stderr)
+            print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
         else:
-            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return False
 
 
@@ -7270,7 +7269,7 @@ def _run_list_command(
 def _fetch_dataviews(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_dataviews."""
 
-    def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         available_dvs = cja.getDataViews()
 
         if available_dvs is None or (hasattr(available_dvs, "__len__") and len(available_dvs) == 0):
@@ -7327,8 +7326,8 @@ def _fetch_dataviews(output_format: str) -> Callable:
 def list_dataviews(
     config_file: str = "config.json",
     output_format: str = "table",
-    output_file: Optional[str] = None,
-    profile: Optional[str] = None,
+    output_file: str | None = None,
+    profile: str | None = None,
 ) -> bool:
     """List all accessible data views and exit."""
     return _run_list_command(
@@ -7348,7 +7347,7 @@ def list_dataviews(
 def _fetch_connections(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_connections."""
 
-    def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         raw_connections = cja.getConnections(output="raw", expansion="name,ownerFullName,dataSets")
         connections = _extract_connections_list(raw_connections)
 
@@ -7497,8 +7496,8 @@ def _fetch_connections(output_format: str) -> Callable:
 def list_connections(
     config_file: str = "config.json",
     output_format: str = "table",
-    output_file: Optional[str] = None,
-    profile: Optional[str] = None,
+    output_file: str | None = None,
+    profile: str | None = None,
 ) -> bool:
     """List all accessible connections with their datasets and exit."""
     return _run_list_command(
@@ -7518,7 +7517,7 @@ def list_connections(
 def _fetch_datasets(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_datasets."""
 
-    def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         # Step 1: Fetch all connections and build lookup map
         raw_connections = cja.getConnections(output="raw", expansion="name,ownerFullName,dataSets")
         conn_map: dict = {}  # connection_id -> {name, datasets}
@@ -7669,8 +7668,8 @@ def _fetch_datasets(output_format: str) -> Callable:
 def list_datasets(
     config_file: str = "config.json",
     output_format: str = "table",
-    output_file: Optional[str] = None,
-    profile: Optional[str] = None,
+    output_file: str | None = None,
+    profile: str | None = None,
 ) -> bool:
     """List all data views with their backing connections and underlying datasets."""
     return _run_list_command(
@@ -7687,7 +7686,7 @@ def list_datasets(
 # ==================== INTERACTIVE DATA VIEW SELECTION ====================
 
 
-def interactive_select_dataviews(config_file: str = "config.json", profile: Optional[str] = None) -> List[str]:
+def interactive_select_dataviews(config_file: str = "config.json", profile: str | None = None) -> list[str]:
     """
     Interactively select data views from a numbered list.
 
@@ -7871,7 +7870,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: Opti
         return []
 
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+        print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return []
 
 
@@ -7882,16 +7881,16 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: Opti
 class WizardConfig:
     """Configuration collected from interactive mode"""
 
-    data_view_ids: List[str]
+    data_view_ids: list[str]
     output_format: str = "excel"
-    output_dir: Optional[str] = None
+    output_dir: str | None = None
     include_segments: bool = False
     include_calculated: bool = False
     include_derived: bool = False
     inventory_only: bool = False
 
 
-def interactive_wizard(config_file: str = "config.json", profile: Optional[str] = None) -> Optional[WizardConfig]:
+def interactive_wizard(config_file: str = "config.json", profile: str | None = None) -> WizardConfig | None:
     """
     Interactive wizard for guided SDR generation.
 
@@ -7909,7 +7908,7 @@ def interactive_wizard(config_file: str = "config.json", profile: Optional[str] 
         WizardConfig with user selections, or None if cancelled
     """
 
-    def prompt_choice(prompt: str, options: List[Tuple[str, str]], default: Optional[str] = None) -> Optional[str]:
+    def prompt_choice(prompt: str, options: list[tuple[str, str]], default: str | None = None) -> str | None:
         """Prompt user to select from numbered options."""
         print()
         print(prompt)
@@ -7943,7 +7942,7 @@ def interactive_wizard(config_file: str = "config.json", profile: Optional[str] 
             except ValueError:
                 print(f"Please enter a number between 1 and {len(options)}, or 'q' to cancel.")
 
-    def prompt_yes_no(prompt: str, default: bool = False) -> Optional[bool]:
+    def prompt_yes_no(prompt: str, default: bool = False) -> bool | None:
         """Prompt user for yes/no answer."""
         if default:
             prompt_hint = "[Y/n] (Enter=yes)"
@@ -8108,7 +8107,7 @@ def interactive_wizard(config_file: str = "config.json", profile: Optional[str] 
         print("Run: cja_auto_sdr --sample-config")
         return None
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {str(e)}"))
+        print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return None
 
     # Step 2: Output format
@@ -8229,17 +8228,15 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 
         return True
 
-    except (PermissionError, OSError, IOError) as e:
-        print(ConsoleColors.error(f"ERROR: Failed to create sample config: {str(e)}"))
+    except (PermissionError, OSError) as e:
+        print(ConsoleColors.error(f"ERROR: Failed to create sample config: {e!s}"))
         return False
 
 
 # ==================== CONFIG STATUS ====================
 
 
-def show_config_status(
-    config_file: str = "config.json", profile: Optional[str] = None, output_json: bool = False
-) -> bool:
+def show_config_status(config_file: str = "config.json", profile: str | None = None, output_json: bool = False) -> bool:
     """
     Show configuration status without connecting to API.
 
@@ -8299,7 +8296,7 @@ def show_config_status(
         config_path = Path(config_file)
         if config_path.exists():
             try:
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     config_data = json.load(f)
                 config_source = f"Config file: {config_path.resolve()}"
                 config_source_type = "file"
@@ -8346,7 +8343,7 @@ def show_config_status(
     all_required_set = True
     credentials_info = {}
 
-    for key, display_name, required, sensitive in fields:
+    for key, _display_name, required, sensitive in fields:
         value = config_data.get(key, "")
         if value:
             if sensitive:
@@ -8380,7 +8377,7 @@ def show_config_status(
         print()
         print("Credentials:")
 
-        for key, display_name, required, sensitive in fields:
+        for key, display_name, required, _sensitive in fields:
             info = credentials_info[key]
             if info["set"]:
                 status = ConsoleColors.success("✓")
@@ -8412,7 +8409,7 @@ def show_config_status(
 # ==================== VALIDATE CONFIG ====================
 
 
-def validate_config_only(config_file: str = "config.json", profile: Optional[str] = None) -> bool:
+def validate_config_only(config_file: str = "config.json", profile: str | None = None) -> bool:
     """
     Validate configuration and API connectivity without processing data views.
 
@@ -8440,7 +8437,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
     logger = logging.getLogger(__name__)
 
     # Helper to display credentials
-    def display_credentials(creds: Dict[str, str], source_name: str):
+    def display_credentials(creds: dict[str, str], source_name: str):
         required_fields = ["org_id", "client_id", "secret"]
         optional_fields = ["scopes", "sandbox"]
         missing = []
@@ -8448,7 +8445,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
         print()
         print("  Credential status:")
         for field in required_fields:
-            if field in creds and creds[field]:
+            if creds.get(field):
                 value = creds[field]
                 if field in ["secret", "client_id"]:
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
@@ -8460,7 +8457,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
                 missing.append(field)
 
         for field in optional_fields:
-            if field in creds and creds[field]:
+            if creds.get(field):
                 print(f"    ✓ {field}: {creds[field]}")
             else:
                 print(f"    - {field}: not set (optional)")
@@ -8523,7 +8520,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
             abs_path = config_path.resolve()
             print(f"  ✓ Config file found: {abs_path}")
             try:
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     config = json.load(f)
                 print("  ✓ Config file is valid JSON")
                 if display_credentials(config, f"Config file ({config_file})"):
@@ -8532,7 +8529,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
-                print(f"  ✗ Invalid JSON: {str(e)}")
+                print(f"  ✗ Invalid JSON: {e!s}")
                 all_passed = False
         else:
             print(f"  ✗ Config file not found: {config_file}")
@@ -8586,7 +8583,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
         print(ConsoleColors.warning("Validation cancelled."))
         raise
     except Exception as e:
-        print(f"  ✗ API connection failed: {str(e)}")
+        print(f"  ✗ API connection failed: {e!s}")
         all_passed = False
 
     # Summary
@@ -8605,12 +8602,12 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
 
 
 def show_stats(
-    data_views: List[str],
+    data_views: list[str],
     config_file: str = "config.json",
     output_format: str = "table",
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     quiet: bool = False,
-    profile: Optional[str] = None,
+    profile: str | None = None,
 ) -> bool:
     """
     Show quick statistics about data view(s) without generating full reports.
@@ -8688,7 +8685,7 @@ def show_stats(
                         "metrics": 0,
                         "dimensions": 0,
                         "total_components": 0,
-                        "description": f"Error: {str(e)}",
+                        "description": f"Error: {e!s}",
                     }
                 )
 
@@ -8784,10 +8781,10 @@ def show_stats(
 
     except Exception as e:
         if is_machine_readable:
-            error_json = json.dumps({"error": f"Failed to get stats: {str(e)}"})
+            error_json = json.dumps({"error": f"Failed to get stats: {e!s}"})
             print(error_json, file=sys.stderr if is_stdout else sys.stdout)
         else:
-            print(ConsoleColors.error(f"ERROR: Failed to get stats: {str(e)}"))
+            print(ConsoleColors.error(f"ERROR: Failed to get stats: {e!s}"))
         return False
 
 
@@ -8802,7 +8799,7 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         OrgReportComparison with delta information
     """
     # Load previous report
-    with open(previous_path, "r", encoding="utf-8") as f:
+    with open(previous_path, encoding="utf-8") as f:
         prev_data = json.load(f)
 
     # Extract data view IDs from both
@@ -8843,7 +8840,7 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         )
 
     # High-similarity pairs comparison (normalize order for stability)
-    def _pair_key(dv1: str, dv2: str) -> Tuple[str, str]:
+    def _pair_key(dv1: str, dv2: str) -> tuple[str, str]:
         return tuple(sorted([dv1, dv2]))
 
     current_high_sim = set()
@@ -9221,7 +9218,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print(f"Found {len(result.stale_components)} components with stale naming patterns:")
         print()
         # Group by pattern type
-        by_pattern: Dict[str, List] = {}
+        by_pattern: dict[str, list] = {}
         for comp in result.stale_components:
             pattern = comp.get("pattern", "unknown")
             if pattern not in by_pattern:
@@ -9242,7 +9239,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print("RECOMMENDATIONS")
         print("-" * 110)
 
-        for i, rec in enumerate(result.recommendations, 1):
+        for _i, rec in enumerate(result.recommendations, 1):
             severity_icon = {"high": "!", "medium": "?", "low": "i"}.get(rec.get("severity", "low"), "·")
             print(f"\n[{severity_icon}] {rec.get('reason', 'No details')}")
 
@@ -9321,7 +9318,7 @@ def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: 
 
     if comparison.data_views_added:
         print(f"Data Views Added ({len(comparison.data_views_added)}):")
-        for i, dv_name in enumerate(comparison.data_views_added_names[:5]):
+        for _i, dv_name in enumerate(comparison.data_views_added_names[:5]):
             print(f"  + {dv_name}")
         if len(comparison.data_views_added) > 5:
             print(f"  ... and {len(comparison.data_views_added) - 5} more")
@@ -9348,7 +9345,7 @@ def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: 
     print()
 
 
-def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
+def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
     """Build org report JSON payload."""
     effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
     return {
@@ -9495,7 +9492,7 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
 
 
 def write_org_report_json(
-    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+    result: OrgReportResult, output_path: Path | None, output_dir: str, logger: logging.Logger
 ) -> str:
     """Write org report as structured JSON.
 
@@ -9526,7 +9523,7 @@ def write_org_report_json(
 
 
 def write_org_report_excel(
-    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+    result: OrgReportResult, output_path: Path | None, output_dir: str, logger: logging.Logger
 ) -> str:
     """Write org report as multi-sheet Excel workbook.
 
@@ -9865,7 +9862,7 @@ def write_org_report_excel(
 
 
 def write_org_report_markdown(
-    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+    result: OrgReportResult, output_path: Path | None, output_dir: str, logger: logging.Logger
 ) -> str:
     """Write org report as GitHub-flavored markdown.
 
@@ -10079,7 +10076,7 @@ def write_org_report_markdown(
 
 
 def write_org_report_html(
-    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+    result: OrgReportResult, output_path: Path | None, output_dir: str, logger: logging.Logger
 ) -> str:
     """Write org report as styled HTML.
 
@@ -10393,7 +10390,7 @@ def write_org_report_html(
 
 
 def write_org_report_csv(
-    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+    result: OrgReportResult, output_path: Path | None, output_dir: str, logger: logging.Logger
 ) -> str:
     """Write org report as multiple CSV files.
 
@@ -10591,12 +10588,12 @@ def write_org_report_csv(
 def run_org_report(
     config_file: str,
     output_format: str,
-    output_path: Optional[str],
+    output_path: str | None,
     output_dir: str,
     org_config: OrgReportConfig,
-    profile: Optional[str] = None,
+    profile: str | None = None,
     quiet: bool = False,
-) -> Tuple[bool, bool]:
+) -> tuple[bool, bool]:
     """Run org-wide component analysis and generate report.
 
     Args:
@@ -10806,7 +10803,7 @@ def run_org_report(
         raise
 
     except Exception as e:
-        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {str(e)}"))
+        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
         logger.exception("Org report error")
         return False, False
 
@@ -10819,7 +10816,7 @@ def handle_snapshot_command(
     snapshot_file: str,
     config_file: str = "config.json",
     quiet: bool = False,
-    profile: Optional[str] = None,
+    profile: str | None = None,
     include_calculated_metrics: bool = False,
     include_segments: bool = False,
 ) -> bool:
@@ -10898,7 +10895,7 @@ def handle_snapshot_command(
         return True
 
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {e!s}"), file=sys.stderr)
         return False
 
 
@@ -10910,10 +10907,10 @@ def handle_diff_command(
     output_dir: str = ".",
     changes_only: bool = False,
     summary_only: bool = False,
-    ignore_fields: Optional[List[str]] = None,
-    labels: Optional[Tuple[str, str]] = None,
+    ignore_fields: list[str] | None = None,
+    labels: tuple[str, str] | None = None,
     quiet: bool = False,
-    show_only: Optional[List[str]] = None,
+    show_only: list[str] | None = None,
     metrics_only: bool = False,
     dimensions_only: bool = False,
     extended_fields: bool = False,
@@ -10921,17 +10918,17 @@ def handle_diff_command(
     no_color: bool = False,
     quiet_diff: bool = False,
     reverse_diff: bool = False,
-    warn_threshold: Optional[float] = None,
+    warn_threshold: float | None = None,
     group_by_field: bool = False,
     group_by_field_limit: int = 10,
-    diff_output: Optional[str] = None,
+    diff_output: str | None = None,
     format_pr_comment: bool = False,
     auto_snapshot: bool = False,
     snapshot_dir: str = "./snapshots",
     keep_last: int = 0,
-    keep_since: Optional[str] = None,
-    profile: Optional[str] = None,
-) -> Tuple[bool, bool, Optional[int]]:
+    keep_since: str | None = None,
+    profile: str | None = None,
+) -> tuple[bool, bool, int | None]:
     """
     Handle the --diff command to compare two data views.
 
@@ -11117,7 +11114,7 @@ def handle_diff_command(
         return True, diff_result.summary.has_changes, exit_code_override
 
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to compare data views: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
         import traceback
 
         traceback.print_exc()
@@ -11132,10 +11129,10 @@ def handle_diff_snapshot_command(
     output_dir: str = ".",
     changes_only: bool = False,
     summary_only: bool = False,
-    ignore_fields: Optional[List[str]] = None,
-    labels: Optional[Tuple[str, str]] = None,
+    ignore_fields: list[str] | None = None,
+    labels: tuple[str, str] | None = None,
     quiet: bool = False,
-    show_only: Optional[List[str]] = None,
+    show_only: list[str] | None = None,
     metrics_only: bool = False,
     dimensions_only: bool = False,
     extended_fields: bool = False,
@@ -11143,19 +11140,19 @@ def handle_diff_snapshot_command(
     no_color: bool = False,
     quiet_diff: bool = False,
     reverse_diff: bool = False,
-    warn_threshold: Optional[float] = None,
+    warn_threshold: float | None = None,
     group_by_field: bool = False,
     group_by_field_limit: int = 10,
-    diff_output: Optional[str] = None,
+    diff_output: str | None = None,
     format_pr_comment: bool = False,
     auto_snapshot: bool = False,
     snapshot_dir: str = "./snapshots",
     keep_last: int = 0,
-    keep_since: Optional[str] = None,
-    profile: Optional[str] = None,
+    keep_since: str | None = None,
+    profile: str | None = None,
     include_calc_metrics: bool = False,
     include_segments: bool = False,
-) -> Tuple[bool, bool, Optional[int]]:
+) -> tuple[bool, bool, int | None]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
 
@@ -11409,10 +11406,10 @@ def handle_diff_snapshot_command(
         print(ConsoleColors.error(f"ERROR: Snapshot file not found: {snapshot_file}"), file=sys.stderr)
         return False, False, None
     except ValueError as e:
-        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {e!s}"), file=sys.stderr)
         import traceback
 
         traceback.print_exc()
@@ -11426,10 +11423,10 @@ def handle_compare_snapshots_command(
     output_dir: str = ".",
     changes_only: bool = False,
     summary_only: bool = False,
-    ignore_fields: Optional[List[str]] = None,
-    labels: Optional[Tuple[str, str]] = None,
+    ignore_fields: list[str] | None = None,
+    labels: tuple[str, str] | None = None,
     quiet: bool = False,
-    show_only: Optional[List[str]] = None,
+    show_only: list[str] | None = None,
     metrics_only: bool = False,
     dimensions_only: bool = False,
     extended_fields: bool = False,
@@ -11437,14 +11434,14 @@ def handle_compare_snapshots_command(
     no_color: bool = False,
     quiet_diff: bool = False,
     reverse_diff: bool = False,
-    warn_threshold: Optional[float] = None,
+    warn_threshold: float | None = None,
     group_by_field: bool = False,
     group_by_field_limit: int = 10,
-    diff_output: Optional[str] = None,
+    diff_output: str | None = None,
     format_pr_comment: bool = False,
     include_calc_metrics: bool = False,
     include_segments: bool = False,
-) -> Tuple[bool, bool, Optional[int]]:
+) -> tuple[bool, bool, int | None]:
     """
     Handle the --compare-snapshots command to compare two snapshot files directly.
 
@@ -11509,24 +11506,23 @@ def handle_compare_snapshots_command(
         target_snapshot = snapshot_manager.load_snapshot(target_file)
 
         # Validate same data view for inventory comparison
-        if include_calc_metrics or include_segments:
-            if source_snapshot.data_view_id != target_snapshot.data_view_id:
-                print(
-                    ConsoleColors.error("ERROR: Inventory comparison requires snapshots from the same data view."),
-                    file=sys.stderr,
-                )
-                print(f"  Source: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})", file=sys.stderr)
-                print(f"  Target: {target_snapshot.data_view_name} ({target_snapshot.data_view_id})", file=sys.stderr)
-                print(file=sys.stderr)
-                print(
-                    "Inventory IDs are data-view-scoped and cannot be matched across different data views.",
-                    file=sys.stderr,
-                )
-                print(
-                    "Remove --include-segments, --include-calculated, --include-derived for cross-data-view comparison.",
-                    file=sys.stderr,
-                )
-                return False, False, None
+        if (include_calc_metrics or include_segments) and source_snapshot.data_view_id != target_snapshot.data_view_id:
+            print(
+                ConsoleColors.error("ERROR: Inventory comparison requires snapshots from the same data view."),
+                file=sys.stderr,
+            )
+            print(f"  Source: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})", file=sys.stderr)
+            print(f"  Target: {target_snapshot.data_view_name} ({target_snapshot.data_view_id})", file=sys.stderr)
+            print(file=sys.stderr)
+            print(
+                "Inventory IDs are data-view-scoped and cannot be matched across different data views.",
+                file=sys.stderr,
+            )
+            print(
+                "Remove --include-segments, --include-calculated, --include-derived for cross-data-view comparison.",
+                file=sys.stderr,
+            )
+            return False, False, None
 
         # Handle reverse_diff - swap source and target
         if reverse_diff:
@@ -11637,13 +11633,13 @@ def handle_compare_snapshots_command(
         return True, diff_result.summary.has_changes, exit_code_override
 
     except FileNotFoundError as e:
-        print(ConsoleColors.error(f"ERROR: Snapshot file not found: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Snapshot file not found: {e!s}"), file=sys.stderr)
         return False, False, None
     except ValueError as e:
-        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
     except Exception as e:
-        print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {str(e)}"), file=sys.stderr)
+        print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
         import traceback
 
         traceback.print_exc()
@@ -11694,11 +11690,9 @@ def main():
     if args.retry_max_delay < args.retry_base_delay:
         _exit_error("--retry-max-delay must be >= --retry-base-delay")
 
-    # Update global retry config with CLI arguments
-    DEFAULT_RETRY_CONFIG["max_retries"] = args.max_retries
-    DEFAULT_RETRY_CONFIG["base_delay"] = args.retry_base_delay
-    DEFAULT_RETRY_CONFIG["max_delay"] = args.retry_max_delay
-    # Also set env vars so child processes (ProcessPoolExecutor) inherit the values
+    # Propagate retry config via env vars so both the current process
+    # (read by _effective_retry_config in resilience.py) and child
+    # processes (ProcessPoolExecutor workers) pick up CLI overrides.
     os.environ["MAX_RETRIES"] = str(args.max_retries)
     os.environ["RETRY_BASE_DELAY"] = str(args.retry_base_delay)
     os.environ["RETRY_MAX_DELAY"] = str(args.retry_max_delay)
@@ -12135,7 +12129,7 @@ def main():
         target_input = data_view_inputs[1]
 
         # Resolve source identifier
-        source_resolved, source_map = resolve_data_view_names(
+        source_resolved, _source_map = resolve_data_view_names(
             [source_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
         if not source_resolved:
@@ -12163,7 +12157,7 @@ def main():
                 sys.exit(1)
 
         # Resolve target identifier
-        target_resolved, target_map = resolve_data_view_names(
+        target_resolved, _target_map = resolve_data_view_names(
             [target_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
         if not target_resolved:

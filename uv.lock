@@ -99,6 +99,7 @@ completion = [
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "ruff" },
 ]
 env = [
     { name = "python-dotenv" },
@@ -127,6 +128,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "python-dotenv", marker = "extra == 'env'", specifier = ">=1.0.0" },
     { name = "python-dotenv", marker = "extra == 'full'", specifier = ">=1.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.0" },
     { name = "scipy", marker = "extra == 'clustering'", specifier = ">=1.14.0" },
     { name = "scipy", marker = "extra == 'full'", specifier = ">=1.14.0" },
     { name = "tqdm", specifier = ">=4.66.0" },

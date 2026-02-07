@@ -23,6 +23,7 @@ clustering = [
 dev = [
     "pytest>=8.3.4",
     "pytest-cov>=4.1.0",
+    "ruff>=0.9.0",
 ]
 env = [
     "python-dotenv>=1.0.0",
@@ -84,7 +85,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/cja_auto_sdr/generator.py" = ["E", "W", "F401", "B", "SIM", "RUF", "UP"]  # F401: intentional re-exports for backward compat
+"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False
 "tests/**" = ["B", "SIM", "RUF012"]
 
 [tool.ruff.lint.isort]

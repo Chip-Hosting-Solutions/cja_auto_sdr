@@ -1657,13 +1657,14 @@ class TestEmitOutputPager:
             patch("sys.stdout") as mock_stdout,
             patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
             patch.dict(os.environ, {"PAGER": "less"}),
+            patch("shutil.which", return_value="/usr/bin/less"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
         ):
             mock_stdout.isatty.return_value = True
             _emit_output(long_text, None, False)
 
         mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
-        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode())
+        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode(), timeout=300)
 
     def test_no_pager_when_output_fits_terminal(self):
         """Test that _emit_output prints normally when output fits in terminal"""
@@ -1720,6 +1721,7 @@ class TestEmitOutputPager:
             patch("sys.stdout") as mock_stdout,
             patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
             patch.dict(os.environ, {"PAGER": "more"}),
+            patch("shutil.which", return_value="/usr/bin/more"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
         ):
             mock_stdout.isatty.return_value = True
@@ -1734,6 +1736,7 @@ class TestEmitOutputPager:
         with (
             patch("sys.stdout") as mock_stdout,
             patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch("shutil.which", return_value="/usr/bin/less"),
             patch("subprocess.Popen", side_effect=FileNotFoundError),
         ):
             mock_stdout.isatty.return_value = True
