@@ -136,7 +136,7 @@ class TestConfigFromEnv:
         }
         logger = MagicMock()
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch('cja_auto_sdr.api.client.cjapy') as mock_cjapy:
             _config_from_env(credentials, logger)
 
             # Verify importConfigFile was called

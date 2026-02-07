@@ -1,7 +1,181 @@
-"""API worker tuning (current implementation lives in generator)."""
+"""API worker auto-tuning for CJA Auto SDR."""
 
-__all__ = ["APIWorkerTuner"]
+import logging
+import threading
+import time
+from typing import Any, Dict, List, Optional
 
-from cja_auto_sdr.core.lazy import make_getattr
+from cja_auto_sdr.core.config import APITuningConfig
 
-__getattr__ = make_getattr(__name__, __all__, target_module="cja_auto_sdr.generator")
+
+class APIWorkerTuner:
+    """
+    Thread-safe auto-tuner for API worker pool size.
+
+    Dynamically adjusts the number of concurrent API workers based on
+    response time measurements. Scales up when responses are fast (API
+    has capacity) and scales down when responses are slow (API is stressed).
+
+    Algorithm:
+    - Maintains a rolling window of response times
+    - After sample_window measurements, calculates average
+    - If avg < scale_up_threshold_ms: increase workers (if below max)
+    - If avg > scale_down_threshold_ms: decrease workers (if above min)
+    - Enforces cooldown period between adjustments
+
+    Thread Safety:
+    - Uses threading.Lock for all state updates
+    - Safe for use with ThreadPoolExecutor
+
+    Example:
+        tuner = APIWorkerTuner(config=APITuningConfig(min_workers=1, max_workers=10))
+
+        # After each API call
+        new_count = tuner.record_response_time(duration_ms)
+        if new_count is not None:
+            executor.resize(new_count)  # Adjust pool size
+    """
+
+    def __init__(self, config: APITuningConfig = None, initial_workers: int = 3,
+                 logger: logging.Logger = None):
+        """
+        Initialize the API worker tuner.
+
+        Args:
+            config: Tuning configuration (uses defaults if not provided)
+            initial_workers: Starting number of workers
+            logger: Logger instance for tuning decisions
+        """
+        self.config = config or APITuningConfig()
+        self.logger = logger or logging.getLogger(__name__)
+
+        # Current worker count
+        self._current_workers = max(
+            self.config.min_workers,
+            min(initial_workers, self.config.max_workers)
+        )
+
+        # Rolling window of response times
+        self._response_times: List[float] = []
+        self._last_adjustment_time = 0.0
+
+        # Thread safety
+        self._lock = threading.Lock()
+
+        # Statistics
+        self._total_requests = 0
+        self._scale_ups = 0
+        self._scale_downs = 0
+        self._total_response_time_ms = 0.0
+
+    @property
+    def current_workers(self) -> int:
+        """Get current worker count (thread-safe)."""
+        with self._lock:
+            return self._current_workers
+
+    def record_response_time(self, duration_ms: float) -> Optional[int]:
+        """
+        Record a response time and potentially adjust worker count.
+
+        Args:
+            duration_ms: Response time in milliseconds
+
+        Returns:
+            New worker count if adjusted, None if no change needed
+
+        Note:
+            Call this after each API request completes (success or failure).
+        """
+        with self._lock:
+            self._total_requests += 1
+            self._total_response_time_ms += duration_ms
+            self._response_times.append(duration_ms)
+
+            # Keep only the most recent samples
+            if len(self._response_times) > self.config.sample_window:
+                self._response_times = self._response_times[-self.config.sample_window:]
+
+            # Only adjust after we have enough samples
+            if len(self._response_times) < self.config.sample_window:
+                return None
+
+            # Check cooldown period
+            now = time.time()
+            if now - self._last_adjustment_time < self.config.cooldown_seconds:
+                return None
+
+            # Calculate average response time
+            avg_time = sum(self._response_times) / len(self._response_times)
+
+            # Determine if adjustment is needed
+            new_workers = None
+
+            if avg_time < self.config.scale_up_threshold_ms:
+                # Fast responses - try to add workers
+                if self._current_workers < self.config.max_workers:
+                    new_workers = self._current_workers + 1
+                    self._scale_ups += 1
+                    self.logger.info(
+                        f"API tuner: scaling UP {self._current_workers} \u2192 {new_workers} workers "
+                        f"(avg response: {avg_time:.0f}ms < {self.config.scale_up_threshold_ms}ms threshold)"
+                    )
+
+            elif avg_time > self.config.scale_down_threshold_ms:
+                # Slow responses - try to reduce workers
+                if self._current_workers > self.config.min_workers:
+                    new_workers = self._current_workers - 1
+                    self._scale_downs += 1
+                    self.logger.info(
+                        f"API tuner: scaling DOWN {self._current_workers} \u2192 {new_workers} workers "
+                        f"(avg response: {avg_time:.0f}ms > {self.config.scale_down_threshold_ms}ms threshold)"
+                    )
+
+            if new_workers is not None:
+                self._current_workers = new_workers
+                self._last_adjustment_time = now
+                self._response_times.clear()  # Reset window after adjustment
+                return new_workers
+
+            return None
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Get tuner statistics.
+
+        Returns:
+            Dict with worker counts, adjustment history, and performance metrics
+        """
+        with self._lock:
+            avg_response = (
+                self._total_response_time_ms / self._total_requests
+                if self._total_requests > 0 else 0.0
+            )
+
+            return {
+                'current_workers': self._current_workers,
+                'min_workers': self.config.min_workers,
+                'max_workers': self.config.max_workers,
+                'total_requests': self._total_requests,
+                'scale_ups': self._scale_ups,
+                'scale_downs': self._scale_downs,
+                'average_response_ms': avg_response,
+                'sample_window_size': len(self._response_times),
+            }
+
+    def reset(self, workers: int = None) -> None:
+        """
+        Reset the tuner state.
+
+        Args:
+            workers: Reset to specific worker count (default: keep current)
+        """
+        with self._lock:
+            if workers is not None:
+                self._current_workers = max(
+                    self.config.min_workers,
+                    min(workers, self.config.max_workers)
+                )
+            self._response_times.clear()
+            self._last_adjustment_time = 0.0
+            self.logger.debug(f"API tuner reset (workers: {self._current_workers})")

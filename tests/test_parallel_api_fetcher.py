@@ -97,8 +97,8 @@ class TestParallelAPIFetcherInit:
 class TestParallelAPIFetcherFetchAllData:
     """Tests for fetch_all_data method"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_fetch_all_data_success(self, mock_tqdm, mock_api_call, mock_cja, mock_logger,
                                      mock_perf_tracker, sample_metrics_data,
                                      sample_dimensions_data, sample_dataview_info):
@@ -132,8 +132,8 @@ class TestParallelAPIFetcherFetchAllData:
         mock_perf_tracker.start.assert_called_once_with("Parallel API Fetch")
         mock_perf_tracker.end.assert_called_once_with("Parallel API Fetch")
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_fetch_all_data_empty_metrics(self, mock_tqdm, mock_api_call, mock_cja,
                                            mock_logger, mock_perf_tracker,
                                            sample_dimensions_data, sample_dataview_info):
@@ -160,8 +160,8 @@ class TestParallelAPIFetcherFetchAllData:
         assert not dimensions.empty
         assert dataview == sample_dataview_info
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_fetch_all_data_empty_dimensions(self, mock_tqdm, mock_api_call, mock_cja,
                                               mock_logger, mock_perf_tracker,
                                               sample_metrics_data, sample_dataview_info):
@@ -188,8 +188,8 @@ class TestParallelAPIFetcherFetchAllData:
         assert dimensions.empty
         assert dataview == sample_dataview_info
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_fetch_all_data_empty_dataview(self, mock_tqdm, mock_api_call, mock_cja,
                                             mock_logger, mock_perf_tracker,
                                             sample_metrics_data, sample_dimensions_data):
@@ -222,7 +222,7 @@ class TestParallelAPIFetcherFetchAllData:
 class TestParallelAPIFetcherFetchMetrics:
     """Tests for _fetch_metrics method"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_metrics_success(self, mock_api_call, mock_cja, mock_logger,
                                     mock_perf_tracker, sample_metrics_data):
         """Test successful metrics fetching"""
@@ -235,7 +235,7 @@ class TestParallelAPIFetcherFetchMetrics:
         assert len(result) == 2
         mock_api_call.assert_called_once()
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_metrics_returns_none(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of None response from API"""
         mock_api_call.return_value = None
@@ -246,7 +246,7 @@ class TestParallelAPIFetcherFetchMetrics:
         assert result.empty
         mock_logger.warning.assert_called()
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_metrics_returns_empty_df(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of empty DataFrame response"""
         mock_api_call.return_value = pd.DataFrame()
@@ -256,7 +256,7 @@ class TestParallelAPIFetcherFetchMetrics:
 
         assert result.empty
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_metrics_attribute_error(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of AttributeError (API method not available)"""
         mock_api_call.side_effect = AttributeError("getMetrics not available")
@@ -267,7 +267,7 @@ class TestParallelAPIFetcherFetchMetrics:
         assert result.empty
         mock_logger.error.assert_called()
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_metrics_generic_exception(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of generic exception"""
         mock_api_call.side_effect = Exception("Network error")
@@ -282,7 +282,7 @@ class TestParallelAPIFetcherFetchMetrics:
 class TestParallelAPIFetcherFetchDimensions:
     """Tests for _fetch_dimensions method"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dimensions_success(self, mock_api_call, mock_cja, mock_logger,
                                        mock_perf_tracker, sample_dimensions_data):
         """Test successful dimensions fetching"""
@@ -294,7 +294,7 @@ class TestParallelAPIFetcherFetchDimensions:
         assert not result.empty
         assert len(result) == 2
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dimensions_returns_none(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of None response"""
         mock_api_call.return_value = None
@@ -304,7 +304,7 @@ class TestParallelAPIFetcherFetchDimensions:
 
         assert result.empty
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dimensions_attribute_error(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of AttributeError"""
         mock_api_call.side_effect = AttributeError("getDimensions not available")
@@ -315,7 +315,7 @@ class TestParallelAPIFetcherFetchDimensions:
         assert result.empty
         mock_logger.error.assert_called()
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dimensions_generic_exception(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of generic exception"""
         mock_api_call.side_effect = Exception("API timeout")
@@ -329,7 +329,7 @@ class TestParallelAPIFetcherFetchDimensions:
 class TestParallelAPIFetcherFetchDataviewInfo:
     """Tests for _fetch_dataview_info method"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dataview_info_success(self, mock_api_call, mock_cja, mock_logger,
                                           mock_perf_tracker, sample_dataview_info):
         """Test successful dataview info fetching"""
@@ -341,7 +341,7 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result == sample_dataview_info
         assert result['name'] == 'Test Data View'
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dataview_info_returns_none(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of None response"""
         mock_api_call.return_value = None
@@ -353,7 +353,7 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result['id'] == 'dv_test_12345'
         mock_logger.error.assert_called()
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dataview_info_returns_empty_dict(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of empty dict response"""
         mock_api_call.return_value = {}
@@ -364,7 +364,7 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result['name'] == 'Unknown'
         assert result['id'] == 'dv_test_12345'
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
     def test_fetch_dataview_info_exception(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of exception"""
         mock_api_call.side_effect = Exception("API error")
@@ -380,8 +380,8 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 class TestParallelAPIFetcherErrorHandling:
     """Tests for error handling scenarios"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_partial_failure_continues(self, mock_tqdm, mock_api_call, mock_cja,
                                         mock_logger, mock_perf_tracker,
                                         sample_dimensions_data, sample_dataview_info):
@@ -412,8 +412,8 @@ class TestParallelAPIFetcherErrorHandling:
         assert not dimensions.empty
         assert dataview == sample_dataview_info
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_all_failures_return_empty(self, mock_tqdm, mock_api_call, mock_cja,
                                         mock_logger, mock_perf_tracker):
         """Test that all failures return empty/default values"""
@@ -436,8 +436,8 @@ class TestParallelAPIFetcherErrorHandling:
 class TestParallelAPIFetcherLogging:
     """Tests for logging behavior"""
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_logs_start_message(self, mock_tqdm, mock_api_call, mock_cja,
                                  mock_logger, mock_perf_tracker):
         """Test that starting message is logged"""
@@ -453,8 +453,8 @@ class TestParallelAPIFetcherLogging:
         calls = [str(c) for c in mock_logger.info.call_args_list]
         assert any("parallel" in c.lower() for c in calls)
 
-    @patch('cja_auto_sdr.generator.make_api_call_with_retry')
-    @patch('cja_auto_sdr.generator.tqdm')
+    @patch('cja_auto_sdr.api.fetch.make_api_call_with_retry')
+    @patch('cja_auto_sdr.api.fetch.tqdm')
     def test_logs_completion_summary(self, mock_tqdm, mock_api_call, mock_cja,
                                       mock_logger, mock_perf_tracker, sample_metrics_data):
         """Test that completion summary is logged"""
