@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 __all__ = ["write_json_output"]
 
 from cja_auto_sdr.core.lazy import make_getattr

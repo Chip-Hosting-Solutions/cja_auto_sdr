@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """Pipeline models (current implementation lives in generator)."""
 
 __all__ = ["ProcessingResult"]

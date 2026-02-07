@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """Interactive CLI flows (current implementation lives in generator)."""
 
 __all__ = [

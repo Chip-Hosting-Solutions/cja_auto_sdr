@@ -1,4 +1,3 @@
-# ruff: noqa: F822
 """Batch processing (current implementation lives in generator)."""
 
 __all__ = ["BatchProcessor"]

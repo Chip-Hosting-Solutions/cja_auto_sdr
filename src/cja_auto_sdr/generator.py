@@ -2402,7 +2402,7 @@ def _format_side_by_side(
         new_wrapped.extend([""] * (max_lines - len(new_wrapped)))
 
         # Output each line
-        for old_line, new_line in zip(old_wrapped, new_wrapped):
+        for old_line, new_line in zip(old_wrapped, new_wrapped, strict=True):
             lines.append(f"    │ {old_line:<{col_width}} │ {new_line:<{col_width}} │")
 
     lines.append(f"    └{'─' * (col_width + 2)}┴{'─' * (col_width + 2)}┘")
@@ -2501,8 +2501,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("")
         lines.append(ANSIColors.green(f"ADDED ({len(added)})", c))
         added_to_show = added if limit == 0 else added[:limit]
-        for diff in added_to_show:
-            lines.append(f"  [+] {diff.id}")
+        lines.extend(f"  [+] {diff.id}" for diff in added_to_show)
         if limit > 0 and len(added) > limit:
             lines.append(f"  ... and {len(added) - limit} more")
 
@@ -2510,8 +2509,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("")
         lines.append(ANSIColors.red(f"REMOVED ({len(removed)})", c))
         removed_to_show = removed if limit == 0 else removed[:limit]
-        for diff in removed_to_show:
-            lines.append(f"  [-] {diff.id}")
+        lines.extend(f"  [-] {diff.id}" for diff in removed_to_show)
         if limit > 0 and len(removed) > limit:
             lines.append(f"  ... and {len(removed) - limit} more")
 
@@ -3534,16 +3532,15 @@ def write_diff_excel_output(
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
                     return
 
-                rows = []
-                for diff in diffs:
-                    rows.append(
-                        {
-                            "Status": diff.change_type.value.upper(),
-                            "ID": diff.id,
-                            "Name": diff.name,
-                            "Details": _get_change_detail(diff),
-                        }
-                    )
+                rows = [
+                    {
+                        "Status": diff.change_type.value.upper(),
+                        "ID": diff.id,
+                        "Name": diff.name,
+                        "Details": _get_change_detail(diff),
+                    }
+                    for diff in diffs
+                ]
 
                 df = pd.DataFrame(rows)
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -3579,16 +3576,15 @@ def write_diff_excel_output(
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
                     return
 
-                rows = []
-                for diff in diffs:
-                    rows.append(
-                        {
-                            "Status": diff.change_type.value.upper(),
-                            "ID": diff.id,
-                            "Name": diff.name,
-                            "Details": _get_inventory_change_detail(diff),
-                        }
-                    )
+                rows = [
+                    {
+                        "Status": diff.change_type.value.upper(),
+                        "ID": diff.id,
+                        "Name": diff.name,
+                        "Details": _get_inventory_change_detail(diff),
+                    }
+                    for diff in diffs
+                ]
 
                 df = pd.DataFrame(rows)
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -3736,16 +3732,15 @@ def write_diff_csv_output(
             if changes_only:
                 diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
-            rows = []
-            for diff in diffs:
-                rows.append(
-                    {
-                        "status": diff.change_type.value,
-                        "id": diff.id,
-                        "name": diff.name,
-                        "details": _get_change_detail(diff),
-                    }
-                )
+            rows = [
+                {
+                    "status": diff.change_type.value,
+                    "id": diff.id,
+                    "name": diff.name,
+                    "details": _get_change_detail(diff),
+                }
+                for diff in diffs
+            ]
 
             pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
             logger.info(f"  Created: {filename}")
@@ -3761,16 +3756,15 @@ def write_diff_csv_output(
             if changes_only:
                 diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
-            rows = []
-            for diff in diffs:
-                rows.append(
-                    {
-                        "status": diff.change_type.value,
-                        "id": diff.id,
-                        "name": diff.name,
-                        "details": _get_inventory_change_detail(diff),
-                    }
-                )
+            rows = [
+                {
+                    "status": diff.change_type.value,
+                    "id": diff.id,
+                    "name": diff.name,
+                    "details": _get_inventory_change_detail(diff),
+                }
+                for diff in diffs
+            ]
 
             pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
             logger.info(f"  Created: {filename}")
@@ -3911,18 +3905,16 @@ def display_inventory_summary(
         summary["inventories"]["derived_fields"] = derived_summary
 
         # Collect high-complexity items (>=70)
-        for field in derived_inventory.fields:
-            if field.complexity_score >= 70:
-                high_complexity_items.append(
-                    {
-                        "type": "Derived Field",
-                        "name": field.component_name,
-                        "complexity": field.complexity_score,
-                        "summary": field.logic_summary[:60] + "..."
-                        if len(field.logic_summary) > 60
-                        else field.logic_summary,
-                    }
-                )
+        high_complexity_items.extend(
+            {
+                "type": "Derived Field",
+                "name": field.component_name,
+                "complexity": field.complexity_score,
+                "summary": field.logic_summary[:60] + "..." if len(field.logic_summary) > 60 else field.logic_summary,
+            }
+            for field in derived_inventory.fields
+            if field.complexity_score >= 70
+        )
 
     # Process calculated metrics inventory
     if calculated_inventory:
@@ -3930,18 +3922,18 @@ def display_inventory_summary(
         summary["inventories"]["calculated_metrics"] = calc_summary
 
         # Collect high-complexity items (>=70)
-        for metric in calculated_inventory.metrics:
-            if metric.complexity_score >= 70:
-                high_complexity_items.append(
-                    {
-                        "type": "Calculated Metric",
-                        "name": metric.metric_name,
-                        "complexity": metric.complexity_score,
-                        "summary": metric.formula_summary[:60] + "..."
-                        if len(metric.formula_summary) > 60
-                        else metric.formula_summary,
-                    }
-                )
+        high_complexity_items.extend(
+            {
+                "type": "Calculated Metric",
+                "name": metric.metric_name,
+                "complexity": metric.complexity_score,
+                "summary": metric.formula_summary[:60] + "..."
+                if len(metric.formula_summary) > 60
+                else metric.formula_summary,
+            }
+            for metric in calculated_inventory.metrics
+            if metric.complexity_score >= 70
+        )
 
     # Process segments inventory
     if segments_inventory:
@@ -3949,18 +3941,18 @@ def display_inventory_summary(
         summary["inventories"]["segments"] = seg_summary
 
         # Collect high-complexity items (>=70)
-        for segment in segments_inventory.segments:
-            if segment.complexity_score >= 70:
-                high_complexity_items.append(
-                    {
-                        "type": "Segment",
-                        "name": segment.segment_name,
-                        "complexity": segment.complexity_score,
-                        "summary": segment.definition_summary[:60] + "..."
-                        if len(segment.definition_summary) > 60
-                        else segment.definition_summary,
-                    }
-                )
+        high_complexity_items.extend(
+            {
+                "type": "Segment",
+                "name": segment.segment_name,
+                "complexity": segment.complexity_score,
+                "summary": segment.definition_summary[:60] + "..."
+                if len(segment.definition_summary) > 60
+                else segment.definition_summary,
+            }
+            for segment in segments_inventory.segments
+            if segment.complexity_score >= 70
+        )
 
     # Sort high-complexity items by score descending
     high_complexity_items.sort(key=lambda x: x["complexity"], reverse=True)
@@ -7119,13 +7111,14 @@ def _format_as_table(
     labels = col_labels or [c.replace("_", " ").title() for c in columns]
     widths = [
         max(len(lbl), max((len(str(item.get(col, ""))) for item in items), default=0)) + 2
-        for col, lbl in zip(columns, labels)
+        for col, lbl in zip(columns, labels, strict=True)
     ]
     lines: list[str] = ["", header_line, ""]
-    lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths)))
+    lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths, strict=True)))
     lines.append("-" * sum(widths))
-    for item in items:
-        lines.append("".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths)))
+    lines.extend(
+        "".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)) for item in items
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -7306,7 +7299,7 @@ def _fetch_dataviews(output_format: str) -> Callable:
             cols = ["id", "name", "owner"]
             widths = [
                 max(len(lbl), max((len(str(item.get(col, ""))) for item in display_data), default=0)) + 2
-                for col, lbl in zip(cols, labels)
+                for col, lbl in zip(cols, labels, strict=True)
             ]
             total_width = sum(widths)
             footer_lines = [
@@ -7409,8 +7402,7 @@ def _fetch_connections(output_format: str) -> Callable:
                     lines.append("")
                     lines.append(f"Found {len(derived)} connection(s) referenced by data views:")
                     lines.append("")
-                    for d in derived:
-                        lines.append(f"  {d['id']}  ({d['dataview_count']} data view(s))")
+                    lines.extend(f"  {d['id']}  ({d['dataview_count']} data view(s))" for d in derived)
                     lines.append("")
                     return "\n".join(lines)
 
@@ -7450,16 +7442,16 @@ def _fetch_connections(output_format: str) -> Callable:
             flat_rows: list[dict] = []
             for conn in display_data:
                 if conn["datasets"]:
-                    for ds in conn["datasets"]:
-                        flat_rows.append(
-                            {
-                                "connection_id": conn["id"],
-                                "connection_name": conn["name"],
-                                "owner": conn["owner"],
-                                "dataset_id": ds["id"],
-                                "dataset_name": ds["name"],
-                            }
-                        )
+                    flat_rows.extend(
+                        {
+                            "connection_id": conn["id"],
+                            "connection_name": conn["name"],
+                            "owner": conn["owner"],
+                            "dataset_id": ds["id"],
+                            "dataset_name": ds["name"],
+                        }
+                        for ds in conn["datasets"]
+                    )
                 else:
                     flat_rows.append(
                         {
@@ -7611,17 +7603,17 @@ def _fetch_datasets(output_format: str) -> Callable:
                 conn_id = entry["connection"]["id"]
                 conn_name_val = entry["connection"]["name"] or ""
                 if entry["datasets"]:
-                    for ds in entry["datasets"]:
-                        flat_rows.append(
-                            {
-                                "dataview_id": entry["id"],
-                                "dataview_name": entry["name"],
-                                "connection_id": conn_id,
-                                "connection_name": conn_name_val,
-                                "dataset_id": ds["id"],
-                                "dataset_name": ds["name"],
-                            }
-                        )
+                    flat_rows.extend(
+                        {
+                            "dataview_id": entry["id"],
+                            "dataview_name": entry["name"],
+                            "connection_id": conn_id,
+                            "connection_name": conn_name_val,
+                            "dataset_id": ds["id"],
+                            "dataset_name": ds["name"],
+                        }
+                        for ds in entry["datasets"]
+                    )
                 else:
                     flat_rows.append(
                         {
@@ -7655,8 +7647,7 @@ def _fetch_datasets(output_format: str) -> Callable:
                     lines.append(f"Connection: {c_id}")
                 if entry["datasets"]:
                     lines.append(f"Datasets ({len(entry['datasets'])}):")
-                    for ds in entry["datasets"]:
-                        lines.append(f"  {ds['id']}  {ds['name']}")
+                    lines.extend(f"  {ds['id']}  {ds['name']}" for ds in entry["datasets"])
                 elif not _no_conn_details:
                     lines.append("Datasets: (none)")
                 lines.append("")
@@ -9809,17 +9800,17 @@ def write_org_report_excel(
         if result.clusters:
             cluster_data = []
             for cluster in result.clusters:
-                for dv_id, dv_name in zip(cluster.data_view_ids, cluster.data_view_names):
-                    cluster_data.append(
-                        {
-                            "Cluster ID": cluster.cluster_id,
-                            "Cluster Name": cluster.cluster_name or f"Cluster {cluster.cluster_id}",
-                            "Cluster Size": cluster.size,
-                            "Cohesion": cluster.cohesion_score,
-                            "Data View ID": dv_id,
-                            "Data View Name": dv_name,
-                        }
-                    )
+                cluster_data.extend(
+                    {
+                        "Cluster ID": cluster.cluster_id,
+                        "Cluster Name": cluster.cluster_name or f"Cluster {cluster.cluster_id}",
+                        "Cluster Size": cluster.size,
+                        "Cohesion": cluster.cohesion_score,
+                        "Data View ID": dv_id,
+                        "Data View Name": dv_name,
+                    }
+                    for dv_id, dv_name in zip(cluster.data_view_ids, cluster.data_view_names, strict=True)
+                )
             if cluster_data:
                 cluster_df = pd.DataFrame(cluster_data)
                 cluster_df.to_excel(writer, sheet_name="Clusters", index=False)
@@ -9833,23 +9824,22 @@ def write_org_report_excel(
 
         # Sheet 6: Recommendations
         if result.recommendations:
-            rec_data = []
-            for rec in result.recommendations:
-                rec_data.append(
-                    {
-                        "Type": rec.get("type", ""),
-                        "Severity": rec.get("severity", ""),
-                        "Description": rec.get("reason", ""),
-                        "Data View": rec.get("data_view", rec.get("data_view_1", "")),
-                        "Details": json.dumps(
-                            {
-                                k: v
-                                for k, v in rec.items()
-                                if k not in ["type", "severity", "reason", "data_view", "data_view_1"]
-                            }
-                        ),
-                    }
-                )
+            rec_data = [
+                {
+                    "Type": rec.get("type", ""),
+                    "Severity": rec.get("severity", ""),
+                    "Description": rec.get("reason", ""),
+                    "Data View": rec.get("data_view", rec.get("data_view_1", "")),
+                    "Details": json.dumps(
+                        {
+                            k: v
+                            for k, v in rec.items()
+                            if k not in ["type", "severity", "reason", "data_view", "data_view_1"]
+                        }
+                    ),
+                }
+                for rec in result.recommendations
+            ]
             rec_df = pd.DataFrame(rec_data)
             rec_df.to_excel(writer, sheet_name="Recommendations", index=False)
             worksheet = writer.sheets["Recommendations"]
@@ -10459,20 +10449,19 @@ def write_org_report_csv(
     summary_df.to_csv(summary_path, index=False)
 
     # 2. Data Views CSV
-    dv_data = []
-    for dv in result.data_view_summaries:
-        dv_data.append(
-            {
-                "Data View ID": dv.data_view_id,
-                "Data View Name": dv.data_view_name,
-                "Metrics Count": dv.metric_count,
-                "Dimensions Count": dv.dimension_count,
-                "Total Components": dv.total_components,
-                "Status": dv.status,
-                "Error": dv.error or "",
-                "Fetch Duration (s)": round(dv.fetch_duration, 3),
-            }
-        )
+    dv_data = [
+        {
+            "Data View ID": dv.data_view_id,
+            "Data View Name": dv.data_view_name,
+            "Metrics Count": dv.metric_count,
+            "Dimensions Count": dv.dimension_count,
+            "Total Components": dv.total_components,
+            "Status": dv.status,
+            "Error": dv.error or "",
+            "Fetch Duration (s)": round(dv.fetch_duration, 3),
+        }
+        for dv in result.data_view_summaries
+    ]
     dv_df = pd.DataFrame(dv_data)
     dv_path = csv_dir / "org_report_data_views.csv"
     dv_df.to_csv(dv_path, index=False)
@@ -10545,38 +10534,36 @@ def write_org_report_csv(
     # 5. Similarity CSV (if computed)
     if result.similarity_pairs:
         effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
-        sim_data = []
-        for pair in result.similarity_pairs:
-            sim_data.append(
-                {
-                    "Data View 1 ID": pair.dv1_id,
-                    "Data View 1 Name": pair.dv1_name,
-                    "Data View 2 ID": pair.dv2_id,
-                    "Data View 2 Name": pair.dv2_name,
-                    "Jaccard Similarity": pair.jaccard_similarity,
-                    "Shared Components": pair.shared_count,
-                    "Union Size": pair.union_count,
-                    "Overlap Threshold (Configured)": result.parameters.overlap_threshold,
-                    "Overlap Threshold (Effective)": effective_overlap_threshold,
-                }
-            )
+        sim_data = [
+            {
+                "Data View 1 ID": pair.dv1_id,
+                "Data View 1 Name": pair.dv1_name,
+                "Data View 2 ID": pair.dv2_id,
+                "Data View 2 Name": pair.dv2_name,
+                "Jaccard Similarity": pair.jaccard_similarity,
+                "Shared Components": pair.shared_count,
+                "Union Size": pair.union_count,
+                "Overlap Threshold (Configured)": result.parameters.overlap_threshold,
+                "Overlap Threshold (Effective)": effective_overlap_threshold,
+            }
+            for pair in result.similarity_pairs
+        ]
         sim_df = pd.DataFrame(sim_data)
         sim_path = csv_dir / "org_report_similarity.csv"
         sim_df.to_csv(sim_path, index=False)
 
     # 6. Recommendations CSV (if any)
     if result.recommendations:
-        rec_data = []
-        for rec in result.recommendations:
-            rec_data.append(
-                {
-                    "Type": rec.get("type", ""),
-                    "Severity": rec.get("severity", ""),
-                    "Description": rec.get("reason", ""),
-                    "Data View": rec.get("data_view", rec.get("data_view_1", "")),
-                    "Data View Name": rec.get("data_view_name", rec.get("data_view_1_name", "")),
-                }
-            )
+        rec_data = [
+            {
+                "Type": rec.get("type", ""),
+                "Severity": rec.get("severity", ""),
+                "Description": rec.get("reason", ""),
+                "Data View": rec.get("data_view", rec.get("data_view_1", "")),
+                "Data View Name": rec.get("data_view_name", rec.get("data_view_1_name", "")),
+            }
+            for rec in result.recommendations
+        ]
         rec_df = pd.DataFrame(rec_data)
         rec_path = csv_dir / "org_report_recommendations.csv"
         rec_df.to_csv(rec_path, index=False)
@@ -11653,12 +11640,7 @@ def main():
     """Main entry point for the script"""
 
     # Parse arguments (will show error and help if no data views provided)
-    try:
-        args = parse_arguments()
-    except SystemExit:
-        # argparse calls sys.exit() on error or --help
-        # Re-raise to maintain expected behavior
-        raise
+    args = parse_arguments()
 
     # Parse and validate --workers argument
     workers_auto = False
