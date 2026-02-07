@@ -6,6 +6,7 @@ for robust API communication.
 
 import functools
 import logging
+import os
 import random
 import threading
 import time
@@ -15,6 +16,24 @@ from typing import Any, TypeVar
 from cja_auto_sdr.core.config import CircuitBreakerConfig, CircuitState
 from cja_auto_sdr.core.constants import DEFAULT_RETRY_CONFIG, RETRYABLE_STATUS_CODES
 from cja_auto_sdr.core.exceptions import CircuitBreakerOpen, RetryableHTTPError
+
+
+def _effective_retry_config() -> dict[str, Any]:
+    """Return retry config with env-var overrides applied.
+
+    CLI arguments are propagated via environment variables so that both
+    the main process and spawned workers pick them up without mutating
+    the module-level DEFAULT_RETRY_CONFIG dict.
+    """
+    cfg = dict(DEFAULT_RETRY_CONFIG)
+    if "MAX_RETRIES" in os.environ:
+        cfg["max_retries"] = int(os.environ["MAX_RETRIES"])
+    if "RETRY_BASE_DELAY" in os.environ:
+        cfg["base_delay"] = float(os.environ["RETRY_BASE_DELAY"])
+    if "RETRY_MAX_DELAY" in os.environ:
+        cfg["max_delay"] = float(os.environ["RETRY_MAX_DELAY"])
+    return cfg
+
 
 T = TypeVar("T")
 
@@ -789,11 +808,12 @@ def make_api_call_with_retry[T](
         )
     """
     _logger = logger or logging.getLogger(__name__)
-    max_retries = DEFAULT_RETRY_CONFIG["max_retries"]
-    base_delay = DEFAULT_RETRY_CONFIG["base_delay"]
-    max_delay = DEFAULT_RETRY_CONFIG["max_delay"]
-    exponential_base = DEFAULT_RETRY_CONFIG["exponential_base"]
-    jitter = DEFAULT_RETRY_CONFIG["jitter"]
+    _cfg = _effective_retry_config()
+    max_retries = _cfg["max_retries"]
+    base_delay = _cfg["base_delay"]
+    max_delay = _cfg["max_delay"]
+    exponential_base = _cfg["exponential_base"]
+    jitter = _cfg["jitter"]
 
     # Check circuit breaker before attempting any calls
     if circuit_breaker is not None and not circuit_breaker.allow_request():
