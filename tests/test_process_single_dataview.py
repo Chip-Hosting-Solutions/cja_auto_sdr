@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import (
     process_single_dataview,
     process_single_dataview_worker,
-    ProcessingResult
+    ProcessingResult,
+    WorkerArgs,
 )
 
 
@@ -552,24 +553,10 @@ class TestProcessSingleDataviewWorker:
         )
         mock_process.return_value = expected_result
 
-        args = (
-            "dv_test_12345",  # data_view_id
-            "config.json",   # config_file
-            "/output",       # output_dir
-            "INFO",          # log_level
-            "text",          # log_format
-            "excel",         # output_format
-            False,           # enable_cache
-            1000,            # cache_size
-            3600,            # cache_ttl
-            False,           # quiet
-            False,           # skip_validation
-            0,               # max_issues
-            False,           # clear_cache
-            False,           # show_timings
-            False,           # metrics_only
-            False,           # dimensions_only
-            None             # profile
+        args = WorkerArgs(
+            data_view_id="dv_test_12345",
+            config_file="config.json",
+            output_dir="/output",
         )
 
         result = process_single_dataview_worker(args)
@@ -578,9 +565,10 @@ class TestProcessSingleDataviewWorker:
         mock_process.assert_called_once_with(
             "dv_test_12345", "config.json", "/output", "INFO", "text", "excel",
             False, 1000, 3600, False, False, 0, False, False, False, False,
-            profile=None, shared_cache=None, api_tuning_config=None, circuit_breaker_config=None,
+            profile=None, shared_cache=None,
+            api_tuning_config=None, circuit_breaker_config=None,
             include_derived_inventory=False, include_calculated_metrics=False,
-            include_segments_inventory=False, inventory_only=False, inventory_order=None
+            include_segments_inventory=False, inventory_only=False, inventory_order=None,
         )
 
 
