@@ -777,6 +777,38 @@ class TestListDatasetsArgs:
             assert args.profile == 'client-a'
 
 
+class TestDiscoveryMutualExclusivity:
+    """Test that discovery commands are mutually exclusive"""
+
+    def test_list_dataviews_and_connections_rejected(self):
+        """Test that --list-dataviews and --list-connections cannot be combined"""
+        test_args = ['cja_sdr_generator.py', '--list-dataviews', '--list-connections']
+        with patch.object(sys, 'argv', test_args):
+            with pytest.raises(SystemExit):
+                parse_arguments()
+
+    def test_list_dataviews_and_datasets_rejected(self):
+        """Test that --list-dataviews and --list-datasets cannot be combined"""
+        test_args = ['cja_sdr_generator.py', '--list-dataviews', '--list-datasets']
+        with patch.object(sys, 'argv', test_args):
+            with pytest.raises(SystemExit):
+                parse_arguments()
+
+    def test_list_connections_and_datasets_rejected(self):
+        """Test that --list-connections and --list-datasets cannot be combined"""
+        test_args = ['cja_sdr_generator.py', '--list-connections', '--list-datasets']
+        with patch.object(sys, 'argv', test_args):
+            with pytest.raises(SystemExit):
+                parse_arguments()
+
+    def test_all_three_rejected(self):
+        """Test that all three discovery flags cannot be combined"""
+        test_args = ['cja_sdr_generator.py', '--list-dataviews', '--list-connections', '--list-datasets']
+        with patch.object(sys, 'argv', test_args):
+            with pytest.raises(SystemExit):
+                parse_arguments()
+
+
 class TestExtractDatasetInfo:
     """Test _extract_dataset_info() helper"""
 

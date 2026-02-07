@@ -8378,22 +8378,23 @@ Requirements:
 
     discovery_group = parser.add_argument_group(
         'Discovery',
-        'Commands to explore available CJA resources'
+        'Commands to explore available CJA resources (mutually exclusive)'
     )
+    discovery_mx = discovery_group.add_mutually_exclusive_group()
 
-    discovery_group.add_argument(
+    discovery_mx.add_argument(
         '--list-dataviews',
         action='store_true',
         help='List all accessible data views and exit (no data view ID required)'
     )
 
-    discovery_group.add_argument(
+    discovery_mx.add_argument(
         '--list-connections',
         action='store_true',
         help='List all accessible connections with their datasets and exit'
     )
 
-    discovery_group.add_argument(
+    discovery_mx.add_argument(
         '--list-datasets',
         action='store_true',
         help='List all data views with their backing connections and datasets, then exit'
