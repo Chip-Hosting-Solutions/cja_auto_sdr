@@ -386,6 +386,22 @@ Available Data Views:
 > uv run cja_auto_sdr --list-dataviews --output - | jq '.dataViews[].id'
 > ```
 
+### 4.2a Explore Connections and Datasets (Optional)
+
+You can also explore the CJA infrastructure behind your data views:
+
+```bash
+# List all connections with their datasets
+uv run cja_auto_sdr --list-connections
+
+# List all data views with their backing connections and datasets
+uv run cja_auto_sdr --list-datasets
+```
+
+This is useful for understanding which datasets feed into which data views before generating an SDR.
+
+> **Note:** Full connection details require the API service account to be a CJA Product Admin. If you only see connection IDs (like `dg_...`) instead of names, see [Troubleshooting](TROUBLESHOOTING.md#connections-api-returns-empty-results) for how to grant the technical account admin rights.
+
 ### 4.3 Choose a Data View
 
 From the list above, note the **ID** of the Data View you want to document. It looks like:

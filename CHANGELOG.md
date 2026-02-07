@@ -7,6 +7,37 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-02-06
+
+### Highlights
+- **Connection Discovery** - List all accessible CJA connections with their datasets using `--list-connections`
+- **Dataset Discovery** - List all data views with their backing connections and datasets using `--list-datasets`
+- **Permissions Fallback** - When the API service account lacks product-admin privileges, both commands gracefully fall back to deriving connection IDs from data views instead of failing
+- **Mutually Exclusive Discovery** - `--list-dataviews`, `--list-connections`, and `--list-datasets` are now mutually exclusive at the CLI level
+
+### Added
+
+#### Connection & Dataset Discovery
+- New `--list-connections` flag to list all accessible connections with their datasets
+- New `--list-datasets` flag to list all data views with their backing connections and dataset details
+- Both commands support `--format json/csv` and `--output` for machine-readable output
+- Both commands support `--profile` for multi-org credential selection
+- Permissions fallback: when `GET /data/connections` returns empty (service account not a CJA Product Admin), connection IDs are derived from data view `parentDataGroupId` fields with an informative warning
+- Shared `_run_list_command()` boilerplate for all discovery commands (profile resolution, CJA config, banner, error handling)
+- Output routing via `_emit_output()` — handles file, stdout pipe, or console output
+
+#### CLI Improvements
+- Discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`) are now mutually exclusive via argparse `add_mutually_exclusive_group()`
+
+### Testing
+- Added tests for `--list-connections` table, JSON, CSV output and no-results handling
+- Added tests for `--list-datasets` table, JSON, CSV output with multi-dataset connections
+- Added tests for permissions fallback paths (empty connections with data view derivation)
+- Added tests for mutual exclusivity of discovery commands
+- Test count: 1,275
+
+---
+
 ## [3.2.0] - 2026-02-01
 
 ### Highlights

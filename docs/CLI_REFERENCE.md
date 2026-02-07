@@ -116,15 +116,15 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 
 **Format Availability by Mode:**
 
-| Format | SDR Generation | Diff Comparison | Org-Wide Analysis |
-|--------|----------------|-----------------|-------------------|
-| `excel` | ✓ (default) | ✓ | ✓ |
-| `csv` | ✓ | ✓ | ✓ |
-| `json` | ✓ | ✓ | ✓ |
-| `html` | ✓ | ✓ | ✓ |
-| `markdown` | ✓ | ✓ | ✓ |
-| `console` | ✗ | ✓ (default) | ✓ (default) |
-| `all` | ✓ | ✓ | ✓ |
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis | Discovery Commands |
+|--------|----------------|-----------------|-------------------|--------------------|
+| `excel` | ✓ (default) | ✓ | ✓ | ✗ |
+| `csv` | ✓ | ✓ | ✓ | ✓ |
+| `json` | ✓ | ✓ | ✓ | ✓ |
+| `html` | ✓ | ✓ | ✓ | ✗ |
+| `markdown` | ✓ | ✓ | ✓ | ✗ |
+| `console` | ✗ | ✓ (default) | ✓ (default) | ✓ (default) |
+| `all` | ✓ | ✓ | ✓ | ✗ |
 
 > **Note:** Console format is only supported for diff comparison and org-wide analysis. Using `--format console` with SDR generation will show an error with suggested alternatives.
 >
@@ -192,6 +192,8 @@ cja_auto_sdr --list-dataviews
 | `--validate-only` | Alias for --dry-run | False |
 | `--validate-config` | Validate config and API connectivity (no data view required) | False |
 | `--list-dataviews` | List accessible data views and exit. Supports `--format json/csv` and `--output -` for machine-readable output | False |
+| `--list-connections` | List all accessible connections with their datasets. Falls back to connection IDs derived from data views if the service account lacks product-admin privileges. Supports `--format json/csv` and `--output` | False |
+| `--list-datasets` | List all data views with their backing connections and dataset details. Shows connection names when available, IDs when not. Supports `--format json/csv` and `--output` | False |
 | `-i, --interactive` | Launch interactive mode for guided SDR generation. Walks through: data view selection, output format, and inventory options. Ideal for new users | False |
 | `--sample-config` | Generate sample config file and exit | False |
 
@@ -476,6 +478,27 @@ cja_auto_sdr --list-dataviews --format json
 # List data views to stdout for piping
 cja_auto_sdr --list-dataviews --output - | jq '.dataViews[].id'
 
+# List all accessible connections with their datasets
+cja_auto_sdr --list-connections
+
+# List connections in JSON format
+cja_auto_sdr --list-connections --format json
+
+# List connections in CSV and save to file
+cja_auto_sdr --list-connections --format csv --output connections.csv
+
+# List all data views with their backing connections and datasets
+cja_auto_sdr --list-datasets
+
+# List datasets in JSON format for scripting
+cja_auto_sdr --list-datasets --format json
+
+# Save dataset inventory to file
+cja_auto_sdr --list-datasets --format csv --output datasets.csv
+
+# Use a specific profile for discovery
+cja_auto_sdr --profile client-a --list-connections
+
 # Generate sample configuration
 cja_auto_sdr --sample-config
 
@@ -485,6 +508,10 @@ cja_auto_sdr --exit-codes
 # Validate config without generating report
 cja_auto_sdr dv_12345 --dry-run
 ```
+
+> **Note:** `--list-dataviews`, `--list-connections`, and `--list-datasets` are mutually exclusive — only one can be used at a time.
+>
+> **Note:** `--list-connections` requires the API service account to be a CJA Product Admin for full connection details (names, owners, datasets). Without admin privileges, the tool falls back to showing connection IDs derived from data views.
 
 ### Quick Statistics
 

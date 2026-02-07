@@ -65,6 +65,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Interactive Profile Setup | Create profiles interactively with `--profile-add` |
 | | Profile Testing | Validate credentials with `--profile-test` before use |
 | **Developer UX** | Quick Stats Mode | Get metrics/dimensions count instantly with `--stats` (no full report) |
+| | Connection & Dataset Discovery | `--list-connections` and `--list-datasets` for infrastructure inventory |
 | | Machine-Readable Discovery | `--list-dataviews --format json` for scripting integration |
 | | Dry-Run Mode | Test configuration without generating reports |
 | | Color-Coded Output | Green/yellow/red console feedback for instant status |
@@ -245,6 +246,8 @@ cja_auto_sdr "Production Analytics"
 | Quick stats (no full report) | `cja_auto_sdr dv_12345 --stats` |
 | Stats as JSON | `cja_auto_sdr dv_12345 --stats --format json` |
 | List Data Views | `cja_auto_sdr --list-dataviews` |
+| List Connections | `cja_auto_sdr --list-connections` |
+| List Data Views with Datasets | `cja_auto_sdr --list-datasets` |
 | List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
 | Interactive Data View selection | `cja_auto_sdr --interactive` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |

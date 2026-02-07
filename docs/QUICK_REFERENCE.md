@@ -1,20 +1,23 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.2.0.
+Single-page command cheat sheet for CJA SDR Generator v3.2.1.
 
-## Three Main Modes
+## Four Main Modes
 
 | Mode | Purpose | Output |
 |------|---------|--------|
 | **SDR Generation** | Document a data view's dimensions, metrics, and calculated metrics | Excel, CSV, JSON, HTML, Markdown reports |
 | **Diff Comparison** | Compare two data views or snapshots to identify changes | Side-by-side comparison showing added, removed, and modified components |
 | **Org-Wide Analysis** | Analyze component usage across all data views in an organization | Distribution reports, similarity matrix, governance recommendations |
+| **Discovery** | List data views, connections, and datasets in your CJA org | Console table, JSON, or CSV output |
 
 **SDR Generation** creates a Solution Design Reference—a comprehensive inventory of all components in a data view. Use this for documentation, audits, and onboarding.
 
 **Diff Comparison** identifies what changed between two data views or between a current state and a saved snapshot. Use this for change tracking, QA validation, and migration verification.
 
 **Org-Wide Analysis** examines all accessible data views to identify core components, detect duplicates, and provide governance insights. Use this for audits, standardization, and understanding your analytics landscape.
+
+**Discovery** lists the CJA infrastructure: data views, connections, and their backing datasets. Use this for onboarding, infrastructure audits, and understanding the data pipeline before generating SDRs.
 
 ## Running Commands
 
@@ -65,6 +68,12 @@ cja_auto_sdr --list-dataviews
 
 # List data views as JSON (for scripting)
 cja_auto_sdr --list-dataviews --format json
+
+# List all connections with their datasets
+cja_auto_sdr --list-connections
+
+# List all data views with their backing datasets
+cja_auto_sdr --list-datasets
 
 # Interactively select data views from a list
 cja_auto_sdr --interactive
@@ -273,15 +282,15 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 
 ### Format Support by Mode
 
-| Format | SDR | Diff | Org-Report | Description |
-|--------|-----|------|------------|-------------|
-| `excel` | ✅ (default) | ✅ | ✅ | Excel workbook |
-| `csv` | ✅ | ✅ | ✅ | Comma-separated values |
-| `json` | ✅ | ✅ | ✅ | JSON for integrations |
-| `html` | ✅ | ✅ | ✅ | Browser-viewable |
-| `markdown` | ✅ | ✅ | ✅ | Documentation-ready |
-| `console` | ❌ | ✅ (default) | ✅ (default) | Terminal output |
-| `all` | ✅ | ✅ | ✅ | All formats |
+| Format | SDR | Diff | Org-Report | Discovery | Description |
+|--------|-----|------|------------|-----------|-------------|
+| `excel` | ✅ (default) | ✅ | ✅ | ❌ | Excel workbook |
+| `csv` | ✅ | ✅ | ✅ | ✅ | Comma-separated values |
+| `json` | ✅ | ✅ | ✅ | ✅ | JSON for integrations |
+| `html` | ✅ | ✅ | ✅ | ❌ | Browser-viewable |
+| `markdown` | ✅ | ✅ | ✅ | ❌ | Documentation-ready |
+| `console` | ❌ | ✅ (default) | ✅ (default) | ✅ (default) | Terminal output |
+| `all` | ✅ | ✅ | ✅ | ❌ | All formats |
 
 ### Format Aliases (Shortcuts)
 

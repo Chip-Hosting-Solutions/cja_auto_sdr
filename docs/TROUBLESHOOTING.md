@@ -452,6 +452,32 @@ ERROR - Cannot list metrics or dimensions
 4. Add your service account or user to the profile
 5. Ensure the profile has access to the required Data Views
 
+### Connections API Returns Empty Results
+
+**Symptoms:**
+```
+Note: The GET /connections API requires product-admin privileges.
+Connection details are unavailable. Showing connection IDs derived
+from data views instead.
+```
+
+Or `--list-connections` shows `dg_...` IDs instead of connection names.
+
+**Cause:** The API **service account** (technical account) is not a CJA Product Admin. This is a common gotcha — even if **you** are a CJA Product Admin, the API authenticates as the technical account, which has separate permissions. The connections API returns 200 OK with an empty list instead of a 403 error, making this hard to diagnose.
+
+**Solution:**
+
+1. Go to [Adobe Developer Console](https://developer.adobe.com/console/)
+2. Open your project → click **OAuth Server-to-Server** in the left sidebar
+3. Copy the **Technical Account Email** (format: `<uuid>@techacct.adobe.com`)
+4. Go to [Adobe Admin Console](https://adminconsole.adobe.com/)
+5. Navigate to **Products** → **Customer Journey Analytics (Custom)** → **Admins** tab
+6. Click **"Add admin"** and paste the Technical Account Email
+7. Wait 5-10 minutes for permission propagation
+8. Re-run `--list-connections` — you should now see full connection names and details
+
+> **Key insight:** Your user account permissions and the API service account permissions are completely separate. Being a CJA Product Admin yourself does not grant the same access to the API's technical account.
+
 ### OAuth Scopes Missing or Incorrect
 
 **Symptoms:**
@@ -500,6 +526,7 @@ uv run cja_auto_sdr dv_12345 --include-segments --log-level DEBUG 2>&1 | grep -i
 - [ ] OAuth Server-to-Server authentication configured
 - [ ] Correct product profile(s) selected for both APIs
 - [ ] User/service account added to CJA product profile in Admin Console
+- [ ] Technical account email added as CJA Product Admin (required for `--list-connections` full details)
 - [ ] User/service account added to AEP product profile(s) in Admin Console
 - [ ] Scopes in config.json match Developer Console exactly
 
@@ -2186,6 +2213,8 @@ Get-Content (Get-ChildItem logs\*.log | Sort-Object LastWriteTime -Descending | 
 | `Cannot access sandbox` | Sandbox permission denied | Add sandbox access to product profile |
 | `Authentication failed: insufficient_scope` | Wrong OAuth scopes | Copy scopes exactly from Developer Console |
 | `Permission denied for schema access` | Missing AEP API for auth | Add AEP API to Developer Console project |
+| `Connection details are unavailable` | Technical account not a CJA Product Admin | Add technical account email as CJA Product Admin in Admin Console |
+| `Showing connection IDs derived from data views` | Connections API returns empty (not a 403) | Add technical account as CJA Product Admin — see [Connections API Returns Empty Results](#connections-api-returns-empty-results) |
 
 ### Data View Errors
 

@@ -13,6 +13,7 @@ Common scenarios and recommended practices for the CJA SDR Generator.
   - [Multi-Environment Comparison](#multi-environment-comparison)
   - [Compliance Documentation](#compliance-documentation)
   - [Migration Planning](#migration-planning)
+  - [Connection & Dataset Discovery](#connection--dataset-discovery)
   - [Data View Drift Detection (CI/CD)](#data-view-drift-detection-cicd)
   - [Automated Audit Trail](#automated-audit-trail)
   - [Multi-Organization Management](#multi-organization-management)
@@ -171,6 +172,39 @@ cja_auto_sdr dv_12345 --diff-snapshot ./migrations/pre-migration.json --format h
 # Compare two historical snapshots (no API calls needed)
 cja_auto_sdr --compare-snapshots ./migrations/pre-migration.json ./migrations/post-migration.json
 ```
+
+### Connection & Dataset Discovery
+
+Understand your CJA infrastructure before generating SDRs:
+- Inventory all connections and their backing datasets
+- Map which data views are connected to which datasets
+- Identify shared connections across multiple data views
+- Export connection/dataset inventories for governance documentation
+
+**Best for:** New team members, infrastructure audits, migration planning, governance reviews
+
+```bash
+# List all connections with their datasets
+cja_auto_sdr --list-connections
+
+# Export connection inventory as CSV for spreadsheet analysis
+cja_auto_sdr --list-connections --format csv --output connections.csv
+
+# List all data views with their backing connections and datasets
+cja_auto_sdr --list-datasets
+
+# Export dataset mapping as JSON for programmatic use
+cja_auto_sdr --list-datasets --format json --output datasets.json
+
+# Discover connections across multiple organizations
+for profile in client-a client-b; do
+  echo "=== $profile ==="
+  cja_auto_sdr --profile "$profile" --list-connections --format json \
+    --output "./inventory/${profile}_connections.json"
+done
+```
+
+> **Note:** Full connection details (names, owners, dataset names) require the API service account to be a CJA Product Admin. Without admin privileges, the tool shows connection IDs derived from data views. See [Troubleshooting](TROUBLESHOOTING.md#connections-api-returns-empty-results) for setup instructions.
 
 ### Data View Drift Detection (CI/CD)
 
