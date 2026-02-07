@@ -49,7 +49,7 @@ tests/
 | `test_ux_features.py` | 116 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 144 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 137 | Command-line interface and argument parsing |
+| `test_cli.py` | 141 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 41 | Inventory utilities and helpers |
