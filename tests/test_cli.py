@@ -10,7 +10,7 @@ import argparse
 
 # Import the function we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import parse_arguments, generate_sample_config, _extract_dataset_info, list_connections, list_datasets
+from cja_auto_sdr.generator import parse_arguments, generate_sample_config, _extract_dataset_info, list_connections, list_datasets, list_dataviews
 
 
 class TestCLIArguments:
@@ -1182,3 +1182,164 @@ class TestListDatasetsFunction:
         assert result is False
         error = json.loads(f.getvalue())
         assert error == {"error": "Configuration error: Missing credentials"}
+
+
+class TestFileOutput:
+    """Test that list commands write output to disk via --output."""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_json_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_connections writes JSON to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': {'name': 'Owner'},
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        out_file = str(tmp_path / "connections.json")
+        result = list_connections(output_format='json', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            output = json.load(f)
+        assert output['count'] == 1
+        assert output['connections'][0]['id'] == 'conn_1'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_csv_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_connections writes CSV to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': {'name': 'Owner'},
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        out_file = str(tmp_path / "connections.csv")
+        result = list_connections(output_format='csv', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            content = f.read()
+        lines = content.strip().split('\n')
+        assert lines[0] == 'connection_id,connection_name,owner,dataset_id,dataset_name'
+        assert 'conn_1' in lines[1]
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_json_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_datasets writes JSON to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Conn One',
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset'}]
+                }
+            ]
+        }
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View One', 'parentDataGroupId': 'conn_1'}
+        ]
+
+        out_file = str(tmp_path / "datasets.json")
+        result = list_datasets(output_format='json', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            output = json.load(f)
+        assert output['count'] == 1
+        assert output['dataViews'][0]['connection']['id'] == 'conn_1'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_dataviews_json_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_dataviews writes JSON to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'My View', 'owner': {'name': 'Test User'}}
+        ]
+
+        out_file = str(tmp_path / "dataviews.json")
+        result = list_dataviews(output_format='json', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            output = json.load(f)
+        assert output['count'] == 1
+        assert output['dataViews'][0]['id'] == 'dv_1'
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_table_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_connections writes table output to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test Conn',
+                    'owner': {'name': 'Owner'},
+                    'dataSets': [{'id': 'ds_1', 'name': 'Dataset One'}]
+                }
+            ]
+        }
+
+        out_file = str(tmp_path / "connections.txt")
+        result = list_connections(output_format='table', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            content = f.read()
+        assert 'conn_1' in content
+        assert 'Test Conn' in content
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_creates_parent_dirs(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test that --output creates parent directories if needed"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Test',
+                    'owner': {'name': 'Owner'},
+                    'dataSets': []
+                }
+            ]
+        }
+
+        out_file = str(tmp_path / "subdir" / "nested" / "connections.json")
+        result = list_connections(output_format='json', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            output = json.load(f)
+        assert output['count'] == 1
