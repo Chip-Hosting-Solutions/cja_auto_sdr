@@ -9757,6 +9757,58 @@ def _fetch_connections(output_format: str) -> Callable:
         connections = _extract_connections_list(raw_connections)
 
         if not connections:
+            # Check whether data views reference connections we can't see
+            # (the GET /connections API requires product-admin privileges).
+            available_dvs = cja.getDataViews()
+            if isinstance(available_dvs, pd.DataFrame):
+                available_dvs = available_dvs.to_dict('records')
+
+            conn_ids_from_dvs: dict[str, int] = {}  # conn_id -> count of data views
+            for dv in (available_dvs or []):
+                if not isinstance(dv, dict):
+                    continue
+                pid = dv.get('parentDataGroupId')
+                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                    conn_ids_from_dvs[pid] = conn_ids_from_dvs.get(pid, 0) + 1
+
+            if conn_ids_from_dvs:
+                # Permissions issue — derive connection IDs from data views
+                _PERM_WARNING = (
+                    "Note: The GET /connections API requires product-admin privileges.\n"
+                    "Connection details are unavailable. Showing connection IDs derived\n"
+                    "from data views instead."
+                )
+                derived = [{'id': cid, 'name': None, 'owner': None,
+                            'datasets': [], 'dataview_count': cnt}
+                           for cid, cnt in sorted(conn_ids_from_dvs.items())]
+
+                if output_format == 'json':
+                    return json.dumps({
+                        "connections": derived,
+                        "count": len(derived),
+                        "warning": _PERM_WARNING.replace('\n', ' '),
+                    }, indent=2)
+                elif output_format == 'csv':
+                    buf = io.StringIO(newline='')
+                    writer = csv.writer(buf, lineterminator='\n')
+                    writer.writerow(['connection_id', 'connection_name', 'owner',
+                                     'dataset_id', 'dataset_name', 'dataview_count'])
+                    for d in derived:
+                        writer.writerow([d['id'], '', '', '', '', d['dataview_count']])
+                    return buf.getvalue()
+                else:
+                    lines: list[str] = []
+                    lines.append("")
+                    lines.append(_PERM_WARNING)
+                    lines.append("")
+                    lines.append(f"Found {len(derived)} connection(s) referenced by data views:")
+                    lines.append("")
+                    for d in derived:
+                        lines.append(f"  {d['id']}  ({d['dataview_count']} data view(s))")
+                    lines.append("")
+                    return '\n'.join(lines)
+
+            # Genuinely no connections
             if is_machine_readable:
                 if output_format == 'json':
                     return json.dumps({"connections": [], "count": 0}, indent=2)
@@ -9865,6 +9917,17 @@ def _fetch_datasets(output_format: str) -> Callable:
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
             return "\nNo data views found or no access to any data views.\n"
 
+        # Detect permissions gap: conn_map is empty but data views have connections
+        _no_conn_details = False
+        if not conn_map:
+            for dv in (available_dvs or []):
+                if not isinstance(dv, dict):
+                    continue
+                pid = dv.get('parentDataGroupId')
+                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                    _no_conn_details = True
+                    break
+
         # Step 3: Build output records using parentDataGroupId
         if not is_machine_readable:
             print(f"Processing {len(available_dvs)} data view(s)...")
@@ -9884,9 +9947,9 @@ def _fetch_datasets(output_format: str) -> Callable:
             if parent_conn_id is not None and pd.isna(parent_conn_id):
                 parent_conn_id = None
 
-            conn_info = conn_map.get(parent_conn_id, {}) if parent_conn_id else {}
-            conn_name = conn_info.get('name', 'Unknown')
-            datasets = conn_info.get('datasets', [])
+            conn_info = conn_map.get(parent_conn_id) if parent_conn_id else None
+            conn_name = conn_info.get('name', 'N/A') if conn_info else None
+            datasets = conn_info.get('datasets', []) if conn_info else []
 
             display_data.append({
                 'id': dv_id,
@@ -9899,34 +9962,51 @@ def _fetch_datasets(output_format: str) -> Callable:
             # Clear progress line with ANSI erase-line escape
             print("\033[2K", end='\r')
 
+        _CONN_PERM_WARNING = (
+            "Note: Connection details are unavailable (the GET /connections API\n"
+            "requires product-admin privileges). Showing connection IDs only."
+        )
+
+        result_payload: dict = {"dataViews": display_data, "count": len(display_data)}
+        if _no_conn_details:
+            result_payload["warning"] = _CONN_PERM_WARNING.replace('\n', ' ')
+
         if output_format == 'json':
-            return json.dumps({"dataViews": display_data, "count": len(display_data)}, indent=2)
+            return json.dumps(result_payload, indent=2)
         elif output_format == 'csv':
             buf = io.StringIO(newline='')
             writer = csv.writer(buf, lineterminator='\n')
             writer.writerow(['dataview_id', 'dataview_name', 'connection_id', 'connection_name', 'dataset_id', 'dataset_name'])
             for entry in display_data:
                 conn_id = entry['connection']['id']
-                conn_name = entry['connection']['name']
+                conn_name_val = entry['connection']['name'] or ''
                 if entry['datasets']:
                     for ds in entry['datasets']:
-                        writer.writerow([entry['id'], entry['name'], conn_id, conn_name, ds['id'], ds['name']])
+                        writer.writerow([entry['id'], entry['name'], conn_id, conn_name_val, ds['id'], ds['name']])
                 else:
-                    writer.writerow([entry['id'], entry['name'], conn_id, conn_name, '', ''])
+                    writer.writerow([entry['id'], entry['name'], conn_id, conn_name_val, '', ''])
             return buf.getvalue()
         else:
             lines: list[str] = []
             lines.append("")
+            if _no_conn_details:
+                lines.append(_CONN_PERM_WARNING)
+                lines.append("")
             lines.append(f"Found {len(display_data)} data view(s) with dataset information:")
             lines.append("")
             for entry in display_data:
                 lines.append(f"Data View: {entry['name']} ({entry['id']})")
-                lines.append(f"Connection: {entry['connection']['name']} ({entry['connection']['id']})")
+                c_name = entry['connection']['name']
+                c_id = entry['connection']['id']
+                if c_name:
+                    lines.append(f"Connection: {c_name} ({c_id})")
+                else:
+                    lines.append(f"Connection: {c_id}")
                 if entry['datasets']:
                     lines.append(f"Datasets ({len(entry['datasets'])}):")
                     for ds in entry['datasets']:
                         lines.append(f"  {ds['id']}  {ds['name']}")
-                else:
+                elif not _no_conn_details:
                     lines.append("Datasets: (none)")
                 lines.append("")
             return '\n'.join(lines)

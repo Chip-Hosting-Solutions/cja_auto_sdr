@@ -898,10 +898,11 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_empty(self, mock_profile, mock_configure, mock_cjapy):
-        """Test list_connections with no connections"""
+        """Test list_connections with no connections and no data views"""
         mock_configure.return_value = (True, 'config', None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
 
         result = list_connections(output_format='table')
         assert result is True
@@ -910,10 +911,11 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_empty_json_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
-        """Test list_connections prints empty JSON payload to stdout"""
+        """Test list_connections prints empty JSON payload to stdout when genuinely empty"""
         mock_configure.return_value = (True, 'config', None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
 
         import io
         from contextlib import redirect_stdout
@@ -929,10 +931,11 @@ class TestListConnectionsFunction:
     @patch('cja_auto_sdr.generator.configure_cjapy')
     @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
     def test_list_connections_empty_csv_prints_stdout(self, mock_profile, mock_configure, mock_cjapy):
-        """Test list_connections prints empty CSV payload to stdout"""
+        """Test list_connections prints empty CSV payload to stdout when genuinely empty"""
         mock_configure.return_value = (True, 'config', None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = []
 
         import io
         from contextlib import redirect_stdout
@@ -1064,7 +1067,7 @@ class TestListDatasetsFunction:
 
         assert result is True
         output = json.loads(f.getvalue())
-        assert output['dataViews'][0]['connection']['name'] == 'Unknown'
+        assert output['dataViews'][0]['connection']['name'] is None
         assert output['dataViews'][0]['connection']['id'] == 'N/A'
         mock_cja_instance.getDataView.assert_not_called()
 
@@ -1413,3 +1416,142 @@ class TestFileOutput:
         assert 'ds_2' in lines[2]
         assert 'dv_1' in lines[1]
         assert 'conn_1' in lines[1]
+
+
+class TestConnectionsPermissionsFallback:
+    """Test fallback behaviour when getConnections returns empty due to missing admin privileges."""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_fallback_from_dataviews(self, mock_profile, mock_configure, mock_cjapy):
+        """getConnections empty + data views with parentDataGroupId → derived IDs + warning"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View A', 'parentDataGroupId': 'dg_abc'},
+            {'id': 'dv_2', 'name': 'View B', 'parentDataGroupId': 'dg_abc'},
+            {'id': 'dv_3', 'name': 'View C', 'parentDataGroupId': 'dg_xyz'},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'product-admin' in output.lower() or 'product-admin' in output
+        assert 'dg_abc' in output
+        assert 'dg_xyz' in output
+        assert '2 data view(s)' in output   # dg_abc has 2
+        assert '1 data view(s)' in output   # dg_xyz has 1
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_fallback_json(self, mock_profile, mock_configure, mock_cjapy):
+        """getConnections empty + data views → JSON includes warning and derived connections"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View A', 'parentDataGroupId': 'dg_abc'},
+            {'id': 'dv_2', 'name': 'View B', 'parentDataGroupId': 'dg_xyz'},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert 'warning' in output
+        assert output['count'] == 2
+        ids = [c['id'] for c in output['connections']]
+        assert 'dg_abc' in ids
+        assert 'dg_xyz' in ids
+        # name should be null for derived connections
+        for conn in output['connections']:
+            assert conn['name'] is None
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_connections_fallback_csv(self, mock_profile, mock_configure, mock_cjapy):
+        """getConnections empty + data views → CSV includes derived connections with dataview_count"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View A', 'parentDataGroupId': 'dg_abc'},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format='csv')
+
+        assert result is True
+        lines = f.getvalue().strip().split('\n')
+        assert 'dataview_count' in lines[0]
+        assert 'dg_abc' in lines[1]
+
+
+class TestDatasetsPermissionsFallback:
+    """Test list_datasets behaviour when connection details are unavailable."""
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_no_connection_details_table(self, mock_profile, mock_configure, mock_cjapy):
+        """conn_map empty + data views with parentDataGroupId → show ID without 'Unknown'"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View A', 'parentDataGroupId': 'dg_abc'},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='table')
+
+        assert result is True
+        output = f.getvalue()
+        assert 'Connection: dg_abc' in output
+        assert 'Unknown' not in output
+        assert 'Datasets: (none)' not in output
+        assert 'product-admin' in output.lower() or 'product-admin' in output
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_no_connection_details_json(self, mock_profile, mock_configure, mock_cjapy):
+        """conn_map empty + data views with parentDataGroupId → JSON uses null for connection_name"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {'content': []}
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View A', 'parentDataGroupId': 'dg_abc'},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(output_format='json')
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert 'warning' in output
+        assert output['dataViews'][0]['connection']['name'] is None
+        assert output['dataViews'][0]['connection']['id'] == 'dg_abc'
+        assert output['dataViews'][0]['datasets'] == []
