@@ -7,17 +7,16 @@ Validates that logging optimizations work correctly:
 4. Summary logging
 5. Performance tracker logging levels
 """
-import pytest
-import sys
+
 import logging
 import os
+import sys
 from unittest.mock import patch
+
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import (
-    setup_logging, DataQualityChecker, PerformanceTracker, parse_arguments
-)
+from cja_auto_sdr.generator import DataQualityChecker, PerformanceTracker, parse_arguments, setup_logging
 
 
 class TestProductionMode:
@@ -25,16 +24,16 @@ class TestProductionMode:
 
     def test_production_flag_parsing(self):
         """Test that --production flag is recognized"""
-        test_args = ['cja_sdr_generator.py', '--production', 'dv_12345']
-        with patch.object(sys, 'argv', test_args):
+        test_args = ["cja_sdr_generator.py", "--production", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
             args = parse_arguments()
-            assert hasattr(args, 'production')
+            assert hasattr(args, "production")
             assert args.production is True
 
     def test_production_flag_default_false(self):
         """Test that production flag defaults to False"""
-        test_args = ['cja_sdr_generator.py', 'dv_12345']
-        with patch.object(sys, 'argv', test_args):
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
             args = parse_arguments()
             assert args.production is False
 
@@ -44,22 +43,22 @@ class TestEnvironmentVariable:
 
     def test_env_var_sets_log_level(self):
         """Test that LOG_LEVEL environment variable works"""
-        with patch.dict(os.environ, {'LOG_LEVEL': 'WARNING'}):
-            logger = setup_logging('test_dv', batch_mode=False)
+        with patch.dict(os.environ, {"LOG_LEVEL": "WARNING"}):
+            setup_logging("test_dv", batch_mode=False)
             # Check root logger level since basicConfig sets it
             assert logging.root.level == logging.WARNING
 
     def test_env_var_overridden_by_parameter(self):
         """Test that explicit parameter overrides environment variable"""
-        with patch.dict(os.environ, {'LOG_LEVEL': 'WARNING'}):
-            logger = setup_logging('test_dv', batch_mode=False, log_level='DEBUG')
+        with patch.dict(os.environ, {"LOG_LEVEL": "WARNING"}):
+            setup_logging("test_dv", batch_mode=False, log_level="DEBUG")
             # Check root logger level
             assert logging.root.level == logging.DEBUG
 
     def test_invalid_env_var_falls_back_to_info(self):
         """Test that invalid LOG_LEVEL falls back to INFO"""
-        with patch.dict(os.environ, {'LOG_LEVEL': 'INVALID'}):
-            logger = setup_logging('test_dv', batch_mode=False)
+        with patch.dict(os.environ, {"LOG_LEVEL": "INVALID"}):
+            setup_logging("test_dv", batch_mode=False)
             # Check root logger level
             assert logging.root.level == logging.INFO
 
@@ -76,16 +75,16 @@ class TestDataQualityLogging:
 
         with caplog.at_level(logging.INFO):
             dq_checker.add_issue(
-                severity='LOW',
-                category='Test',
-                item_type='Metrics',
-                item_name='test_metric',
-                description='Low severity test issue',
-                details='Details'
+                severity="LOW",
+                category="Test",
+                item_type="Metrics",
+                item_name="test_metric",
+                description="Low severity test issue",
+                details="Details",
             )
 
         # Should NOT have individual log entry for LOW severity
-        assert not any('Low severity test issue' in record.message for record in caplog.records)
+        assert not any("Low severity test issue" in record.message for record in caplog.records)
 
     def test_critical_issues_logged_in_warning_mode(self, caplog):
         """Test that CRITICAL issues are logged even in WARNING mode"""
@@ -96,16 +95,16 @@ class TestDataQualityLogging:
 
         with caplog.at_level(logging.WARNING):
             dq_checker.add_issue(
-                severity='CRITICAL',
-                category='Test',
-                item_type='Metrics',
-                item_name='test_metric',
-                description='Critical issue',
-                details='Details'
+                severity="CRITICAL",
+                category="Test",
+                item_type="Metrics",
+                item_name="test_metric",
+                description="Critical issue",
+                details="Details",
             )
 
         # Should have warning log entry for CRITICAL severity
-        assert any('CRITICAL' in record.message for record in caplog.records)
+        assert any("CRITICAL" in record.message for record in caplog.records)
 
     def test_all_issues_logged_in_debug_mode(self, caplog):
         """Test that all issues are logged in DEBUG mode"""
@@ -116,16 +115,16 @@ class TestDataQualityLogging:
 
         with caplog.at_level(logging.DEBUG):
             dq_checker.add_issue(
-                severity='LOW',
-                category='Test',
-                item_type='Metrics',
-                item_name='test_metric',
-                description='Debug test issue',
-                details='Details'
+                severity="LOW",
+                category="Test",
+                item_type="Metrics",
+                item_name="test_metric",
+                description="Debug test issue",
+                details="Details",
             )
 
         # Should have debug log entry
-        assert any('Debug test issue' in record.message for record in caplog.records)
+        assert any("Debug test issue" in record.message for record in caplog.records)
 
 
 class TestSummaryLogging:
@@ -142,7 +141,7 @@ class TestSummaryLogging:
             dq_checker.log_summary()
 
         # Should log success message
-        assert any('No data quality issues found' in record.message for record in caplog.records)
+        assert any("No data quality issues found" in record.message for record in caplog.records)
 
     def test_summary_with_multiple_issues(self, caplog):
         """Test summary logging with multiple issues"""
@@ -154,20 +153,20 @@ class TestSummaryLogging:
         # Add multiple issues
         for i in range(5):
             dq_checker.add_issue(
-                severity='MEDIUM',
-                category='Test',
-                item_type='Metrics',
-                item_name=f'metric_{i}',
-                description=f'Issue {i}',
-                details=''
+                severity="MEDIUM",
+                category="Test",
+                item_type="Metrics",
+                item_name=f"metric_{i}",
+                description=f"Issue {i}",
+                details="",
             )
 
         with caplog.at_level(logging.INFO):
             dq_checker.log_summary()
 
         # Should have summary with count
-        assert any('5 issue(s)' in record.message for record in caplog.records)
-        assert any('MEDIUM: 5' in record.message for record in caplog.records)
+        assert any("5 issue(s)" in record.message for record in caplog.records)
+        assert any("MEDIUM: 5" in record.message for record in caplog.records)
 
     def test_summary_aggregates_by_severity(self, caplog):
         """Test that summary properly aggregates by severity"""
@@ -177,18 +176,18 @@ class TestSummaryLogging:
         dq_checker = DataQualityChecker(logger)
 
         # Add issues of different severities
-        dq_checker.add_issue('CRITICAL', 'Test', 'Metrics', 'metric1', 'Issue 1', '')
-        dq_checker.add_issue('CRITICAL', 'Test', 'Metrics', 'metric2', 'Issue 2', '')
-        dq_checker.add_issue('HIGH', 'Test', 'Dimensions', 'dim1', 'Issue 3', '')
-        dq_checker.add_issue('MEDIUM', 'Test', 'Metrics', 'metric3', 'Issue 4', '')
+        dq_checker.add_issue("CRITICAL", "Test", "Metrics", "metric1", "Issue 1", "")
+        dq_checker.add_issue("CRITICAL", "Test", "Metrics", "metric2", "Issue 2", "")
+        dq_checker.add_issue("HIGH", "Test", "Dimensions", "dim1", "Issue 3", "")
+        dq_checker.add_issue("MEDIUM", "Test", "Metrics", "metric3", "Issue 4", "")
 
         with caplog.at_level(logging.INFO):
             dq_checker.log_summary()
 
         # Should show breakdown
-        assert any('CRITICAL: 2' in record.message for record in caplog.records)
-        assert any('HIGH: 1' in record.message for record in caplog.records)
-        assert any('MEDIUM: 1' in record.message for record in caplog.records)
+        assert any("CRITICAL: 2" in record.message for record in caplog.records)
+        assert any("HIGH: 1" in record.message for record in caplog.records)
+        assert any("MEDIUM: 1" in record.message for record in caplog.records)
 
 
 class TestPerformanceTrackerLogging:
@@ -207,7 +206,7 @@ class TestPerformanceTrackerLogging:
             tracker.end("Test Operation")
 
         # Should NOT have individual operation log
-        assert not any('completed in' in record.message for record in caplog.records)
+        assert not any("completed in" in record.message for record in caplog.records)
 
     def test_perf_tracker_logged_in_debug_mode(self, caplog):
         """Test that individual operations are logged in DEBUG mode"""
@@ -221,7 +220,7 @@ class TestPerformanceTrackerLogging:
             tracker.end("Test Operation")
 
         # Should have debug log entry
-        assert any('completed in' in record.message for record in caplog.records)
+        assert any("completed in" in record.message for record in caplog.records)
 
 
 class TestBackwardCompatibility:
@@ -235,11 +234,11 @@ class TestBackwardCompatibility:
         dq_checker = DataQualityChecker(logger)
 
         # Add low severity issue - won't be logged but should be collected
-        dq_checker.add_issue('LOW', 'Test', 'Metrics', 'metric1', 'Issue 1', 'Details')
+        dq_checker.add_issue("LOW", "Test", "Metrics", "metric1", "Issue 1", "Details")
 
         # Issue should still be in list
         assert len(dq_checker.issues) == 1
-        assert dq_checker.issues[0]['Severity'] == 'LOW'
+        assert dq_checker.issues[0]["Severity"] == "LOW"
 
     def test_get_issues_dataframe_still_works(self):
         """Test that get_issues_dataframe still works correctly"""
@@ -248,8 +247,8 @@ class TestBackwardCompatibility:
 
         dq_checker = DataQualityChecker(logger)
 
-        dq_checker.add_issue('HIGH', 'Test', 'Metrics', 'metric1', 'Issue 1', 'Details')
-        dq_checker.add_issue('LOW', 'Test', 'Dimensions', 'dim1', 'Issue 2', 'Details')
+        dq_checker.add_issue("HIGH", "Test", "Metrics", "metric1", "Issue 1", "Details")
+        dq_checker.add_issue("LOW", "Test", "Dimensions", "dim1", "Issue 2", "Details")
 
         issues_df = dq_checker.get_issues_dataframe()
 

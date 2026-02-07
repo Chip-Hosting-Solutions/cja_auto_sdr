@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Single data view processing (current implementation lives in generator)."""
 
 __all__ = ["process_single_dataview"]

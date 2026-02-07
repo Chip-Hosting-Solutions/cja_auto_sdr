@@ -9,17 +9,15 @@ Tests cover:
 - DataFrame output
 """
 
-import pytest
 import json
+
 import pandas as pd
+import pytest
 
 from cja_auto_sdr.inventory.derived_fields import (
-    DerivedFieldInventoryBuilder,
     DerivedFieldInventory,
-    DerivedFieldSummary,
-    FUNCTION_DISPLAY_NAMES,
+    DerivedFieldInventoryBuilder,
 )
-
 
 # ==================== FIXTURES ====================
 
@@ -27,59 +25,60 @@ from cja_auto_sdr.inventory.derived_fields import (
 @pytest.fixture
 def sample_derived_field_definition():
     """Sample derived field definition JSON string"""
-    return json.dumps([
-        {
-            "func": "raw-field",
-            "id": "productListItems.priceTotal",
-            "label": "price_field"
-        },
-        {
-            "func": "match",
-            "field": "price_field",
-            "case-sensitive": False,
-            "branches": [
-                {
-                    "pred": {"func": "lt", "field": "price_field", "value": 100},
-                    "map-to": "Low"
-                },
-                {
-                    "pred": {"func": "lte", "field": "price_field", "value": 500},
-                    "map-to": "Medium"
-                },
-                {
-                    "pred": {"func": "true"},
-                    "map-to": "High"
-                }
-            ],
-            "#rule_name": "Price Bucket",
-            "#rule_description": "Categorize products by price range",
-            "#rule_id": "rule-0",
-            "#rule_type": "caseWhen"
-        }
-    ])
+    return json.dumps(
+        [
+            {"func": "raw-field", "id": "productListItems.priceTotal", "label": "price_field"},
+            {
+                "func": "match",
+                "field": "price_field",
+                "case-sensitive": False,
+                "branches": [
+                    {"pred": {"func": "lt", "field": "price_field", "value": 100}, "map-to": "Low"},
+                    {"pred": {"func": "lte", "field": "price_field", "value": 500}, "map-to": "Medium"},
+                    {"pred": {"func": "true"}, "map-to": "High"},
+                ],
+                "#rule_name": "Price Bucket",
+                "#rule_description": "Categorize products by price range",
+                "#rule_id": "rule-0",
+                "#rule_type": "caseWhen",
+            },
+        ]
+    )
 
 
 @pytest.fixture
 def sample_complex_derived_field():
     """Complex derived field with many functions"""
-    functions = [{"func": "raw-field", "id": f"field_{i}", "label": f"label_{i}"}
-                 for i in range(12)]  # Many field references
+    functions = [
+        {"func": "raw-field", "id": f"field_{i}", "label": f"label_{i}"} for i in range(12)
+    ]  # Many field references
 
-    functions.append({
-        "func": "match",
-        "field": "label_0",
-        "branches": [
-            {"pred": {"func": "and", "preds": [
-                {"func": "isset", "field": "label_0"},
-                {"func": "isset", "field": "label_1"},
-                {"func": "and", "preds": [  # Nested
-                    {"func": "eq", "field": "label_2", "value": "test"},
-                    {"func": "ne", "field": "label_3", "value": "exclude"}
-                ]}
-            ]}, "map-to": 1}
-            for _ in range(25)  # Many branches
-        ]
-    })
+    functions.append(
+        {
+            "func": "match",
+            "field": "label_0",
+            "branches": [
+                {
+                    "pred": {
+                        "func": "and",
+                        "preds": [
+                            {"func": "isset", "field": "label_0"},
+                            {"func": "isset", "field": "label_1"},
+                            {
+                                "func": "and",
+                                "preds": [  # Nested
+                                    {"func": "eq", "field": "label_2", "value": "test"},
+                                    {"func": "ne", "field": "label_3", "value": "exclude"},
+                                ],
+                            },
+                        ],
+                    },
+                    "map-to": 1,
+                }
+                for _ in range(25)  # Many branches
+            ],
+        }
+    )
 
     return json.dumps(functions)
 
@@ -87,137 +86,146 @@ def sample_complex_derived_field():
 @pytest.fixture
 def sample_marketing_channel_field():
     """Marketing channel derived field"""
-    return json.dumps([
-        {"func": "raw-field", "id": "web.referringDomain", "label": "referrer"},
-        {"func": "raw-field", "id": "marketing.campaignId", "label": "campaign"},
-        {
-            "func": "match",
-            "field": "referrer",
-            "branches": [
-                {"pred": {"func": "contains", "field": "campaign", "value": "paid"}, "map-to": "Paid Search"},
-                {"pred": {"func": "contains", "field": "referrer", "value": "google"}, "map-to": "Organic Search"},
-                {"pred": {"func": "contains", "field": "referrer", "value": "facebook"}, "map-to": "Social"},
-                {"pred": {"func": "true"}, "map-to": "Other"}
-            ],
-            "#rule_name": "Marketing Channel",
-            "#rule_type": "caseWhen"
-        }
-    ])
+    return json.dumps(
+        [
+            {"func": "raw-field", "id": "web.referringDomain", "label": "referrer"},
+            {"func": "raw-field", "id": "marketing.campaignId", "label": "campaign"},
+            {
+                "func": "match",
+                "field": "referrer",
+                "branches": [
+                    {"pred": {"func": "contains", "field": "campaign", "value": "paid"}, "map-to": "Paid Search"},
+                    {"pred": {"func": "contains", "field": "referrer", "value": "google"}, "map-to": "Organic Search"},
+                    {"pred": {"func": "contains", "field": "referrer", "value": "facebook"}, "map-to": "Social"},
+                    {"pred": {"func": "true"}, "map-to": "Other"},
+                ],
+                "#rule_name": "Marketing Channel",
+                "#rule_type": "caseWhen",
+            },
+        ]
+    )
 
 
 @pytest.fixture
 def sample_lookup_field():
     """Derived field with lookup"""
-    return json.dumps([
-        {"func": "raw-field", "id": "campaign_code", "label": "campaign_key"},
-        {
-            "func": "classify",
-            "label": "campaign_name",
-            "mapping": {
-                "func": "external-multi-value",
-                "key-field": "lookup_table_id",
-                "value-selector-field": "campaign_key"
+    return json.dumps(
+        [
+            {"func": "raw-field", "id": "campaign_code", "label": "campaign_key"},
+            {
+                "func": "classify",
+                "label": "campaign_name",
+                "mapping": {
+                    "func": "external-multi-value",
+                    "key-field": "lookup_table_id",
+                    "value-selector-field": "campaign_key",
+                },
+                "source-field": "campaign_key",
             },
-            "source-field": "campaign_key"
-        }
-    ])
+        ]
+    )
 
 
 @pytest.fixture
 def sample_math_only_field():
     """Derived field with pure math operations"""
-    return json.dumps([
-        {"func": "raw-field", "id": "revenue", "label": "rev"},
-        {"func": "raw-field", "id": "cost", "label": "cost"},
-        {"func": "subtract", "fields": ["rev", "cost"], "label": "profit"},
-        {"func": "divide", "dividend": "profit", "divisor": "rev"}
-    ])
+    return json.dumps(
+        [
+            {"func": "raw-field", "id": "revenue", "label": "rev"},
+            {"func": "raw-field", "id": "cost", "label": "cost"},
+            {"func": "subtract", "fields": ["rev", "cost"], "label": "profit"},
+            {"func": "divide", "dividend": "profit", "divisor": "rev"},
+        ]
+    )
 
 
 @pytest.fixture
 def sample_simple_lowercase_field():
     """Derived field that only does lowercase"""
-    return json.dumps([
-        {"func": "raw-field", "id": "pageName", "label": "page"},
-        {"func": "lowercase", "field": "page"}
-    ])
+    return json.dumps(
+        [{"func": "raw-field", "id": "pageName", "label": "page"}, {"func": "lowercase", "field": "page"}]
+    )
 
 
 @pytest.fixture
 def sample_metrics_df(sample_derived_field_definition, sample_math_only_field):
     """Sample metrics DataFrame with derived fields"""
-    return pd.DataFrame([
-        {
-            "id": "metrics/bounces",
-            "name": "Bounces",
-            "description": "Bounce count",
-            "sourceFieldType": "derived",
-            "type": "int",
-            "fieldDefinition": sample_derived_field_definition,
-            "dataSetType": "event",
-        },
-        {
-            "id": "metrics/profit",
-            "name": "Profit Margin",
-            "description": "Revenue minus cost",
-            "sourceFieldType": "derived",
-            "type": "decimal",
-            "fieldDefinition": sample_math_only_field,
-            "dataSetType": "event",
-        },
-        {
-            "id": "metrics/visitors",
-            "name": "People",
-            "description": "Unique visitors",
-            "sourceFieldType": "standard",
-            "type": "int",
-            "fieldDefinition": pd.NA,
-            "dataSetType": "event",
-        }
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "id": "metrics/bounces",
+                "name": "Bounces",
+                "description": "Bounce count",
+                "sourceFieldType": "derived",
+                "type": "int",
+                "fieldDefinition": sample_derived_field_definition,
+                "dataSetType": "event",
+            },
+            {
+                "id": "metrics/profit",
+                "name": "Profit Margin",
+                "description": "Revenue minus cost",
+                "sourceFieldType": "derived",
+                "type": "decimal",
+                "fieldDefinition": sample_math_only_field,
+                "dataSetType": "event",
+            },
+            {
+                "id": "metrics/visitors",
+                "name": "People",
+                "description": "Unique visitors",
+                "sourceFieldType": "standard",
+                "type": "int",
+                "fieldDefinition": pd.NA,
+                "dataSetType": "event",
+            },
+        ]
+    )
 
 
 @pytest.fixture
 def sample_dimensions_df(sample_marketing_channel_field, sample_lookup_field, sample_simple_lowercase_field):
     """Sample dimensions DataFrame with derived fields"""
-    return pd.DataFrame([
-        {
-            "id": "dimensions/marketing_channel",
-            "name": "Marketing Channel",
-            "description": "Traffic source classification",
-            "sourceFieldType": "derived",
-            "type": "string",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event",
-        },
-        {
-            "id": "dimensions/campaign_name",
-            "name": "Campaign Name",
-            "description": "Lookup-based campaign name",
-            "sourceFieldType": "derived",
-            "type": "string",
-            "fieldDefinition": sample_lookup_field,
-            "dataSetType": "event",
-        },
-        {
-            "id": "dimensions/page_lower",
-            "name": "Page Name (Lower)",
-            "description": "Lowercase page name",
-            "sourceFieldType": "derived",
-            "type": "string",
-            "fieldDefinition": sample_simple_lowercase_field,
-            "dataSetType": "event",
-        },
-        {
-            "id": "dimensions/page",
-            "name": "Page Name",
-            "description": "Raw page name",
-            "sourceFieldType": "custom",
-            "type": "string",
-            "fieldDefinition": pd.NA,
-            "dataSetType": "event",
-        }
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "id": "dimensions/marketing_channel",
+                "name": "Marketing Channel",
+                "description": "Traffic source classification",
+                "sourceFieldType": "derived",
+                "type": "string",
+                "fieldDefinition": sample_marketing_channel_field,
+                "dataSetType": "event",
+            },
+            {
+                "id": "dimensions/campaign_name",
+                "name": "Campaign Name",
+                "description": "Lookup-based campaign name",
+                "sourceFieldType": "derived",
+                "type": "string",
+                "fieldDefinition": sample_lookup_field,
+                "dataSetType": "event",
+            },
+            {
+                "id": "dimensions/page_lower",
+                "name": "Page Name (Lower)",
+                "description": "Lowercase page name",
+                "sourceFieldType": "derived",
+                "type": "string",
+                "fieldDefinition": sample_simple_lowercase_field,
+                "dataSetType": "event",
+            },
+            {
+                "id": "dimensions/page",
+                "name": "Page Name",
+                "description": "Raw page name",
+                "sourceFieldType": "custom",
+                "type": "string",
+                "fieldDefinition": pd.NA,
+                "dataSetType": "event",
+            },
+        ]
+    )
 
 
 # ==================== BUILDER TESTS ====================
@@ -266,13 +274,17 @@ class TestDerivedFieldInventoryBuilder:
     def test_functions_extracted(self, sample_marketing_channel_field):
         """Test that functions are extracted correctly"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/channel",
-            "name": "Channel",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/channel",
+                    "name": "Channel",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_marketing_channel_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -283,13 +295,17 @@ class TestDerivedFieldInventoryBuilder:
     def test_rule_names_extracted(self, sample_derived_field_definition):
         """Test that rule names from definition are extracted"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_derived_field_definition,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_derived_field_definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
 
@@ -300,13 +316,17 @@ class TestDerivedFieldInventoryBuilder:
     def test_schema_fields_extracted(self, sample_marketing_channel_field):
         """Test that schema field references are extracted"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/channel",
-            "name": "Channel",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/channel",
+                    "name": "Channel",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_marketing_channel_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -318,13 +338,17 @@ class TestDerivedFieldInventoryBuilder:
     def test_lookup_references_extracted(self, sample_lookup_field):
         """Test that lookup references are extracted"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/campaign",
-            "name": "Campaign",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_lookup_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/campaign",
+                    "name": "Campaign",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_lookup_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -334,13 +358,17 @@ class TestDerivedFieldInventoryBuilder:
     def test_branch_count_correct(self, sample_marketing_channel_field):
         """Test that branch count is calculated correctly"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/channel",
-            "name": "Channel",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/channel",
+                    "name": "Channel",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_marketing_channel_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -427,13 +455,17 @@ class TestComplexityScore:
     def test_simple_field_low_complexity(self, sample_simple_lowercase_field):
         """Test that simple fields have low complexity"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/page",
-            "name": "Page Lower",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_simple_lowercase_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/page",
+                    "name": "Page Lower",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_simple_lowercase_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -443,13 +475,17 @@ class TestComplexityScore:
     def test_complex_field_high_complexity(self, sample_complex_derived_field):
         """Test that complex fields have high complexity"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "metrics/complex",
-            "name": "Complex Field",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_complex_derived_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/complex",
+                    "name": "Complex Field",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_complex_derived_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
 
@@ -466,30 +502,42 @@ class TestLogicSummary:
     def test_case_when_summary(self, sample_marketing_channel_field):
         """Test logic summary for Case When"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/channel",
-            "name": "Channel",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/channel",
+                    "name": "Channel",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_marketing_channel_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
         field = inventory.fields[0]
         # Should mention classification or rules
-        assert "rules" in field.logic_summary.lower() or "classif" in field.logic_summary.lower() or "case" in field.logic_summary.lower()
+        assert (
+            "rules" in field.logic_summary.lower()
+            or "classif" in field.logic_summary.lower()
+            or "case" in field.logic_summary.lower()
+        )
 
     def test_math_summary(self, sample_math_only_field):
         """Test logic summary for math operations"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "metrics/profit",
-            "name": "Profit",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_math_only_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/profit",
+                    "name": "Profit",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_math_only_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
 
@@ -499,13 +547,17 @@ class TestLogicSummary:
     def test_lookup_summary(self, sample_lookup_field):
         """Test logic summary for lookup"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/campaign",
-            "name": "Campaign",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_lookup_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/campaign",
+                    "name": "Campaign",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_lookup_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -515,13 +567,17 @@ class TestLogicSummary:
     def test_lowercase_summary(self, sample_simple_lowercase_field):
         """Test logic summary for simple transformation"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/page",
-            "name": "Page Lower",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_simple_lowercase_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/page",
+                    "name": "Page Lower",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_simple_lowercase_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -538,13 +594,17 @@ class TestInferredOutputType:
     def test_math_produces_numeric(self, sample_math_only_field):
         """Test that math operations infer numeric type"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "metrics/profit",
-            "name": "Profit",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_math_only_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/profit",
+                    "name": "Profit",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_math_only_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
 
@@ -554,13 +614,17 @@ class TestInferredOutputType:
     def test_case_when_with_strings_produces_string(self, sample_marketing_channel_field):
         """Test that Case When with string outputs infers string type"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/channel",
-            "name": "Channel",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_marketing_channel_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/channel",
+                    "name": "Channel",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_marketing_channel_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -570,13 +634,17 @@ class TestInferredOutputType:
     def test_lowercase_produces_string(self, sample_simple_lowercase_field):
         """Test that lowercase infers string type"""
         builder = DerivedFieldInventoryBuilder()
-        df = pd.DataFrame([{
-            "id": "dim/page",
-            "name": "Page",
-            "sourceFieldType": "derived",
-            "fieldDefinition": sample_simple_lowercase_field,
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/page",
+                    "name": "Page",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": sample_simple_lowercase_field,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
 
@@ -592,15 +660,17 @@ class TestEdgeCases:
 
     def test_array_like_field_definition(self):
         """Test handling of array-like values in fieldDefinition column"""
-        df = pd.DataFrame([
-            {
-                "id": "metrics/test",
-                "name": "Test Metric",
-                "sourceFieldType": "derived",
-                "fieldDefinition": [{"func": "raw-field", "id": "test", "label": "test"}],
-                "dataSetType": "event"
-            }
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": [{"func": "raw-field", "id": "test", "label": "test"}],
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -609,15 +679,17 @@ class TestEdgeCases:
 
     def test_empty_field_definition_list(self):
         """Test handling of empty list fieldDefinition"""
-        df = pd.DataFrame([
-            {
-                "id": "metrics/test",
-                "name": "Test",
-                "sourceFieldType": "derived",
-                "fieldDefinition": [],
-                "dataSetType": "event"
-            }
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": [],
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -627,15 +699,17 @@ class TestEdgeCases:
 
     def test_none_field_definition(self):
         """Test handling of None fieldDefinition"""
-        df = pd.DataFrame([
-            {
-                "id": "metrics/test",
-                "name": "Test",
-                "sourceFieldType": "derived",
-                "fieldDefinition": None,
-                "dataSetType": "event"
-            }
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": None,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -644,15 +718,17 @@ class TestEdgeCases:
 
     def test_invalid_json_definition(self):
         """Test handling of invalid JSON"""
-        df = pd.DataFrame([
-            {
-                "id": "metrics/test",
-                "name": "Test",
-                "sourceFieldType": "derived",
-                "fieldDefinition": "not valid json",
-                "dataSetType": "event"
-            }
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": "not valid json",
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -661,22 +737,24 @@ class TestEdgeCases:
 
     def test_non_derived_fields_ignored(self):
         """Test that non-derived fields are ignored"""
-        df = pd.DataFrame([
-            {
-                "id": "metrics/standard",
-                "name": "Standard Metric",
-                "sourceFieldType": "standard",
-                "fieldDefinition": pd.NA,
-                "dataSetType": "event"
-            },
-            {
-                "id": "metrics/custom",
-                "name": "Custom Metric",
-                "sourceFieldType": "custom",
-                "fieldDefinition": '[{"func": "raw-field", "id": "test"}]',
-                "dataSetType": "event"
-            }
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/standard",
+                    "name": "Standard Metric",
+                    "sourceFieldType": "standard",
+                    "fieldDefinition": pd.NA,
+                    "dataSetType": "event",
+                },
+                {
+                    "id": "metrics/custom",
+                    "name": "Custom Metric",
+                    "sourceFieldType": "custom",
+                    "fieldDefinition": '[{"func": "raw-field", "id": "test"}]',
+                    "dataSetType": "event",
+                },
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -693,14 +771,18 @@ class TestDescriptionExtraction:
 
     def test_description_extracted_from_row(self):
         """Test that description is extracted from row data"""
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test Metric",
-            "description": "This is a test metric description",
-            "sourceFieldType": "derived",
-            "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": "This is a test metric description",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -710,14 +792,18 @@ class TestDescriptionExtraction:
 
     def test_description_in_to_dict(self):
         """Test that description appears in to_dict output"""
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test Metric",
-            "description": "A description",
-            "sourceFieldType": "derived",
-            "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": "A description",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -728,14 +814,18 @@ class TestDescriptionExtraction:
 
     def test_empty_description_shows_dash(self):
         """Test that empty description shows dash in to_dict"""
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test Metric",
-            "description": "",
-            "sourceFieldType": "derived",
-            "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": "",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -745,14 +835,18 @@ class TestDescriptionExtraction:
 
     def test_nan_description_handled(self):
         """Test that NaN description is handled gracefully"""
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test Metric",
-            "description": pd.NA,
-            "sourceFieldType": "derived",
-            "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": pd.NA,
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -761,14 +855,18 @@ class TestDescriptionExtraction:
 
     def test_description_in_dataframe(self):
         """Test that description column appears in DataFrame output"""
-        df = pd.DataFrame([{
-            "id": "metrics/test",
-            "name": "Test Metric",
-            "description": "Test description",
-            "sourceFieldType": "derived",
-            "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
-            "dataSetType": "event"
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": "Test description",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -817,17 +915,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_typecast_summary(self):
         """Test logic summary for typecast function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "stringValue", "label": "input"},
-            {"func": "typecast", "field": "input", "type": "integer"}
-        ])
-        df = pd.DataFrame([{
-            "id": "metrics/converted",
-            "name": "Converted Value",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "stringValue", "label": "input"},
+                {"func": "typecast", "field": "input", "type": "integer"},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/converted",
+                    "name": "Converted Value",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -837,17 +941,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_datetime_bucket_summary(self):
         """Test logic summary for datetime-bucket function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "timestamp", "label": "ts"},
-            {"func": "datetime-bucket", "field": "ts", "bucket": "week"}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/week",
-            "name": "Week",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "timestamp", "label": "ts"},
+                {"func": "datetime-bucket", "field": "ts", "bucket": "week"},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/week",
+                    "name": "Week",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -857,17 +967,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_datetime_slice_summary(self):
         """Test logic summary for datetime-slice function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "timestamp", "label": "ts"},
-            {"func": "datetime-slice", "field": "ts", "component": "hour"}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/hour",
-            "name": "Hour",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "timestamp", "label": "ts"},
+                {"func": "datetime-slice", "field": "ts", "component": "hour"},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/hour",
+                    "name": "Hour",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -877,17 +993,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_timezone_shift_summary(self):
         """Test logic summary for timezone-shift function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "timestamp", "label": "ts"},
-            {"func": "timezone-shift", "field": "ts", "from": "UTC", "to": "America/New_York"}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/local_time",
-            "name": "Local Time",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "timestamp", "label": "ts"},
+                {"func": "timezone-shift", "field": "ts", "from": "UTC", "to": "America/New_York"},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/local_time",
+                    "name": "Local Time",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -897,17 +1019,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_find_replace_summary(self):
         """Test logic summary for find-replace function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "pageName", "label": "page"},
-            {"func": "find-replace", "field": "page", "find": "www.", "replace": ""}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/clean_page",
-            "name": "Clean Page",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "pageName", "label": "page"},
+                {"func": "find-replace", "field": "page", "find": "www.", "replace": ""},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/clean_page",
+                    "name": "Clean Page",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -917,17 +1045,23 @@ class TestNewLogicSummaryHandlers:
 
     def test_depth_summary(self):
         """Test logic summary for depth function"""
-        definition = json.dumps([
-            {"func": "raw-field", "id": "pagePath", "label": "path"},
-            {"func": "depth", "field": "path", "delimiter": "/"}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/page_depth",
-            "name": "Page Depth",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "pagePath", "label": "path"},
+                {"func": "depth", "field": "path", "delimiter": "/"},
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/page_depth",
+                    "name": "Page Depth",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -937,16 +1071,18 @@ class TestNewLogicSummaryHandlers:
 
     def test_profile_summary(self):
         """Test logic summary for profile function"""
-        definition = json.dumps([
-            {"func": "profile", "attribute": "loyaltyTier", "namespace": "customer"}
-        ])
-        df = pd.DataFrame([{
-            "id": "dim/loyalty",
-            "name": "Loyalty Tier",
-            "sourceFieldType": "derived",
-            "fieldDefinition": definition,
-            "dataSetType": "event"
-        }])
+        definition = json.dumps([{"func": "profile", "attribute": "loyaltyTier", "namespace": "customer"}])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dim/loyalty",
+                    "name": "Loyalty Tier",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
 
         builder = DerivedFieldInventoryBuilder()
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")

@@ -1,10 +1,10 @@
 """Tests for data quality validation"""
-import pytest
-import sys
-import pandas as pd
+
 import logging
 import os
+import sys
 
+import pandas as pd
 
 # Import the class we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,23 +20,30 @@ class TestDataQualityValidation:
         validator = DataQualityChecker(logger)
 
         # Add a duplicate
-        duplicate_df = pd.concat([
-            sample_metrics_df,
-            pd.DataFrame([{
-                "id": "metric3",
-                "name": "Test Metric 1",  # Duplicate name
-                "type": "calculated",
-                "title": "Duplicate Metric",
-                "description": "Duplicate"
-            }])
-        ], ignore_index=True)
+        duplicate_df = pd.concat(
+            [
+                sample_metrics_df,
+                pd.DataFrame(
+                    [
+                        {
+                            "id": "metric3",
+                            "name": "Test Metric 1",  # Duplicate name
+                            "type": "calculated",
+                            "title": "Duplicate Metric",
+                            "description": "Duplicate",
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
 
         validator.check_duplicates(duplicate_df, "Metrics")
         issues_df = validator.get_issues_dataframe()
 
         # Should detect duplicate names
         assert len(issues_df) > 0
-        assert any('duplicate' in str(row['Issue']).lower() for _, row in issues_df.iterrows())
+        assert any("duplicate" in str(row["Issue"]).lower() for _, row in issues_df.iterrows())
 
     def test_duplicate_detection_dimensions(self, sample_dimensions_df):
         """Test detection of duplicate dimension names"""
@@ -82,8 +89,9 @@ class TestDataQualityValidation:
 
         # Should detect empty dataset
         assert len(issues_df) > 0
-        assert any('empty' in str(row['Issue']).lower() or 'no' in str(row['Issue']).lower()
-                  for _, row in issues_df.iterrows())
+        assert any(
+            "empty" in str(row["Issue"]).lower() or "no" in str(row["Issue"]).lower() for _, row in issues_df.iterrows()
+        )
 
     def test_severity_levels(self, sample_metrics_df):
         """Test that severity levels are assigned correctly"""
@@ -94,9 +102,9 @@ class TestDataQualityValidation:
         issues_df = validator.get_issues_dataframe()
 
         # Check that severity levels are valid
-        valid_severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+        valid_severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
         for _, issue in issues_df.iterrows():
-            assert issue['Severity'] in valid_severities
+            assert issue["Severity"] in valid_severities
 
     def test_issue_structure(self, sample_metrics_df):
         """Test that issues have required fields"""
@@ -106,7 +114,7 @@ class TestDataQualityValidation:
         validator.check_missing_descriptions(sample_metrics_df, "Metrics")
         issues_df = validator.get_issues_dataframe()
 
-        required_fields = ['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details']
+        required_fields = ["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
         for field in required_fields:
             assert field in issues_df.columns
 
@@ -116,13 +124,15 @@ class TestDataQualityValidation:
         validator = DataQualityChecker(logger)
 
         # Create DataFrame with missing required fields
-        incomplete_df = pd.DataFrame([
-            {
-                "id": "metric1",
-                "name": None,  # Missing required field
-                "type": "calculated"
-            }
-        ])
+        incomplete_df = pd.DataFrame(
+            [
+                {
+                    "id": "metric1",
+                    "name": None,  # Missing required field
+                    "type": "calculated",
+                }
+            ]
+        )
 
         validator.check_required_fields(incomplete_df, "Metrics", ["id", "name", "type"])
         issues_df = validator.get_issues_dataframe()
@@ -136,11 +146,13 @@ class TestDataQualityValidation:
         validator = DataQualityChecker(logger)
 
         # Create DataFrame with invalid IDs
-        df_with_invalid_ids = pd.DataFrame([
-            {"id": None, "name": "Test 1", "type": "metric"},
-            {"id": "", "name": "Test 2", "type": "metric"},
-            {"id": "valid_id", "name": "Test 3", "type": "metric"}
-        ])
+        df_with_invalid_ids = pd.DataFrame(
+            [
+                {"id": None, "name": "Test 1", "type": "metric"},
+                {"id": "", "name": "Test 2", "type": "metric"},
+                {"id": "valid_id", "name": "Test 3", "type": "metric"},
+            ]
+        )
 
         validator.check_id_validity(df_with_invalid_ids, "Metrics")
         issues_df = validator.get_issues_dataframe()
@@ -164,5 +176,5 @@ class TestDataQualityValidation:
         # Should have issues from multiple checks
         assert len(issues_df) > 0
         # Should have both Metrics and Dimensions issues
-        assert "Metrics" in issues_df['Type'].values
-        assert "Dimensions" in issues_df['Type'].values
+        assert "Metrics" in issues_df["Type"].values
+        assert "Dimensions" in issues_df["Type"].values

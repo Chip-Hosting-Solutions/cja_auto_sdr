@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Inventory summary mode (current implementation lives in generator)."""
 
 __all__ = ["display_inventory_summary"]

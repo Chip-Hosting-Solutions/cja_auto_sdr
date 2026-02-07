@@ -5,7 +5,7 @@ and schema definitions used throughout the application.
 """
 
 import os
-from typing import Any, Dict, Set, Tuple
+from typing import Any
 
 from cja_auto_sdr.core.config import (
     CacheConfig,
@@ -17,22 +17,22 @@ from cja_auto_sdr.core.config import (
 # ==================== FORMAT ALIASES ====================
 
 # Shorthand format aliases for common output combinations
-FORMAT_ALIASES: Dict[str, list] = {
-    'reports': ['excel', 'markdown'],  # Documentation: Excel + Markdown
-    'data': ['csv', 'json'],            # Data pipelines: CSV + JSON
-    'ci': ['json', 'markdown'],         # CI/CD logs: JSON + Markdown
+FORMAT_ALIASES: dict[str, list] = {
+    "reports": ["excel", "markdown"],  # Documentation: Excel + Markdown
+    "data": ["csv", "json"],  # Data pipelines: CSV + JSON
+    "ci": ["json", "markdown"],  # CI/CD logs: JSON + Markdown
 }
 
 # File extension to format mapping for auto-detection
-EXTENSION_TO_FORMAT: Dict[str, str] = {
-    '.xlsx': 'excel',
-    '.xls': 'excel',
-    '.csv': 'csv',
-    '.json': 'json',
-    '.html': 'html',
-    '.htm': 'html',
-    '.md': 'markdown',
-    '.markdown': 'markdown',
+EXTENSION_TO_FORMAT: dict[str, str] = {
+    ".xlsx": "excel",
+    ".xls": "excel",
+    ".csv": "csv",
+    ".json": "json",
+    ".html": "html",
+    ".htm": "html",
+    ".md": "markdown",
+    ".markdown": "markdown",
 }
 
 # ==================== DISPLAY CONSTANTS ====================
@@ -43,12 +43,12 @@ BANNER_WIDTH: int = 60
 # ==================== WORKER LIMITS ====================
 
 # Worker thread/process limits
-DEFAULT_API_FETCH_WORKERS: int = 3      # Concurrent API fetch threads
-DEFAULT_VALIDATION_WORKERS: int = 2     # Concurrent validation threads
-DEFAULT_BATCH_WORKERS: int = 4          # Default batch processing workers
-MAX_BATCH_WORKERS: int = 256            # Maximum allowed batch workers
-AUTO_WORKERS_SENTINEL: int = 0          # Sentinel value to trigger auto-detection
-DEFAULT_ORG_REPORT_WORKERS: int = 10    # Max concurrent workers for org-wide data view fetches
+DEFAULT_API_FETCH_WORKERS: int = 3  # Concurrent API fetch threads
+DEFAULT_VALIDATION_WORKERS: int = 2  # Concurrent validation threads
+DEFAULT_BATCH_WORKERS: int = 4  # Default batch processing workers
+MAX_BATCH_WORKERS: int = 256  # Maximum allowed batch workers
+AUTO_WORKERS_SENTINEL: int = 0  # Sentinel value to trigger auto-detection
+DEFAULT_ORG_REPORT_WORKERS: int = 10  # Max concurrent workers for org-wide data view fetches
 
 # ==================== GOVERNANCE THRESHOLDS ====================
 
@@ -58,13 +58,13 @@ GOVERNANCE_MAX_OVERLAP_THRESHOLD: float = 0.9
 
 # ==================== CACHE DEFAULTS ====================
 
-DEFAULT_CACHE_SIZE: int = 1000          # Maximum cached validation results
-DEFAULT_CACHE_TTL: int = 3600           # Cache TTL in seconds (1 hour)
+DEFAULT_CACHE_SIZE: int = 1000  # Maximum cached validation results
+DEFAULT_CACHE_TTL: int = 3600  # Cache TTL in seconds (1 hour)
 
 # ==================== LOGGING DEFAULTS ====================
 
 LOG_FILE_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB max per log file
-LOG_FILE_BACKUP_COUNT: int = 5              # Number of backup log files to keep
+LOG_FILE_BACKUP_COUNT: int = 5  # Number of backup log files to keep
 
 # ==================== DEFAULT CONFIG INSTANCES ====================
 
@@ -76,7 +76,7 @@ DEFAULT_WORKERS = WorkerConfig()
 
 # Default retry settings (dict format for backward compatibility)
 # New code should use DEFAULT_RETRY (RetryConfig dataclass) instead
-DEFAULT_RETRY_CONFIG: Dict[str, Any] = DEFAULT_RETRY.to_dict()
+DEFAULT_RETRY_CONFIG: dict[str, Any] = DEFAULT_RETRY.to_dict()
 
 # ==================== VALIDATION SCHEMA ====================
 
@@ -85,48 +85,48 @@ DEFAULT_RETRY_CONFIG: Dict[str, Any] = DEFAULT_RETRY.to_dict()
 #   - Missing required fields (CRITICAL severity)
 #   - Null values in critical fields (MEDIUM severity)
 # Modify these lists as the CJA API evolves or validation requirements change.
-VALIDATION_SCHEMA: Dict[str, list] = {
-    'required_metric_fields': ['id', 'name', 'type'],
-    'required_dimension_fields': ['id', 'name', 'type'],
-    'critical_fields': ['id', 'name', 'title', 'description'],
+VALIDATION_SCHEMA: dict[str, list] = {
+    "required_metric_fields": ["id", "name", "type"],
+    "required_dimension_fields": ["id", "name", "type"],
+    "critical_fields": ["id", "name", "title", "description"],
 }
 
 # ==================== RETRYABLE ERRORS ====================
 
 # HTTP status codes that should trigger a retry
-RETRYABLE_STATUS_CODES: Set[int] = {408, 429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES: set[int] = {408, 429, 500, 502, 503, 504}
 
 # ==================== CONFIG SCHEMA ====================
 
 # Schema for validating config.json files
-CONFIG_SCHEMA: Dict[str, Dict[str, Any]] = {
-    'base_required_fields': {
-        'org_id': {'type': str, 'description': 'Adobe Organization ID'},
-        'client_id': {'type': str, 'description': 'OAuth Client ID'},
-        'secret': {'type': str, 'description': 'Client Secret'},
+CONFIG_SCHEMA: dict[str, dict[str, Any]] = {
+    "base_required_fields": {
+        "org_id": {"type": str, "description": "Adobe Organization ID"},
+        "client_id": {"type": str, "description": "OAuth Client ID"},
+        "secret": {"type": str, "description": "Client Secret"},
     },
-    'optional_fields': {
-        'scopes': {'type': str, 'description': 'OAuth scopes'},
-        'sandbox': {'type': str, 'description': 'Sandbox name (optional)'},
-    }
+    "optional_fields": {
+        "scopes": {"type": str, "description": "OAuth scopes"},
+        "sandbox": {"type": str, "description": "Sandbox name (optional)"},
+    },
 }
 
 # Deprecated JWT fields that should be migrated
-JWT_DEPRECATED_FIELDS: Dict[str, str] = {
-    'tech_acct': 'Technical Account ID (JWT auth)',
-    'private_key': 'Private key file path (JWT auth)',
-    'pathToKey': 'Private key file path (JWT auth)',
+JWT_DEPRECATED_FIELDS: dict[str, str] = {
+    "tech_acct": "Technical Account ID (JWT auth)",
+    "private_key": "Private key file path (JWT auth)",
+    "pathToKey": "Private key file path (JWT auth)",
 }
 
 # ==================== ENVIRONMENT VARIABLE MAPPING ====================
 
 # Maps environment variable names to config.json field names
-ENV_VAR_MAPPING: Dict[str, str] = {
-    'org_id': 'ORG_ID',
-    'client_id': 'CLIENT_ID',
-    'secret': 'SECRET',
-    'scopes': 'SCOPES',
-    'sandbox': 'SANDBOX',
+ENV_VAR_MAPPING: dict[str, str] = {
+    "org_id": "ORG_ID",
+    "client_id": "CLIENT_ID",
+    "secret": "SECRET",
+    "scopes": "SCOPES",
+    "sandbox": "SANDBOX",
 }
 
 
@@ -187,7 +187,8 @@ def infer_format_from_path(output_path: str) -> str | None:
         Format string if recognized extension, None otherwise
     """
     import os as _os
-    if not output_path or output_path in ('-', 'stdout'):
+
+    if not output_path or output_path in ("-", "stdout"):
         return None
     ext = _os.path.splitext(output_path)[1].lower()
     return EXTENSION_TO_FORMAT.get(ext)
@@ -206,28 +207,28 @@ def should_generate_format(output_format: str, target_format: str) -> bool:
     """
     if output_format == target_format:
         return True
-    if output_format == 'all':
-        return target_format in ['excel', 'csv', 'json', 'html', 'markdown', 'console']
+    if output_format == "all":
+        return target_format in ["excel", "csv", "json", "html", "markdown", "console"]
     if output_format in FORMAT_ALIASES:
         return target_format in FORMAT_ALIASES[output_format]
     return False
 
 
-def _get_credential_fields() -> Dict[str, set]:
+def _get_credential_fields() -> dict[str, set]:
     """
     Get all credential field names from the config schema.
 
     Returns:
         Dict with 'required' and 'optional' sets of field names
     """
-    required = set(CONFIG_SCHEMA['base_required_fields'].keys())
-    optional = set(CONFIG_SCHEMA['optional_fields'].keys())
+    required = set(CONFIG_SCHEMA["base_required_fields"].keys())
+    optional = set(CONFIG_SCHEMA["optional_fields"].keys())
     return {
-        'required': required,
-        'optional': optional,
-        'all': required | optional,
+        "required": required,
+        "optional": optional,
+        "all": required | optional,
     }
 
 
 # Pre-computed credential fields for faster access
-CREDENTIAL_FIELDS: Dict[str, set] = _get_credential_fields()
+CREDENTIAL_FIELDS: dict[str, set] = _get_credential_fields()

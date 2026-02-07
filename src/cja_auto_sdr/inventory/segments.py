@@ -20,8 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import pandas as pd
 
@@ -42,7 +41,7 @@ __version__ = "1.0.0"
 # ==================== CONSTANTS ====================
 
 # Mapping of internal function names to human-readable display names
-SEGMENT_FUNCTION_DISPLAY_NAMES: Dict[str, str] = {
+SEGMENT_FUNCTION_DISPLAY_NAMES: dict[str, str] = {
     # Logical operators
     "and": "And",
     "or": "Or",
@@ -131,8 +130,8 @@ class SegmentSummary:
     complexity_score: float
 
     # Functions
-    functions_used: List[str]  # Human-readable function names
-    functions_used_internal: List[str]  # Internal func values
+    functions_used: list[str]  # Human-readable function names
+    functions_used_internal: list[str]  # Internal func values
 
     # Structure
     predicate_count: int
@@ -141,9 +140,9 @@ class SegmentSummary:
     container_count: int
 
     # References
-    dimension_references: List[str]  # Referenced dimension IDs
-    metric_references: List[str]  # Referenced metric IDs
-    other_segment_references: List[str]  # Referenced segment IDs
+    dimension_references: list[str]  # Referenced dimension IDs
+    metric_references: list[str]  # Referenced metric IDs
+    other_segment_references: list[str]  # Referenced segment IDs
 
     # Summary
     definition_summary: str  # Brief description of what the segment defines
@@ -152,7 +151,7 @@ class SegmentSummary:
     # Governance fields
     approved: bool = False  # Approval status
     favorite: bool = False  # User favorite status
-    tags: List[str] = field(default_factory=list)  # Organizational tags
+    tags: list[str] = field(default_factory=list)  # Organizational tags
 
     # Timestamps
     created: str = ""  # ISO 8601 creation timestamp
@@ -162,7 +161,7 @@ class SegmentSummary:
     owner_id: str = ""  # Owner's user ID
 
     # Sharing info
-    shares: List[Dict[str, Any]] = field(default_factory=list)  # Share recipients
+    shares: list[dict[str, Any]] = field(default_factory=list)  # Share recipients
     shared_to_count: int = 0  # Number of users/groups shared with
 
     # Data view association
@@ -172,7 +171,7 @@ class SegmentSummary:
     # Raw definition for full fidelity
     definition_json: str = ""  # Original definition JSON string
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for DataFrame/Excel/CSV output.
 
         Includes all fields relevant for tabular SDR documentation.
@@ -197,7 +196,7 @@ class SegmentSummary:
             "definition_json": self.definition_json,  # Keep empty string for raw JSON
         }
 
-    def to_full_dict(self) -> Dict[str, Any]:
+    def to_full_dict(self) -> dict[str, Any]:
         """Convert to full dictionary for JSON output with all details.
 
         Includes every available field for comprehensive JSON export.
@@ -247,7 +246,7 @@ class SegmentsInventory:
 
     data_view_id: str
     data_view_name: str
-    segments: List[SegmentSummary] = field(default_factory=list)
+    segments: list[SegmentSummary] = field(default_factory=list)
 
     @property
     def total_segments(self) -> int:
@@ -280,13 +279,28 @@ class SegmentsInventory:
     def get_dataframe(self) -> pd.DataFrame:
         """Get inventory as a DataFrame for Excel/CSV output."""
         if not self.segments:
-            return pd.DataFrame(columns=[
-                "name", "id", "description", "owner", "approved", "tags",
-                "complexity_score", "container_type", "functions_used",
-                "dimension_references", "metric_references", "segment_references",
-                "definition_summary", "summary", "created", "modified", "shared_to",
-                "definition_json"
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "name",
+                    "id",
+                    "description",
+                    "owner",
+                    "approved",
+                    "tags",
+                    "complexity_score",
+                    "container_type",
+                    "functions_used",
+                    "dimension_references",
+                    "metric_references",
+                    "segment_references",
+                    "definition_summary",
+                    "summary",
+                    "created",
+                    "modified",
+                    "shared_to",
+                    "definition_json",
+                ]
+            )
 
         # Sort by complexity score descending
         sorted_segments = sorted(self.segments, key=lambda s: s.complexity_score, reverse=True)
@@ -295,11 +309,11 @@ class SegmentsInventory:
         df["summary"] = df["definition_summary"]
         return df
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics for the inventory."""
-        function_counts: Dict[str, int] = {}
-        tag_counts: Dict[str, int] = {}
-        container_counts: Dict[str, int] = {}
+        function_counts: dict[str, int] = {}
+        tag_counts: dict[str, int] = {}
+        container_counts: dict[str, int] = {}
 
         for segment in self.segments:
             for func in segment.functions_used:
@@ -330,11 +344,13 @@ class SegmentsInventory:
             "tag_usage": dict(sorted(tag_counts.items(), key=lambda x: -x[1])) if tag_counts else {},
         }
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         return {
             "summary": self.get_summary(),
-            "segments": [s.to_full_dict() for s in sorted(self.segments, key=lambda s: s.complexity_score, reverse=True)],
+            "segments": [
+                s.to_full_dict() for s in sorted(self.segments, key=lambda s: s.complexity_score, reverse=True)
+            ],
         }
 
 
@@ -350,7 +366,7 @@ class SegmentsInventoryBuilder:
         inventory = builder.build(cja, data_view_id, data_view_name)
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: logging.Logger | None = None):
         self.logger = logger or logging.getLogger(__name__)
 
     def build(
@@ -400,11 +416,9 @@ class SegmentsInventoryBuilder:
             # Log processing summary
             stats.log_summary("segments")
 
-            self.logger.info(
-                f"Segments inventory built: {inventory.total_segments} segments"
-            )
+            self.logger.info(f"Segments inventory built: {inventory.total_segments} segments")
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(f"Error fetching segments for data view {data_view_id}")
             raise
 
@@ -412,18 +426,16 @@ class SegmentsInventoryBuilder:
 
     def _process_segment(
         self,
-        segment_data: Dict[str, Any],
-        stats: Optional[BatchProcessingStats] = None,
-    ) -> Optional[SegmentSummary]:
+        segment_data: dict[str, Any],
+        stats: BatchProcessingStats | None = None,
+    ) -> SegmentSummary | None:
         """Process a single segment and return a summary.
 
         Extracts all available fields from the API response for comprehensive
         documentation.
         """
         # Validate required ID field (fail fast on missing critical data)
-        segment_id = validate_required_id(
-            segment_data, id_field="id", name_field="name", logger=self.logger
-        )
+        segment_id = validate_required_id(segment_data, id_field="id", name_field="name", logger=self.logger)
         if not segment_id:
             if stats:
                 stats.record_skip("missing ID", segment_data.get("name", "Unknown"))
@@ -502,7 +514,7 @@ class SegmentsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
-    def _parse_definition(self, definition: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
+    def _parse_definition(self, definition: dict[str, Any], depth: int = 0) -> dict[str, Any]:
         """
         Recursively parse a segment definition and extract all relevant data.
 
@@ -513,10 +525,10 @@ class SegmentsInventoryBuilder:
         Returns:
             Dictionary with parsed information
         """
-        functions_internal: Set[str] = set()
-        dimension_refs: Set[str] = set()
-        metric_refs: Set[str] = set()
-        segment_refs: Set[str] = set()
+        functions_internal: set[str] = set()
+        dimension_refs: set[str] = set()
+        metric_refs: set[str] = set()
+        segment_refs: set[str] = set()
 
         total_predicates = 0
         total_logic_operators = 0
@@ -538,10 +550,29 @@ class SegmentsInventoryBuilder:
                 functions_internal.add(func)
 
                 # Count predicates (comparison operations)
-                if func in ("eq", "ne", "gt", "gte", "lt", "lte", "streq", "strne",
-                           "contains", "not-contains", "starts-with", "ends-with",
-                           "matches", "not-matches", "exists", "not-exists",
-                           "streq-in", "strne-in", "within", "after", "before"):
+                if func in (
+                    "eq",
+                    "ne",
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte",
+                    "streq",
+                    "strne",
+                    "contains",
+                    "not-contains",
+                    "starts-with",
+                    "ends-with",
+                    "matches",
+                    "not-matches",
+                    "exists",
+                    "not-exists",
+                    "streq-in",
+                    "strne-in",
+                    "within",
+                    "after",
+                    "before",
+                ):
                     total_predicates += 1
 
                 # Count regex patterns
@@ -665,20 +696,20 @@ class SegmentsInventoryBuilder:
 
         # Weighted sum
         weighted_score = (
-            pred_score * COMPLEXITY_WEIGHTS["predicates"] +
-            logic_score * COMPLEXITY_WEIGHTS["logic_operators"] +
-            nesting_score * COMPLEXITY_WEIGHTS["nesting"] +
-            dim_score * COMPLEXITY_WEIGHTS["dimension_refs"] +
-            met_score * COMPLEXITY_WEIGHTS["metric_refs"] +
-            regex_score * COMPLEXITY_WEIGHTS["regex"]
+            pred_score * COMPLEXITY_WEIGHTS["predicates"]
+            + logic_score * COMPLEXITY_WEIGHTS["logic_operators"]
+            + nesting_score * COMPLEXITY_WEIGHTS["nesting"]
+            + dim_score * COMPLEXITY_WEIGHTS["dimension_refs"]
+            + met_score * COMPLEXITY_WEIGHTS["metric_refs"]
+            + regex_score * COMPLEXITY_WEIGHTS["regex"]
         )
 
         return round(weighted_score * 100, 1)
 
     def _generate_definition_summary(
         self,
-        definition: Dict[str, Any],
-        parsed: Dict[str, Any],
+        definition: dict[str, Any],
+        parsed: dict[str, Any],
     ) -> str:
         """Generate a brief human-readable summary of what the segment defines."""
         container_type = parsed["container_type"]
@@ -703,7 +734,11 @@ class SegmentsInventoryBuilder:
             return f"{context_word} where {condition_desc}"
 
         # Fallback to descriptive summary
-        if "sequence" in functions_internal or "sequence-prefix" in functions_internal or "sequence-suffix" in functions_internal:
+        if (
+            "sequence" in functions_internal
+            or "sequence-prefix" in functions_internal
+            or "sequence-suffix" in functions_internal
+        ):
             if dimension_refs:
                 return f"{context_word} with sequential {dimension_refs[0]} conditions"
             return f"{context_word} with sequential conditions"
@@ -736,7 +771,7 @@ class SegmentsInventoryBuilder:
 
         return f"{context_word} segment"
 
-    def _describe_definition(self, node: Dict[str, Any], max_depth: int = 3) -> str:
+    def _describe_definition(self, node: dict[str, Any], max_depth: int = 3) -> str:
         """Build a condition description string from the definition."""
         if not isinstance(node, dict) or max_depth <= 0:
             return ""
@@ -802,7 +837,7 @@ class SegmentsInventoryBuilder:
             elif len(val) <= 3:
                 val = ", ".join(str(v) for v in val)
             else:
-                val = f"{val[0]}, +{len(val)-1} more"
+                val = f"{val[0]}, +{len(val) - 1} more"
 
         field_name = dimension or metric or ""
 
@@ -861,9 +896,9 @@ class SegmentsInventoryBuilder:
 # ==================== MODULE EXPORTS ====================
 
 __all__ = [
-    "SegmentsInventoryBuilder",
-    "SegmentsInventory",
-    "SegmentSummary",
     "SEGMENT_FUNCTION_DISPLAY_NAMES",
+    "SegmentSummary",
+    "SegmentsInventory",
+    "SegmentsInventoryBuilder",
     "__version__",
 ]

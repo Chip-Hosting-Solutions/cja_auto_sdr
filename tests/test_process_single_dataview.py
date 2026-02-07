@@ -1,22 +1,22 @@
 """Tests for process_single_dataview function"""
-import pytest
-import pandas as pd
-import logging
-import sys
-import os
+
 import json
-import tempfile
+import os
+import sys
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pandas as pd
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.generator import (
-    process_single_dataview,
-    process_single_dataview_worker,
     ProcessingResult,
     WorkerArgs,
+    process_single_dataview,
+    process_single_dataview_worker,
 )
 
 
@@ -27,7 +27,7 @@ def mock_config_file(tmp_path):
         "org_id": "test_org@AdobeOrg",
         "client_id": "test_client_id",
         "secret": "test_secret",
-        "scopes": "openid, AdobeID"
+        "scopes": "openid, AdobeID",
     }
     config_file = tmp_path / "test_config.json"
     config_file.write_text(json.dumps(config_data))
@@ -45,19 +45,41 @@ def temp_output_dir(tmp_path):
 @pytest.fixture
 def sample_metrics_df():
     """Sample metrics DataFrame"""
-    return pd.DataFrame([
-        {"id": "metric1", "name": "Metric 1", "type": "calculated", "description": "Test metric", "title": "Metric 1"},
-        {"id": "metric2", "name": "Metric 2", "type": "standard", "description": "Test metric 2", "title": "Metric 2"}
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "id": "metric1",
+                "name": "Metric 1",
+                "type": "calculated",
+                "description": "Test metric",
+                "title": "Metric 1",
+            },
+            {
+                "id": "metric2",
+                "name": "Metric 2",
+                "type": "standard",
+                "description": "Test metric 2",
+                "title": "Metric 2",
+            },
+        ]
+    )
 
 
 @pytest.fixture
 def sample_dimensions_df():
     """Sample dimensions DataFrame"""
-    return pd.DataFrame([
-        {"id": "dim1", "name": "Dimension 1", "type": "string", "description": "Test dim", "title": "Dimension 1"},
-        {"id": "dim2", "name": "Dimension 2", "type": "string", "description": "Test dim 2", "title": "Dimension 2"}
-    ])
+    return pd.DataFrame(
+        [
+            {"id": "dim1", "name": "Dimension 1", "type": "string", "description": "Test dim", "title": "Dimension 1"},
+            {
+                "id": "dim2",
+                "name": "Dimension 2",
+                "type": "string",
+                "description": "Test dim 2",
+                "title": "Dimension 2",
+            },
+        ]
+    )
 
 
 @pytest.fixture
@@ -67,25 +89,35 @@ def sample_dataview_info():
         "id": "dv_test_12345",
         "name": "Test Data View",
         "owner": {"name": "Test Owner"},
-        "description": "Test description"
+        "description": "Test description",
     }
 
 
 class TestProcessSingleDataviewSuccess:
     """Tests for successful processing scenarios"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_successful_processing(self, mock_excel_writer, mock_apply_formatting,
-                                    mock_dq_checker_class, mock_fetcher_class,
-                                    mock_validate_dv, mock_init_cja, mock_setup_logging,
-                                    mock_config_file, temp_output_dir,
-                                    sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_successful_processing(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test successful end-to-end processing"""
         # Setup mocks
         mock_logger = Mock()
@@ -103,7 +135,9 @@ class TestProcessSingleDataviewSuccess:
         # Setup data quality checker
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         # Setup Excel writer
@@ -112,9 +146,7 @@ class TestProcessSingleDataviewSuccess:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is True
@@ -123,18 +155,28 @@ class TestProcessSingleDataviewSuccess:
         assert result.metrics_count == 2
         assert result.dimensions_count == 2
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_processing_with_cache_disabled(self, mock_excel_writer, mock_apply_formatting,
-                                              mock_dq_checker_class, mock_fetcher_class,
-                                              mock_validate_dv, mock_init_cja, mock_setup_logging,
-                                              mock_config_file, temp_output_dir,
-                                              sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_processing_with_cache_disabled(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test processing with cache disabled (default)"""
         mock_logger = Mock()
         mock_logger.handlers = []  # Make handlers iterable
@@ -149,7 +191,9 @@ class TestProcessSingleDataviewSuccess:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_writer = MagicMock()
@@ -160,7 +204,7 @@ class TestProcessSingleDataviewSuccess:
             data_view_id="dv_test_12345",
             config_file=mock_config_file,
             output_dir=temp_output_dir,
-            enable_cache=False  # Default behavior
+            enable_cache=False,  # Default behavior
         )
 
         assert result.success is True
@@ -171,29 +215,27 @@ class TestProcessSingleDataviewSuccess:
 class TestProcessSingleDataviewFailures:
     """Tests for failure scenarios"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    def test_cja_initialization_failure(self, mock_init_cja, mock_setup_logging,
-                                         mock_config_file, temp_output_dir):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    def test_cja_initialization_failure(self, mock_init_cja, mock_setup_logging, mock_config_file, temp_output_dir):
         """Test handling of CJA initialization failure"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
         mock_init_cja.return_value = None
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is False
         assert "initialization failed" in result.error_message.lower()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    def test_data_view_validation_failure(self, mock_validate_dv, mock_init_cja,
-                                           mock_setup_logging, mock_config_file, temp_output_dir):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    def test_data_view_validation_failure(
+        self, mock_validate_dv, mock_init_cja, mock_setup_logging, mock_config_file, temp_output_dir
+    ):
         """Test handling of data view validation failure"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -202,21 +244,26 @@ class TestProcessSingleDataviewFailures:
         mock_validate_dv.return_value = False
 
         result = process_single_dataview(
-            data_view_id="dv_invalid",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_invalid", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is False
         assert "validation failed" in result.error_message.lower()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    def test_empty_data_fetched(self, mock_fetcher_class, mock_validate_dv,
-                                 mock_init_cja, mock_setup_logging,
-                                 mock_config_file, temp_output_dir, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_empty_data_fetched(
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_dataview_info,
+    ):
         """Test handling of empty metrics and dimensions"""
         mock_logger = Mock()
         mock_logger.handlers = []  # Make handlers iterable
@@ -230,25 +277,32 @@ class TestProcessSingleDataviewFailures:
         mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is False
         assert "no metrics or dimensions" in result.error_message.lower()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('pandas.ExcelWriter')
-    def test_permission_error_writing_file(self, mock_excel_writer, mock_dq_checker_class,
-                                            mock_fetcher_class, mock_validate_dv,
-                                            mock_init_cja, mock_setup_logging,
-                                            mock_config_file, temp_output_dir,
-                                            sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("pandas.ExcelWriter")
+    def test_permission_error_writing_file(
+        self,
+        mock_excel_writer,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test handling of permission error when writing output"""
         mock_logger = Mock()
         mock_logger.handlers = []  # Make handlers iterable
@@ -263,15 +317,15 @@ class TestProcessSingleDataviewFailures:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_excel_writer.side_effect = PermissionError("File is open")
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is False
@@ -281,17 +335,26 @@ class TestProcessSingleDataviewFailures:
 class TestProcessSingleDataviewOutputFormats:
     """Tests for different output formats"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.write_csv_output')
-    def test_csv_output_format(self, mock_write_csv, mock_dq_checker_class,
-                                mock_fetcher_class, mock_validate_dv,
-                                mock_init_cja, mock_setup_logging,
-                                mock_config_file, temp_output_dir,
-                                sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    def test_csv_output_format(
+        self,
+        mock_write_csv,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test CSV output format"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -305,32 +368,40 @@ class TestProcessSingleDataviewOutputFormats:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_csv.return_value = f"{temp_output_dir}/test_csv"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir,
-            output_format="csv"
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="csv"
         )
 
         assert result.success is True
         mock_write_csv.assert_called_once()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.write_json_output')
-    def test_json_output_format(self, mock_write_json, mock_dq_checker_class,
-                                 mock_fetcher_class, mock_validate_dv,
-                                 mock_init_cja, mock_setup_logging,
-                                 mock_config_file, temp_output_dir,
-                                 sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_json_output_format(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test JSON output format"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -344,32 +415,40 @@ class TestProcessSingleDataviewOutputFormats:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_json.return_value = f"{temp_output_dir}/test.json"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir,
-            output_format="json"
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="json"
         )
 
         assert result.success is True
         mock_write_json.assert_called_once()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.write_html_output')
-    def test_html_output_format(self, mock_write_html, mock_dq_checker_class,
-                                 mock_fetcher_class, mock_validate_dv,
-                                 mock_init_cja, mock_setup_logging,
-                                 mock_config_file, temp_output_dir,
-                                 sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_html_output")
+    def test_html_output_format(
+        self,
+        mock_write_html,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test HTML output format"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -383,32 +462,40 @@ class TestProcessSingleDataviewOutputFormats:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_html.return_value = f"{temp_output_dir}/test.html"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir,
-            output_format="html"
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="html"
         )
 
         assert result.success is True
         mock_write_html.assert_called_once()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.write_markdown_output')
-    def test_markdown_output_format(self, mock_write_md, mock_dq_checker_class,
-                                     mock_fetcher_class, mock_validate_dv,
-                                     mock_init_cja, mock_setup_logging,
-                                     mock_config_file, temp_output_dir,
-                                     sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_markdown_output")
+    def test_markdown_output_format(
+        self,
+        mock_write_md,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test Markdown output format"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -422,7 +509,9 @@ class TestProcessSingleDataviewOutputFormats:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_md.return_value = f"{temp_output_dir}/test.md"
@@ -431,7 +520,7 @@ class TestProcessSingleDataviewOutputFormats:
             data_view_id="dv_test_12345",
             config_file=mock_config_file,
             output_dir=temp_output_dir,
-            output_format="markdown"
+            output_format="markdown",
         )
 
         assert result.success is True
@@ -441,20 +530,30 @@ class TestProcessSingleDataviewOutputFormats:
 class TestProcessSingleDataviewCaching:
     """Tests for caching functionality"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.ValidationCache')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_cache_enabled(self, mock_excel_writer, mock_apply_formatting,
-                            mock_dq_checker_class, mock_cache_class,
-                            mock_fetcher_class, mock_validate_dv,
-                            mock_init_cja, mock_setup_logging,
-                            mock_config_file, temp_output_dir,
-                            sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.ValidationCache")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_cache_enabled(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_cache_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test that cache is created when enabled"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -471,7 +570,9 @@ class TestProcessSingleDataviewCaching:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_writer = MagicMock()
@@ -484,26 +585,36 @@ class TestProcessSingleDataviewCaching:
             output_dir=temp_output_dir,
             enable_cache=True,
             cache_size=500,
-            cache_ttl=1800
+            cache_ttl=1800,
         )
 
         assert result.success is True
         mock_cache_class.assert_called_once()
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.ValidationCache')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_clear_cache_option(self, mock_excel_writer, mock_apply_formatting,
-                                 mock_dq_checker_class, mock_cache_class,
-                                 mock_fetcher_class, mock_validate_dv,
-                                 mock_init_cja, mock_setup_logging,
-                                 mock_config_file, temp_output_dir,
-                                 sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.ValidationCache")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_clear_cache_option(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_cache_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test that cache is cleared when clear_cache=True"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -520,7 +631,9 @@ class TestProcessSingleDataviewCaching:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_writer = MagicMock()
@@ -532,7 +645,7 @@ class TestProcessSingleDataviewCaching:
             config_file=mock_config_file,
             output_dir=temp_output_dir,
             enable_cache=True,
-            clear_cache=True
+            clear_cache=True,
         )
 
         assert result.success is True
@@ -542,14 +655,11 @@ class TestProcessSingleDataviewCaching:
 class TestProcessSingleDataviewWorker:
     """Tests for the worker wrapper function"""
 
-    @patch('cja_auto_sdr.generator.process_single_dataview')
+    @patch("cja_auto_sdr.generator.process_single_dataview")
     def test_worker_unpacks_args(self, mock_process):
         """Test that worker correctly unpacks arguments"""
         expected_result = ProcessingResult(
-            data_view_id="dv_test_12345",
-            data_view_name="Test",
-            success=True,
-            duration=1.0
+            data_view_id="dv_test_12345", data_view_name="Test", success=True, duration=1.0
         )
         mock_process.return_value = expected_result
 
@@ -563,30 +673,58 @@ class TestProcessSingleDataviewWorker:
 
         assert result == expected_result
         mock_process.assert_called_once_with(
-            "dv_test_12345", "config.json", "/output", "INFO", "text", "excel",
-            False, 1000, 3600, False, False, 0, False, False, False, False,
-            profile=None, shared_cache=None,
-            api_tuning_config=None, circuit_breaker_config=None,
-            include_derived_inventory=False, include_calculated_metrics=False,
-            include_segments_inventory=False, inventory_only=False, inventory_order=None,
+            "dv_test_12345",
+            "config.json",
+            "/output",
+            "INFO",
+            "text",
+            "excel",
+            False,
+            1000,
+            3600,
+            False,
+            False,
+            0,
+            False,
+            False,
+            False,
+            False,
+            profile=None,
+            shared_cache=None,
+            api_tuning_config=None,
+            circuit_breaker_config=None,
+            include_derived_inventory=False,
+            include_calculated_metrics=False,
+            include_segments_inventory=False,
+            inventory_only=False,
+            inventory_order=None,
         )
 
 
 class TestProcessSingleDataviewFilenaming:
     """Tests for file naming logic"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_filename_sanitization(self, mock_excel_writer, mock_apply_formatting,
-                                    mock_dq_checker_class, mock_fetcher_class,
-                                    mock_validate_dv, mock_init_cja, mock_setup_logging,
-                                    mock_config_file, temp_output_dir,
-                                    sample_metrics_df, sample_dimensions_df):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_filename_sanitization(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+    ):
         """Test that special characters are removed from filenames"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -598,7 +736,7 @@ class TestProcessSingleDataviewFilenaming:
         special_name_info = {
             "id": "dv_test_12345",
             "name": "Test/View:With*Special<Chars>",
-            "owner": {"name": "Test Owner"}
+            "owner": {"name": "Test Owner"},
         }
 
         mock_fetcher = Mock()
@@ -607,7 +745,9 @@ class TestProcessSingleDataviewFilenaming:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_writer = MagicMock()
@@ -615,9 +755,7 @@ class TestProcessSingleDataviewFilenaming:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
         )
 
         assert result.success is True
@@ -630,18 +768,28 @@ class TestProcessSingleDataviewFilenaming:
 class TestProcessSingleDataviewMaxIssues:
     """Tests for max_issues parameter"""
 
-    @patch('cja_auto_sdr.generator.setup_logging')
-    @patch('cja_auto_sdr.generator.initialize_cja')
-    @patch('cja_auto_sdr.generator.validate_data_view')
-    @patch('cja_auto_sdr.generator.ParallelAPIFetcher')
-    @patch('cja_auto_sdr.generator.DataQualityChecker')
-    @patch('cja_auto_sdr.generator.apply_excel_formatting')
-    @patch('pandas.ExcelWriter')
-    def test_max_issues_parameter_passed(self, mock_excel_writer, mock_apply_formatting,
-                                          mock_dq_checker_class, mock_fetcher_class,
-                                          mock_validate_dv, mock_init_cja, mock_setup_logging,
-                                          mock_config_file, temp_output_dir,
-                                          sample_metrics_df, sample_dimensions_df, sample_dataview_info):
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_max_issues_parameter_passed(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
         """Test that max_issues parameter is passed to get_issues_dataframe"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
@@ -655,7 +803,9 @@ class TestProcessSingleDataviewMaxIssues:
 
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_writer = MagicMock()
@@ -663,10 +813,7 @@ class TestProcessSingleDataviewMaxIssues:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345",
-            config_file=mock_config_file,
-            output_dir=temp_output_dir,
-            max_issues=10
+            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, max_issues=10
         )
 
         assert result.success is True
@@ -687,7 +834,7 @@ class TestProcessingResultDataclass:
             dimensions_count=50,
             dq_issues_count=5,
             output_file="/path/to/file.xlsx",
-            file_size_bytes=1024
+            file_size_bytes=1024,
         )
 
         assert result.success is True
@@ -702,7 +849,7 @@ class TestProcessingResultDataclass:
             data_view_name="Test",
             success=False,
             duration=1.0,
-            error_message="Connection failed"
+            error_message="Connection failed",
         )
 
         assert result.success is False
@@ -715,7 +862,7 @@ class TestProcessingResultDataclass:
             data_view_name="Test",
             success=True,
             duration=1.0,
-            file_size_bytes=1536  # 1.5 KB
+            file_size_bytes=1536,  # 1.5 KB
         )
 
         formatted = result.file_size_formatted

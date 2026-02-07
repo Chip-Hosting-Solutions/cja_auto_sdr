@@ -21,8 +21,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import pandas as pd
 
@@ -43,7 +42,7 @@ __version__ = "1.0.0"
 # ==================== CONSTANTS ====================
 
 # Mapping of internal function names to human-readable display names
-CALC_METRIC_FUNCTION_DISPLAY_NAMES: Dict[str, str] = {
+CALC_METRIC_FUNCTION_DISPLAY_NAMES: dict[str, str] = {
     # Arithmetic operations
     "divide": "Division",
     "multiply": "Multiplication",
@@ -146,16 +145,16 @@ class CalculatedMetricSummary:
     complexity_score: float
 
     # Functions
-    functions_used: List[str]  # Human-readable function names
-    functions_used_internal: List[str]  # Internal func values
+    functions_used: list[str]  # Human-readable function names
+    functions_used_internal: list[str]  # Internal func values
 
     # Structure
     nesting_depth: int
     operator_count: int
 
     # References
-    metric_references: List[str]  # Referenced metric IDs
-    segment_references: List[str]  # Referenced segment IDs
+    metric_references: list[str]  # Referenced metric IDs
+    segment_references: list[str]  # Referenced segment IDs
     conditional_count: int
 
     # Formula summary
@@ -169,7 +168,7 @@ class CalculatedMetricSummary:
     # Governance fields (new)
     approved: bool = False  # Approval status
     favorite: bool = False  # User favorite status
-    tags: List[str] = field(default_factory=list)  # Organizational tags
+    tags: list[str] = field(default_factory=list)  # Organizational tags
 
     # Timestamps (new)
     created: str = ""  # ISO 8601 creation timestamp
@@ -179,7 +178,7 @@ class CalculatedMetricSummary:
     owner_id: str = ""  # Owner's user ID
 
     # Sharing info (new)
-    shares: List[Dict[str, Any]] = field(default_factory=list)  # Share recipients
+    shares: list[dict[str, Any]] = field(default_factory=list)  # Share recipients
     shared_to_count: int = 0  # Number of users/groups shared with
 
     # Data view association (new)
@@ -189,7 +188,7 @@ class CalculatedMetricSummary:
     # Raw definition for full fidelity
     definition_json: str = ""  # Original definition JSON string
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for DataFrame/Excel/CSV output.
 
         Includes all fields relevant for tabular SDR documentation.
@@ -214,7 +213,7 @@ class CalculatedMetricSummary:
             "definition_json": self.definition_json,  # Keep empty string for raw JSON
         }
 
-    def to_full_dict(self) -> Dict[str, Any]:
+    def to_full_dict(self) -> dict[str, Any]:
         """Convert to full dictionary for JSON output with all details.
 
         Includes every available field for comprehensive JSON export.
@@ -265,7 +264,7 @@ class CalculatedMetricsInventory:
 
     data_view_id: str
     data_view_name: str
-    metrics: List[CalculatedMetricSummary] = field(default_factory=list)
+    metrics: list[CalculatedMetricSummary] = field(default_factory=list)
 
     @property
     def total_calculated_metrics(self) -> int:
@@ -298,12 +297,28 @@ class CalculatedMetricsInventory:
     def get_dataframe(self) -> pd.DataFrame:
         """Get inventory as a DataFrame for Excel/CSV output."""
         if not self.metrics:
-            return pd.DataFrame(columns=[
-                "name", "id", "description", "owner", "approved", "tags",
-                "complexity_score", "functions_used", "metric_references",
-                "segment_references", "formula_summary", "summary", "polarity", "format",
-                "created", "modified", "shared_to", "definition_json"
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "name",
+                    "id",
+                    "description",
+                    "owner",
+                    "approved",
+                    "tags",
+                    "complexity_score",
+                    "functions_used",
+                    "metric_references",
+                    "segment_references",
+                    "formula_summary",
+                    "summary",
+                    "polarity",
+                    "format",
+                    "created",
+                    "modified",
+                    "shared_to",
+                    "definition_json",
+                ]
+            )
 
         # Sort by complexity score descending
         sorted_metrics = sorted(self.metrics, key=lambda m: m.complexity_score, reverse=True)
@@ -312,10 +327,10 @@ class CalculatedMetricsInventory:
         df["summary"] = df["formula_summary"]
         return df
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics for the inventory."""
-        function_counts: Dict[str, int] = {}
-        tag_counts: Dict[str, int] = {}
+        function_counts: dict[str, int] = {}
+        tag_counts: dict[str, int] = {}
         for metric in self.metrics:
             for func in metric.functions_used:
                 function_counts[func] = function_counts.get(func, 0) + 1
@@ -342,7 +357,7 @@ class CalculatedMetricsInventory:
             "tag_usage": dict(sorted(tag_counts.items(), key=lambda x: -x[1])) if tag_counts else {},
         }
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         return {
             "summary": self.get_summary(),
@@ -362,7 +377,7 @@ class CalculatedMetricsInventoryBuilder:
         inventory = builder.build(cja, data_view_id, data_view_name)
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: logging.Logger | None = None):
         self.logger = logger or logging.getLogger(__name__)
 
     def build(
@@ -412,11 +427,9 @@ class CalculatedMetricsInventoryBuilder:
             # Log processing summary
             stats.log_summary("calculated metrics")
 
-            self.logger.info(
-                f"Calculated metrics inventory built: {inventory.total_calculated_metrics} metrics"
-            )
+            self.logger.info(f"Calculated metrics inventory built: {inventory.total_calculated_metrics} metrics")
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(f"Error fetching calculated metrics for data view {data_view_id}")
             raise
 
@@ -424,18 +437,16 @@ class CalculatedMetricsInventoryBuilder:
 
     def _process_metric(
         self,
-        metric_data: Dict[str, Any],
-        stats: Optional[BatchProcessingStats] = None,
-    ) -> Optional[CalculatedMetricSummary]:
+        metric_data: dict[str, Any],
+        stats: BatchProcessingStats | None = None,
+    ) -> CalculatedMetricSummary | None:
         """Process a single calculated metric and return a summary.
 
         Extracts all available fields from the API response for comprehensive
         documentation since calculated metrics are not in standard SDR output.
         """
         # Validate required ID field (fail fast on missing critical data)
-        metric_id = validate_required_id(
-            metric_data, id_field="id", name_field="name", logger=self.logger
-        )
+        metric_id = validate_required_id(metric_data, id_field="id", name_field="name", logger=self.logger)
         if not metric_id:
             if stats:
                 stats.record_skip("missing ID", metric_data.get("name", "Unknown"))
@@ -527,7 +538,7 @@ class CalculatedMetricsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
-    def _parse_formula(self, formula: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
+    def _parse_formula(self, formula: dict[str, Any], depth: int = 0) -> dict[str, Any]:
         """
         Recursively parse a formula and extract all relevant data.
 
@@ -538,9 +549,9 @@ class CalculatedMetricsInventoryBuilder:
         Returns:
             Dictionary with parsed information
         """
-        functions_internal: Set[str] = set()
-        metric_refs: Set[str] = set()
-        segment_refs: Set[str] = set()
+        functions_internal: set[str] = set()
+        metric_refs: set[str] = set()
+        segment_refs: set[str] = set()
 
         total_operators = 0
         max_nesting = depth
@@ -559,8 +570,22 @@ class CalculatedMetricsInventoryBuilder:
                 functions_internal.add(func)
 
                 # Count operators
-                if func in ("divide", "multiply", "add", "subtract", "negate", "pow", "sqrt",
-                           "abs", "ceil", "floor", "round", "log", "log10", "exp"):
+                if func in (
+                    "divide",
+                    "multiply",
+                    "add",
+                    "subtract",
+                    "negate",
+                    "pow",
+                    "sqrt",
+                    "abs",
+                    "ceil",
+                    "floor",
+                    "round",
+                    "log",
+                    "log10",
+                    "exp",
+                ):
                     total_operators += 1
 
                 # Count conditionals
@@ -582,9 +607,23 @@ class CalculatedMetricsInventoryBuilder:
                         segment_refs.add(segment_id)
 
             # Traverse child nodes
-            for key in ["col1", "col2", "col", "metric", "val", "formula",
-                       "then", "else", "left", "right", "condition",
-                       "value", "operand", "dividend", "divisor"]:
+            for key in [
+                "col1",
+                "col2",
+                "col",
+                "metric",
+                "val",
+                "formula",
+                "then",
+                "else",
+                "left",
+                "right",
+                "condition",
+                "value",
+                "operand",
+                "dividend",
+                "divisor",
+            ]:
                 if key in node and isinstance(node[key], dict):
                     traverse(node[key], current_depth + 1)
 
@@ -645,20 +684,20 @@ class CalculatedMetricsInventoryBuilder:
 
         # Weighted sum
         weighted_score = (
-            op_score * COMPLEXITY_WEIGHTS["operators"] +
-            ref_score * COMPLEXITY_WEIGHTS["metric_refs"] +
-            nesting_score * COMPLEXITY_WEIGHTS["nesting"] +
-            func_score * COMPLEXITY_WEIGHTS["functions"] +
-            seg_score * COMPLEXITY_WEIGHTS["segments"] +
-            cond_score * COMPLEXITY_WEIGHTS["conditionals"]
+            op_score * COMPLEXITY_WEIGHTS["operators"]
+            + ref_score * COMPLEXITY_WEIGHTS["metric_refs"]
+            + nesting_score * COMPLEXITY_WEIGHTS["nesting"]
+            + func_score * COMPLEXITY_WEIGHTS["functions"]
+            + seg_score * COMPLEXITY_WEIGHTS["segments"]
+            + cond_score * COMPLEXITY_WEIGHTS["conditionals"]
         )
 
         return round(weighted_score * 100, 1)
 
     def _generate_formula_summary(
         self,
-        formula: Dict[str, Any],
-        parsed: Dict[str, Any],
+        formula: dict[str, Any],
+        parsed: dict[str, Any],
     ) -> str:
         """Generate a brief human-readable summary of what the calculated metric does."""
         # Unwrap visualization-group wrapper if present
@@ -703,7 +742,7 @@ class CalculatedMetricsInventoryBuilder:
             left = self._get_reference_name(col1)
             right = self._get_reference_name(col2)
             if left and right:
-                return f"{left} × {right}"
+                return f"{left} x {right}"
             return "Multiplication of metrics"
 
         elif func == "add":
@@ -825,7 +864,7 @@ class CalculatedMetricsInventoryBuilder:
 
         return "Custom calculated metric"
 
-    def _build_formula_expression(self, node: Dict[str, Any], max_depth: int = 4) -> str:
+    def _build_formula_expression(self, node: dict[str, Any], max_depth: int = 4) -> str:
         """Build a formula expression string like 'A / B' or 'SUM(A, B)'."""
         if not isinstance(node, dict) or max_depth <= 0:
             return ""
@@ -855,7 +894,7 @@ class CalculatedMetricsInventoryBuilder:
             left = self._build_formula_expression(node.get("col1", {}), max_depth - 1)
             right = self._build_formula_expression(node.get("col2", {}), max_depth - 1)
             if left and right:
-                return f"{left} × {right}"
+                return f"{left} x {right}"
 
         if func == "add":
             operands = []
@@ -940,7 +979,7 @@ class CalculatedMetricsInventoryBuilder:
 
         return ""
 
-    def _get_add_operands(self, formula: Dict[str, Any]) -> List[str]:
+    def _get_add_operands(self, formula: dict[str, Any]) -> list[str]:
         """Extract all operands from an add operation."""
         operands = []
         for key in ["col1", "col2"]:
@@ -955,7 +994,7 @@ class CalculatedMetricsInventoryBuilder:
                     operands.append(name)
         return operands
 
-    def _describe_condition(self, formula: Dict[str, Any]) -> str:
+    def _describe_condition(self, formula: dict[str, Any]) -> str:
         """Generate a brief description of an if condition."""
         condition = formula.get("condition", formula.get("cond", {}))
         if not isinstance(condition, dict):
@@ -1011,7 +1050,7 @@ class CalculatedMetricsInventoryBuilder:
             return full_id[:12] + "..."
         return full_id
 
-    def _get_reference_name(self, node: Dict[str, Any]) -> str:
+    def _get_reference_name(self, node: dict[str, Any]) -> str:
         """Extract a human-readable name from a formula node."""
         if not isinstance(node, dict):
             return ""
@@ -1044,9 +1083,9 @@ class CalculatedMetricsInventoryBuilder:
 # ==================== MODULE EXPORTS ====================
 
 __all__ = [
-    "CalculatedMetricsInventoryBuilder",
-    "CalculatedMetricsInventory",
-    "CalculatedMetricSummary",
     "CALC_METRIC_FUNCTION_DISPLAY_NAMES",
+    "CalculatedMetricSummary",
+    "CalculatedMetricsInventory",
+    "CalculatedMetricsInventoryBuilder",
     "__version__",
 ]

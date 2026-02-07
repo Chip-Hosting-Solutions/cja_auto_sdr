@@ -8,7 +8,6 @@ from cja_auto_sdr.output.writers import (
     write_markdown_output,
 )
 
-
 WRITER_REGISTRY = {
     "csv": write_csv_output,
     "excel": write_excel_output,

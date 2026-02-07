@@ -5,29 +5,22 @@ These tests exercise the full org-report flow end-to-end with mocked CJA API,
 verifying that all components work together correctly.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
-import pandas as pd
 import json
-import tempfile
-import os
-from pathlib import Path
-
 import sys
-sys.path.insert(0, '.')
+from unittest.mock import Mock, patch
 
-from cja_auto_sdr.generator import (
-    OrgReportConfig,
-    ComponentInfo,
-    DataViewSummary,
-    OrgReportResult,
-    OrgComponentAnalyzer,
-    run_org_report,
-    write_org_report_json,
-    write_org_report_excel,
-)
+import pandas as pd
+import pytest
+
+sys.path.insert(0, ".")
+
 from cja_auto_sdr.core.exceptions import MemoryLimitExceeded
+from cja_auto_sdr.generator import (
+    OrgComponentAnalyzer,
+    OrgReportConfig,
+    write_org_report_excel,
+    write_org_report_json,
+)
 
 
 def create_mock_data_views(count: int = 5, prefix: str = "DV") -> list:
@@ -42,17 +35,17 @@ def create_mock_data_views(count: int = 5, prefix: str = "DV") -> list:
     """
     return [
         {
-            'id': f'dv_{i:05d}',
-            'name': f'{prefix} {i}',
-            'status': 'active',
-            'modified': f'2024-01-{i+1:02d}T10:00:00Z',
-            'created': f'2023-01-01T10:00:00Z',
+            "id": f"dv_{i:05d}",
+            "name": f"{prefix} {i}",
+            "status": "active",
+            "modified": f"2024-01-{i + 1:02d}T10:00:00Z",
+            "created": "2023-01-01T10:00:00Z",
         }
         for i in range(1, count + 1)
     ]
 
 
-def create_mock_metrics(dv_id: str, count: int = 10, overlap_ids: list = None) -> pd.DataFrame:
+def create_mock_metrics(dv_id: str, count: int = 10, overlap_ids: list | None = None) -> pd.DataFrame:
     """Create mock metrics DataFrame for a data view.
 
     Args:
@@ -68,26 +61,30 @@ def create_mock_metrics(dv_id: str, count: int = 10, overlap_ids: list = None) -
 
     # Add overlapping metrics first
     for metric_id in overlap_ids:
-        metrics.append({
-            'id': metric_id,
-            'name': f'Metric {metric_id}',
-            'type': 'standard',
-            'sourceFieldType': 'field',
-        })
+        metrics.append(
+            {
+                "id": metric_id,
+                "name": f"Metric {metric_id}",
+                "type": "standard",
+                "sourceFieldType": "field",
+            }
+        )
 
     # Add unique metrics for this DV
     for i in range(count - len(overlap_ids)):
-        metrics.append({
-            'id': f'{dv_id}_metric_{i}',
-            'name': f'Metric {i} for {dv_id}',
-            'type': 'standard',
-            'sourceFieldType': 'field',
-        })
+        metrics.append(
+            {
+                "id": f"{dv_id}_metric_{i}",
+                "name": f"Metric {i} for {dv_id}",
+                "type": "standard",
+                "sourceFieldType": "field",
+            }
+        )
 
     return pd.DataFrame(metrics)
 
 
-def create_mock_dimensions(dv_id: str, count: int = 10, overlap_ids: list = None) -> pd.DataFrame:
+def create_mock_dimensions(dv_id: str, count: int = 10, overlap_ids: list | None = None) -> pd.DataFrame:
     """Create mock dimensions DataFrame for a data view.
 
     Args:
@@ -103,21 +100,25 @@ def create_mock_dimensions(dv_id: str, count: int = 10, overlap_ids: list = None
 
     # Add overlapping dimensions first
     for dim_id in overlap_ids:
-        dimensions.append({
-            'id': dim_id,
-            'name': f'Dimension {dim_id}',
-            'type': 'standard',
-            'sourceFieldType': 'field',
-        })
+        dimensions.append(
+            {
+                "id": dim_id,
+                "name": f"Dimension {dim_id}",
+                "type": "standard",
+                "sourceFieldType": "field",
+            }
+        )
 
     # Add unique dimensions for this DV
     for i in range(count - len(overlap_ids)):
-        dimensions.append({
-            'id': f'{dv_id}_dim_{i}',
-            'name': f'Dimension {i} for {dv_id}',
-            'type': 'standard',
-            'sourceFieldType': 'field',
-        })
+        dimensions.append(
+            {
+                "id": f"{dv_id}_dim_{i}",
+                "name": f"Dimension {i} for {dv_id}",
+                "type": "standard",
+                "sourceFieldType": "field",
+            }
+        )
 
     return pd.DataFrame(dimensions)
 
@@ -140,34 +141,34 @@ class TestOrgReportIntegration:
 
         # Define overlapping components
         # Core components (in all 5 DVs)
-        core_metrics = ['metrics/pageviews', 'metrics/visits', 'metrics/revenue']
-        core_dims = ['variables/page', 'variables/date']
+        core_metrics = ["metrics/pageviews", "metrics/visits", "metrics/revenue"]
+        core_dims = ["variables/page", "variables/date"]
 
         # Common components (in 3 DVs)
-        common_metrics = ['metrics/orders', 'metrics/units']
-        common_dims = ['variables/product']
+        common_metrics = ["metrics/orders", "metrics/units"]
+        common_dims = ["variables/product"]
 
         # Setup metrics/dimensions per DV
         def get_metrics(dv_id, **kwargs):
-            if dv_id == 'dv_00001':
+            if dv_id == "dv_00001":
                 return create_mock_metrics(dv_id, 15, core_metrics + common_metrics)
-            elif dv_id == 'dv_00002':
+            elif dv_id == "dv_00002":
                 return create_mock_metrics(dv_id, 12, core_metrics + common_metrics)
-            elif dv_id == 'dv_00003':
+            elif dv_id == "dv_00003":
                 return create_mock_metrics(dv_id, 10, core_metrics + common_metrics)
-            elif dv_id == 'dv_00004':
+            elif dv_id == "dv_00004":
                 return create_mock_metrics(dv_id, 8, core_metrics)
             else:
                 return create_mock_metrics(dv_id, 6, core_metrics)
 
         def get_dimensions(dv_id, **kwargs):
-            if dv_id == 'dv_00001':
-                return create_mock_dimensions(dv_id, 10, core_dims + [common_dims[0]])
-            elif dv_id == 'dv_00002':
-                return create_mock_dimensions(dv_id, 8, core_dims + [common_dims[0]])
-            elif dv_id == 'dv_00003':
-                return create_mock_dimensions(dv_id, 7, core_dims + [common_dims[0]])
-            elif dv_id == 'dv_00004':
+            if dv_id == "dv_00001":
+                return create_mock_dimensions(dv_id, 10, [*core_dims, common_dims[0]])
+            elif dv_id == "dv_00002":
+                return create_mock_dimensions(dv_id, 8, [*core_dims, common_dims[0]])
+            elif dv_id == "dv_00003":
+                return create_mock_dimensions(dv_id, 7, [*core_dims, common_dims[0]])
+            elif dv_id == "dv_00004":
                 return create_mock_dimensions(dv_id, 6, core_dims)
             else:
                 return create_mock_dimensions(dv_id, 5, core_dims)
@@ -184,21 +185,21 @@ class TestOrgReportIntegration:
 
         # Setup 3 data views where 2 are nearly identical
         data_views = create_mock_data_views(3)
-        data_views[0]['name'] = 'Production Analytics'
-        data_views[1]['name'] = 'Staging Analytics'  # Near-duplicate of production
-        data_views[2]['name'] = 'Test Environment'
+        data_views[0]["name"] = "Production Analytics"
+        data_views[1]["name"] = "Staging Analytics"  # Near-duplicate of production
+        data_views[2]["name"] = "Test Environment"
         mock.getDataViews.return_value = data_views
 
         # Production and Staging share 95% of components
-        shared_metrics = [f'metrics/shared_{i}' for i in range(19)]
-        shared_dims = [f'dims/shared_{i}' for i in range(10)]
+        shared_metrics = [f"metrics/shared_{i}" for i in range(19)]
+        shared_dims = [f"dims/shared_{i}" for i in range(10)]
 
         def get_metrics(dv_id, **kwargs):
-            if dv_id == 'dv_00001':
+            if dv_id == "dv_00001":
                 # Production: 19 shared + 1 unique
                 df = create_mock_metrics(dv_id, 20, shared_metrics)
                 return df
-            elif dv_id == 'dv_00002':
+            elif dv_id == "dv_00002":
                 # Staging: 19 shared + 1 unique (different unique)
                 df = create_mock_metrics(dv_id, 20, shared_metrics)
                 return df
@@ -207,7 +208,7 @@ class TestOrgReportIntegration:
                 return create_mock_metrics(dv_id, 10, shared_metrics[:5])
 
         def get_dimensions(dv_id, **kwargs):
-            if dv_id in ['dv_00001', 'dv_00002']:
+            if dv_id in ["dv_00001", "dv_00002"]:
                 return create_mock_dimensions(dv_id, 10, shared_dims)
             else:
                 return create_mock_dimensions(dv_id, 6, shared_dims[:3])
@@ -225,9 +226,7 @@ class TestOrgReportIntegration:
         # Use cja_per_thread=False to avoid creating per-thread clients that bypass mocking
         config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Verify basic result structure
@@ -251,9 +250,7 @@ class TestOrgReportIntegration:
         logger = logging.getLogger("test_json")
         config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Write JSON output
@@ -265,11 +262,11 @@ class TestOrgReportIntegration:
         with open(json_path) as f:
             data = json.load(f)
 
-        assert data['report_type'] == 'org_analysis'
-        assert data['org_id'] == 'test@AdobeOrg'
-        assert 'summary' in data
-        assert 'distribution' in data
-        assert data['summary']['data_views_analyzed'] == 5
+        assert data["report_type"] == "org_analysis"
+        assert data["org_id"] == "test@AdobeOrg"
+        assert "summary" in data
+        assert "distribution" in data
+        assert data["summary"]["data_views_analyzed"] == 5
 
     def test_full_analysis_flow_excel_output(self, mock_cja_with_realistic_data, tmp_path):
         """Test complete analysis with Excel output."""
@@ -278,9 +275,7 @@ class TestOrgReportIntegration:
         logger = logging.getLogger("test_excel")
         config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Write Excel output
@@ -298,22 +293,16 @@ class TestOrgReportIntegration:
         logger = logging.getLogger("test_filter")
 
         # Filter to include only DVs with "1" or "2" in name
-        config = OrgReportConfig(
-            filter_pattern=r"DV [12]",
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(filter_pattern=r"DV [12]", skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should only have DV 1 and DV 2
         assert len(result.data_view_summaries) == 2
         names = {s.data_view_name for s in result.data_view_summaries}
-        assert 'DV 1' in names
-        assert 'DV 2' in names
+        assert "DV 1" in names
+        assert "DV 2" in names
 
     def test_analysis_with_exclude(self, mock_cja_with_realistic_data):
         """Test --exclude pattern works correctly."""
@@ -322,21 +311,15 @@ class TestOrgReportIntegration:
         logger = logging.getLogger("test_exclude")
 
         # Exclude DVs with "5" in name
-        config = OrgReportConfig(
-            exclude_pattern=r"DV 5",
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(exclude_pattern=r"DV 5", skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should have 4 DVs (DV 5 excluded)
         assert len(result.data_view_summaries) == 4
         names = {s.data_view_name for s in result.data_view_summaries}
-        assert 'DV 5' not in names
+        assert "DV 5" not in names
 
     def test_analysis_with_limit(self, mock_cja_with_realistic_data):
         """Test --limit works correctly."""
@@ -344,15 +327,9 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_limit")
 
-        config = OrgReportConfig(
-            limit=2,
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(limit=2, skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         assert len(result.data_view_summaries) == 2
@@ -363,22 +340,13 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_sample")
 
-        config = OrgReportConfig(
-            sample_size=3,
-            sample_seed=42,
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(sample_size=3, sample_seed=42, skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result1 = analyzer.run_analysis()
 
         # Run again with same seed
-        analyzer2 = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer2 = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result2 = analyzer2.run_analysis()
 
         # Should get same DVs
@@ -398,15 +366,9 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_skip_sim")
 
-        config = OrgReportConfig(
-            skip_similarity=True,
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(skip_similarity=True, skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Similarity should be None
@@ -420,15 +382,9 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_stats")
 
-        config = OrgReportConfig(
-            org_stats_only=True,
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(org_stats_only=True, skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should skip similarity and clustering
@@ -444,15 +400,9 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_duplicates")
 
-        config = OrgReportConfig(
-            overlap_threshold=0.8,
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(overlap_threshold=0.8, skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_duplicates, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_duplicates, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should detect high similarity between Production and Staging
@@ -473,12 +423,10 @@ class TestOrgReportIntegration:
             duplicate_threshold=0,  # Any duplicate is a violation
             fail_on_threshold=True,
             skip_lock=True,
-            cja_per_thread=False
+            cja_per_thread=False,
         )
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_duplicates, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_duplicates, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should have violations
@@ -496,16 +444,14 @@ class TestOrgReportIntegration:
         config = OrgReportConfig(
             memory_limit_mb=1,  # 1MB - will be exceeded by any real data
             skip_lock=True,
-            cja_per_thread=False
+            cja_per_thread=False,
         )
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
 
         # This might or might not raise depending on the actual data size
         # For this test, we patch the estimate to ensure it exceeds
-        with patch.object(analyzer, '_estimate_component_index_memory', return_value=50.0):
+        with patch.object(analyzer, "_estimate_component_index_memory", return_value=50.0):
             with pytest.raises(MemoryLimitExceeded) as exc_info:
                 analyzer.run_analysis()
 
@@ -520,16 +466,9 @@ class TestOrgReportIntegration:
 
         logger = logging.getLogger("test_cluster")
 
-        config = OrgReportConfig(
-            enable_clustering=True,
-            cluster_method='average',
-            skip_lock=True,
-            cja_per_thread=False
-        )
+        config = OrgReportConfig(enable_clustering=True, cluster_method="average", skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Should have clusters
@@ -550,12 +489,10 @@ class TestOrgReportIntegration:
         config = OrgReportConfig(
             core_threshold=0.8,  # 80% = 4 out of 5 DVs
             skip_lock=True,
-            cja_per_thread=False
+            cja_per_thread=False,
         )
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja_with_realistic_data, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         # Core metrics should include the shared ones
@@ -579,9 +516,7 @@ class TestOrgReportIntegration:
 
         config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja, config, logger, org_id="empty@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="empty@AdobeOrg")
         result = analyzer.run_analysis()
 
         assert len(result.data_view_summaries) == 0
@@ -596,13 +531,13 @@ class TestOrgReportIntegration:
 
         # First DV succeeds, second raises error
         def get_metrics(dv_id, **kwargs):
-            if dv_id == 'dv_00001':
+            if dv_id == "dv_00001":
                 return create_mock_metrics(dv_id, 5)
             else:
                 raise Exception("API Error")
 
         def get_dimensions(dv_id, **kwargs):
-            if dv_id == 'dv_00001':
+            if dv_id == "dv_00001":
                 return create_mock_dimensions(dv_id, 5)
             else:
                 raise Exception("API Error")
@@ -614,9 +549,7 @@ class TestOrgReportIntegration:
 
         config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja, config, logger, org_id="test@AdobeOrg"
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test@AdobeOrg")
         result = analyzer.run_analysis()
 
         assert len(result.data_view_summaries) == 2
@@ -627,7 +560,7 @@ class TestOrgReportIntegration:
         assert len(errors) == 1
 
         # Should have recommendation about fetch errors
-        error_recs = [r for r in result.recommendations if r['type'] == 'fetch_errors']
+        error_recs = [r for r in result.recommendations if r["type"] == "fetch_errors"]
         assert len(error_recs) == 1
 
 
@@ -637,14 +570,15 @@ class TestCacheValidationBatch:
     def test_cache_validation_uses_batch_metadata(self):
         """Test that cache validation uses metadata from getDataViews() instead of individual calls."""
         import logging
+
         from cja_auto_sdr.org.cache import OrgReportCache
 
         mock_cja = Mock()
 
         # Data views with modification dates
         data_views = [
-            {'id': 'dv_1', 'name': 'DV 1', 'modified': '2024-01-15T10:00:00Z'},
-            {'id': 'dv_2', 'name': 'DV 2', 'modified': '2024-01-16T10:00:00Z'},
+            {"id": "dv_1", "name": "DV 1", "modified": "2024-01-15T10:00:00Z"},
+            {"id": "dv_2", "name": "DV 2", "modified": "2024-01-16T10:00:00Z"},
         ]
         mock_cja.getDataViews.return_value = data_views
 
@@ -658,18 +592,12 @@ class TestCacheValidationBatch:
 
         logger = logging.getLogger("test_batch_cache")
 
-        config = OrgReportConfig(
-            use_cache=True,
-            validate_cache=True,
-            skip_lock=True
-        )
+        config = OrgReportConfig(use_cache=True, validate_cache=True, skip_lock=True)
 
-        analyzer = OrgComponentAnalyzer(
-            mock_cja, config, logger, org_id="test@AdobeOrg", cache=mock_cache
-        )
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test@AdobeOrg", cache=mock_cache)
 
         # Call the validation method directly
-        to_fetch, valid, valid_count, stale_count = analyzer._validate_cache_entries(data_views)
+        _to_fetch, _valid, _valid_count, _stale_count = analyzer._validate_cache_entries(data_views)
 
         # getDataView should NOT be called (batch optimization)
         mock_cja.getDataView.assert_not_called()
@@ -680,4 +608,4 @@ class TestCacheValidationBatch:
         # Verify modification dates were passed
         calls = mock_cache.get.call_args_list
         for i, call in enumerate(calls):
-            assert call.kwargs.get('current_modified') == data_views[i]['modified']
+            assert call.kwargs.get("current_modified") == data_views[i]["modified"]

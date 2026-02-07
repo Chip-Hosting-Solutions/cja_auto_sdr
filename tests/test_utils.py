@@ -1,21 +1,18 @@
 """Tests for utility functions"""
-import pytest
-import sys
+
 import json
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 import logging
 import os
-
+import sys
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import (
-    setup_logging,
-    validate_config_file,
+    VALIDATION_SCHEMA,
     PerformanceTracker,
     _format_error_msg,
-    VALIDATION_SCHEMA
+    setup_logging,
+    validate_config_file,
 )
 
 
@@ -95,11 +92,15 @@ class TestConfigValidation:
         """Test validation with missing required fields"""
         logger = logging.getLogger("test")
         incomplete_config = tmp_path / "incomplete_config.json"
-        incomplete_config.write_text(json.dumps({
-            "org_id": "test_org",
-            "client_id": "test_client"
-            # Missing other required fields
-        }))
+        incomplete_config.write_text(
+            json.dumps(
+                {
+                    "org_id": "test_org",
+                    "client_id": "test_client",
+                    # Missing other required fields
+                }
+            )
+        )
 
         # Should fail when required fields are missing
         result = validate_config_file(str(incomplete_config), logger)
@@ -157,6 +158,7 @@ class TestPerformanceTracker:
     def test_performance_tracker_timing_accuracy(self):
         """Test that tracker measures time accurately"""
         import time
+
         logger = logging.getLogger("test")
         tracker = PerformanceTracker(logger)
 
@@ -232,61 +234,61 @@ class TestValidationSchema:
 
     def test_validation_schema_has_required_keys(self):
         """Test schema contains all required keys"""
-        assert 'required_metric_fields' in VALIDATION_SCHEMA
-        assert 'required_dimension_fields' in VALIDATION_SCHEMA
-        assert 'critical_fields' in VALIDATION_SCHEMA
+        assert "required_metric_fields" in VALIDATION_SCHEMA
+        assert "required_dimension_fields" in VALIDATION_SCHEMA
+        assert "critical_fields" in VALIDATION_SCHEMA
 
     def test_validation_schema_metric_fields(self):
         """Test metric required fields are correct"""
-        fields = VALIDATION_SCHEMA['required_metric_fields']
-        assert 'id' in fields
-        assert 'name' in fields
-        assert 'type' in fields
+        fields = VALIDATION_SCHEMA["required_metric_fields"]
+        assert "id" in fields
+        assert "name" in fields
+        assert "type" in fields
 
     def test_validation_schema_dimension_fields(self):
         """Test dimension required fields are correct"""
-        fields = VALIDATION_SCHEMA['required_dimension_fields']
-        assert 'id' in fields
-        assert 'name' in fields
-        assert 'type' in fields
+        fields = VALIDATION_SCHEMA["required_dimension_fields"]
+        assert "id" in fields
+        assert "name" in fields
+        assert "type" in fields
 
     def test_validation_schema_critical_fields(self):
         """Test critical fields are correct"""
-        fields = VALIDATION_SCHEMA['critical_fields']
-        assert 'id' in fields
-        assert 'name' in fields
-        assert 'description' in fields
+        fields = VALIDATION_SCHEMA["critical_fields"]
+        assert "id" in fields
+        assert "name" in fields
+        assert "description" in fields
 
     def test_validation_schema_is_immutable_reference(self):
         """Test schema values are lists (can be used directly)"""
-        assert isinstance(VALIDATION_SCHEMA['required_metric_fields'], list)
-        assert isinstance(VALIDATION_SCHEMA['required_dimension_fields'], list)
-        assert isinstance(VALIDATION_SCHEMA['critical_fields'], list)
+        assert isinstance(VALIDATION_SCHEMA["required_metric_fields"], list)
+        assert isinstance(VALIDATION_SCHEMA["required_dimension_fields"], list)
+        assert isinstance(VALIDATION_SCHEMA["critical_fields"], list)
 
     def test_validation_schema_integration_with_checker(self):
         """Test VALIDATION_SCHEMA works with DataQualityChecker"""
-        from cja_auto_sdr.generator import DataQualityChecker
         import pandas as pd
+
+        from cja_auto_sdr.generator import DataQualityChecker
 
         logger = logging.getLogger("test")
         checker = DataQualityChecker(logger)
 
         # Create test DataFrame with all required fields
-        df = pd.DataFrame({
-            'id': ['m1', 'm2'],
-            'name': ['Metric 1', 'Metric 2'],
-            'type': ['int', 'currency'],
-            'description': ['Desc 1', 'Desc 2']
-        })
+        df = pd.DataFrame(
+            {
+                "id": ["m1", "m2"],
+                "name": ["Metric 1", "Metric 2"],
+                "type": ["int", "currency"],
+                "description": ["Desc 1", "Desc 2"],
+            }
+        )
 
         # Use VALIDATION_SCHEMA values directly
         checker.check_all_quality_issues_optimized(
-            df,
-            'Metrics',
-            VALIDATION_SCHEMA['required_metric_fields'],
-            VALIDATION_SCHEMA['critical_fields']
+            df, "Metrics", VALIDATION_SCHEMA["required_metric_fields"], VALIDATION_SCHEMA["critical_fields"]
         )
 
         # Should have no critical issues for valid data
-        critical_issues = [i for i in checker.issues if i['severity'] == 'CRITICAL']
+        critical_issues = [i for i in checker.issues if i["severity"] == "CRITICAL"]
         assert len(critical_issues) == 0

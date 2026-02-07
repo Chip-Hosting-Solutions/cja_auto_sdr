@@ -21,6 +21,7 @@ class TestBackwardsCompatibilityImports:
     def test_version_importable(self):
         """__version__ must be importable."""
         from cja_auto_sdr.generator import __version__
+
         assert isinstance(__version__, str)
         assert __version__  # Not empty
 
@@ -31,18 +32,19 @@ class TestBackwardsCompatibilityImports:
     def test_exception_classes_importable(self):
         """All exception classes must be importable."""
         from cja_auto_sdr.generator import (
+            APIError,
+            CircuitBreakerOpen,
             CJASDRError,
             ConfigurationError,
-            APIError,
-            ValidationError,
+            CredentialSourceError,
             OutputError,
+            ProfileConfigError,
             ProfileError,
             ProfileNotFoundError,
-            ProfileConfigError,
-            CredentialSourceError,
-            CircuitBreakerOpen,
             RetryableHTTPError,
+            ValidationError,
         )
+
         # Verify they are exception classes
         assert issubclass(CJASDRError, Exception)
         assert issubclass(ConfigurationError, CJASDRError)
@@ -63,14 +65,15 @@ class TestBackwardsCompatibilityImports:
     def test_config_dataclasses_importable(self):
         """All configuration dataclasses must be importable."""
         from cja_auto_sdr.generator import (
-            RetryConfig,
-            CacheConfig,
-            LogConfig,
-            WorkerConfig,
             APITuningConfig,
+            CacheConfig,
             CircuitBreakerConfig,
+            LogConfig,
+            RetryConfig,
             SDRConfig,
+            WorkerConfig,
         )
+
         # Verify they can be instantiated with defaults
         assert RetryConfig()
         assert CacheConfig()
@@ -88,14 +91,8 @@ class TestBackwardsCompatibilityImports:
         """All org-wide analysis dataclasses must be importable."""
         from cja_auto_sdr.generator import (
             OrgReportConfig,
-            ComponentInfo,
-            DataViewSummary,
-            SimilarityPair,
-            DataViewCluster,
-            ComponentDistribution,
-            OrgReportResult,
-            OrgReportComparison,
         )
+
         # Verify OrgReportConfig can be instantiated
         assert OrgReportConfig()
 
@@ -106,9 +103,10 @@ class TestBackwardsCompatibilityImports:
     def test_enums_importable(self):
         """All enums must be importable."""
         from cja_auto_sdr.generator import (
-            CircuitState,
             ChangeType,
+            CircuitState,
         )
+
         # Verify enum values
         assert CircuitState.CLOSED
         assert CircuitState.OPEN
@@ -125,17 +123,18 @@ class TestBackwardsCompatibilityImports:
     def test_data_classes_importable(self):
         """All data-related classes must be importable."""
         from cja_auto_sdr.generator import (
-            ProcessingResult,
             ComponentDiff,
-            MetadataDiff,
+            DataViewComparator,
+            DataViewSnapshot,
+            DiffResult,
             DiffSummary,
             InventoryItemDiff,
-            DiffResult,
-            DataViewSnapshot,
+            MetadataDiff,
+            ProcessingResult,
             SnapshotManager,
-            DataViewComparator,
             WizardConfig,
         )
+
         # Verify they are classes
         assert ProcessingResult
         assert ComponentDiff
@@ -155,18 +154,19 @@ class TestBackwardsCompatibilityImports:
     def test_api_classes_importable(self):
         """All API-related classes must be importable."""
         from cja_auto_sdr.generator import (
-            CircuitBreaker,
-            ParallelAPIFetcher,
-            PerformanceTracker,
             APIWorkerTuner,
-            ErrorMessageHelper,
+            CircuitBreaker,
             ConfigValidator,
             CredentialLoader,
-            JsonFileCredentialLoader,
+            CredentialResolver,
             DotenvCredentialLoader,
             EnvironmentCredentialLoader,
-            CredentialResolver,
+            ErrorMessageHelper,
+            JsonFileCredentialLoader,
+            ParallelAPIFetcher,
+            PerformanceTracker,
         )
+
         assert CircuitBreaker
         assert ParallelAPIFetcher
         assert PerformanceTracker
@@ -186,12 +186,13 @@ class TestBackwardsCompatibilityImports:
     def test_cache_classes_importable(self):
         """All cache classes must be importable."""
         from cja_auto_sdr.generator import (
-            ValidationCache,
-            SharedValidationCache,
-            OrgReportCache,
             DataViewCache,
             ExcelFormatCache,
+            OrgReportCache,
+            SharedValidationCache,
+            ValidationCache,
         )
+
         assert ValidationCache
         assert SharedValidationCache
         assert OrgReportCache
@@ -205,14 +206,15 @@ class TestBackwardsCompatibilityImports:
     def test_output_classes_importable(self):
         """All output-related classes must be importable."""
         from cja_auto_sdr.generator import (
-            ConsoleColors,
             ANSIColors,
-            OutputWriter,
-            JSONFormatter,
-            DataQualityChecker,
             BatchProcessor,
+            ConsoleColors,
+            DataQualityChecker,
+            JSONFormatter,
             OrgComponentAnalyzer,
+            OutputWriter,
         )
+
         assert ConsoleColors
         assert ANSIColors
         assert OutputWriter
@@ -249,30 +251,26 @@ class TestBackwardsCompatibilityImports:
     def test_constants_importable(self):
         """All module-level constants must be importable."""
         from cja_auto_sdr.generator import (
-            FORMAT_ALIASES,
-            EXTENSION_TO_FORMAT,
-            DEFAULT_API_FETCH_WORKERS,
-            DEFAULT_VALIDATION_WORKERS,
-            DEFAULT_BATCH_WORKERS,
-            MAX_BATCH_WORKERS,
             AUTO_WORKERS_SENTINEL,
+            CONFIG_SCHEMA,
+            CREDENTIAL_FIELDS,
+            DEFAULT_API_FETCH_WORKERS,
+            DEFAULT_BATCH_WORKERS,
             DEFAULT_CACHE_SIZE,
             DEFAULT_CACHE_TTL,
-            LOG_FILE_MAX_BYTES,
-            LOG_FILE_BACKUP_COUNT,
-            DEFAULT_RETRY,
-            DEFAULT_CACHE,
-            DEFAULT_LOG,
-            DEFAULT_WORKERS,
             DEFAULT_RETRY_CONFIG,
-            VALIDATION_SCHEMA,
-            RETRYABLE_EXCEPTIONS,
-            RETRYABLE_STATUS_CODES,
-            CONFIG_SCHEMA,
-            JWT_DEPRECATED_FIELDS,
+            DEFAULT_VALIDATION_WORKERS,
             ENV_VAR_MAPPING,
-            CREDENTIAL_FIELDS,
+            EXTENSION_TO_FORMAT,
+            FORMAT_ALIASES,
+            JWT_DEPRECATED_FIELDS,
+            LOG_FILE_BACKUP_COUNT,
+            LOG_FILE_MAX_BYTES,
+            MAX_BATCH_WORKERS,
+            RETRYABLE_STATUS_CODES,
+            VALIDATION_SCHEMA,
         )
+
         # Verify constants have expected types
         assert isinstance(FORMAT_ALIASES, dict)
         assert isinstance(EXTENSION_TO_FORMAT, dict)
@@ -300,15 +298,16 @@ class TestBackwardsCompatibilityImports:
     def test_core_functions_importable(self):
         """All core utility functions must be importable."""
         from cja_auto_sdr.generator import (
-            infer_format_from_path,
-            should_generate_format,
             auto_detect_workers,
             format_file_size,
+            infer_format_from_path,
+            make_api_call_with_retry,
             open_file_in_default_app,
             retry_with_backoff,
-            make_api_call_with_retry,
             setup_logging,
+            should_generate_format,
         )
+
         assert callable(infer_format_from_path)
         assert callable(should_generate_format)
         assert callable(auto_detect_workers)
@@ -325,20 +324,21 @@ class TestBackwardsCompatibilityImports:
     def test_profile_functions_importable(self):
         """All profile-related functions must be importable."""
         from cja_auto_sdr.generator import (
-            get_cja_home,
-            get_profiles_dir,
-            get_profile_path,
-            validate_profile_name,
-            load_profile_config_json,
-            load_profile_dotenv,
-            load_profile_credentials,
-            resolve_active_profile,
-            list_profiles,
             add_profile_interactive,
+            get_cja_home,
+            get_profile_path,
+            get_profiles_dir,
+            list_profiles,
+            load_profile_config_json,
+            load_profile_credentials,
+            load_profile_dotenv,
             mask_sensitive_value,
+            resolve_active_profile,
             show_profile,
             test_profile,
+            validate_profile_name,
         )
+
         assert callable(get_cja_home)
         assert callable(get_profiles_dir)
         assert callable(get_profile_path)
@@ -360,16 +360,17 @@ class TestBackwardsCompatibilityImports:
     def test_credential_functions_importable(self):
         """All credential-related functions must be importable."""
         from cja_auto_sdr.generator import (
-            validate_credentials,
-            normalize_credential_value,
-            filter_credentials,
-            load_credentials_from_env,
-            validate_env_credentials,
             configure_cjapy,
-            validate_config_file,
+            filter_credentials,
             initialize_cja,
+            load_credentials_from_env,
+            normalize_credential_value,
+            validate_config_file,
+            validate_credentials,
             validate_data_view,
+            validate_env_credentials,
         )
+
         assert callable(validate_credentials)
         assert callable(normalize_credential_value)
         assert callable(filter_credentials)
@@ -387,14 +388,15 @@ class TestBackwardsCompatibilityImports:
     def test_git_functions_importable(self):
         """All git-related functions must be importable."""
         from cja_auto_sdr.generator import (
-            parse_retention_period,
-            is_git_repository,
-            git_get_user_info,
-            save_git_friendly_snapshot,
             generate_git_commit_message,
             git_commit_snapshot,
+            git_get_user_info,
             git_init_snapshot_repo,
+            is_git_repository,
+            parse_retention_period,
+            save_git_friendly_snapshot,
         )
+
         assert callable(parse_retention_period)
         assert callable(is_git_repository)
         assert callable(git_get_user_info)
@@ -412,10 +414,11 @@ class TestBackwardsCompatibilityImports:
         from cja_auto_sdr.generator import (
             apply_excel_formatting,
             write_csv_output,
-            write_json_output,
             write_html_output,
+            write_json_output,
             write_markdown_output,
         )
+
         assert callable(apply_excel_formatting)
         assert callable(write_csv_output)
         assert callable(write_json_output)
@@ -429,19 +432,20 @@ class TestBackwardsCompatibilityImports:
     def test_diff_writer_functions_importable(self):
         """All diff writer functions must be importable."""
         from cja_auto_sdr.generator import (
-            write_diff_console_output,
-            write_diff_grouped_by_field_output,
-            write_diff_pr_comment_output,
+            _format_markdown_side_by_side,
+            _format_side_by_side,
             detect_breaking_changes,
+            write_diff_console_output,
+            write_diff_csv_output,
+            write_diff_excel_output,
+            write_diff_grouped_by_field_output,
+            write_diff_html_output,
             write_diff_json_output,
             write_diff_markdown_output,
-            write_diff_html_output,
-            write_diff_excel_output,
-            write_diff_csv_output,
             write_diff_output,
-            _format_side_by_side,
-            _format_markdown_side_by_side,
+            write_diff_pr_comment_output,
         )
+
         assert callable(write_diff_console_output)
         assert callable(write_diff_grouped_by_field_output)
         assert callable(write_diff_pr_comment_output)
@@ -468,6 +472,7 @@ class TestBackwardsCompatibilityImports:
             process_single_dataview_worker,
             run_dry_run,
         )
+
         assert callable(display_inventory_summary)
         assert callable(process_inventory_summary)
         assert callable(process_single_dataview)
@@ -481,21 +486,22 @@ class TestBackwardsCompatibilityImports:
     def test_cli_functions_importable(self):
         """All CLI functions must be importable."""
         from cja_auto_sdr.generator import (
-            parse_arguments,
-            is_data_view_id,
-            levenshtein_distance,
             find_similar_names,
+            generate_sample_config,
             get_cached_data_views,
-            prompt_for_selection,
-            resolve_data_view_names,
-            list_dataviews,
             interactive_select_dataviews,
             interactive_wizard,
-            generate_sample_config,
+            is_data_view_id,
+            levenshtein_distance,
+            list_dataviews,
+            parse_arguments,
+            prompt_for_selection,
+            resolve_data_view_names,
             show_config_status,
-            validate_config_only,
             show_stats,
+            validate_config_only,
         )
+
         assert callable(parse_arguments)
         assert callable(is_data_view_id)
         assert callable(levenshtein_distance)
@@ -518,18 +524,19 @@ class TestBackwardsCompatibilityImports:
     def test_org_report_functions_importable(self):
         """All org report functions must be importable."""
         from cja_auto_sdr.generator import (
-            compare_org_reports,
-            write_org_report_console,
-            write_org_report_stats_only,
-            write_org_report_comparison_console,
             build_org_report_json_data,
-            write_org_report_json,
-            write_org_report_excel,
-            write_org_report_markdown,
-            write_org_report_html,
-            write_org_report_csv,
+            compare_org_reports,
             run_org_report,
+            write_org_report_comparison_console,
+            write_org_report_console,
+            write_org_report_csv,
+            write_org_report_excel,
+            write_org_report_html,
+            write_org_report_json,
+            write_org_report_markdown,
+            write_org_report_stats_only,
         )
+
         assert callable(compare_org_reports)
         assert callable(write_org_report_console)
         assert callable(write_org_report_stats_only)
@@ -549,12 +556,13 @@ class TestBackwardsCompatibilityImports:
     def test_command_handler_functions_importable(self):
         """All command handler functions must be importable."""
         from cja_auto_sdr.generator import (
-            handle_snapshot_command,
+            handle_compare_snapshots_command,
             handle_diff_command,
             handle_diff_snapshot_command,
-            handle_compare_snapshots_command,
+            handle_snapshot_command,
             main,
         )
+
         assert callable(handle_snapshot_command)
         assert callable(handle_diff_command)
         assert callable(handle_diff_snapshot_command)
@@ -568,11 +576,12 @@ class TestBackwardsCompatibilityImports:
     def test_internal_symbols_importable(self):
         """Internal symbols used by tests must remain importable."""
         from cja_auto_sdr.generator import (
+            _config_from_env,
             _data_view_cache,
             _format_error_msg,
             _get_credential_fields,
-            _config_from_env,
         )
+
         # These are internal but used in tests
         assert _data_view_cache is not None
         assert callable(_format_error_msg)
@@ -663,8 +672,9 @@ class TestBackwardsCompatibilityBehavior:
 
     def test_parse_arguments_basic(self):
         """parse_arguments should work with basic args."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         # Save original argv
         original_argv = sys.argv
@@ -735,19 +745,16 @@ class TestAllSymbolsCount:
         from cja_auto_sdr import generator
 
         # Get all public symbols (not starting with _)
-        public_symbols = [
-            name for name in dir(generator)
-            if not name.startswith('_') or name == '__version__'
-        ]
+        public_symbols = [name for name in dir(generator) if not name.startswith("_") or name == "__version__"]
 
         # Also include specific private symbols used by tests
         private_symbols_used = [
-            '_data_view_cache',
-            '_format_error_msg',
-            '_format_side_by_side',
-            '_format_markdown_side_by_side',
-            '_get_credential_fields',
-            '_config_from_env',
+            "_data_view_cache",
+            "_format_error_msg",
+            "_format_side_by_side",
+            "_format_markdown_side_by_side",
+            "_get_credential_fields",
+            "_config_from_env",
         ]
 
         for sym in private_symbols_used:
@@ -756,6 +763,5 @@ class TestAllSymbolsCount:
 
         # We expect at least 133 symbols based on the plan
         assert len(public_symbols) >= 133, (
-            f"Expected at least 133 symbols, found {len(public_symbols)}: "
-            f"{sorted(public_symbols)[:20]}..."
+            f"Expected at least 133 symbols, found {len(public_symbols)}: {sorted(public_symbols)[:20]}..."
         )

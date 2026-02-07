@@ -7,11 +7,12 @@ Validates that early exit works correctly:
 4. Only 1 critical issue logged (not multiple)
 5. Backward compatibility maintained
 """
-import pytest
-import sys
+
 import logging
-import pandas as pd
 import os
+import sys
+
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import DataQualityChecker
@@ -31,17 +32,12 @@ class TestEarlyExitOnEmptyDataFrame:
         df_empty = pd.DataFrame()
 
         with caplog.at_level(logging.DEBUG):
-            dq_checker.check_all_quality_issues_optimized(
-                df_empty,
-                'Metrics',
-                ['id', 'name', 'type'],
-                ['id', 'name']
-            )
+            dq_checker.check_all_quality_issues_optimized(df_empty, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should have exactly 1 issue (empty DataFrame)
         assert len(dq_checker.issues) == 1
-        assert dq_checker.issues[0]['Severity'] == 'CRITICAL'
-        assert dq_checker.issues[0]['Category'] == 'Empty Data'
+        assert dq_checker.issues[0]["Severity"] == "CRITICAL"
+        assert dq_checker.issues[0]["Category"] == "Empty Data"
 
     def test_empty_dataframe_stops_subsequent_checks(self):
         """Test that empty DataFrame prevents subsequent checks from running"""
@@ -52,12 +48,7 @@ class TestEarlyExitOnEmptyDataFrame:
 
         df_empty = pd.DataFrame()
 
-        dq_checker.check_all_quality_issues_optimized(
-            df_empty,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
-        )
+        dq_checker.check_all_quality_issues_optimized(df_empty, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should not have duplicate issues, null issues, etc.
         # Only the empty DataFrame issue
@@ -75,21 +66,19 @@ class TestEarlyExitOnMissingRequiredFields:
         dq_checker = DataQualityChecker(logger)
 
         # DataFrame with data but missing required fields
-        df_missing = pd.DataFrame({
-            'some_column': ['value1', 'value2', 'value3']
-        })
+        df_missing = pd.DataFrame({"some_column": ["value1", "value2", "value3"]})
 
         dq_checker.check_all_quality_issues_optimized(
             df_missing,
-            'Metrics',
-            ['id', 'name', 'type'],  # Required fields that are missing
-            ['id', 'name']
+            "Metrics",
+            ["id", "name", "type"],  # Required fields that are missing
+            ["id", "name"],
         )
 
         # Should have exactly 1 issue (missing required fields)
         assert len(dq_checker.issues) == 1
-        assert dq_checker.issues[0]['Severity'] == 'CRITICAL'
-        assert dq_checker.issues[0]['Category'] == 'Missing Fields'
+        assert dq_checker.issues[0]["Severity"] == "CRITICAL"
+        assert dq_checker.issues[0]["Category"] == "Missing Fields"
 
     def test_missing_fields_stops_subsequent_checks(self):
         """Test that missing required fields prevents subsequent validation"""
@@ -99,20 +88,13 @@ class TestEarlyExitOnMissingRequiredFields:
         dq_checker = DataQualityChecker(logger)
 
         # DataFrame with duplicate names but missing 'name' field
-        df_missing = pd.DataFrame({
-            'other_field': ['dup', 'dup', 'unique']
-        })
+        df_missing = pd.DataFrame({"other_field": ["dup", "dup", "unique"]})
 
-        dq_checker.check_all_quality_issues_optimized(
-            df_missing,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
-        )
+        dq_checker.check_all_quality_issues_optimized(df_missing, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should only have missing fields issue, not duplicate issues
         assert len(dq_checker.issues) == 1
-        assert 'Missing Fields' in dq_checker.issues[0]['Category']
+        assert "Missing Fields" in dq_checker.issues[0]["Category"]
 
     def test_partial_missing_fields_exits_early(self):
         """Test early exit when some (not all) required fields are missing"""
@@ -122,20 +104,13 @@ class TestEarlyExitOnMissingRequiredFields:
         dq_checker = DataQualityChecker(logger)
 
         # Has 'name' but missing 'id' and 'type'
-        df_partial = pd.DataFrame({
-            'name': ['metric1', 'metric2']
-        })
+        df_partial = pd.DataFrame({"name": ["metric1", "metric2"]})
 
-        dq_checker.check_all_quality_issues_optimized(
-            df_partial,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
-        )
+        dq_checker.check_all_quality_issues_optimized(df_partial, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should exit early, only 1 issue
         assert len(dq_checker.issues) == 1
-        assert dq_checker.issues[0]['Severity'] == 'CRITICAL'
+        assert dq_checker.issues[0]["Severity"] == "CRITICAL"
 
 
 class TestValidDataContinuesAllChecks:
@@ -149,19 +124,16 @@ class TestValidDataContinuesAllChecks:
         dq_checker = DataQualityChecker(logger)
 
         # Valid DataFrame with all required fields
-        df_valid = pd.DataFrame({
-            'id': ['m1', 'm2', 'm3'],
-            'name': ['Metric 1', 'Metric 2', 'Metric 3'],
-            'type': ['int', 'currency', 'int'],
-            'description': ['Desc 1', 'Desc 2', 'Desc 3']
-        })
-
-        dq_checker.check_all_quality_issues_optimized(
-            df_valid,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
+        df_valid = pd.DataFrame(
+            {
+                "id": ["m1", "m2", "m3"],
+                "name": ["Metric 1", "Metric 2", "Metric 3"],
+                "type": ["int", "currency", "int"],
+                "description": ["Desc 1", "Desc 2", "Desc 3"],
+            }
         )
+
+        dq_checker.check_all_quality_issues_optimized(df_valid, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should have no issues (valid data)
         assert len(dq_checker.issues) == 0
@@ -174,29 +146,26 @@ class TestValidDataContinuesAllChecks:
         dq_checker = DataQualityChecker(logger)
 
         # Valid structure but with duplicate names and missing descriptions
-        df_with_issues = pd.DataFrame({
-            'id': ['m1', 'm2', 'm3'],
-            'name': ['Duplicate', 'Duplicate', 'Unique'],
-            'type': ['int', 'currency', 'int'],
-            'description': ['Desc', '', 'Another desc']  # Empty description
-        })
-
-        dq_checker.check_all_quality_issues_optimized(
-            df_with_issues,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
+        df_with_issues = pd.DataFrame(
+            {
+                "id": ["m1", "m2", "m3"],
+                "name": ["Duplicate", "Duplicate", "Unique"],
+                "type": ["int", "currency", "int"],
+                "description": ["Desc", "", "Another desc"],  # Empty description
+            }
         )
+
+        dq_checker.check_all_quality_issues_optimized(df_with_issues, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should detect multiple issues (duplicates, missing description)
         assert len(dq_checker.issues) > 1
 
         # Verify duplicate detection ran
-        duplicate_issues = [i for i in dq_checker.issues if i['Category'] == 'Duplicates']
+        duplicate_issues = [i for i in dq_checker.issues if i["Category"] == "Duplicates"]
         assert len(duplicate_issues) > 0
 
         # Verify missing description check ran
-        description_issues = [i for i in dq_checker.issues if 'description' in i['Issue'].lower()]
+        description_issues = [i for i in dq_checker.issues if "description" in i["Issue"].lower()]
         assert len(description_issues) > 0
 
 
@@ -211,27 +180,26 @@ class TestBackwardCompatibility:
         dq_checker = DataQualityChecker(logger)
 
         # Valid DataFrame with known issues
-        df = pd.DataFrame({
-            'id': ['m1', 'm2', 'm3', 'm4'],
-            'name': ['Dup', 'Dup', 'Valid', 'Missing Desc'],
-            'type': ['int', 'int', 'currency', 'int'],
-            'description': ['Desc 1', 'Desc 2', 'Desc 3', '']
-        })
-
-        dq_checker.check_all_quality_issues_optimized(
-            df,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
+        df = pd.DataFrame(
+            {
+                "id": ["m1", "m2", "m3", "m4"],
+                "name": ["Dup", "Dup", "Valid", "Missing Desc"],
+                "type": ["int", "int", "currency", "int"],
+                "description": ["Desc 1", "Desc 2", "Desc 3", ""],
+            }
         )
+
+        dq_checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should detect duplicates and missing description
         assert len(dq_checker.issues) >= 2
 
-        categories = [issue['Category'] for issue in dq_checker.issues]
-        assert 'Duplicates' in categories
-        assert any('Missing' in cat or 'description' in issue['Issue'].lower()
-                   for cat, issue in zip(categories, dq_checker.issues))
+        categories = [issue["Category"] for issue in dq_checker.issues]
+        assert "Duplicates" in categories
+        assert any(
+            "Missing" in cat or "description" in issue["Issue"].lower()
+            for cat, issue in zip(categories, dq_checker.issues)
+        )
 
     def test_get_issues_dataframe_still_works(self):
         """Test that get_issues_dataframe() works after early exit"""
@@ -241,16 +209,9 @@ class TestBackwardCompatibility:
         dq_checker = DataQualityChecker(logger)
 
         # Missing required fields
-        df_invalid = pd.DataFrame({
-            'other_field': ['val1', 'val2']
-        })
+        df_invalid = pd.DataFrame({"other_field": ["val1", "val2"]})
 
-        dq_checker.check_all_quality_issues_optimized(
-            df_invalid,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
-        )
+        dq_checker.check_all_quality_issues_optimized(df_invalid, "Metrics", ["id", "name", "type"], ["id", "name"])
 
         # Should be able to get DataFrame
         issues_df = dq_checker.get_issues_dataframe()
@@ -270,17 +231,13 @@ class TestPerformanceImprovement:
 
         # Large invalid DataFrame (missing required fields)
         # Without early exit, would run duplicate detection, null checks, etc.
-        df_large_invalid = pd.DataFrame({
-            'wrong_column': [f'value_{i}' for i in range(1000)]
-        })
+        df_large_invalid = pd.DataFrame({"wrong_column": [f"value_{i}" for i in range(1000)]})
 
         import time
+
         start = time.time()
         dq_checker.check_all_quality_issues_optimized(
-            df_large_invalid,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
+            df_large_invalid, "Metrics", ["id", "name", "type"], ["id", "name"]
         )
         duration = time.time() - start
 
@@ -299,21 +256,19 @@ class TestPerformanceImprovement:
         dq_checker = DataQualityChecker(logger)
 
         # Large valid DataFrame
-        df_large_valid = pd.DataFrame({
-            'id': [f'm{i}' for i in range(1000)],
-            'name': [f'Metric {i}' for i in range(1000)],
-            'type': ['int'] * 1000,
-            'description': [f'Description {i}' for i in range(1000)]
-        })
+        df_large_valid = pd.DataFrame(
+            {
+                "id": [f"m{i}" for i in range(1000)],
+                "name": [f"Metric {i}" for i in range(1000)],
+                "type": ["int"] * 1000,
+                "description": [f"Description {i}" for i in range(1000)],
+            }
+        )
 
         import time
+
         start = time.time()
-        dq_checker.check_all_quality_issues_optimized(
-            df_large_valid,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name']
-        )
+        dq_checker.check_all_quality_issues_optimized(df_large_valid, "Metrics", ["id", "name", "type"], ["id", "name"])
         duration = time.time() - start
 
         # Should still complete quickly with vectorized operations

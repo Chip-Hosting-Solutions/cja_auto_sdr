@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 __all__ = ["write_excel_output"]
 
 from cja_auto_sdr.core.lazy import make_getattr

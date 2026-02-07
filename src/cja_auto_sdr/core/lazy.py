@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import importlib
-from typing import Callable, Dict, Iterable, Optional
+from collections.abc import Callable, Iterable
 
 
 def make_getattr(
     module_name: str,
     export_names: Iterable[str],
     *,
-    target_module: Optional[str] = None,
-    mapping: Optional[Dict[str, str]] = None,
+    target_module: str | None = None,
+    mapping: dict[str, str] | None = None,
 ) -> Callable[[str], object]:
     """
     Create a __getattr__ that lazily resolves exports from target modules.
@@ -33,9 +33,7 @@ def make_getattr(
             module = importlib.import_module(mapping[name])
             return getattr(module, name)
         if name in export_set:
-            raise AttributeError(
-                f"module {module_name!r} has no attribute {name!r} (lazy target missing)"
-            )
+            raise AttributeError(f"module {module_name!r} has no attribute {name!r} (lazy target missing)")
         raise AttributeError(f"module {module_name!r} has no attribute {name!r}")
 
     return __getattr__

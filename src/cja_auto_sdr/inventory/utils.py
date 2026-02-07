@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import pandas as pd
 
@@ -43,14 +43,14 @@ def format_iso_date(iso_date: str) -> str:
             dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%d %H:%M")
         return iso_date[:10]  # Just the date part
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return iso_date[:19] if len(iso_date) > 19 else iso_date
 
 
 # ==================== OWNER/TAGS EXTRACTION ====================
 
 
-def extract_owner(owner_data: Any) -> Tuple[str, str]:
+def extract_owner(owner_data: Any) -> tuple[str, str]:
     """Extract owner name and ID from CJA API owner field.
 
     Args:
@@ -69,7 +69,7 @@ def extract_owner(owner_data: Any) -> Tuple[str, str]:
     return ("", "")
 
 
-def extract_tags(tags_data: Any) -> List[str]:
+def extract_tags(tags_data: Any) -> list[str]:
     """Extract tag names from CJA API tags field.
 
     Args:
@@ -79,10 +79,7 @@ def extract_tags(tags_data: Any) -> List[str]:
         List of tag name strings
     """
     if isinstance(tags_data, list):
-        return [
-            t.get("name", str(t)) if isinstance(t, dict) else str(t)
-            for t in tags_data
-        ]
+        return [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in tags_data]
     return []
 
 
@@ -92,8 +89,8 @@ def extract_tags(tags_data: Any) -> List[str]:
 def normalize_api_response(
     response: Any,
     response_type: str = "items",
-    logger: Optional[logging.Logger] = None,
-) -> Optional[List[Dict[str, Any]]]:
+    logger: logging.Logger | None = None,
+) -> list[dict[str, Any]] | None:
     """Normalize CJA API responses (DataFrame or list) to list of dicts.
 
     Args:
@@ -159,9 +156,9 @@ def extract_short_name(full_id: str, separator: str = "/") -> str:
 
 
 def compute_complexity_score(
-    factors: Dict[str, int],
-    weights: Dict[str, float],
-    max_values: Dict[str, int],
+    factors: dict[str, int],
+    weights: dict[str, float],
+    max_values: dict[str, int],
 ) -> float:
     """Compute a generic weighted complexity score (0-100).
 
@@ -184,15 +181,12 @@ def compute_complexity_score(
         >>> compute_complexity_score(factors, weights, max_values)
         18.8
     """
-    normalized: Dict[str, float] = {}
+    normalized: dict[str, float] = {}
     for factor, count in factors.items():
         max_val = max_values.get(factor, 1)
         normalized[factor] = min(1.0, count / max_val) if max_val > 0 else 0.0
 
-    weighted_score = sum(
-        normalized.get(factor, 0.0) * weight
-        for factor, weight in weights.items()
-    )
+    weighted_score = sum(normalized.get(factor, 0.0) * weight for factor, weight in weights.items())
 
     return round(weighted_score * 100, 1)
 
@@ -207,10 +201,10 @@ class BatchProcessingStats:
     providing visibility into data quality issues.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: logging.Logger | None = None):
         self.processed = 0
         self.skipped = 0
-        self.errors: List[str] = []
+        self.errors: list[str] = []
         self.logger = logger or logging.getLogger(__name__)
 
     def record_success(self) -> None:
@@ -255,13 +249,10 @@ class BatchProcessingStats:
         if self.skipped > 0:
             skip_pct = (self.skipped / total) * 100
             self.logger.warning(
-                f"Batch processing: {self.processed} {item_type} processed, "
-                f"{self.skipped} skipped ({skip_pct:.1f}%)"
+                f"Batch processing: {self.processed} {item_type} processed, {self.skipped} skipped ({skip_pct:.1f}%)"
             )
         else:
-            self.logger.info(
-                f"Batch processing: {self.processed} {item_type} processed successfully"
-            )
+            self.logger.info(f"Batch processing: {self.processed} {item_type} processed successfully")
 
     @property
     def has_issues(self) -> bool:
@@ -273,11 +264,11 @@ class BatchProcessingStats:
 
 
 def validate_required_id(
-    item_data: Dict[str, Any],
+    item_data: dict[str, Any],
     id_field: str = "id",
     name_field: str = "name",
-    logger: Optional[logging.Logger] = None,
-) -> Optional[str]:
+    logger: logging.Logger | None = None,
+) -> str | None:
     """Validate that an item has a required ID field.
 
     Args:
@@ -301,13 +292,13 @@ def validate_required_id(
 # ==================== MODULE EXPORTS ====================
 
 __all__ = [
-    "format_iso_date",
-    "extract_owner",
-    "extract_tags",
-    "normalize_api_response",
-    "extract_short_name",
-    "compute_complexity_score",
     "BatchProcessingStats",
-    "validate_required_id",
     "__version__",
+    "compute_complexity_score",
+    "extract_owner",
+    "extract_short_name",
+    "extract_tags",
+    "format_iso_date",
+    "normalize_api_response",
+    "validate_required_id",
 ]

@@ -8,19 +8,19 @@ Provides inventory builders for CJA components:
 """
 
 from cja_auto_sdr.inventory.calculated_metrics import (
-    CalculatedMetricSummary,
     CalculatedMetricsInventory,
     CalculatedMetricsInventoryBuilder,
+    CalculatedMetricSummary,
 )
 from cja_auto_sdr.inventory.derived_fields import (
-    DerivedFieldSummary,
     DerivedFieldInventory,
     DerivedFieldInventoryBuilder,
+    DerivedFieldSummary,
 )
 from cja_auto_sdr.inventory.segments import (
-    SegmentSummary,
     SegmentsInventory,
     SegmentsInventoryBuilder,
+    SegmentSummary,
 )
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
@@ -34,29 +34,29 @@ from cja_auto_sdr.inventory.utils import (
 )
 
 __all__ = [
+    # Utilities
+    "BatchProcessingStats",
     # Calculated Metrics
     "CalculatedMetricSummary",
     "CalculatedMetricsInventory",
     "CalculatedMetricsInventoryBuilder",
-    # Derived Fields
-    "DerivedFieldSummary",
     "DerivedFieldInventory",
     "DerivedFieldInventoryBuilder",
+    # Derived Fields
+    "DerivedFieldSummary",
     # Segments
     "SegmentSummary",
     "SegmentsInventory",
     "SegmentsInventoryBuilder",
-    # Utilities
-    "BatchProcessingStats",
     "compute_complexity_score",
+    # Lazy-loaded
+    "display_inventory_summary",
     "extract_owner",
     "extract_short_name",
     "extract_tags",
     "format_iso_date",
     "normalize_api_response",
     "validate_required_id",
-    # Lazy-loaded
-    "display_inventory_summary",
 ]
 
 

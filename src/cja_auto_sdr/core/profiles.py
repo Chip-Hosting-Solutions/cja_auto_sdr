@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Profile management helpers (current implementation lives in generator)."""
 
 __all__ = [

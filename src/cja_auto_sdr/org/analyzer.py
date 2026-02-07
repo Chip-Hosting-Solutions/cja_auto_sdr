@@ -15,7 +15,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from tqdm import tqdm
@@ -44,13 +44,11 @@ from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
 # Shared by _audit_naming_conventions and _detect_stale_components so that
 # both code paths use the same unified set of keywords.
 _STALE_KEYWORDS_RE = re.compile(
-    r'(^|[_\-\s])(test|old|temp|tmp|backup|copy|deprecated|legacy|archive|obsolete|unused)([_\-\s]|$)',
+    r"(^|[_\-\s])(test|old|temp|tmp|backup|copy|deprecated|legacy|archive|obsolete|unused)([_\-\s]|$)",
     re.IGNORECASE,
 )
-_VERSION_SUFFIX_RE = re.compile(r'[_\-]v\d+$', re.IGNORECASE)
-_DATE_PATTERN_RE = re.compile(
-    r'[_\-]?(20\d{2}[01]\d[0-3]\d|20\d{2}[_\-][01]\d[_\-][0-3]\d)([_\-]|$)'
-)
+_VERSION_SUFFIX_RE = re.compile(r"[_\-]v\d+$", re.IGNORECASE)
+_DATE_PATTERN_RE = re.compile(r"[_\-]?(20\d{2}[01]\d[0-3]\d|20\d{2}[_\-][01]\d[_\-][0-3]\d)([_\-]|$)")
 
 
 class OrgComponentAnalyzer:
@@ -71,11 +69,11 @@ class OrgComponentAnalyzer:
 
     def __init__(
         self,
-        cja: "cjapy.CJA",
+        cja: cjapy.CJA,
         config: OrgReportConfig,
         logger: logging.Logger,
         org_id: str = "unknown",
-        cache: Optional[OrgReportCache] = None
+        cache: OrgReportCache | None = None,
     ):
         self.cja = cja
         self.config = config
@@ -203,11 +201,7 @@ class OrgComponentAnalyzer:
 
         if need_similarity:
             max_dvs = self.config.similarity_max_dvs
-            if (
-                max_dvs is not None
-                and len(successful_summaries) > max_dvs
-                and not self.config.force_similarity
-            ):
+            if max_dvs is not None and len(successful_summaries) > max_dvs and not self.config.force_similarity:
                 self.logger.warning(
                     "Skipping similarity matrix: %s data views exceed guardrail of %s. "
                     "Use --force-similarity or increase --similarity-max-dvs to override.",
@@ -224,9 +218,7 @@ class OrgComponentAnalyzer:
             self.logger.info("Computing similarity matrix...")
             similarity_pairs = self._compute_similarity_matrix(summaries, precomputed=pairwise_data)
             effective_threshold = min(self.config.overlap_threshold, GOVERNANCE_MAX_OVERLAP_THRESHOLD)
-            self.logger.info(
-                f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})"
-            )
+            self.logger.info(f"Found {len(similarity_pairs)} pairs above threshold (>= {effective_threshold})")
         elif self.config.org_stats_only:
             self.logger.info("Skipping similarity matrix (--org-stats mode)")
         elif self.config.skip_similarity:
@@ -242,9 +234,7 @@ class OrgComponentAnalyzer:
 
         # 7. Generate recommendations
         self.logger.info("Generating recommendations...")
-        recommendations = self._generate_recommendations(
-            summaries, component_index, distribution, similarity_pairs
-        )
+        recommendations = self._generate_recommendations(summaries, component_index, distribution, similarity_pairs)
 
         # 8. Check governance thresholds (Feature 1)
         governance_violations = None
@@ -303,7 +293,7 @@ class OrgComponentAnalyzer:
             stale_components=stale_components,
         )
 
-    def _validate_regex_pattern(self, pattern: str, name: str) -> Optional[re.Pattern]:
+    def _validate_regex_pattern(self, pattern: str, name: str) -> re.Pattern | None:
         """Validate and compile a regex pattern with basic ReDoS protection.
 
         Args:
@@ -316,10 +306,10 @@ class OrgComponentAnalyzer:
         # Basic complexity check - reject patterns with nested quantifiers
         # which are common sources of catastrophic backtracking
         dangerous_patterns = [
-            r'\(\?[^)]*\+[^)]*\+',  # Nested + quantifiers
-            r'\(\?[^)]*\*[^)]*\*',  # Nested * quantifiers
-            r'(\.\*){3,}',          # Multiple .* in sequence
-            r'(\.\+){3,}',          # Multiple .+ in sequence
+            r"\(\?[^)]*\+[^)]*\+",  # Nested + quantifiers
+            r"\(\?[^)]*\*[^)]*\*",  # Nested * quantifiers
+            r"(\.\*){3,}",  # Multiple .* in sequence
+            r"(\.\+){3,}",  # Multiple .+ in sequence
         ]
         for dp in dangerous_patterns:
             if re.search(dp, pattern):
@@ -334,7 +324,7 @@ class OrgComponentAnalyzer:
             self.logger.warning(f"Invalid {name} pattern: {e}")
             return None
 
-    def _list_and_filter_data_views(self) -> Tuple[List[Dict[str, Any]], bool, int]:
+    def _list_and_filter_data_views(self) -> tuple[list[dict[str, Any]], bool, int]:
         """List all data views and apply filter/exclude/sample patterns.
 
         Returns:
@@ -351,7 +341,7 @@ class OrgComponentAnalyzer:
 
         # Convert to list of dicts if needed
         if isinstance(all_data_views, pd.DataFrame):
-            all_data_views = all_data_views.to_dict('records')
+            all_data_views = all_data_views.to_dict("records")
 
         filtered = all_data_views
 
@@ -359,7 +349,7 @@ class OrgComponentAnalyzer:
         if self.config.filter_pattern:
             pattern = self._validate_regex_pattern(self.config.filter_pattern, "filter")
             if pattern:
-                filtered = [dv for dv in filtered if pattern.search(dv.get('name', ''))]
+                filtered = [dv for dv in filtered if pattern.search(dv.get("name", ""))]
                 self.logger.info(f"Filter '{self.config.filter_pattern}' matched {len(filtered)} data views")
 
         # Apply exclude filter
@@ -367,7 +357,7 @@ class OrgComponentAnalyzer:
             pattern = self._validate_regex_pattern(self.config.exclude_pattern, "exclude")
             if pattern:
                 before = len(filtered)
-                filtered = [dv for dv in filtered if not pattern.search(dv.get('name', ''))]
+                filtered = [dv for dv in filtered if not pattern.search(dv.get("name", ""))]
                 self.logger.info(f"Exclude '{self.config.exclude_pattern}' removed {before - len(filtered)} data views")
 
         # Track total available before sampling/limiting
@@ -387,11 +377,11 @@ class OrgComponentAnalyzer:
         # Apply limit (after sampling)
         if self.config.limit and len(filtered) > self.config.limit:
             self.logger.info(f"Limiting to first {self.config.limit} data views")
-            filtered = filtered[:self.config.limit]
+            filtered = filtered[: self.config.limit]
 
         return filtered, is_sampled, total_available
 
-    def _stratified_sample(self, data_views: List[Dict[str, Any]], sample_size: int) -> List[Dict[str, Any]]:
+    def _stratified_sample(self, data_views: list[dict[str, Any]], sample_size: int) -> list[dict[str, Any]]:
         """Stratified sampling by data view name prefix.
 
         Groups data views by common prefix and samples proportionally from each group.
@@ -406,12 +396,12 @@ class OrgComponentAnalyzer:
         random.seed(self.config.sample_seed)
 
         # Group by prefix (first word or chars before common separators)
-        groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for dv in data_views:
-            name = dv.get('name', '')
+            name = dv.get("name", "")
             # Extract prefix: first word or chars before - _ or space
             prefix = name.split()[0] if name.split() else name[:10]
-            for sep in ['-', '_', ' ']:
+            for sep in ["-", "_", " "]:
                 if sep in prefix:
                     prefix = prefix.split(sep)[0]
                     break
@@ -420,7 +410,7 @@ class OrgComponentAnalyzer:
         # Sample proportionally from each group
         sampled = []
         total = len(data_views)
-        for prefix, group in groups.items():
+        for _prefix, group in groups.items():
             # Proportional allocation
             group_sample_size = max(1, int(sample_size * len(group) / total))
             if len(group) <= group_sample_size:
@@ -439,7 +429,7 @@ class OrgComponentAnalyzer:
 
         return sampled
 
-    def _fetch_all_data_views(self, data_views: List[Dict[str, Any]]) -> List[DataViewSummary]:
+    def _fetch_all_data_views(self, data_views: list[dict[str, Any]]) -> list[DataViewSummary]:
         """Fetch components for all data views in parallel.
 
         Uses cache when enabled to avoid redundant API calls.
@@ -465,21 +455,19 @@ class OrgComponentAnalyzer:
                 cache_hits = valid_count
                 cache_stale = stale_count
                 if cache_hits > 0 or cache_stale > 0:
-                    self.logger.info(f"Cache validation: {cache_hits} valid, {cache_stale} stale, {len(to_fetch)} to fetch")
+                    self.logger.info(
+                        f"Cache validation: {cache_hits} valid, {cache_stale} stale, {len(to_fetch)} to fetch"
+                    )
             else:
                 # Standard age-based cache lookup
                 required_flags = {
-                    'include_names': self.config.include_names,
-                    'include_metadata': self.config.include_metadata,
-                    'include_component_types': self.config.include_component_types,
+                    "include_names": self.config.include_names,
+                    "include_metadata": self.config.include_metadata,
+                    "include_component_types": self.config.include_component_types,
                 }
                 for dv in data_views:
-                    dv_id = dv.get('id', '')
-                    cached = self.cache.get(
-                        dv_id,
-                        self.config.cache_max_age_hours,
-                        required_flags=required_flags
-                    )
+                    dv_id = dv.get("id", "")
+                    cached = self.cache.get(dv_id, self.config.cache_max_age_hours, required_flags=required_flags)
                     if cached:
                         summaries.append(cached)
                         cache_hits += 1
@@ -494,14 +482,11 @@ class OrgComponentAnalyzer:
         if not to_fetch:
             return summaries
 
-        pending_cache: List[DataViewSummary] = []
+        pending_cache: list[DataViewSummary] = []
 
         # Use ThreadPoolExecutor for parallel fetches
         with ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch))) as executor:
-            futures = {
-                executor.submit(self._fetch_data_view_components, dv): dv
-                for dv in to_fetch
-            }
+            futures = {executor.submit(self._fetch_data_view_components, dv): dv for dv in to_fetch}
 
             desc = "Fetching data views" if not cache_hits else f"Fetching {len(to_fetch)} uncached"
             with tqdm(
@@ -510,7 +495,7 @@ class OrgComponentAnalyzer:
                 unit="dv",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
                 leave=True,
-                disable=self.config.quiet  # Suppress progress bar in quiet mode
+                disable=self.config.quiet,  # Suppress progress bar in quiet mode
             ) as pbar:
                 for future in as_completed(futures):
                     dv = futures[future]
@@ -528,11 +513,13 @@ class OrgComponentAnalyzer:
                             pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
                     except Exception as e:
                         error_msg = str(e) or f"{type(e).__name__}"
-                        summaries.append(DataViewSummary(
-                            data_view_id=dv.get('id', 'unknown'),
-                            data_view_name=dv.get('name', 'Unknown'),
-                            error=error_msg
-                        ))
+                        summaries.append(
+                            DataViewSummary(
+                                data_view_id=dv.get("id", "unknown"),
+                                data_view_name=dv.get("name", "Unknown"),
+                                error=error_msg,
+                            )
+                        )
                     pbar.update(1)
 
         if self.config.use_cache and self.cache and pending_cache:
@@ -552,11 +539,12 @@ class OrgComponentAnalyzer:
         client = getattr(self._thread_local, "cja", None)
         if client is None:
             import cjapy
+
             client = cjapy.CJA()
             self._thread_local.cja = client
         return client
 
-    def _fetch_data_view_components(self, dv: Dict[str, Any]) -> DataViewSummary:
+    def _fetch_data_view_components(self, dv: dict[str, Any]) -> DataViewSummary:
         """Fetch metrics and dimensions for a single data view.
 
         Args:
@@ -565,8 +553,8 @@ class OrgComponentAnalyzer:
         Returns:
             DataViewSummary with component IDs (and names if include_names=True)
         """
-        dv_id = dv.get('id', '')
-        dv_name = dv.get('name', 'Unknown')
+        dv_id = dv.get("id", "")
+        dv_name = dv.get("name", "Unknown")
         start_time = time.time()
 
         try:
@@ -578,21 +566,21 @@ class OrgComponentAnalyzer:
             standard_metric_count = 0
             derived_metric_count = 0
             if metrics_df is not None and not metrics_df.empty:
-                if 'id' in metrics_df.columns:
-                    metric_ids = set(metrics_df['id'].dropna().astype(str).tolist())
+                if "id" in metrics_df.columns:
+                    metric_ids = set(metrics_df["id"].dropna().astype(str).tolist())
                 # Capture names if requested
-                if self.config.include_names and 'name' in metrics_df.columns:
+                if self.config.include_names and "name" in metrics_df.columns:
                     metric_names = {}
                     for _, row in metrics_df.iterrows():
-                        if pd.notna(row.get('id')) and pd.notna(row.get('name')):
-                            metric_names[str(row['id'])] = str(row['name'])
+                        if pd.notna(row.get("id")) and pd.notna(row.get("name")):
+                            metric_names[str(row["id"])] = str(row["name"])
                 # Count standard vs derived metrics
                 if self.config.include_component_types:
                     for _, row in metrics_df.iterrows():
                         # Check type or sourceFieldType for derived indicator
-                        comp_type = str(row.get('type', '')).lower()
-                        source_type = str(row.get('sourceFieldType', '')).lower()
-                        if 'derived' in comp_type or 'derived' in source_type:
+                        comp_type = str(row.get("type", "")).lower()
+                        source_type = str(row.get("sourceFieldType", "")).lower()
+                        if "derived" in comp_type or "derived" in source_type:
                             derived_metric_count += 1
                         else:
                             standard_metric_count += 1
@@ -604,21 +592,21 @@ class OrgComponentAnalyzer:
             standard_dimension_count = 0
             derived_dimension_count = 0
             if dimensions_df is not None and not dimensions_df.empty:
-                if 'id' in dimensions_df.columns:
-                    dimension_ids = set(dimensions_df['id'].dropna().astype(str).tolist())
+                if "id" in dimensions_df.columns:
+                    dimension_ids = set(dimensions_df["id"].dropna().astype(str).tolist())
                 # Capture names if requested
-                if self.config.include_names and 'name' in dimensions_df.columns:
+                if self.config.include_names and "name" in dimensions_df.columns:
                     dimension_names = {}
                     for _, row in dimensions_df.iterrows():
-                        if pd.notna(row.get('id')) and pd.notna(row.get('name')):
-                            dimension_names[str(row['id'])] = str(row['name'])
+                        if pd.notna(row.get("id")) and pd.notna(row.get("name")):
+                            dimension_names[str(row["id"])] = str(row["name"])
                 # Count standard vs derived dimensions
                 if self.config.include_component_types:
                     for _, row in dimensions_df.iterrows():
                         # Check type or sourceFieldType for derived indicator
-                        comp_type = str(row.get('type', '')).lower()
-                        source_type = str(row.get('sourceFieldType', '')).lower()
-                        if 'derived' in comp_type or 'derived' in source_type:
+                        comp_type = str(row.get("type", "")).lower()
+                        source_type = str(row.get("sourceFieldType", "")).lower()
+                        if "derived" in comp_type or "derived" in source_type:
                             derived_dimension_count += 1
                         else:
                             standard_dimension_count += 1
@@ -635,18 +623,17 @@ class OrgComponentAnalyzer:
                 try:
                     # Try to get detailed data view info
                     dv_details = cja.getDataView(dv_id)
-                    if dv_details is not None:
-                        if isinstance(dv_details, dict):
-                            # Extract owner using utility function
-                            owner, owner_id = extract_owner(dv_details.get('owner'))
+                    if dv_details is not None and isinstance(dv_details, dict):
+                        # Extract owner using utility function
+                        owner, owner_id = extract_owner(dv_details.get("owner"))
 
-                            # Extract dates
-                            created = dv_details.get('created') or dv_details.get('createdDate')
-                            modified = dv_details.get('modified') or dv_details.get('modifiedDate')
+                        # Extract dates
+                        created = dv_details.get("created") or dv_details.get("createdDate")
+                        modified = dv_details.get("modified") or dv_details.get("modifiedDate")
 
-                            # Extract description
-                            description = dv_details.get('description', '')
-                            has_description = bool(description and description.strip())
+                        # Extract description
+                        description = dv_details.get("description", "")
+                        has_description = bool(description and description.strip())
                 except Exception:
                     # Metadata fetch may fail - continue without it
                     pass
@@ -658,7 +645,7 @@ class OrgComponentAnalyzer:
                 dimension_ids=dimension_ids,
                 metric_count=len(metric_ids),
                 dimension_count=len(dimension_ids),
-                status=dv.get('status', 'active'),
+                status=dv.get("status", "active"),
                 fetch_duration=time.time() - start_time,
                 metric_names=metric_names,
                 dimension_names=dimension_names,
@@ -677,13 +664,10 @@ class OrgComponentAnalyzer:
         except Exception as e:
             error_msg = str(e) or f"{type(e).__name__}"
             return DataViewSummary(
-                data_view_id=dv_id,
-                data_view_name=dv_name,
-                error=error_msg,
-                fetch_duration=time.time() - start_time
+                data_view_id=dv_id, data_view_name=dv_name, error=error_msg, fetch_duration=time.time() - start_time
             )
 
-    def _build_component_index(self, summaries: List[DataViewSummary]) -> Dict[str, ComponentInfo]:
+    def _build_component_index(self, summaries: list[DataViewSummary]) -> dict[str, ComponentInfo]:
         """Build index mapping component_id -> ComponentInfo.
 
         Args:
@@ -692,7 +676,7 @@ class OrgComponentAnalyzer:
         Returns:
             Dict mapping component ID to ComponentInfo (with names if include_names=True)
         """
-        index: Dict[str, ComponentInfo] = {}
+        index: dict[str, ComponentInfo] = {}
 
         for summary in summaries:
             if summary.error:
@@ -706,10 +690,7 @@ class OrgComponentAnalyzer:
                     if summary.metric_names:
                         metric_name = summary.metric_names.get(metric_id)
                     index[metric_id] = ComponentInfo(
-                        component_id=metric_id,
-                        component_type='metric',
-                        name=metric_name,
-                        data_views=set()
+                        component_id=metric_id, component_type="metric", name=metric_name, data_views=set()
                     )
                 index[metric_id].data_views.add(summary.data_view_id)
 
@@ -721,16 +702,13 @@ class OrgComponentAnalyzer:
                     if summary.dimension_names:
                         dim_name = summary.dimension_names.get(dim_id)
                     index[dim_id] = ComponentInfo(
-                        component_id=dim_id,
-                        component_type='dimension',
-                        name=dim_name,
-                        data_views=set()
+                        component_id=dim_id, component_type="dimension", name=dim_name, data_views=set()
                     )
                 index[dim_id].data_views.add(summary.data_view_id)
 
         return index
 
-    def _estimate_component_index_memory(self, index: Dict[str, ComponentInfo]) -> float:
+    def _estimate_component_index_memory(self, index: dict[str, ComponentInfo]) -> float:
         """Estimate memory usage of the component index in MB.
 
         Uses a heuristic formula:
@@ -757,7 +735,7 @@ class OrgComponentAnalyzer:
 
         return total_bytes / (1024 * 1024)
 
-    def _check_memory_warning(self, index: Dict[str, ComponentInfo]) -> None:
+    def _check_memory_warning(self, index: dict[str, ComponentInfo]) -> None:
         """Check if component index memory exceeds threshold and log warning or abort.
 
         Args:
@@ -772,6 +750,7 @@ class OrgComponentAnalyzer:
         limit = self.config.memory_limit_mb
         if limit is not None and limit > 0 and estimated_mb > limit:
             from cja_auto_sdr.core.exceptions import MemoryLimitExceeded
+
             raise MemoryLimitExceeded(estimated_mb, limit)
 
         # Then check warning threshold
@@ -784,14 +763,10 @@ class OrgComponentAnalyzer:
                 "High memory usage detected: component index estimated at %.1fMB (threshold: %dMB). "
                 "Consider using --limit, --sample, or --skip-similarity to reduce memory footprint.",
                 estimated_mb,
-                threshold
+                threshold,
             )
 
-    def _compute_distribution(
-        self,
-        index: Dict[str, ComponentInfo],
-        total_dvs: int
-    ) -> ComponentDistribution:
+    def _compute_distribution(self, index: dict[str, ComponentInfo], total_dvs: int) -> ComponentDistribution:
         """Classify components into distribution buckets.
 
         Buckets:
@@ -829,34 +804,32 @@ class OrgComponentAnalyzer:
             # (otherwise presence==1 would always go to isolated before being considered for core)
             if presence >= core_threshold_count:
                 # Core
-                if info.component_type == 'metric':
+                if info.component_type == "metric":
                     distribution.core_metrics.append(comp_id)
                 else:
                     distribution.core_dimensions.append(comp_id)
             elif presence >= common_threshold_count:
                 # Common
-                if info.component_type == 'metric':
+                if info.component_type == "metric":
                     distribution.common_metrics.append(comp_id)
                 else:
                     distribution.common_dimensions.append(comp_id)
             elif presence == 1:
                 # Isolated (exactly 1 DV)
-                if info.component_type == 'metric':
+                if info.component_type == "metric":
                     distribution.isolated_metrics.append(comp_id)
                 else:
                     distribution.isolated_dimensions.append(comp_id)
             else:
                 # Limited (in 2+ data views but below common threshold)
-                if info.component_type == 'metric':
+                if info.component_type == "metric":
                     distribution.limited_metrics.append(comp_id)
                 else:
                     distribution.limited_dimensions.append(comp_id)
 
         return distribution
 
-    def _compute_pairwise_jaccard(
-        self, summaries: List[DataViewSummary]
-    ) -> tuple:
+    def _compute_pairwise_jaccard(self, summaries: list[DataViewSummary]) -> tuple:
         """Compute all pairwise Jaccard similarities between valid data views.
 
         Returns the valid summaries list and a dict mapping (i, j) index pairs
@@ -867,7 +840,7 @@ class OrgComponentAnalyzer:
             Tuple of (valid_summaries, pairwise_similarities dict)
         """
         valid = [s for s in summaries if s.error is None and s.all_component_ids]
-        pairwise: Dict[tuple, float] = {}
+        pairwise: dict[tuple, float] = {}
 
         for i in range(len(valid)):
             set_i = valid[i].all_component_ids
@@ -881,12 +854,12 @@ class OrgComponentAnalyzer:
 
     def _compute_similarity_matrix(
         self,
-        summaries: List[DataViewSummary],
-        precomputed: Optional[tuple] = None,
-    ) -> List[SimilarityPair]:
+        summaries: list[DataViewSummary],
+        precomputed: tuple | None = None,
+    ) -> list[SimilarityPair]:
         """Compute pairwise Jaccard similarity between data views.
 
-        Jaccard similarity = |A ∩ B| / |A ∪ B|
+        Jaccard similarity = |A ∩ B| / |A U B|
 
         When include_drift is enabled, also captures which components are unique to each DV.
         Always includes pairs with >=90% similarity to support governance checks,
@@ -941,27 +914,29 @@ class OrgComponentAnalyzer:
                             if name:
                                 only_in_dv2_names[comp_id] = name
 
-                pairs.append(SimilarityPair(
-                    dv1_id=dv1.data_view_id,
-                    dv1_name=dv1.data_view_name,
-                    dv2_id=dv2.data_view_id,
-                    dv2_name=dv2.data_view_name,
-                    jaccard_similarity=round(similarity, 4),
-                    shared_count=intersection,
-                    union_count=union,
-                    only_in_dv1=only_in_dv1,
-                    only_in_dv2=only_in_dv2,
-                    only_in_dv1_names=only_in_dv1_names,
-                    only_in_dv2_names=only_in_dv2_names,
-                ))
+                pairs.append(
+                    SimilarityPair(
+                        dv1_id=dv1.data_view_id,
+                        dv1_name=dv1.data_view_name,
+                        dv2_id=dv2.data_view_id,
+                        dv2_name=dv2.data_view_name,
+                        jaccard_similarity=round(similarity, 4),
+                        shared_count=intersection,
+                        union_count=union,
+                        only_in_dv1=only_in_dv1,
+                        only_in_dv2=only_in_dv2,
+                        only_in_dv1_names=only_in_dv1_names,
+                        only_in_dv2_names=only_in_dv2_names,
+                    )
+                )
 
         return sorted(pairs, key=lambda p: p.jaccard_similarity, reverse=True)
 
     def _compute_clusters(
         self,
-        summaries: List[DataViewSummary],
-        precomputed: Optional[tuple] = None,
-    ) -> Optional[List[DataViewCluster]]:
+        summaries: list[DataViewSummary],
+        precomputed: tuple | None = None,
+    ) -> list[DataViewCluster] | None:
         """Compute hierarchical clusters of related data views.
 
         Uses scipy for hierarchical clustering based on Jaccard distances.
@@ -975,13 +950,12 @@ class OrgComponentAnalyzer:
             List of DataViewCluster objects, or None if clustering fails
         """
         try:
-            from scipy.cluster.hierarchy import linkage, fcluster
-            from scipy.spatial.distance import squareform
             import numpy as np
+            from scipy.cluster.hierarchy import fcluster, linkage
+            from scipy.spatial.distance import squareform
         except ImportError:
             self.logger.warning(
-                "scipy not available - skipping clustering. "
-                "Install with: uv pip install 'cja-auto-sdr[clustering]'"
+                "scipy not available - skipping clustering. Install with: uv pip install 'cja-auto-sdr[clustering]'"
             )
             return None
 
@@ -1016,10 +990,10 @@ class OrgComponentAnalyzer:
         # Determine optimal number of clusters using silhouette or fixed threshold
         # Using a distance threshold of 0.5 (50% dissimilarity)
         threshold = 0.5
-        labels = fcluster(Z, t=threshold, criterion='distance')
+        labels = fcluster(Z, t=threshold, criterion="distance")
 
         # Build cluster objects
-        cluster_members: Dict[int, List[int]] = defaultdict(list)
+        cluster_members: dict[int, list[int]] = defaultdict(list)
         for idx, label in enumerate(labels):
             cluster_members[label].append(idx)
 
@@ -1042,18 +1016,20 @@ class OrgComponentAnalyzer:
             # Infer cluster name from common prefix
             cluster_name = self._infer_cluster_name(dv_names)
 
-            clusters.append(DataViewCluster(
-                cluster_id=cluster_id,
-                cluster_name=cluster_name,
-                data_view_ids=dv_ids,
-                data_view_names=dv_names,
-                cohesion_score=round(cohesion, 4),
-            ))
+            clusters.append(
+                DataViewCluster(
+                    cluster_id=cluster_id,
+                    cluster_name=cluster_name,
+                    data_view_ids=dv_ids,
+                    data_view_names=dv_names,
+                    cohesion_score=round(cohesion, 4),
+                )
+            )
 
         # Sort by cluster size descending
         return sorted(clusters, key=lambda c: c.size, reverse=True)
 
-    def _infer_cluster_name(self, names: List[str]) -> Optional[str]:
+    def _infer_cluster_name(self, names: list[str]) -> str | None:
         """Infer a cluster name from common prefixes of member names.
 
         Args:
@@ -1076,7 +1052,7 @@ class OrgComponentAnalyzer:
                 break
 
         # Clean up prefix (remove trailing separators)
-        prefix = prefix.rstrip(' -_')
+        prefix = prefix.rstrip(" -_")
 
         if len(prefix) >= 3:
             return prefix
@@ -1090,11 +1066,11 @@ class OrgComponentAnalyzer:
 
     def _generate_recommendations(
         self,
-        summaries: List[DataViewSummary],
-        index: Dict[str, ComponentInfo],
+        summaries: list[DataViewSummary],
+        index: dict[str, ComponentInfo],
         distribution: ComponentDistribution,
-        similarity_pairs: Optional[List[SimilarityPair]]
-    ) -> List[Dict[str, Any]]:
+        similarity_pairs: list[SimilarityPair] | None,
+    ) -> list[dict[str, Any]]:
         """Generate governance recommendations based on analysis.
 
         Args:
@@ -1109,7 +1085,7 @@ class OrgComponentAnalyzer:
         recommendations = []
 
         # Build isolated components by data view
-        isolated_by_dv: Dict[str, List[str]] = {}
+        isolated_by_dv: dict[str, list[str]] = {}
         for comp_id, info in index.items():
             if info.presence_count == 1:
                 dv_id = next(iter(info.data_views))
@@ -1120,62 +1096,70 @@ class OrgComponentAnalyzer:
         # Recommendation: Data views with many isolated components
         for dv_id, isolated in isolated_by_dv.items():
             if len(isolated) > self.config.isolated_review_threshold:
-                dv_name = next((s.data_view_name for s in summaries if s.data_view_id == dv_id), 'Unknown')
-                recommendations.append({
-                    'type': 'review_isolated',
-                    'severity': 'medium',
-                    'data_view': dv_id,
-                    'data_view_name': dv_name,
-                    'isolated_count': len(isolated),
-                    'reason': f"Data view has {len(isolated)} components not used elsewhere. "
-                              "Consider if these are needed or if this DV serves a specialized purpose."
-                })
+                dv_name = next((s.data_view_name for s in summaries if s.data_view_id == dv_id), "Unknown")
+                recommendations.append(
+                    {
+                        "type": "review_isolated",
+                        "severity": "medium",
+                        "data_view": dv_id,
+                        "data_view_name": dv_name,
+                        "isolated_count": len(isolated),
+                        "reason": f"Data view has {len(isolated)} components not used elsewhere. "
+                        "Consider if these are needed or if this DV serves a specialized purpose.",
+                    }
+                )
 
         # Recommendation: High overlap pairs
         if similarity_pairs:
             for pair in similarity_pairs:
                 if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD:
-                    recommendations.append({
-                        'type': 'review_overlap',
-                        'severity': 'high',
-                        'data_view_1': pair.dv1_id,
-                        'data_view_1_name': pair.dv1_name,
-                        'data_view_2': pair.dv2_id,
-                        'data_view_2_name': pair.dv2_name,
-                        'similarity': pair.jaccard_similarity,
-                        'reason': f"{pair.jaccard_similarity*100:.0f}% similarity - "
-                                  "likely prod/staging pair or potential duplicate. Verify if intentional."
-                    })
+                    recommendations.append(
+                        {
+                            "type": "review_overlap",
+                            "severity": "high",
+                            "data_view_1": pair.dv1_id,
+                            "data_view_1_name": pair.dv1_name,
+                            "data_view_2": pair.dv2_id,
+                            "data_view_2_name": pair.dv2_name,
+                            "similarity": pair.jaccard_similarity,
+                            "reason": f"{pair.jaccard_similarity * 100:.0f}% similarity - "
+                            "likely prod/staging pair or potential duplicate. Verify if intentional.",
+                        }
+                    )
 
         # Recommendation: Core component standardization
         total_successful = len([s for s in summaries if s.error is None])
         if total_successful > 3:
             # Check for near-core components (in 70-99% of DVs but not all)
             near_core_count = 0
-            for comp_id, info in index.items():
+            for _comp_id, info in index.items():
                 pct = info.presence_count / total_successful
                 if 0.7 <= pct < 1.0:
                     near_core_count += 1
 
             if near_core_count > 5:
-                recommendations.append({
-                    'type': 'standardization_opportunity',
-                    'severity': 'low',
-                    'count': near_core_count,
-                    'reason': f"{near_core_count} components are in 70-99% of data views. "
-                              "Consider standardizing these across all data views."
-                })
+                recommendations.append(
+                    {
+                        "type": "standardization_opportunity",
+                        "severity": "low",
+                        "count": near_core_count,
+                        "reason": f"{near_core_count} components are in 70-99% of data views. "
+                        "Consider standardizing these across all data views.",
+                    }
+                )
 
         # Recommendation: Fetch errors
         error_count = len([s for s in summaries if s.error is not None])
         if error_count > 0:
-            recommendations.append({
-                'type': 'fetch_errors',
-                'severity': 'high',
-                'count': error_count,
-                'reason': f"{error_count} data view(s) could not be analyzed due to errors. "
-                          "Check permissions and data view status."
-            })
+            recommendations.append(
+                {
+                    "type": "fetch_errors",
+                    "severity": "high",
+                    "count": error_count,
+                    "reason": f"{error_count} data view(s) could not be analyzed due to errors. "
+                    "Check permissions and data view status.",
+                }
+            )
 
         # Recommendation: High derived ratio (if component types enabled)
         if self.config.include_component_types:
@@ -1185,17 +1169,19 @@ class OrgComponentAnalyzer:
                 total_components = summary.metric_count + summary.dimension_count
                 derived_count = summary.derived_metric_count + summary.derived_dimension_count
                 if total_components > 0 and derived_count / total_components > 0.5:
-                    recommendations.append({
-                        'type': 'high_derived_ratio',
-                        'severity': 'low',
-                        'data_view': summary.data_view_id,
-                        'data_view_name': summary.data_view_name,
-                        'derived_count': derived_count,
-                        'total_count': total_components,
-                        'ratio': round(derived_count / total_components, 2),
-                        'reason': f"Data view has {derived_count}/{total_components} ({derived_count*100//total_components}%) derived components. "
-                                  "High derived ratios may indicate complex transformations or maintenance burden."
-                    })
+                    recommendations.append(
+                        {
+                            "type": "high_derived_ratio",
+                            "severity": "low",
+                            "data_view": summary.data_view_id,
+                            "data_view_name": summary.data_view_name,
+                            "derived_count": derived_count,
+                            "total_count": total_components,
+                            "ratio": round(derived_count / total_components, 2),
+                            "reason": f"Data view has {derived_count}/{total_components} ({derived_count * 100 // total_components}%) derived components. "
+                            "High derived ratios may indicate complex transformations or maintenance burden.",
+                        }
+                    )
 
         # Recommendation: Stale data views (if metadata enabled)
         if self.config.include_metadata:
@@ -1204,30 +1190,34 @@ class OrgComponentAnalyzer:
                 if summary.error or not summary.modified:
                     continue
                 try:
-                    modified_date = datetime.fromisoformat(summary.modified.replace('Z', '+00:00'))
+                    modified_date = datetime.fromisoformat(summary.modified.replace("Z", "+00:00"))
                     if modified_date.replace(tzinfo=None) < six_months_ago:
-                        recommendations.append({
-                            'type': 'stale_data_view',
-                            'severity': 'low',
-                            'data_view': summary.data_view_id,
-                            'data_view_name': summary.data_view_name,
-                            'modified': summary.modified,
-                            'reason': f"Data view not modified since {summary.modified[:10]}. "
-                                      "Consider reviewing if still needed or if updates are required."
-                        })
-                except (ValueError, TypeError):
+                        recommendations.append(
+                            {
+                                "type": "stale_data_view",
+                                "severity": "low",
+                                "data_view": summary.data_view_id,
+                                "data_view_name": summary.data_view_name,
+                                "modified": summary.modified,
+                                "reason": f"Data view not modified since {summary.modified[:10]}. "
+                                "Consider reviewing if still needed or if updates are required.",
+                            }
+                        )
+                except ValueError, TypeError:
                     pass
 
             # Missing descriptions
             no_desc_count = len([s for s in summaries if not s.error and not s.has_description])
             if no_desc_count > 0 and no_desc_count >= len(summaries) * 0.3:
-                recommendations.append({
-                    'type': 'missing_descriptions',
-                    'severity': 'low',
-                    'count': no_desc_count,
-                    'reason': f"{no_desc_count} data view(s) have no description. "
-                              "Adding descriptions improves discoverability and governance."
-                })
+                recommendations.append(
+                    {
+                        "type": "missing_descriptions",
+                        "severity": "low",
+                        "count": no_desc_count,
+                        "reason": f"{no_desc_count} data view(s) have no description. "
+                        "Adding descriptions improves discoverability and governance.",
+                    }
+                )
 
         # Recommendation: Drift in high-overlap pairs (if drift enabled)
         if self.config.include_drift and similarity_pairs:
@@ -1236,21 +1226,20 @@ class OrgComponentAnalyzer:
                 if pair.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD and drift_count > 0:
                     # Update existing overlap recommendation with drift info
                     for rec in recommendations:
-                        if (rec.get('type') == 'review_overlap' and
-                            rec.get('data_view_1') == pair.dv1_id and
-                            rec.get('data_view_2') == pair.dv2_id):
-                            rec['drift_count'] = drift_count
-                            rec['reason'] += f" Differs by {drift_count} components."
+                        if (
+                            rec.get("type") == "review_overlap"
+                            and rec.get("data_view_1") == pair.dv1_id
+                            and rec.get("data_view_2") == pair.dv2_id
+                        ):
+                            rec["drift_count"] = drift_count
+                            rec["reason"] += f" Differs by {drift_count} components."
                             break
 
         return recommendations
 
     def _check_governance_thresholds(
-        self,
-        similarity_pairs: Optional[List[SimilarityPair]],
-        distribution: ComponentDistribution,
-        total_components: int
-    ) -> Tuple[List[Dict[str, Any]], bool]:
+        self, similarity_pairs: list[SimilarityPair] | None, distribution: ComponentDistribution, total_components: int
+    ) -> tuple[list[dict[str, Any]], bool]:
         """Check if governance thresholds are exceeded (Feature 1).
 
         Args:
@@ -1268,12 +1257,14 @@ class OrgComponentAnalyzer:
         if self.config.duplicate_threshold is not None and similarity_pairs:
             high_sim_pairs = [p for p in similarity_pairs if p.jaccard_similarity >= GOVERNANCE_MAX_OVERLAP_THRESHOLD]
             if len(high_sim_pairs) > self.config.duplicate_threshold:
-                violations.append({
-                    'type': 'duplicate_threshold_exceeded',
-                    'threshold': self.config.duplicate_threshold,
-                    'actual': len(high_sim_pairs),
-                    'message': f"Found {len(high_sim_pairs)} high-similarity pairs (>=90%), threshold is {self.config.duplicate_threshold}"
-                })
+                violations.append(
+                    {
+                        "type": "duplicate_threshold_exceeded",
+                        "threshold": self.config.duplicate_threshold,
+                        "actual": len(high_sim_pairs),
+                        "message": f"Found {len(high_sim_pairs)} high-similarity pairs (>=90%), threshold is {self.config.duplicate_threshold}",
+                    }
+                )
                 exceeded = True
 
         # Check isolated threshold (percentage of isolated components)
@@ -1281,22 +1272,21 @@ class OrgComponentAnalyzer:
             isolated_count = distribution.total_isolated
             isolated_pct = isolated_count / total_components
             if isolated_pct > self.config.isolated_threshold:
-                violations.append({
-                    'type': 'isolated_threshold_exceeded',
-                    'threshold': self.config.isolated_threshold,
-                    'actual': round(isolated_pct, 4),
-                    'isolated_count': isolated_count,
-                    'total_components': total_components,
-                    'message': f"Isolated components at {isolated_pct*100:.1f}% ({isolated_count}/{total_components}), threshold is {self.config.isolated_threshold*100:.1f}%"
-                })
+                violations.append(
+                    {
+                        "type": "isolated_threshold_exceeded",
+                        "threshold": self.config.isolated_threshold,
+                        "actual": round(isolated_pct, 4),
+                        "isolated_count": isolated_count,
+                        "total_components": total_components,
+                        "message": f"Isolated components at {isolated_pct * 100:.1f}% ({isolated_count}/{total_components}), threshold is {self.config.isolated_threshold * 100:.1f}%",
+                    }
+                )
                 exceeded = True
 
         return violations, exceeded
 
-    def _audit_naming_conventions(
-        self,
-        component_index: Dict[str, ComponentInfo]
-    ) -> Dict[str, Any]:
+    def _audit_naming_conventions(self, component_index: dict[str, ComponentInfo]) -> dict[str, Any]:
         """Audit naming convention consistency (Feature 3).
 
         Detects:
@@ -1311,11 +1301,11 @@ class OrgComponentAnalyzer:
             Dict with naming audit results
         """
         audit = {
-            'total_components': len(component_index),
-            'case_styles': {'snake_case': 0, 'camelCase': 0, 'PascalCase': 0, 'other': 0},
-            'prefix_groups': {},
-            'stale_patterns': [],
-            'recommendations': []
+            "total_components": len(component_index),
+            "case_styles": {"snake_case": 0, "camelCase": 0, "PascalCase": 0, "other": 0},
+            "prefix_groups": {},
+            "stale_patterns": [],
+            "recommendations": [],
         }
 
         for comp_id, info in component_index.items():
@@ -1323,80 +1313,87 @@ class OrgComponentAnalyzer:
             name = info.name or comp_id
 
             # Detect case style
-            if '_' in name and name == name.lower():
-                audit['case_styles']['snake_case'] += 1
+            if "_" in name and name == name.lower():
+                audit["case_styles"]["snake_case"] += 1
             elif name and name[0].islower() and any(c.isupper() for c in name):
-                audit['case_styles']['camelCase'] += 1
+                audit["case_styles"]["camelCase"] += 1
             elif name and name[0].isupper() and any(c.isupper() for c in name[1:]):
-                audit['case_styles']['PascalCase'] += 1
+                audit["case_styles"]["PascalCase"] += 1
             else:
-                audit['case_styles']['other'] += 1
+                audit["case_styles"]["other"] += 1
 
             # Detect prefix groupings
-            if '/' in name:
-                prefix = name.split('/')[0]
-            elif '_' in name:
-                prefix = name.split('_')[0]
+            if "/" in name:
+                prefix = name.split("/")[0]
+            elif "_" in name:
+                prefix = name.split("_")[0]
             elif name and len(name) > 3:
                 prefix = name[:3]
             else:
-                prefix = 'other'
+                prefix = "other"
 
             prefix_lower = prefix.lower()
-            if prefix_lower not in audit['prefix_groups']:
-                audit['prefix_groups'][prefix_lower] = 0
-            audit['prefix_groups'][prefix_lower] += 1
+            if prefix_lower not in audit["prefix_groups"]:
+                audit["prefix_groups"][prefix_lower] = 0
+            audit["prefix_groups"][prefix_lower] += 1
 
             # Detect stale patterns (using module-level compiled regexes)
             if _STALE_KEYWORDS_RE.search(name):
-                audit['stale_patterns'].append({
-                    'component_id': comp_id,
-                    'name': name,
-                    'pattern': 'stale_keyword',
-                    'data_views': list(info.data_views)[:3]  # First 3 DVs
-                })
+                audit["stale_patterns"].append(
+                    {
+                        "component_id": comp_id,
+                        "name": name,
+                        "pattern": "stale_keyword",
+                        "data_views": list(info.data_views)[:3],  # First 3 DVs
+                    }
+                )
             elif _VERSION_SUFFIX_RE.search(name):
-                audit['stale_patterns'].append({
-                    'component_id': comp_id,
-                    'name': name,
-                    'pattern': 'version_suffix',
-                    'data_views': list(info.data_views)[:3]
-                })
+                audit["stale_patterns"].append(
+                    {
+                        "component_id": comp_id,
+                        "name": name,
+                        "pattern": "version_suffix",
+                        "data_views": list(info.data_views)[:3],
+                    }
+                )
             elif _DATE_PATTERN_RE.search(name):
-                audit['stale_patterns'].append({
-                    'component_id': comp_id,
-                    'name': name,
-                    'pattern': 'date_pattern',
-                    'data_views': list(info.data_views)[:3]
-                })
+                audit["stale_patterns"].append(
+                    {
+                        "component_id": comp_id,
+                        "name": name,
+                        "pattern": "date_pattern",
+                        "data_views": list(info.data_views)[:3],
+                    }
+                )
 
         # Generate recommendations
-        styles = audit['case_styles']
+        styles = audit["case_styles"]
         dominant_style = max(styles.items(), key=lambda x: x[1])[0]
-        non_dominant = sum(v for k, v in styles.items() if k != dominant_style and k != 'other')
+        non_dominant = sum(v for k, v in styles.items() if k != dominant_style and k != "other")
         if non_dominant > 5:
-            audit['recommendations'].append({
-                'type': 'naming_inconsistency',
-                'severity': 'low',
-                'message': f"Mixed naming conventions detected. Dominant style is {dominant_style}, "
-                          f"but {non_dominant} components use different styles."
-            })
+            audit["recommendations"].append(
+                {
+                    "type": "naming_inconsistency",
+                    "severity": "low",
+                    "message": f"Mixed naming conventions detected. Dominant style is {dominant_style}, "
+                    f"but {non_dominant} components use different styles.",
+                }
+            )
 
-        if len(audit['stale_patterns']) > 0:
-            audit['recommendations'].append({
-                'type': 'stale_naming_patterns',
-                'severity': 'medium',
-                'count': len(audit['stale_patterns']),
-                'message': f"Found {len(audit['stale_patterns'])} components with stale naming patterns "
-                          "(test, old, temp, version suffixes, or date stamps)."
-            })
+        if len(audit["stale_patterns"]) > 0:
+            audit["recommendations"].append(
+                {
+                    "type": "stale_naming_patterns",
+                    "severity": "medium",
+                    "count": len(audit["stale_patterns"]),
+                    "message": f"Found {len(audit['stale_patterns'])} components with stale naming patterns "
+                    "(test, old, temp, version suffixes, or date stamps).",
+                }
+            )
 
         return audit
 
-    def _compute_owner_summary(
-        self,
-        summaries: List[DataViewSummary]
-    ) -> Dict[str, Any]:
+    def _compute_owner_summary(self, summaries: list[DataViewSummary]) -> dict[str, Any]:
         """Compute statistics grouped by data view owner (Feature 5).
 
         Args:
@@ -1405,57 +1402,54 @@ class OrgComponentAnalyzer:
         Returns:
             Dict with owner-grouped statistics
         """
-        owner_stats: Dict[str, Dict[str, Any]] = {}
+        owner_stats: dict[str, dict[str, Any]] = {}
 
         for summary in summaries:
             if summary.error:
                 continue
 
-            owner = summary.owner or 'Unknown'
-            owner_id = summary.owner_id or 'unknown'
+            owner = summary.owner or "Unknown"
+            owner_id = summary.owner_id or "unknown"
 
             if owner not in owner_stats:
                 owner_stats[owner] = {
-                    'owner_id': owner_id,
-                    'data_view_count': 0,
-                    'data_view_names': [],
-                    'data_view_ids': [],
-                    'total_metrics': 0,
-                    'total_dimensions': 0,
-                    'total_derived': 0,
+                    "owner_id": owner_id,
+                    "data_view_count": 0,
+                    "data_view_names": [],
+                    "data_view_ids": [],
+                    "total_metrics": 0,
+                    "total_dimensions": 0,
+                    "total_derived": 0,
                 }
 
             stats = owner_stats[owner]
-            stats['data_view_count'] += 1
-            stats['data_view_names'].append(summary.data_view_name)
-            stats['data_view_ids'].append(summary.data_view_id)
-            stats['total_metrics'] += summary.metric_count
-            stats['total_dimensions'] += summary.dimension_count
-            stats['total_derived'] += summary.derived_metric_count + summary.derived_dimension_count
+            stats["data_view_count"] += 1
+            stats["data_view_names"].append(summary.data_view_name)
+            stats["data_view_ids"].append(summary.data_view_id)
+            stats["total_metrics"] += summary.metric_count
+            stats["total_dimensions"] += summary.dimension_count
+            stats["total_derived"] += summary.derived_metric_count + summary.derived_dimension_count
 
         # Compute averages
-        for owner, stats in owner_stats.items():
-            dv_count = stats['data_view_count']
-            stats['avg_metrics_per_dv'] = round(stats['total_metrics'] / dv_count, 1) if dv_count > 0 else 0
-            stats['avg_dimensions_per_dv'] = round(stats['total_dimensions'] / dv_count, 1) if dv_count > 0 else 0
-            stats['avg_components_per_dv'] = round(
-                (stats['total_metrics'] + stats['total_dimensions']) / dv_count, 1
-            ) if dv_count > 0 else 0
+        for _owner, stats in owner_stats.items():
+            dv_count = stats["data_view_count"]
+            stats["avg_metrics_per_dv"] = round(stats["total_metrics"] / dv_count, 1) if dv_count > 0 else 0
+            stats["avg_dimensions_per_dv"] = round(stats["total_dimensions"] / dv_count, 1) if dv_count > 0 else 0
+            stats["avg_components_per_dv"] = (
+                round((stats["total_metrics"] + stats["total_dimensions"]) / dv_count, 1) if dv_count > 0 else 0
+            )
 
         return {
-            'by_owner': owner_stats,
-            'total_owners': len(owner_stats),
-            'owners_sorted_by_dv_count': sorted(
-                owner_stats.keys(),
-                key=lambda o: owner_stats[o]['data_view_count'],
-                reverse=True
-            )
+            "by_owner": owner_stats,
+            "total_owners": len(owner_stats),
+            "owners_sorted_by_dv_count": sorted(
+                owner_stats.keys(), key=lambda o: owner_stats[o]["data_view_count"], reverse=True
+            ),
         }
 
     def _validate_cache_entries(
-        self,
-        data_views: List[Dict[str, Any]]
-    ) -> Tuple[List[Dict[str, Any]], List[DataViewSummary], int, int]:
+        self, data_views: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[DataViewSummary], int, int]:
         """Validate cached entries using modification timestamps from getDataViews() response.
 
         This uses a batch approach - the modification timestamps are already available
@@ -1476,13 +1470,13 @@ class OrgComponentAnalyzer:
         stale_count = 0
 
         required_flags = {
-            'include_names': self.config.include_names,
-            'include_metadata': self.config.include_metadata,
-            'include_component_types': self.config.include_component_types,
+            "include_names": self.config.include_names,
+            "include_metadata": self.config.include_metadata,
+            "include_component_types": self.config.include_component_types,
         }
 
         for dv in data_views:
-            dv_id = dv.get('id', '')
+            dv_id = dv.get("id", "")
 
             # No valid cache entry → must fetch from API
             if not self.cache.has_valid_entry(dv_id, self.config.cache_max_age_hours):
@@ -1490,7 +1484,7 @@ class OrgComponentAnalyzer:
                 continue
 
             # Use modification date from getDataViews() response (no extra API call needed)
-            current_modified = dv.get('modified') or dv.get('modifiedDate')
+            current_modified = dv.get("modified") or dv.get("modifiedDate")
 
             # If API doesn't return modification timestamp, treat as stale to honor
             # --validate-cache guarantee (we can't verify freshness without it)
@@ -1501,10 +1495,7 @@ class OrgComponentAnalyzer:
 
             # Try to get from cache with validation
             cached = self.cache.get(
-                dv_id,
-                self.config.cache_max_age_hours,
-                required_flags=required_flags,
-                current_modified=current_modified
+                dv_id, self.config.cache_max_age_hours, required_flags=required_flags, current_modified=current_modified
             )
 
             if cached:
@@ -1516,10 +1507,7 @@ class OrgComponentAnalyzer:
 
         return to_fetch, valid_summaries, valid_count, stale_count
 
-    def _detect_stale_components(
-        self,
-        component_index: Dict[str, ComponentInfo]
-    ) -> List[Dict[str, Any]]:
+    def _detect_stale_components(self, component_index: dict[str, ComponentInfo]) -> list[dict[str, Any]]:
         """Detect components with stale naming patterns (Feature 6).
 
         Detects:
@@ -1541,20 +1529,22 @@ class OrgComponentAnalyzer:
 
             # Use module-level compiled regexes (shared with _audit_naming_conventions)
             if _STALE_KEYWORDS_RE.search(name):
-                pattern_matched = 'stale_keyword'
+                pattern_matched = "stale_keyword"
             elif _VERSION_SUFFIX_RE.search(name):
-                pattern_matched = 'version_suffix'
+                pattern_matched = "version_suffix"
             elif _DATE_PATTERN_RE.search(name):
-                pattern_matched = 'date_pattern'
+                pattern_matched = "date_pattern"
 
             if pattern_matched:
-                stale_components.append({
-                    'component_id': comp_id,
-                    'name': name,
-                    'type': info.component_type,
-                    'pattern': pattern_matched,
-                    'presence_count': info.presence_count,
-                    'data_views': list(info.data_views)[:5]  # First 5 DVs
-                })
+                stale_components.append(
+                    {
+                        "component_id": comp_id,
+                        "name": name,
+                        "type": info.component_type,
+                        "pattern": pattern_matched,
+                        "presence_count": info.presence_count,
+                        "data_views": list(info.data_views)[:5],  # First 5 DVs
+                    }
+                )
 
         return stale_components

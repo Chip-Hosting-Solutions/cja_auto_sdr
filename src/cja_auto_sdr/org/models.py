@@ -7,7 +7,7 @@ This module contains all dataclasses used for org-wide component analysis.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 
 @dataclass
@@ -38,11 +38,12 @@ class OrgReportConfig:
         cluster_method: Clustering method (ward, average, complete)
         isolated_review_threshold: Min isolated components to trigger review recommendation
     """
-    filter_pattern: Optional[str] = None
-    exclude_pattern: Optional[str] = None
-    limit: Optional[int] = None
+
+    filter_pattern: str | None = None
+    exclude_pattern: str | None = None
+    limit: int | None = None
     core_threshold: float = 0.5
-    core_min_count: Optional[int] = None
+    core_min_count: int | None = None
     overlap_threshold: float = 0.8
     summary_only: bool = False
     verbose: bool = False
@@ -55,8 +56,8 @@ class OrgReportConfig:
     # Drift detection
     include_drift: bool = False
     # Sampling
-    sample_size: Optional[int] = None
-    sample_seed: Optional[int] = None
+    sample_size: int | None = None
+    sample_seed: int | None = None
     sample_stratified: bool = False
     # Caching
     use_cache: bool = False
@@ -64,33 +65,35 @@ class OrgReportConfig:
     clear_cache: bool = False
     # Clustering
     enable_clustering: bool = False
-    cluster_method: str = "average"  # 'average' (recommended) or 'complete' - both work correctly with Jaccard distances
+    cluster_method: str = (
+        "average"  # 'average' (recommended) or 'complete' - both work correctly with Jaccard distances
+    )
     quiet: bool = False  # Suppress progress output (tqdm)
     # Similarity guardrails
-    similarity_max_dvs: Optional[int] = 250  # Skip similarity if DVs exceed this count (unless forced)
+    similarity_max_dvs: int | None = 250  # Skip similarity if DVs exceed this count (unless forced)
     force_similarity: bool = False  # Force similarity even if guardrails would skip
     # Threading safety
     cja_per_thread: bool = True  # Use a separate cjapy client per thread for safety
     # Recommendation thresholds
     isolated_review_threshold: int = 20  # Min isolated components per DV to trigger review recommendation
     # Governance thresholds (Feature 1)
-    duplicate_threshold: Optional[int] = None  # Max allowed high-similarity pairs (>=90%)
-    isolated_threshold: Optional[float] = None  # Max isolated component percentage (0.0-1.0)
+    duplicate_threshold: int | None = None  # Max allowed high-similarity pairs (>=90%)
+    isolated_threshold: float | None = None  # Max isolated component percentage (0.0-1.0)
     fail_on_threshold: bool = False  # Enable exit code 2 when thresholds exceeded
     # Org-stats mode (Feature 2)
     org_stats_only: bool = False  # Quick summary only mode
     # Naming audit (Feature 3)
     audit_naming: bool = False  # Detect naming pattern inconsistencies
     # Trending/drift report (Feature 4)
-    compare_org_report: Optional[str] = None  # Path to previous org-report JSON for comparison
+    compare_org_report: str | None = None  # Path to previous org-report JSON for comparison
     # Owner summary (Feature 5)
     include_owner_summary: bool = False  # Group stats by data view owner
     # Stale component heuristics (Feature 6)
     flag_stale: bool = False  # Flag components with stale naming patterns
     # Memory warning threshold
-    memory_warning_threshold_mb: Optional[int] = 100  # Warn if component index exceeds this size (0 to disable)
+    memory_warning_threshold_mb: int | None = 100  # Warn if component index exceeds this size (0 to disable)
     # Memory hard limit
-    memory_limit_mb: Optional[int] = None  # Abort if component index exceeds this size (None = no limit)
+    memory_limit_mb: int | None = None  # Abort if component index exceeds this size (None = no limit)
     # Smart cache validation
     validate_cache: bool = False  # Validate cache entries against data view modification timestamps
     # Concurrency lock
@@ -107,10 +110,11 @@ class ComponentInfo:
         name: Human-readable name (populated if include_names=True)
         data_views: Set of data view IDs containing this component
     """
+
     component_id: str
     component_type: str  # 'metric' or 'dimension'
-    name: Optional[str] = None
-    data_views: Set[str] = field(default_factory=set)
+    name: str | None = None
+    data_views: set[str] = field(default_factory=set)
 
     @property
     def presence_count(self) -> int:
@@ -145,28 +149,29 @@ class DataViewSummary:
         description: Data view description
         has_description: Whether DV has a description
     """
+
     data_view_id: str
     data_view_name: str
-    metric_ids: Set[str] = field(default_factory=set)
-    dimension_ids: Set[str] = field(default_factory=set)
+    metric_ids: set[str] = field(default_factory=set)
+    dimension_ids: set[str] = field(default_factory=set)
     metric_count: int = 0
     dimension_count: int = 0
     status: str = "active"
     fetch_duration: float = 0.0
-    error: Optional[str] = None
-    metric_names: Optional[Dict[str, str]] = None
-    dimension_names: Optional[Dict[str, str]] = None
+    error: str | None = None
+    metric_names: dict[str, str] | None = None
+    dimension_names: dict[str, str] | None = None
     # Component type breakdown
     standard_metric_count: int = 0
     derived_metric_count: int = 0
     standard_dimension_count: int = 0
     derived_dimension_count: int = 0
     # Metadata fields
-    owner: Optional[str] = None
-    owner_id: Optional[str] = None
-    created: Optional[str] = None
-    modified: Optional[str] = None
-    description: Optional[str] = None
+    owner: str | None = None
+    owner_id: str | None = None
+    created: str | None = None
+    modified: str | None = None
+    description: str | None = None
     has_description: bool = False
 
     @property
@@ -175,11 +180,11 @@ class DataViewSummary:
         return self.metric_count + self.dimension_count
 
     @property
-    def all_component_ids(self) -> Set[str]:
+    def all_component_ids(self) -> set[str]:
         """Combined set of all component IDs."""
         return self.metric_ids | self.dimension_ids
 
-    def get_component_name(self, component_id: str) -> Optional[str]:
+    def get_component_name(self, component_id: str) -> str | None:
         """Get the name for a component ID if available."""
         if self.metric_names and component_id in self.metric_names:
             return self.metric_names[component_id]
@@ -192,7 +197,7 @@ class DataViewSummary:
 class SimilarityPair:
     """Similarity measurement between two data views.
 
-    Uses Jaccard similarity: |A ∩ B| / |A ∪ B|
+    Uses Jaccard similarity: |A ∩ B| / |A U B|
 
     Attributes:
         dv1_id: First data view ID
@@ -207,6 +212,7 @@ class SimilarityPair:
         only_in_dv1_names: Optional dict mapping unique DV1 component IDs to names
         only_in_dv2_names: Optional dict mapping unique DV2 component IDs to names
     """
+
     dv1_id: str
     dv1_name: str
     dv2_id: str
@@ -215,10 +221,10 @@ class SimilarityPair:
     shared_count: int
     union_count: int
     # Drift detection fields
-    only_in_dv1: List[str] = field(default_factory=list)
-    only_in_dv2: List[str] = field(default_factory=list)
-    only_in_dv1_names: Optional[Dict[str, str]] = None
-    only_in_dv2_names: Optional[Dict[str, str]] = None
+    only_in_dv1: list[str] = field(default_factory=list)
+    only_in_dv2: list[str] = field(default_factory=list)
+    only_in_dv1_names: dict[str, str] | None = None
+    only_in_dv2_names: dict[str, str] | None = None
 
 
 @dataclass
@@ -232,10 +238,11 @@ class DataViewCluster:
         data_view_names: List of data view names in this cluster
         cohesion_score: Average within-cluster similarity (0.0 to 1.0)
     """
+
     cluster_id: int
-    cluster_name: Optional[str] = None
-    data_view_ids: List[str] = field(default_factory=list)
-    data_view_names: List[str] = field(default_factory=list)
+    cluster_name: str | None = None
+    data_view_ids: list[str] = field(default_factory=list)
+    data_view_names: list[str] = field(default_factory=list)
     cohesion_score: float = 0.0
 
     @property
@@ -254,14 +261,15 @@ class ComponentDistribution:
         - limited: In 2+ data views but < 25%
         - isolated: In exactly 1 data view
     """
-    core_metrics: List[str] = field(default_factory=list)
-    core_dimensions: List[str] = field(default_factory=list)
-    common_metrics: List[str] = field(default_factory=list)
-    common_dimensions: List[str] = field(default_factory=list)
-    limited_metrics: List[str] = field(default_factory=list)
-    limited_dimensions: List[str] = field(default_factory=list)
-    isolated_metrics: List[str] = field(default_factory=list)
-    isolated_dimensions: List[str] = field(default_factory=list)
+
+    core_metrics: list[str] = field(default_factory=list)
+    core_dimensions: list[str] = field(default_factory=list)
+    common_metrics: list[str] = field(default_factory=list)
+    common_dimensions: list[str] = field(default_factory=list)
+    limited_metrics: list[str] = field(default_factory=list)
+    limited_dimensions: list[str] = field(default_factory=list)
+    isolated_metrics: list[str] = field(default_factory=list)
+    isolated_dimensions: list[str] = field(default_factory=list)
 
     @property
     def total_core(self) -> int:
@@ -298,29 +306,30 @@ class OrgReportResult:
         is_sampled: Whether this report used sampling
         total_available_data_views: Total DVs available before sampling
     """
+
     timestamp: str
     org_id: str
     parameters: OrgReportConfig
-    data_view_summaries: List[DataViewSummary]
-    component_index: Dict[str, ComponentInfo]
+    data_view_summaries: list[DataViewSummary]
+    component_index: dict[str, ComponentInfo]
     distribution: ComponentDistribution
-    similarity_pairs: Optional[List[SimilarityPair]]
-    recommendations: List[Dict[str, Any]]
+    similarity_pairs: list[SimilarityPair] | None
+    recommendations: list[dict[str, Any]]
     duration: float
     # Clustering results
-    clusters: Optional[List[DataViewCluster]] = None
+    clusters: list[DataViewCluster] | None = None
     # Sampling metadata
     is_sampled: bool = False
     total_available_data_views: int = 0
     # Governance thresholds (Feature 1)
-    governance_violations: Optional[List[Dict[str, Any]]] = None
+    governance_violations: list[dict[str, Any]] | None = None
     thresholds_exceeded: bool = False
     # Naming audit (Feature 3)
-    naming_audit: Optional[Dict[str, Any]] = None
+    naming_audit: dict[str, Any] | None = None
     # Owner summary (Feature 5)
-    owner_summary: Optional[Dict[str, Any]] = None
+    owner_summary: dict[str, Any] | None = None
     # Stale components (Feature 6)
-    stale_components: Optional[List[Dict[str, Any]]] = None
+    stale_components: list[dict[str, Any]] | None = None
 
     @property
     def total_data_views(self) -> int:
@@ -332,11 +341,11 @@ class OrgReportResult:
 
     @property
     def total_unique_metrics(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == 'metric'])
+        return len([c for c in self.component_index.values() if c.component_type == "metric"])
 
     @property
     def total_unique_dimensions(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == 'dimension'])
+        return len([c for c in self.component_index.values() if c.component_type == "dimension"])
 
     @property
     def total_unique_components(self) -> int:
@@ -360,16 +369,17 @@ class OrgReportComparison:
         resolved_pairs: Previously high-similarity pairs now resolved
         summary: Dict with overview statistics
     """
+
     current_timestamp: str
     previous_timestamp: str
-    data_views_added: List[str] = field(default_factory=list)
-    data_views_removed: List[str] = field(default_factory=list)
-    data_views_added_names: List[str] = field(default_factory=list)
-    data_views_removed_names: List[str] = field(default_factory=list)
+    data_views_added: list[str] = field(default_factory=list)
+    data_views_removed: list[str] = field(default_factory=list)
+    data_views_added_names: list[str] = field(default_factory=list)
+    data_views_removed_names: list[str] = field(default_factory=list)
     components_added: int = 0
     components_removed: int = 0
     core_delta: int = 0
     isolated_delta: int = 0
-    new_high_similarity_pairs: List[Dict[str, Any]] = field(default_factory=list)
-    resolved_pairs: List[Dict[str, Any]] = field(default_factory=list)
-    summary: Dict[str, Any] = field(default_factory=dict)
+    new_high_similarity_pairs: list[dict[str, Any]] = field(default_factory=list)
+    resolved_pairs: list[dict[str, Any]] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)

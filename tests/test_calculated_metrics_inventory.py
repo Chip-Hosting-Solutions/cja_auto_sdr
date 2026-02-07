@@ -9,18 +9,16 @@ Tests cover:
 - DataFrame output
 """
 
-import pytest
-import json
+from unittest.mock import Mock
+
 import pandas as pd
-from unittest.mock import Mock, MagicMock
+import pytest
 
 from cja_auto_sdr.inventory.calculated_metrics import (
-    CalculatedMetricsInventoryBuilder,
     CalculatedMetricsInventory,
+    CalculatedMetricsInventoryBuilder,
     CalculatedMetricSummary,
-    CALC_METRIC_FUNCTION_DISPLAY_NAMES,
 )
-
 
 # ==================== FIXTURES ====================
 
@@ -42,9 +40,9 @@ def sample_simple_calc_metric():
             "formula": {
                 "func": "divide",
                 "col1": {"func": "metric", "name": "metrics/revenue"},
-                "col2": {"func": "metric", "name": "metrics/orders"}
-            }
-        }
+                "col2": {"func": "metric", "name": "metrics/orders"},
+            },
+        },
     }
 
 
@@ -68,10 +66,10 @@ def sample_complex_calc_metric():
                 "metric": {
                     "func": "divide",
                     "col1": {"func": "metric", "name": "metrics/orders"},
-                    "col2": {"func": "metric", "name": "metrics/visits"}
-                }
-            }
-        }
+                    "col2": {"func": "metric", "name": "metrics/visits"},
+                },
+            },
+        },
     }
 
 
@@ -100,13 +98,13 @@ def sample_nested_calc_metric():
                         "col2": {
                             "func": "multiply",
                             "col1": {"func": "metric", "name": "metrics/overhead"},
-                            "col2": {"func": "number", "val": 1.2}
-                        }
-                    }
+                            "col2": {"func": "number", "val": 1.2},
+                        },
+                    },
                 },
-                "col2": {"func": "metric", "name": "metrics/revenue"}
-            }
-        }
+                "col2": {"func": "metric", "name": "metrics/revenue"},
+            },
+        },
     }
 
 
@@ -129,12 +127,12 @@ def sample_conditional_calc_metric():
                 "condition": {
                     "func": "gt",
                     "left": {"func": "metric", "name": "metrics/visits"},
-                    "right": {"func": "number", "val": 100}
+                    "right": {"func": "number", "val": 100},
                 },
                 "then": {"func": "metric", "name": "metrics/orders"},
-                "else": {"func": "number", "val": 0}
-            }
-        }
+                "else": {"func": "number", "val": 0},
+            },
+        },
     }
 
 
@@ -155,9 +153,9 @@ def sample_addition_calc_metric():
             "formula": {
                 "func": "add",
                 "col1": {"func": "metric", "name": "metrics/clicks"},
-                "col2": {"func": "metric", "name": "metrics/views"}
-            }
-        }
+                "col2": {"func": "metric", "name": "metrics/views"},
+            },
+        },
     }
 
 
@@ -165,10 +163,7 @@ def sample_addition_calc_metric():
 def mock_cja_instance(sample_simple_calc_metric, sample_complex_calc_metric):
     """Create a mock CJA instance with calculated metrics"""
     mock_cja = Mock()
-    mock_cja.getCalculatedMetrics.return_value = pd.DataFrame([
-        sample_simple_calc_metric,
-        sample_complex_calc_metric
-    ])
+    mock_cja.getCalculatedMetrics.return_value = pd.DataFrame([sample_simple_calc_metric, sample_complex_calc_metric])
     return mock_cja
 
 
@@ -176,10 +171,7 @@ def mock_cja_instance(sample_simple_calc_metric, sample_complex_calc_metric):
 def mock_cja_instance_list_response(sample_simple_calc_metric, sample_complex_calc_metric):
     """Create a mock CJA instance that returns a list (not DataFrame)"""
     mock_cja = Mock()
-    mock_cja.getCalculatedMetrics.return_value = [
-        sample_simple_calc_metric,
-        sample_complex_calc_metric
-    ]
+    mock_cja.getCalculatedMetrics.return_value = [sample_simple_calc_metric, sample_complex_calc_metric]
     return mock_cja
 
 
@@ -226,10 +218,7 @@ class TestCalculatedMetricsInventoryBuilder:
         builder = CalculatedMetricsInventoryBuilder()
         builder.build(mock_cja_instance, "dv_abc123", "Test")
 
-        mock_cja_instance.getCalculatedMetrics.assert_called_once_with(
-            dataIds="dv_abc123",
-            full=True
-        )
+        mock_cja_instance.getCalculatedMetrics.assert_called_once_with(dataIds="dv_abc123", full=True)
 
     def test_complexity_score_calculated(self, mock_cja_instance):
         """Test that complexity scores are calculated"""
@@ -450,9 +439,11 @@ class TestFormulaSummary:
 
         metric = inventory.metrics[0]
         # Should mention the referenced metrics or sum
-        assert ("sum" in metric.formula_summary.lower() or
-                "clicks" in metric.formula_summary.lower() or
-                "addition" in metric.formula_summary.lower())
+        assert (
+            "sum" in metric.formula_summary.lower()
+            or "clicks" in metric.formula_summary.lower()
+            or "addition" in metric.formula_summary.lower()
+        )
 
     def test_segment_summary(self, sample_complex_calc_metric):
         """Test formula summary for segmented metric"""
@@ -464,9 +455,11 @@ class TestFormulaSummary:
 
         metric = inventory.metrics[0]
         # Should mention segment/filter OR show segment in bracket notation [segment]
-        assert ("segment" in metric.formula_summary.lower() or
-                "filter" in metric.formula_summary.lower() or
-                "[" in metric.formula_summary)  # bracket notation for segments
+        assert (
+            "segment" in metric.formula_summary.lower()
+            or "filter" in metric.formula_summary.lower()
+            or "[" in metric.formula_summary
+        )  # bracket notation for segments
 
     def test_conditional_summary(self, sample_conditional_calc_metric):
         """Test formula summary for conditional metric"""
@@ -478,8 +471,7 @@ class TestFormulaSummary:
 
         metric = inventory.metrics[0]
         # Should show conditional logic either as word or IF(...) function
-        assert ("conditional" in metric.formula_summary.lower() or
-                "if(" in metric.formula_summary.lower())
+        assert "conditional" in metric.formula_summary.lower() or "if(" in metric.formula_summary.lower()
 
 
 # ==================== EDGE CASE TESTS ====================
@@ -494,10 +486,7 @@ class TestEdgeCases:
             "id": "cm_test",
             "name": "Test",
             "description": "",
-            "definition": {
-                "func": "calc-metric",
-                "formula": {"func": "metric", "name": "metrics/visits"}
-            }
+            "definition": {"func": "calc-metric", "formula": {"func": "metric", "name": "metrics/visits"}},
         }
         mock_cja = Mock()
         mock_cja.getCalculatedMetrics.return_value = [metric]
@@ -515,10 +504,7 @@ class TestEdgeCases:
             "name": "Test",
             "description": "",
             "owner": "string_owner",
-            "definition": {
-                "func": "calc-metric",
-                "formula": {"func": "metric", "name": "metrics/visits"}
-            }
+            "definition": {"func": "calc-metric", "formula": {"func": "metric", "name": "metrics/visits"}},
         }
         mock_cja = Mock()
         mock_cja.getCalculatedMetrics.return_value = [metric]
@@ -534,7 +520,7 @@ class TestEdgeCases:
             "id": "cm_test",
             "name": "Test",
             "description": "",
-            "definition": {"func": "calc-metric", "formula": {}}
+            "definition": {"func": "calc-metric", "formula": {}},
         }
         mock_cja = Mock()
         mock_cja.getCalculatedMetrics.return_value = [metric]
@@ -649,18 +635,12 @@ class TestCalculatedMetricsInventoryProperties:
 
     def test_avg_complexity_empty(self):
         """Test average complexity with no metrics"""
-        inventory = CalculatedMetricsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = CalculatedMetricsInventory(data_view_id="dv_test", data_view_name="Test")
         assert inventory.avg_complexity == 0.0
 
     def test_max_complexity_empty(self):
         """Test max complexity with no metrics"""
-        inventory = CalculatedMetricsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = CalculatedMetricsInventory(data_view_id="dv_test", data_view_name="Test")
         assert inventory.max_complexity == 0.0
 
 

@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Dry-run mode (current implementation lives in generator)."""
 
 __all__ = ["run_dry_run"]

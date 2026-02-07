@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Diff output writers (current implementation lives in generator for compatibility)."""
 
 __all__ = [

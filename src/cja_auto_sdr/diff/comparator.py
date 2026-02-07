@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
 
 import pandas as pd
 
@@ -26,40 +26,89 @@ class DataViewComparator:
     - Two saved snapshots
     """
 
-    DEFAULT_COMPARE_FIELDS = ['name', 'title', 'description', 'type', 'schemaPath']
-    EXTENDED_COMPARE_FIELDS = [
-        'name', 'title', 'description', 'type', 'schemaPath',
-        'hidden', 'hideFromReporting', 'precision', 'format',
-        'segmentable', 'reportable', 'componentType',
-        'attribution', 'attributionModel', 'lookbackWindow',
-        'dataType', 'hasData', 'approved',
-        'bucketing', 'bucketingSetting',
-        'persistence', 'persistenceSetting', 'allocation',
-        'formula', 'isCalculated', 'derivedFieldId',
+    DEFAULT_COMPARE_FIELDS: ClassVar[list[str]] = ["name", "title", "description", "type", "schemaPath"]
+    EXTENDED_COMPARE_FIELDS: ClassVar[list[str]] = [
+        "name",
+        "title",
+        "description",
+        "type",
+        "schemaPath",
+        "hidden",
+        "hideFromReporting",
+        "precision",
+        "format",
+        "segmentable",
+        "reportable",
+        "componentType",
+        "attribution",
+        "attributionModel",
+        "lookbackWindow",
+        "dataType",
+        "hasData",
+        "approved",
+        "bucketing",
+        "bucketingSetting",
+        "persistence",
+        "persistenceSetting",
+        "allocation",
+        "formula",
+        "isCalculated",
+        "derivedFieldId",
     ]
 
-    CALC_METRICS_COMPARE_FIELDS = [
-        'name', 'description', 'owner', 'complexity_score', 'approved',
-        'functions_used', 'formula_summary', 'metric_references', 'segment_references',
-        'nesting_depth', 'tags',
+    CALC_METRICS_COMPARE_FIELDS: ClassVar[list[str]] = [
+        "name",
+        "description",
+        "owner",
+        "complexity_score",
+        "approved",
+        "functions_used",
+        "formula_summary",
+        "metric_references",
+        "segment_references",
+        "nesting_depth",
+        "tags",
     ]
 
-    SEGMENTS_COMPARE_FIELDS = [
-        'name', 'description', 'owner', 'complexity_score', 'approved',
-        'functions_used', 'definition_summary', 'metric_references', 'segment_references',
-        'dimension_references', 'nesting_depth', 'tags',
+    SEGMENTS_COMPARE_FIELDS: ClassVar[list[str]] = [
+        "name",
+        "description",
+        "owner",
+        "complexity_score",
+        "approved",
+        "functions_used",
+        "definition_summary",
+        "metric_references",
+        "segment_references",
+        "dimension_references",
+        "nesting_depth",
+        "tags",
     ]
-    DERIVED_FIELDS_COMPARE_FIELDS = [
-        'name', 'description', 'owner', 'complexity_score', 'approved',
-        'logic_summary', 'dimension_references', 'segment_references',
-        'metric_references', 'tags',
+    DERIVED_FIELDS_COMPARE_FIELDS: ClassVar[list[str]] = [
+        "name",
+        "description",
+        "owner",
+        "complexity_score",
+        "approved",
+        "logic_summary",
+        "dimension_references",
+        "segment_references",
+        "metric_references",
+        "tags",
     ]
 
-    def __init__(self, logger: logging.Logger = None, ignore_fields: List[str] = None,
-                 compare_fields: List[str] = None, use_extended_fields: bool = False,
-                 show_only: Optional[List[str]] = None, metrics_only: bool = False,
-                 dimensions_only: bool = False,
-                 include_calc_metrics: bool = False, include_segments: bool = False):
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        ignore_fields: list[str] | None = None,
+        compare_fields: list[str] | None = None,
+        use_extended_fields: bool = False,
+        show_only: list[str] | None = None,
+        metrics_only: bool = False,
+        dimensions_only: bool = False,
+        include_calc_metrics: bool = False,
+        include_segments: bool = False,
+    ):
         self.logger = logger or logging.getLogger(__name__)
         self.ignore_fields = set(ignore_fields or [])
         if compare_fields:
@@ -74,26 +123,27 @@ class DataViewComparator:
         self.include_calc_metrics = include_calc_metrics
         self.include_segments = include_segments
 
-    def compare(self, source: DataViewSnapshot, target: DataViewSnapshot,
-                source_label: str = "Source", target_label: str = "Target") -> DiffResult:
-        self.logger.info(f"Comparing data views:")
+    def compare(
+        self,
+        source: DataViewSnapshot,
+        target: DataViewSnapshot,
+        source_label: str = "Source",
+        target_label: str = "Target",
+    ) -> DiffResult:
+        self.logger.info("Comparing data views:")
         self.logger.info(f"  {source_label}: {source.data_view_name} ({source.data_view_id})")
         self.logger.info(f"  {target_label}: {target.data_view_name} ({target.data_view_id})")
 
         if self.dimensions_only:
             metric_diffs = []
         else:
-            metric_diffs = self._compare_components(
-                source.metrics, target.metrics, "metrics"
-            )
+            metric_diffs = self._compare_components(source.metrics, target.metrics, "metrics")
             metric_diffs = self._apply_show_only_filter(metric_diffs)
 
         if self.metrics_only:
             dimension_diffs = []
         else:
-            dimension_diffs = self._compare_components(
-                source.dimensions, target.dimensions, "dimensions"
-            )
+            dimension_diffs = self._compare_components(source.dimensions, target.dimensions, "dimensions")
             dimension_diffs = self._apply_show_only_filter(dimension_diffs)
 
         calc_metrics_diffs = None
@@ -103,9 +153,9 @@ class DataViewComparator:
             calc_metrics_diffs = self._compare_inventory_items(
                 source.calculated_metrics_inventory or [],
                 target.calculated_metrics_inventory or [],
-                'calculated_metric',
-                id_field='metric_id',
-                name_field='metric_name'
+                "calculated_metric",
+                id_field="metric_id",
+                name_field="metric_name",
             )
             self.logger.info(f"  Calculated Metrics: {self._count_changes(calc_metrics_diffs)}")
 
@@ -113,22 +163,21 @@ class DataViewComparator:
             segments_diffs = self._compare_inventory_items(
                 source.segments_inventory or [],
                 target.segments_inventory or [],
-                'segment',
-                id_field='segment_id',
-                name_field='segment_name'
+                "segment",
+                id_field="segment_id",
+                name_field="segment_name",
             )
             self.logger.info(f"  Segments: {self._count_changes(segments_diffs)}")
 
         metadata_diff = self._build_metadata_diff(source, target)
 
-        summary = self._build_summary(
-            source, target, metric_diffs, dimension_diffs,
-            calc_metrics_diffs, segments_diffs
-        )
+        summary = self._build_summary(source, target, metric_diffs, dimension_diffs, calc_metrics_diffs, segments_diffs)
 
-        self.logger.info(f"Comparison complete:")
+        self.logger.info("Comparison complete:")
         self.logger.info(f"  Metrics: +{summary.metrics_added} -{summary.metrics_removed} ~{summary.metrics_modified}")
-        self.logger.info(f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}")
+        self.logger.info(
+            f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}"
+        )
 
         return DiffResult(
             summary=summary,
@@ -138,10 +187,10 @@ class DataViewComparator:
             source_label=source_label,
             target_label=target_label,
             calc_metrics_diffs=calc_metrics_diffs,
-            segments_diffs=segments_diffs
+            segments_diffs=segments_diffs,
         )
 
-    def _count_changes(self, diffs: Optional[List[InventoryItemDiff]]) -> str:
+    def _count_changes(self, diffs: list[InventoryItemDiff] | None) -> str:
         if not diffs:
             return "0 items"
         added = sum(1 for d in diffs if d.change_type == ChangeType.ADDED)
@@ -151,13 +200,13 @@ class DataViewComparator:
 
     def _compare_items_generic(
         self,
-        source_list: List[Dict],
-        target_list: List[Dict],
+        source_list: list[dict],
+        target_list: list[dict],
         id_field: str,
         name_extractor: callable,
         diff_factory: callable,
         find_changed_fields: callable,
-    ) -> List:
+    ) -> list:
         """Generic comparison logic for items identified by an ID field.
 
         Args:
@@ -183,35 +232,34 @@ class DataViewComparator:
             target_item = target_map.get(item_id)
 
             if source_item and not target_item:
-                diffs.append(diff_factory(
-                    item_id, name_extractor(source_item), ChangeType.REMOVED,
-                    source_item, None, None
-                ))
+                diffs.append(
+                    diff_factory(item_id, name_extractor(source_item), ChangeType.REMOVED, source_item, None, None)
+                )
             elif target_item and not source_item:
-                diffs.append(diff_factory(
-                    item_id, name_extractor(target_item), ChangeType.ADDED,
-                    None, target_item, None
-                ))
+                diffs.append(
+                    diff_factory(item_id, name_extractor(target_item), ChangeType.ADDED, None, target_item, None)
+                )
             else:
                 changed_fields = find_changed_fields(source_item, target_item)
                 change_type = ChangeType.MODIFIED if changed_fields else ChangeType.UNCHANGED
-                diffs.append(diff_factory(
-                    item_id, name_extractor(target_item), change_type,
-                    source_item, target_item, changed_fields
-                ))
+                diffs.append(
+                    diff_factory(
+                        item_id, name_extractor(target_item), change_type, source_item, target_item, changed_fields
+                    )
+                )
 
         return diffs
 
     def _compare_inventory_items(
         self,
-        source_list: List[Dict],
-        target_list: List[Dict],
+        source_list: list[dict],
+        target_list: list[dict],
         inventory_type: str,
-        id_field: str = 'id',
-        name_field: str = 'name'
-    ) -> List[InventoryItemDiff]:
-        def name_extractor(item: Dict) -> str:
-            return item.get(name_field, 'Unknown')
+        id_field: str = "id",
+        name_field: str = "name",
+    ) -> list[InventoryItemDiff]:
+        def name_extractor(item: dict) -> str:
+            return item.get(name_field, "Unknown")
 
         def diff_factory(item_id, name, change_type, source, target, changed_fields):
             return InventoryItemDiff(
@@ -221,25 +269,26 @@ class DataViewComparator:
                 inventory_type=inventory_type,
                 source_data=source,
                 target_data=target,
-                changed_fields=changed_fields or {}
+                changed_fields=changed_fields or {},
             )
 
         def find_changed(source_item, target_item):
             return self._find_inventory_changed_fields(source_item, target_item, inventory_type)
 
         return self._compare_items_generic(
-            source_list, target_list, id_field,
-            name_extractor, diff_factory, find_changed
+            source_list, target_list, id_field, name_extractor, diff_factory, find_changed
         )
 
-    def _find_inventory_changed_fields(self, source: Dict, target: Dict, inventory_type: str) -> Dict[str, Tuple[Any, Any]]:
+    def _find_inventory_changed_fields(
+        self, source: dict, target: dict, inventory_type: str
+    ) -> dict[str, tuple[Any, Any]]:
         changed = {}
 
-        if inventory_type == 'calculated_metric':
+        if inventory_type == "calculated_metric":
             compare_fields = self.CALC_METRICS_COMPARE_FIELDS
-        elif inventory_type == 'segment':
+        elif inventory_type == "segment":
             compare_fields = self.SEGMENTS_COMPARE_FIELDS
-        elif inventory_type == 'derived_field':
+        elif inventory_type == "derived_field":
             compare_fields = self.DERIVED_FIELDS_COMPARE_FIELDS
         else:
             compare_fields = self.CALC_METRICS_COMPARE_FIELDS
@@ -259,25 +308,26 @@ class DataViewComparator:
 
         return changed
 
-    def _apply_show_only_filter(self, diffs: List[ComponentDiff]) -> List[ComponentDiff]:
+    def _apply_show_only_filter(self, diffs: list[ComponentDiff]) -> list[ComponentDiff]:
         if not self.show_only:
             return diffs
 
         type_map = {
-            'added': ChangeType.ADDED,
-            'removed': ChangeType.REMOVED,
-            'modified': ChangeType.MODIFIED,
-            'unchanged': ChangeType.UNCHANGED,
+            "added": ChangeType.ADDED,
+            "removed": ChangeType.REMOVED,
+            "modified": ChangeType.MODIFIED,
+            "unchanged": ChangeType.UNCHANGED,
         }
 
         allowed_types = {type_map[t] for t in self.show_only if t in type_map}
 
         return [d for d in diffs if d.change_type in allowed_types]
 
-    def _compare_components(self, source_list: List[Dict], target_list: List[Dict],
-                           component_type: str) -> List[ComponentDiff]:
-        def name_extractor(item: Dict) -> str:
-            return item.get('name', item.get('title', 'Unknown'))
+    def _compare_components(
+        self, source_list: list[dict], target_list: list[dict], component_type: str
+    ) -> list[ComponentDiff]:
+        def name_extractor(item: dict) -> str:
+            return item.get("name", item.get("title", "Unknown"))
 
         def diff_factory(item_id, name, change_type, source, target, changed_fields):
             return ComponentDiff(
@@ -286,15 +336,14 @@ class DataViewComparator:
                 change_type=change_type,
                 source_data=source,
                 target_data=target,
-                changed_fields=changed_fields or {}
+                changed_fields=changed_fields or {},
             )
 
         return self._compare_items_generic(
-            source_list, target_list, 'id',
-            name_extractor, diff_factory, self._find_changed_fields
+            source_list, target_list, "id", name_extractor, diff_factory, self._find_changed_fields
         )
 
-    def _find_changed_fields(self, source: Dict, target: Dict) -> Dict[str, Tuple[Any, Any]]:
+    def _find_changed_fields(self, source: dict, target: dict) -> dict[str, tuple[Any, Any]]:
         changed = {}
 
         for field in self.compare_fields:
@@ -314,11 +363,11 @@ class DataViewComparator:
 
     def _normalize_value(self, value: Any) -> Any:
         if value is None:
-            return ''
+            return ""
         try:
             if pd.isna(value):
-                return ''
-        except (TypeError, ValueError):
+                return ""
+        except TypeError, ValueError:
             pass
         if isinstance(value, str):
             return value.strip()
@@ -328,13 +377,13 @@ class DataViewComparator:
             return [self._normalize_value(v) for v in value]
         return value
 
-    def _normalize_dict(self, d: Dict) -> Dict:
+    def _normalize_dict(self, d: dict) -> dict:
         if not d:
             return {}
         result = {}
         for k, v in sorted(d.items()):
             normalized = self._normalize_value(v)
-            if normalized != '' and normalized != {} and normalized != []:
+            if normalized != "" and normalized != {} and normalized != []:
                 result[k] = normalized
         return result
 
@@ -342,11 +391,11 @@ class DataViewComparator:
         changed_fields = {}
 
         if source.data_view_name != target.data_view_name:
-            changed_fields['name'] = (source.data_view_name, target.data_view_name)
+            changed_fields["name"] = (source.data_view_name, target.data_view_name)
         if source.owner != target.owner:
-            changed_fields['owner'] = (source.owner, target.owner)
+            changed_fields["owner"] = (source.owner, target.owner)
         if source.description != target.description:
-            changed_fields['description'] = (source.description, target.description)
+            changed_fields["description"] = (source.description, target.description)
 
         return MetadataDiff(
             source_name=source.data_view_name,
@@ -357,17 +406,17 @@ class DataViewComparator:
             target_owner=target.owner,
             source_description=source.description,
             target_description=target.description,
-            changed_fields=changed_fields
+            changed_fields=changed_fields,
         )
 
     def _build_summary(
         self,
         source: DataViewSnapshot,
         target: DataViewSnapshot,
-        metric_diffs: List[ComponentDiff],
-        dimension_diffs: List[ComponentDiff],
-        calc_metrics_diffs: Optional[List[InventoryItemDiff]] = None,
-        segments_diffs: Optional[List[InventoryItemDiff]] = None
+        metric_diffs: list[ComponentDiff],
+        dimension_diffs: list[ComponentDiff],
+        calc_metrics_diffs: list[InventoryItemDiff] | None = None,
+        segments_diffs: list[InventoryItemDiff] | None = None,
     ) -> DiffSummary:
         summary = DiffSummary(
             source_metrics_count=len(source.metrics),
@@ -381,7 +430,7 @@ class DataViewComparator:
             dimensions_added=sum(1 for d in dimension_diffs if d.change_type == ChangeType.ADDED),
             dimensions_removed=sum(1 for d in dimension_diffs if d.change_type == ChangeType.REMOVED),
             dimensions_modified=sum(1 for d in dimension_diffs if d.change_type == ChangeType.MODIFIED),
-            dimensions_unchanged=sum(1 for d in dimension_diffs if d.change_type == ChangeType.UNCHANGED)
+            dimensions_unchanged=sum(1 for d in dimension_diffs if d.change_type == ChangeType.UNCHANGED),
         )
 
         if calc_metrics_diffs is not None:

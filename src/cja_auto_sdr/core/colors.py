@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Union
+from typing import ClassVar
 
 
 class ConsoleColors:
@@ -21,38 +21,39 @@ class ConsoleColors:
     - default: Green/red (standard)
     - accessible: Blue/orange (deuteranopia/protanopia friendly)
     """
+
     # Base colors
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    ORANGE = '\033[38;5;208m'  # Extended 256-color orange
-    BOLD = '\033[1m'
-    DIM = '\033[90m'  # Bright black / dark gray for dimmed text
-    RESET = '\033[0m'
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    ORANGE = "\033[38;5;208m"  # Extended 256-color orange
+    BOLD = "\033[1m"
+    DIM = "\033[90m"  # Bright black / dark gray for dimmed text
+    RESET = "\033[0m"
     # Regex to strip ANSI escape codes for visible length calculation
-    ANSI_ESCAPE = re.compile(r'\033\[[0-9;]*m')
+    ANSI_ESCAPE = re.compile(r"\033\[[0-9;]*m")
 
     # Color themes for accessibility
-    THEMES = {
-        'default': {
-            'added': GREEN,      # Green for additions
-            'removed': RED,      # Red for removals
-            'modified': YELLOW,  # Yellow for modifications
+    THEMES: ClassVar[dict[str, dict[str, str]]] = {
+        "default": {
+            "added": GREEN,  # Green for additions
+            "removed": RED,  # Red for removals
+            "modified": YELLOW,  # Yellow for modifications
         },
-        'accessible': {
-            'added': BLUE,       # Blue for additions (accessible)
-            'removed': ORANGE,   # Orange for removals (accessible)
-            'modified': CYAN,    # Cyan for modifications
-        }
+        "accessible": {
+            "added": BLUE,  # Blue for additions (accessible)
+            "removed": ORANGE,  # Orange for removals (accessible)
+            "modified": CYAN,  # Cyan for modifications
+        },
     }
 
     # Current theme (default)
-    _theme = 'default'
+    _theme = "default"
 
     # Disable colors if not a TTY or on Windows without ANSI support
-    _enabled = sys.stdout.isatty() and (os.name != 'nt' or os.environ.get('TERM'))
+    _enabled = sys.stdout.isatty() and (os.name != "nt" or os.environ.get("TERM"))
 
     @classmethod
     def set_theme(cls, theme: str) -> None:
@@ -130,7 +131,7 @@ class ConsoleColors:
     def diff_added(cls, text: str) -> str:
         """Format text for 'added' items (theme-aware)"""
         if cls._enabled:
-            color = cls.THEMES[cls._theme]['added']
+            color = cls.THEMES[cls._theme]["added"]
             return f"{color}{text}{cls.RESET}"
         return text
 
@@ -138,7 +139,7 @@ class ConsoleColors:
     def diff_removed(cls, text: str) -> str:
         """Format text for 'removed' items (theme-aware)"""
         if cls._enabled:
-            color = cls.THEMES[cls._theme]['removed']
+            color = cls.THEMES[cls._theme]["removed"]
             return f"{color}{text}{cls.RESET}"
         return text
 
@@ -146,28 +147,28 @@ class ConsoleColors:
     def diff_modified(cls, text: str) -> str:
         """Format text for 'modified' items (theme-aware)"""
         if cls._enabled:
-            color = cls.THEMES[cls._theme]['modified']
+            color = cls.THEMES[cls._theme]["modified"]
             return f"{color}{text}{cls.RESET}"
         return text
 
     @classmethod
     def visible_len(cls, text: str) -> int:
         """Return the visible length of a string, ignoring ANSI escape codes."""
-        return len(cls.ANSI_ESCAPE.sub('', text))
+        return len(cls.ANSI_ESCAPE.sub("", text))
 
     @classmethod
     def rjust(cls, text: str, width: int) -> str:
         """Right-justify a string accounting for ANSI escape codes."""
         visible = cls.visible_len(text)
         padding = max(0, width - visible)
-        return ' ' * padding + text
+        return " " * padding + text
 
     @classmethod
     def ljust(cls, text: str, width: int) -> str:
         """Left-justify a string accounting for ANSI escape codes."""
         visible = cls.visible_len(text)
         padding = max(0, width - visible)
-        return text + ' ' * padding
+        return text + " " * padding
 
 
 # Alias for backwards compatibility
@@ -185,14 +186,14 @@ def format_file_size(size_bytes: int) -> str:
         Human-readable string (e.g., "1.5 MB", "256 KB", "42 B")
     """
     size = size_bytes
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if size < 1024:
-            return f"{size:.1f} {unit}" if unit != 'B' else f"{size} {unit}"
+            return f"{size:.1f} {unit}" if unit != "B" else f"{size} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
 
 
-def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
+def open_file_in_default_app(file_path: str | Path) -> bool:
     """
     Open a file in the default application for its type.
 
@@ -213,26 +214,26 @@ def open_file_in_default_app(file_path: Union[str, Path]) -> bool:
     logger = logging.getLogger(__name__)
     try:
         system = platform.system()
-        if system == 'Darwin':  # macOS
-            subprocess.run(['open', file_path], check=True)
-        elif system == 'Windows':
+        if system == "Darwin":  # macOS
+            subprocess.run(["open", file_path], check=True)
+        elif system == "Windows":
             os.startfile(file_path)  # type: ignore[attr-defined]
         else:  # Linux and others
-            subprocess.run(['xdg-open', file_path], check=True)
+            subprocess.run(["xdg-open", file_path], check=True)
         return True
     except Exception as e:
         logger.debug(f"Failed to open file with default app: {file_path} - {e}")
         # Fallback to webbrowser for HTML files
-        if file_path.endswith('.html'):
+        if file_path.endswith(".html"):
             try:
-                webbrowser.open(f'file://{os.path.abspath(file_path)}')
+                webbrowser.open(f"file://{os.path.abspath(file_path)}")
                 return True
             except Exception as e2:
                 logger.debug(f"Fallback webbrowser.open also failed: {e2}")
         return False
 
 
-def _format_error_msg(operation: str, item_type: str = None, error: Exception = None) -> str:
+def _format_error_msg(operation: str, item_type: str | None = None, error: Exception | None = None) -> str:
     """
     Format error messages consistently across the application.
 
@@ -248,5 +249,5 @@ def _format_error_msg(operation: str, item_type: str = None, error: Exception = 
     if item_type:
         msg += f" for {item_type}"
     if error:
-        msg += f": {str(error)}"
+        msg += f": {error!s}"
     return msg

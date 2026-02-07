@@ -2,19 +2,18 @@
 Tests for retry with exponential backoff functionality
 """
 
-import pytest
-import time
-import logging
-from unittest.mock import Mock, patch, MagicMock
-
 import sys
-sys.path.insert(0, '.')
+from unittest.mock import Mock, patch
+
+import pytest
+
+sys.path.insert(0, ".")
 
 from cja_auto_sdr.generator import (
-    retry_with_backoff,
-    make_api_call_with_retry,
     DEFAULT_RETRY_CONFIG,
-    RETRYABLE_EXCEPTIONS
+    RETRYABLE_EXCEPTIONS,
+    make_api_call_with_retry,
+    retry_with_backoff,
 )
 
 
@@ -108,8 +107,8 @@ class TestRetryDecorator:
                 raise ConnectionError("Fail")
             return "success"
 
-        with patch('time.sleep') as mock_sleep:
-            result = track_delay_func()
+        with patch("time.sleep") as mock_sleep:
+            track_delay_func()
             # Check delays: 0.1, 0.2, 0.4 (base * 2^attempt)
             assert mock_sleep.call_count == 3
             delays = [call.args[0] for call in mock_sleep.call_args_list]
@@ -119,11 +118,12 @@ class TestRetryDecorator:
 
     def test_max_delay_cap(self):
         """Test that delay is capped at max_delay"""
+
         @retry_with_backoff(max_retries=5, base_delay=10, max_delay=15, exponential_base=2, jitter=False)
         def capped_delay_func():
             raise ConnectionError("Fail")
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             with pytest.raises(ConnectionError):
                 capped_delay_func()
             # All delays should be capped at 15
@@ -138,7 +138,7 @@ class TestRetryDecorator:
         def jitter_func():
             raise ConnectionError("Fail")
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             with pytest.raises(ConnectionError):
                 jitter_func()
             delays_with_jitter = [call.args[0] for call in mock_sleep.call_args_list]
@@ -156,12 +156,7 @@ class TestRetryDecorator:
         class CustomError(Exception):
             pass
 
-        @retry_with_backoff(
-            max_retries=2,
-            base_delay=0.01,
-            jitter=False,
-            retryable_exceptions=(CustomError,)
-        )
+        @retry_with_backoff(max_retries=2, base_delay=0.01, jitter=False, retryable_exceptions=(CustomError,))
         def custom_error_func():
             nonlocal call_count
             call_count += 1
@@ -181,30 +176,19 @@ class TestMakeApiCallWithRetry:
         """Test successful API call returns result"""
         mock_api = Mock(return_value={"data": "test"})
 
-        result = make_api_call_with_retry(
-            mock_api,
-            "arg1",
-            kwarg1="value1",
-            operation_name="test_api"
-        )
+        result = make_api_call_with_retry(mock_api, "arg1", kwarg1="value1", operation_name="test_api")
 
         assert result == {"data": "test"}
         mock_api.assert_called_once_with("arg1", kwarg1="value1")
 
     def test_api_call_with_retry(self):
         """Test API call retries on network error"""
-        mock_api = Mock(side_effect=[
-            ConnectionError("Network error"),
-            ConnectionError("Network error"),
-            {"data": "success"}
-        ])
+        mock_api = Mock(
+            side_effect=[ConnectionError("Network error"), ConnectionError("Network error"), {"data": "success"}]
+        )
 
-        with patch('time.sleep'):  # Skip actual delays
-            result = make_api_call_with_retry(
-                mock_api,
-                "arg1",
-                operation_name="test_api"
-            )
+        with patch("time.sleep"):  # Skip actual delays
+            result = make_api_call_with_retry(mock_api, "arg1", operation_name="test_api")
 
         assert result == {"data": "success"}
         assert mock_api.call_count == 3
@@ -213,31 +197,20 @@ class TestMakeApiCallWithRetry:
         """Test API call raises after max retries"""
         mock_api = Mock(side_effect=ConnectionError("Always fails"))
 
-        with patch('time.sleep'):  # Skip actual delays
+        with patch("time.sleep"):  # Skip actual delays
             with pytest.raises(ConnectionError):
-                make_api_call_with_retry(
-                    mock_api,
-                    "arg1",
-                    operation_name="test_api"
-                )
+                make_api_call_with_retry(mock_api, "arg1", operation_name="test_api")
 
         # 1 initial + 3 retries (default max_retries)
-        assert mock_api.call_count == DEFAULT_RETRY_CONFIG['max_retries'] + 1
+        assert mock_api.call_count == DEFAULT_RETRY_CONFIG["max_retries"] + 1
 
     def test_api_call_logs_warnings(self):
         """Test that retry attempts are logged"""
-        mock_api = Mock(side_effect=[
-            ConnectionError("Error 1"),
-            {"data": "success"}
-        ])
+        mock_api = Mock(side_effect=[ConnectionError("Error 1"), {"data": "success"}])
         mock_logger = Mock()
 
-        with patch('time.sleep'):
-            result = make_api_call_with_retry(
-                mock_api,
-                logger=mock_logger,
-                operation_name="test_api"
-            )
+        with patch("time.sleep"):
+            result = make_api_call_with_retry(mock_api, logger=mock_logger, operation_name="test_api")
 
         assert result == {"data": "success"}
         # Should have logged a warning for the failed attempt
@@ -249,23 +222,23 @@ class TestDefaultConfig:
 
     def test_default_max_retries(self):
         """Test default max_retries value"""
-        assert DEFAULT_RETRY_CONFIG['max_retries'] == 3
+        assert DEFAULT_RETRY_CONFIG["max_retries"] == 3
 
     def test_default_base_delay(self):
         """Test default base_delay value"""
-        assert DEFAULT_RETRY_CONFIG['base_delay'] == 1.0
+        assert DEFAULT_RETRY_CONFIG["base_delay"] == 1.0
 
     def test_default_max_delay(self):
         """Test default max_delay value"""
-        assert DEFAULT_RETRY_CONFIG['max_delay'] == 30.0
+        assert DEFAULT_RETRY_CONFIG["max_delay"] == 30.0
 
     def test_default_exponential_base(self):
         """Test default exponential_base value"""
-        assert DEFAULT_RETRY_CONFIG['exponential_base'] == 2
+        assert DEFAULT_RETRY_CONFIG["exponential_base"] == 2
 
     def test_default_jitter(self):
         """Test default jitter value"""
-        assert DEFAULT_RETRY_CONFIG['jitter'] is True
+        assert DEFAULT_RETRY_CONFIG["jitter"] is True
 
     def test_retryable_exceptions(self):
         """Test retryable exception types"""
@@ -279,6 +252,7 @@ class TestRetryIntegration:
 
     def test_retry_preserves_function_metadata(self):
         """Test that decorator preserves function metadata"""
+
         @retry_with_backoff()
         def documented_function():
             """This is a documented function"""
@@ -289,6 +263,7 @@ class TestRetryIntegration:
 
     def test_retry_works_with_class_methods(self):
         """Test retry works with class methods via make_api_call_with_retry"""
+
         class ApiClient:
             def __init__(self):
                 self.call_count = 0
@@ -301,12 +276,8 @@ class TestRetryIntegration:
 
         client = ApiClient()
 
-        with patch('time.sleep'):
-            result = make_api_call_with_retry(
-                client.get_data,
-                "test_id",
-                operation_name="get_data"
-            )
+        with patch("time.sleep"):
+            result = make_api_call_with_retry(client.get_data, "test_id", operation_name="get_data")
 
         assert result == {"id": "test_id", "data": "test"}
         assert client.call_count == 2

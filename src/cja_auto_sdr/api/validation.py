@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Data view validation (current implementation lives in generator)."""
 
 __all__ = ["validate_data_view"]

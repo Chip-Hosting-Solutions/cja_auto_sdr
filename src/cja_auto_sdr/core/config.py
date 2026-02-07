@@ -8,7 +8,7 @@ used directly in code.
 import argparse
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -22,20 +22,21 @@ class RetryConfig:
         exponential_base: Multiplier for exponential backoff (default: 2)
         jitter: Add randomization to delays (default: True)
     """
+
     max_retries: int = 3
     base_delay: float = 1.0
     max_delay: float = 30.0
     exponential_base: int = 2
     jitter: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for backward compatibility."""
         return {
-            'max_retries': self.max_retries,
-            'base_delay': self.base_delay,
-            'max_delay': self.max_delay,
-            'exponential_base': self.exponential_base,
-            'jitter': self.jitter,
+            "max_retries": self.max_retries,
+            "base_delay": self.base_delay,
+            "max_delay": self.max_delay,
+            "exponential_base": self.exponential_base,
+            "jitter": self.jitter,
         }
 
 
@@ -48,6 +49,7 @@ class CacheConfig:
         max_size: Maximum number of cached entries (default: 1000)
         ttl_seconds: Time-to-live in seconds (default: 3600 = 1 hour)
     """
+
     enabled: bool = False
     max_size: int = 1000
     ttl_seconds: int = 3600
@@ -62,6 +64,7 @@ class LogConfig:
         file_max_bytes: Maximum size per log file (default: 10MB)
         file_backup_count: Number of backup log files (default: 5)
     """
+
     level: str = "INFO"
     file_max_bytes: int = 10 * 1024 * 1024  # 10MB
     file_backup_count: int = 5
@@ -77,6 +80,7 @@ class WorkerConfig:
         batch_workers: Batch processing workers (default: 4)
         max_batch_workers: Maximum allowed batch workers (default: 256)
     """
+
     api_fetch_workers: int = 3
     validation_workers: int = 2
     batch_workers: int = 4
@@ -98,6 +102,7 @@ class APITuningConfig:
         sample_window: Number of requests to average before adjusting (default: 5)
         cooldown_seconds: Minimum time between adjustments (default: 10s)
     """
+
     min_workers: int = 1
     max_workers: int = 10
     scale_up_threshold_ms: float = 200.0
@@ -108,8 +113,9 @@ class APITuningConfig:
 
 class CircuitState(Enum):
     """States for the circuit breaker pattern."""
-    CLOSED = "closed"      # Normal operation, requests flow through
-    OPEN = "open"          # Circuit tripped, requests fail fast
+
+    CLOSED = "closed"  # Normal operation, requests flow through
+    OPEN = "open"  # Circuit tripped, requests fail fast
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
@@ -125,6 +131,7 @@ class CircuitBreakerConfig:
         success_threshold: Successes in half-open to close circuit (default: 2)
         timeout_seconds: Time before attempting recovery (open→half-open) (default: 30)
     """
+
     failure_threshold: int = 5
     success_threshold: int = 2
     timeout_seconds: float = 30.0
@@ -147,6 +154,7 @@ class SDRConfig:
         max_issues: Maximum issues to report (0 = all)
         quiet: Suppress non-error output
     """
+
     retry: RetryConfig = field(default_factory=RetryConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
     log: LogConfig = field(default_factory=LogConfig)
@@ -158,36 +166,37 @@ class SDRConfig:
     quiet: bool = False
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> 'SDRConfig':
+    def from_args(cls, args: argparse.Namespace) -> SDRConfig:
         """Create configuration from parsed command-line arguments."""
         return cls(
             retry=RetryConfig(
-                max_retries=getattr(args, 'max_retries', 3),
-                base_delay=getattr(args, 'retry_base_delay', 1.0),
-                max_delay=getattr(args, 'retry_max_delay', 30.0),
+                max_retries=getattr(args, "max_retries", 3),
+                base_delay=getattr(args, "retry_base_delay", 1.0),
+                max_delay=getattr(args, "retry_max_delay", 30.0),
             ),
             cache=CacheConfig(
-                enabled=getattr(args, 'enable_cache', False),
-                max_size=getattr(args, 'cache_size', 1000),
-                ttl_seconds=getattr(args, 'cache_ttl', 3600),
+                enabled=getattr(args, "enable_cache", False),
+                max_size=getattr(args, "cache_size", 1000),
+                ttl_seconds=getattr(args, "cache_ttl", 3600),
             ),
             log=LogConfig(
-                level=getattr(args, 'log_level', 'INFO'),
+                level=getattr(args, "log_level", "INFO"),
             ),
             workers=WorkerConfig(
-                batch_workers=getattr(args, 'workers', 4),
+                batch_workers=getattr(args, "workers", 4),
             ),
-            output_format=getattr(args, 'format', 'excel'),
-            output_dir=getattr(args, 'output_dir', '.'),
-            skip_validation=getattr(args, 'skip_validation', False),
-            max_issues=getattr(args, 'max_issues', 0),
-            quiet=getattr(args, 'quiet', False),
+            output_format=getattr(args, "format", "excel"),
+            output_dir=getattr(args, "output_dir", "."),
+            skip_validation=getattr(args, "skip_validation", False),
+            max_issues=getattr(args, "max_issues", 0),
+            quiet=getattr(args, "quiet", False),
         )
 
 
 @dataclass
 class WizardConfig:
     """Configuration options collected from the interactive wizard."""
+
     config_file: str = "config.json"
     data_views: list[str] = field(default_factory=list)
     output_format: str = "excel"
