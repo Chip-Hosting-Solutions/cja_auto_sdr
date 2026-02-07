@@ -46,6 +46,14 @@ class TestDataViewNameResolution:
         # Clear the cache to ensure tests are isolated
         _data_view_cache.clear()
 
+        # Unit tests in this module mock cjapy interactions and should not depend
+        # on environment/config credential availability.
+        self._configure_patch = patch(
+            "cja_auto_sdr.generator.configure_cjapy",
+            return_value=(True, "mock", None),
+        )
+        self._configure_patch.start()
+
         # Mock data views
         self.mock_dataviews = [
             {"id": "dv_prod123", "name": "Production Analytics"},
@@ -55,6 +63,10 @@ class TestDataViewNameResolution:
             {"id": "dv_dup002", "name": "Duplicate Name"},  # Intentional duplicate
             {"id": "dv_dup003", "name": "Duplicate Name"},  # Three with same name
         ]
+
+    def teardown_method(self):
+        """Clean up test patches."""
+        self._configure_patch.stop()
 
     @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_single_id(self, mock_cjapy):

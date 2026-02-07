@@ -191,7 +191,8 @@ class TestShowStatsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = show_stats(["dv_12345"], output_format="json", output_file="-", quiet=True)
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = show_stats(["dv_12345"], output_format="json", output_file="-", quiet=True)
 
         assert result is True
         output = captured_output.getvalue()
@@ -213,7 +214,8 @@ class TestShowStatsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = show_stats(["dv_12345"], output_format="csv", output_file="-", quiet=True)
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = show_stats(["dv_12345"], output_format="csv", output_file="-", quiet=True)
 
         assert result is True
         output = captured_output.getvalue()
@@ -234,7 +236,8 @@ class TestShowStatsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = show_stats(["dv_12345"], output_format="table", quiet=False)
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = show_stats(["dv_12345"], output_format="table", quiet=False)
 
         assert result is True
         output = captured_output.getvalue()
@@ -259,7 +262,8 @@ class TestListDataviewsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = list_dataviews(output_format="json", output_file="-")
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = list_dataviews(output_format="json", output_file="-")
 
         assert result is True
         output = captured_output.getvalue()
@@ -282,7 +286,8 @@ class TestListDataviewsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = list_dataviews(output_format="csv", output_file="-")
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = list_dataviews(output_format="csv", output_file="-")
 
         assert result is True
         output = captured_output.getvalue()
@@ -301,7 +306,8 @@ class TestListDataviewsFunction:
         # Capture stdout
         captured_output = StringIO()
         with patch("sys.stdout", captured_output):
-            result = list_dataviews(output_format="json", output_file="-")
+            with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)):
+                result = list_dataviews(output_format="json", output_file="-")
 
         assert result is True
         output = captured_output.getvalue()
@@ -746,12 +752,13 @@ class TestInventoryOptionsValidation:
         from cja_auto_sdr.generator import main
 
         with patch("sys.argv", ["cja_sdr_generator.py", "dv_12345", "--inventory-only"]):
-            with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                assert exc_info.value.code == 1
-                error_output = mock_stderr.getvalue()
-                assert "--inventory-only requires at least one inventory flag" in error_output
+            with patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_12345"], {})):
+                with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
+                    with pytest.raises(SystemExit) as exc_info:
+                        main()
+                    assert exc_info.value.code == 1
+                    error_output = mock_stderr.getvalue()
+                    assert "--inventory-only requires at least one inventory flag" in error_output
 
     def test_inventory_only_with_diff_errors(self):
         """Test that --inventory-only with --diff produces error"""
@@ -851,12 +858,13 @@ class TestInventoryOptionsValidation:
         from cja_auto_sdr.generator import main
 
         with patch("sys.argv", ["cja_sdr_generator.py", "dv_12345", "--inventory-summary"]):
-            with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                assert exc_info.value.code == 1
-                error_output = mock_stderr.getvalue()
-                assert "--inventory-summary requires at least one inventory flag" in error_output
+            with patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_12345"], {})):
+                with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
+                    with pytest.raises(SystemExit) as exc_info:
+                        main()
+                    assert exc_info.value.code == 1
+                    error_output = mock_stderr.getvalue()
+                    assert "--inventory-summary requires at least one inventory flag" in error_output
 
     def test_inventory_summary_with_inventory_only_errors(self):
         """Test that --inventory-summary with --inventory-only produces error (mutually exclusive)"""
@@ -866,12 +874,13 @@ class TestInventoryOptionsValidation:
             "sys.argv",
             ["cja_sdr_generator.py", "dv_12345", "--include-segments", "--inventory-summary", "--inventory-only"],
         ):
-            with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                assert exc_info.value.code == 1
-                error_output = mock_stderr.getvalue()
-                assert "--inventory-summary cannot be used with --inventory-only" in error_output
+            with patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_12345"], {})):
+                with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
+                    with pytest.raises(SystemExit) as exc_info:
+                        main()
+                    assert exc_info.value.code == 1
+                    error_output = mock_stderr.getvalue()
+                    assert "--inventory-summary cannot be used with --inventory-only" in error_output
 
     def test_inventory_summary_with_multiple_include_flags(self):
         """Test that --inventory-summary works with multiple --include-* flags"""

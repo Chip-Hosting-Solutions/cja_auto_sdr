@@ -2313,7 +2313,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_67890", "name": "Other View"},
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
@@ -2336,7 +2339,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_other_999", "name": "Other View"},
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             # Mock the cached data views function
@@ -2365,7 +2371,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_12345", "name": "Analytics"},
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
@@ -2390,7 +2399,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Analytics"},  # Duplicate name
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
@@ -2412,7 +2424,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
@@ -2441,7 +2456,10 @@ class TestAmbiguousNameResolution:
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None)),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
