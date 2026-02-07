@@ -9580,15 +9580,20 @@ def _run_list_command(
 
     Handles profile resolution, CJA configuration, banner display, and
     error handling.  The caller-specific logic lives in *fetch_and_format*,
-    which receives ``(cja, is_machine_readable)`` and must return the output
-    string (or ``None`` for table format, which prints directly).
+    which receives ``(cja, is_machine_readable)`` and must return the
+    formatted output string.  The returned string is routed through
+    ``_emit_output`` (file, stdout pipe, or console).  Return ``None``
+    to skip output entirely (e.g. when there are no results and a
+    warning was already printed to the console).
+
+    When ``output_file`` is set and the format is table (not
+    machine-readable), the banner / progress text is printed to the
+    console while the data payload is written to the file.
 
     Args:
         banner_text: Banner heading shown in table mode (e.g. "LISTING ACCESSIBLE DATA VIEWS").
         command_name: Logger name / short label for the command.
         fetch_and_format: ``(cja, is_machine_readable) -> Optional[str]``.
-            Return the fully-formatted output string for json/csv, or ``None``
-            when the function already printed table output itself.
         config_file: Path to CJA configuration file.
         output_format: "table", "json", or "csv".
         output_file: File path, "-" for stdout pipe, or None.
@@ -9676,10 +9681,7 @@ def _fetch_dataviews(output_format: str) -> Callable:
                 if output_format == 'json':
                     return json.dumps({"dataViews": [], "count": 0}, indent=2)
                 return "id,name,owner\n"
-            print()
-            print(ConsoleColors.warning("No data views found or no access to any data views."))
-            print()
-            return None
+            return "\nNo data views found or no access to any data views.\n"
 
         if isinstance(available_dvs, pd.DataFrame):
             available_dvs = available_dvs.to_dict('records')
@@ -9703,10 +9705,9 @@ def _fetch_dataviews(output_format: str) -> Callable:
                 writer.writerow([item['id'], item['name'], item['owner']])
             return buf.getvalue()
         else:
-            # Table format — print directly and return None
             lines: list[str] = []
             lines.append("")
-            lines.append(f"Found {len(available_dvs)} accessible data view(s):")
+            lines.append(f"Found {len(display_data)} accessible data view(s):")
             lines.append("")
 
             max_id_width = max(len('ID'), max(len(item['id']) for item in display_data)) + 2
@@ -9759,10 +9760,7 @@ def _fetch_connections(output_format: str) -> Callable:
                 if output_format == 'json':
                     return json.dumps({"connections": [], "count": 0}, indent=2)
                 return "connection_id,connection_name,owner,dataset_id,dataset_name\n"
-            print()
-            print(ConsoleColors.warning("No connections found or no access to any connections."))
-            print()
-            return None
+            return "\nNo connections found or no access to any connections.\n"
 
         display_data = []
         for conn in connections:
@@ -9864,10 +9862,7 @@ def _fetch_datasets(output_format: str) -> Callable:
                 if output_format == 'json':
                     return json.dumps({"dataViews": [], "count": 0}, indent=2)
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
-            print()
-            print(ConsoleColors.warning("No data views found or no access to any data views."))
-            print()
-            return None
+            return "\nNo data views found or no access to any data views.\n"
 
         # Step 3: Build output records using parentDataGroupId
         if not is_machine_readable:

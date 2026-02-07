@@ -1343,3 +1343,41 @@ class TestFileOutput:
         with open(out_file) as f:
             output = json.load(f)
         assert output['count'] == 1
+
+    @patch('cja_auto_sdr.generator.cjapy')
+    @patch('cja_auto_sdr.generator.configure_cjapy')
+    @patch('cja_auto_sdr.generator.resolve_active_profile', return_value=None)
+    def test_list_datasets_csv_file(self, mock_profile, mock_configure, mock_cjapy, tmp_path):
+        """Test list_datasets writes CSV (6-column join) to a file via --output"""
+        mock_configure.return_value = (True, 'config', None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            'content': [
+                {
+                    'id': 'conn_1',
+                    'name': 'Conn One',
+                    'dataSets': [
+                        {'id': 'ds_1', 'name': 'Dataset A'},
+                        {'id': 'ds_2', 'name': 'Dataset B'}
+                    ]
+                }
+            ]
+        }
+        mock_cja_instance.getDataViews.return_value = [
+            {'id': 'dv_1', 'name': 'View One', 'parentDataGroupId': 'conn_1'}
+        ]
+
+        out_file = str(tmp_path / "datasets.csv")
+        result = list_datasets(output_format='csv', output_file=out_file)
+
+        assert result is True
+        with open(out_file) as f:
+            content = f.read()
+        lines = content.strip().split('\n')
+        assert lines[0] == 'dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name'
+        # One row per dataset (2 datasets under the same data view)
+        assert len(lines) == 3
+        assert 'ds_1' in lines[1]
+        assert 'ds_2' in lines[2]
+        assert 'dv_1' in lines[1]
+        assert 'conn_1' in lines[1]
