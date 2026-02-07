@@ -10,7 +10,7 @@ import tempfile
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cja_auto_sdr.generator import BatchProcessor, ProcessingResult
+from cja_auto_sdr.generator import BatchProcessor, ProcessingResult, WorkerArgs
 from cja_auto_sdr.core.exceptions import OutputError
 
 
@@ -525,11 +525,12 @@ class TestBatchProcessorWorkerArgs:
             )
             processor.process_batch(["dv_test_12345"])
 
-        # Verify args were passed
+        # Verify args were passed as WorkerArgs
         assert len(submitted_args) == 1
         args = submitted_args[0]
-        assert args[0] == "dv_test_12345"  # data_view_id
-        assert args[1] == mock_config_file  # config_file
+        assert isinstance(args, WorkerArgs)
+        assert args.data_view_id == "dv_test_12345"
+        assert args.config_file == mock_config_file
 
 
 class TestBatchProcessorEdgeCases:

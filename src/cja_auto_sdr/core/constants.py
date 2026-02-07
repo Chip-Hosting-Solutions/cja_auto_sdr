@@ -35,6 +35,11 @@ EXTENSION_TO_FORMAT: Dict[str, str] = {
     '.markdown': 'markdown',
 }
 
+# ==================== DISPLAY CONSTANTS ====================
+
+# Width of banner separator lines (used across CLI output)
+BANNER_WIDTH: int = 60
+
 # ==================== WORKER LIMITS ====================
 
 # Worker thread/process limits

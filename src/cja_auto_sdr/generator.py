@@ -11,7 +11,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 from typing import (
-    Dict, List, Tuple, Optional, Callable, Any, Union,
+    Dict, List, NoReturn, Tuple, Optional, Callable, Any, Union,
     TypeVar, Protocol, runtime_checkable
 )
 from pathlib import Path
@@ -85,6 +85,7 @@ from cja_auto_sdr.core.config import (
     WizardConfig,
 )
 from cja_auto_sdr.core.constants import (
+    BANNER_WIDTH,
     FORMAT_ALIASES,
     EXTENSION_TO_FORMAT,
     DEFAULT_API_FETCH_WORKERS,
@@ -285,6 +286,42 @@ class ProcessingResult:
         return (self.segments_high_complexity +
                 self.calculated_metrics_high_complexity +
                 self.derived_fields_high_complexity)
+
+
+@dataclass
+class WorkerArgs:
+    """Arguments for process_single_dataview_worker (replaces opaque tuple)."""
+    data_view_id: str
+    config_file: str = "config.json"
+    output_dir: str = "."
+    log_level: str = "INFO"
+    log_format: str = "text"
+    output_format: str = "excel"
+    enable_cache: bool = False
+    cache_size: int = 1000
+    cache_ttl: int = 3600
+    quiet: bool = False
+    skip_validation: bool = False
+    max_issues: int = 0
+    clear_cache: bool = False
+    show_timings: bool = False
+    metrics_only: bool = False
+    dimensions_only: bool = False
+    profile: Optional[str] = None
+    shared_cache: Any = None
+    api_tuning_config: Any = None
+    circuit_breaker_config: Any = None
+    include_derived_inventory: bool = False
+    include_calculated_metrics: bool = False
+    include_segments_inventory: bool = False
+    inventory_only: bool = False
+    inventory_order: Optional[str] = None
+
+
+def _exit_error(msg: str) -> NoReturn:
+    """Print a coloured error message to stderr and exit with code 1."""
+    print(ConsoleColors.error(f"ERROR: {msg}"), file=sys.stderr)
+    sys.exit(1)
 
 
 # ==================== DIFF COMPARISON ====================
@@ -498,13 +535,13 @@ class PerformanceTracker:
             return "No performance metrics collected"
 
         total = sum(self.metrics.values())
-        lines = ["", "=" * 60, "PERFORMANCE SUMMARY", "=" * 60]
+        lines = ["", "=" * BANNER_WIDTH, "PERFORMANCE SUMMARY", "=" * BANNER_WIDTH]
 
         for operation, duration in sorted(self.metrics.items(), key=lambda x: x[1], reverse=True):
             percentage = (duration / total) * 100 if total > 0 else 0
             lines.append(f"{operation:35s}: {duration:6.2f}s ({percentage:5.1f}%)")
 
-        lines.extend(["=" * 60, f"{'Total Execution Time':35s}: {total:6.2f}s", "=" * 60])
+        lines.extend(["=" * BANNER_WIDTH, f"{'Total Execution Time':35s}: {total:6.2f}s", "=" * BANNER_WIDTH])
         return "\n".join(lines)
 
     def add_cache_statistics(self, cache):
@@ -513,9 +550,9 @@ class PerformanceTracker:
 
         if stats['total_requests'] > 0:
             self.logger.info("")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * BANNER_WIDTH)
             self.logger.info("VALIDATION CACHE STATISTICS")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * BANNER_WIDTH)
             self.logger.info(f"Cache Hits:        {stats['hits']}")
             self.logger.info(f"Cache Misses:      {stats['misses']}")
             self.logger.info(f"Hit Rate:          {stats['hit_rate']:.1f}%")
@@ -527,7 +564,7 @@ class PerformanceTracker:
                 time_saved = stats['hits'] * 0.049  # 49ms saved per hit
                 self.logger.info(f"Estimated Time Saved: {time_saved:.2f}s")
 
-            self.logger.info("=" * 60)
+            self.logger.info("=" * BANNER_WIDTH)
 
 
 # ==================== API WORKER TUNER ====================
@@ -1418,9 +1455,9 @@ def list_profiles(output_format: str = 'table') -> bool:
         }, indent=2))
     else:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("AVAILABLE PROFILES")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
 
         if not profiles:
@@ -1482,9 +1519,9 @@ def add_profile_interactive(profile_name: str) -> bool:
         return False
 
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"CREATING PROFILE: {profile_name}")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
     print("Enter your Adobe OAuth credentials.")
     print("(Get these from Adobe Developer Console → Project → Credentials)")
@@ -1595,9 +1632,9 @@ def show_profile(profile_name: str) -> bool:
     profile_path = get_profile_path(profile_name)
 
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"PROFILE: {profile_name}")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
     print(f"Location: {profile_path}")
     print()
@@ -1640,9 +1677,9 @@ def test_profile(profile_name: str) -> bool:
         True if test successful, False otherwise
     """
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"TESTING PROFILE: {profile_name}")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
 
     # Load credentials
@@ -2255,7 +2292,7 @@ class CredentialResolver:
 
     def _warn_multiple_sources(self, config_path: Path) -> None:
         """Warn user when multiple credential sources exist."""
-        self.logger.warning("=" * 60)
+        self.logger.warning("=" * BANNER_WIDTH)
         self.logger.warning("NOTICE: Both environment variables AND config file detected")
         self.logger.warning(f"  Environment variables: ORG_ID, CLIENT_ID, SECRET, etc.")
         self.logger.warning(f"  Config file: {config_path}")
@@ -2264,7 +2301,7 @@ class CredentialResolver:
         self.logger.warning("To avoid confusion:")
         self.logger.warning("  - Remove config.json if using environment variables")
         self.logger.warning("  - Or unset env vars: unset ORG_ID CLIENT_ID SECRET SCOPES")
-        self.logger.warning("=" * 60)
+        self.logger.warning("=" * BANNER_WIDTH)
 
 
 def load_credentials_from_env() -> Optional[Dict[str, str]]:
@@ -2599,9 +2636,9 @@ def initialize_cja(
     """
     logger = logger or logging.getLogger(__name__)
     try:
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info("INITIALIZING CJA CONNECTION")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
 
         # Log dotenv status for debugging
         if _DOTENV_AVAILABLE:
@@ -2624,9 +2661,9 @@ def initialize_cja(
             )
             logger.info(f"Credentials loaded from: {source}")
         except CredentialSourceError as e:
-            logger.critical("=" * 60)
+            logger.critical("=" * BANNER_WIDTH)
             logger.critical("CREDENTIAL LOADING FAILED")
-            logger.critical("=" * 60)
+            logger.critical("=" * BANNER_WIDTH)
             logger.critical(str(e))
             if e.reason:
                 logger.critical(f"Reason: {e.reason}")
@@ -2677,43 +2714,43 @@ def initialize_cja(
         return cja
 
     except FileNotFoundError as e:
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical("CONFIGURATION FILE ERROR")
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical(f"Config file not found: {config_file}")
         logger.critical(f"Current working directory: {Path.cwd()}")
         logger.critical("Please ensure the configuration file exists in the correct location")
         return None
 
     except ImportError as e:
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical("DEPENDENCY ERROR")
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical(f"Failed to import cjapy module: {str(e)}")
         logger.critical("Please ensure cjapy is installed: pip install cjapy")
         return None
 
     except AttributeError as e:
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA CONFIGURATION ERROR")
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical(f"Configuration error: {str(e)}")
         logger.critical("This usually indicates an issue with the authentication credentials")
         logger.critical("Please verify all fields in your configuration file are correct")
         return None
 
     except PermissionError as e:
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical("PERMISSION ERROR")
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical(f"Cannot read configuration file: {str(e)}")
         logger.critical("Please check file permissions")
         return None
 
     except Exception as e:
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA INITIALIZATION FAILED")
-        logger.critical("=" * 60)
+        logger.critical("=" * BANNER_WIDTH)
         logger.critical(f"Unexpected error: {str(e)}")
         logger.critical(f"Error type: {type(e).__name__}")
         logger.exception("Full error details:")
@@ -2744,9 +2781,9 @@ def validate_data_view(
         True if data view is valid and accessible, False otherwise
     """
     try:
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info("VALIDATING DATA VIEW")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info(f"Data View ID: {data_view_id}")
         
         # Basic format validation
@@ -2836,9 +2873,9 @@ def validate_data_view(
         return True
         
     except Exception as e:
-        logger.error("=" * 60)
+        logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
-        logger.error("=" * 60)
+        logger.error("=" * BANNER_WIDTH)
         logger.error(f"Unexpected error during validation: {str(e)}")
         logger.exception("Full error details:")
         logger.error("")
@@ -6714,9 +6751,9 @@ def process_single_dataview(
         logger.info("✓ Data view validation complete - proceeding with data fetch")
 
         # Fetch data with parallel optimization
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info("Starting optimized data fetch operations")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
 
         # Create circuit breaker if config provided
         circuit_breaker = None
@@ -6757,13 +6794,13 @@ def process_single_dataview(
             logger.critical("  - Verify the data view has components in the CJA UI")
             logger.critical("  - Check your OAuth scopes include component read permissions")
             logger.critical("  - Try running with --list-dataviews to verify access")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Error: No metrics or dimensions found")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             # Flush handlers to ensure log is written
             for handler in logger.handlers:
                 handler.flush()
@@ -6779,14 +6816,14 @@ def process_single_dataview(
 
         # Data quality validation (skip if --skip-validation flag is set)
         if skip_validation:
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("Skipping data quality validation (--skip-validation)")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             data_quality_df = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
         else:
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("Starting data quality validation (optimized)")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
 
             # Start performance tracking for data quality validation
             perf_tracker.start("Data Quality Validation")
@@ -6847,9 +6884,9 @@ def process_single_dataview(
         derived_inventory_df = pd.DataFrame()
         derived_inventory_obj = None  # Store inventory object for JSON output
         if include_derived_inventory:
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("Building derived field inventory")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
 
             try:
                 from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
@@ -6875,9 +6912,9 @@ def process_single_dataview(
         calculated_metrics_df = pd.DataFrame()
         calculated_inventory_obj = None  # Store inventory object for JSON output
         if include_calculated_metrics:
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("Building calculated metrics inventory")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
 
             try:
                 from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
@@ -6902,9 +6939,9 @@ def process_single_dataview(
         segments_inventory_df = pd.DataFrame()
         segments_inventory_obj = None  # Store inventory object for JSON output
         if include_segments_inventory:
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("Building segments inventory")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
 
             try:
                 from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
@@ -6926,9 +6963,9 @@ def process_single_dataview(
                 logger.info("Continuing with SDR generation despite segments inventory errors")
 
         # Data processing
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info("Processing data for Excel export")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
 
         try:
             # Process lookup data into DataFrame
@@ -7115,9 +7152,9 @@ def process_single_dataview(
             output_path = Path(output_dir) / excel_file_name
 
         # Prepare data for output generation
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info(f"Generating output in format: {output_format}")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
 
         # Prepare data dictionary for all formats
         # In inventory-only mode, skip standard SDR sheets
@@ -7268,9 +7305,9 @@ def process_single_dataview(
                 logger.info(f"✓ SDR generation complete! File saved as: {output_files[0]}")
 
             # Final summary
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION SUMMARY")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Metrics: {len(metrics)}")
             logger.info(f"Dimensions: {len(dimensions)}")
@@ -7282,7 +7319,7 @@ def process_single_dataview(
                     logger.info(f"  {severity}: {count}")
 
             logger.info(f"Output file: {output_path}")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
 
             logger.info("Script execution completed successfully")
             logger.info(perf_tracker.get_summary())
@@ -7351,13 +7388,13 @@ def process_single_dataview(
         except PermissionError as e:
             logger.critical(f"Permission denied writing to {output_path}. File may be open in another program.")
             logger.critical("Please close the file and try again.")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Error: Permission denied")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             for handler in logger.handlers:
                 handler.flush()
             return ProcessingResult(
@@ -7370,13 +7407,13 @@ def process_single_dataview(
         except Exception as e:
             logger.critical(f"Failed to generate Excel file: {str(e)}")
             logger.exception("Full exception details:")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Error: {str(e)}")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
-            logger.info("=" * 60)
+            logger.info("=" * BANNER_WIDTH)
             for handler in logger.handlers:
                 handler.flush()
             return ProcessingResult(
@@ -7390,13 +7427,13 @@ def process_single_dataview(
     except Exception as e:
         logger.critical(f"Unexpected error processing data view {data_view_id}: {str(e)}")
         logger.exception("Full exception details:")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info("EXECUTION FAILED")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         logger.info(f"Data View ID: {data_view_id}")
         logger.info(f"Error: {str(e)}")
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
-        logger.info("=" * 60)
+        logger.info("=" * BANNER_WIDTH)
         for handler in logger.handlers:
             handler.flush()
         return ProcessingResult(
@@ -7409,16 +7446,11 @@ def process_single_dataview(
 
 # ==================== WORKER FUNCTION FOR MULTIPROCESSING ====================
 
-def process_single_dataview_worker(args: tuple) -> ProcessingResult:
-    """
-    Worker function for multiprocessing
+def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
+    """Worker function for multiprocessing.
 
     Args:
-        args: Tuple of (data_view_id, config_file, output_dir, log_level, log_format, output_format,
-                       enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache,
-                       show_timings, metrics_only, dimensions_only, profile, shared_cache,
-                       api_tuning_config, circuit_breaker_config,
-                       analyze_derived, derived_rules, derived_severity, derived_max_issues)
+        args: A WorkerArgs dataclass with all processing parameters.
 
     Returns:
         ProcessingResult
@@ -7431,55 +7463,21 @@ def process_single_dataview_worker(args: tuple) -> ProcessingResult:
     if 'RETRY_MAX_DELAY' in os.environ:
         DEFAULT_RETRY_CONFIG['max_delay'] = float(os.environ['RETRY_MAX_DELAY'])
 
-    # Handle varying tuple lengths for backward compatibility
-    shared_cache = None
-    api_tuning_config = None
-    circuit_breaker_config = None
-    include_derived_inventory = False
-    include_calculated_metrics = False
-    include_segments_inventory = False
-    inventory_only = False
-    inventory_order = None
-
-    if len(args) >= 25:
-        # New-style with inventory_only and inventory_order param
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, include_segments_inventory, inventory_only, inventory_order = args
-    elif len(args) >= 24:
-        # With segments inventory and inventory_order param (no inventory_only)
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, include_segments_inventory, inventory_order = args
-    elif len(args) >= 23:
-        # With inventory_order param (no segments)
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics, inventory_order = args
-    elif len(args) >= 22:
-        # With both derived and calculated metrics params
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory, include_calculated_metrics = args
-    elif len(args) >= 21:
-        # With derived field inventory param only
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config, include_derived_inventory = args
-    elif len(args) >= 20:
-        # With tuning/breaker but no derived
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config, circuit_breaker_config = args[:20]
-    elif len(args) == 19:
-        # With api_tuning_config only (no circuit_breaker_config)
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache, api_tuning_config = args
-    elif len(args) == 18:
-        # With shared_cache only
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile, shared_cache = args
-    else:
-        # Old-style (17 args)
-        data_view_id, config_file, output_dir, log_level, log_format, output_format, enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues, clear_cache, show_timings, metrics_only, dimensions_only, profile = args
-
     return process_single_dataview(
-        data_view_id, config_file, output_dir, log_level, log_format, output_format,
-        enable_cache, cache_size, cache_ttl, quiet, skip_validation, max_issues,
-        clear_cache, show_timings, metrics_only, dimensions_only,
-        profile=profile, shared_cache=shared_cache,
-        api_tuning_config=api_tuning_config, circuit_breaker_config=circuit_breaker_config,
-        include_derived_inventory=include_derived_inventory,
-        include_calculated_metrics=include_calculated_metrics,
-        include_segments_inventory=include_segments_inventory,
-        inventory_only=inventory_only,
-        inventory_order=inventory_order
+        args.data_view_id, args.config_file, args.output_dir,
+        args.log_level, args.log_format, args.output_format,
+        args.enable_cache, args.cache_size, args.cache_ttl,
+        args.quiet, args.skip_validation, args.max_issues,
+        args.clear_cache, args.show_timings, args.metrics_only,
+        args.dimensions_only,
+        profile=args.profile, shared_cache=args.shared_cache,
+        api_tuning_config=args.api_tuning_config,
+        circuit_breaker_config=args.circuit_breaker_config,
+        include_derived_inventory=args.include_derived_inventory,
+        include_calculated_metrics=args.include_calculated_metrics,
+        include_segments_inventory=args.include_segments_inventory,
+        inventory_only=args.inventory_only,
+        inventory_order=args.inventory_order,
     )
 
 # ==================== BATCH PROCESSOR CLASS ====================
@@ -7589,15 +7587,15 @@ class BatchProcessor:
         Returns:
             Dictionary with processing results
         """
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
         self.logger.info(f"[{self.batch_id}] BATCH PROCESSING START")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
         self.logger.info(f"[{self.batch_id}] Data views to process: {len(data_view_ids)}")
         self.logger.info(f"[{self.batch_id}] Parallel workers: {self.workers}")
         self.logger.info(f"[{self.batch_id}] Continue on error: {self.continue_on_error}")
         self.logger.info(f"[{self.batch_id}] Output directory: {self.output_dir}")
         self.logger.info(f"[{self.batch_id}] Output format: {self.output_format}")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
 
         batch_start_time = time.time()
 
@@ -7610,13 +7608,24 @@ class BatchProcessor:
 
         # Prepare arguments for each worker
         worker_args = [
-            (dv_id, self.config_file, self.output_dir, self.log_level, self.log_format,
-             self.output_format, self.enable_cache, self.cache_size, self.cache_ttl, self.quiet,
-             self.skip_validation, self.max_issues, self.clear_cache, self.show_timings,
-             self.metrics_only, self.dimensions_only, self.profile, self._shared_cache,
-             self.api_tuning_config, self.circuit_breaker_config,
-             self.include_derived_inventory, self.include_calculated_metrics,
-             self.include_segments_inventory, self.inventory_only, self.inventory_order)
+            WorkerArgs(
+                data_view_id=dv_id, config_file=self.config_file,
+                output_dir=self.output_dir, log_level=self.log_level,
+                log_format=self.log_format, output_format=self.output_format,
+                enable_cache=self.enable_cache, cache_size=self.cache_size,
+                cache_ttl=self.cache_ttl, quiet=self.quiet,
+                skip_validation=self.skip_validation, max_issues=self.max_issues,
+                clear_cache=self.clear_cache, show_timings=self.show_timings,
+                metrics_only=self.metrics_only, dimensions_only=self.dimensions_only,
+                profile=self.profile, shared_cache=self._shared_cache,
+                api_tuning_config=self.api_tuning_config,
+                circuit_breaker_config=self.circuit_breaker_config,
+                include_derived_inventory=self.include_derived_inventory,
+                include_calculated_metrics=self.include_calculated_metrics,
+                include_segments_inventory=self.include_segments_inventory,
+                inventory_only=self.inventory_only,
+                inventory_order=self.inventory_order,
+            )
             for dv_id in data_view_ids
         ]
 
@@ -7624,8 +7633,8 @@ class BatchProcessor:
         with ProcessPoolExecutor(max_workers=self.workers) as executor:
             # Submit all tasks
             future_to_dv = {
-                executor.submit(process_single_dataview_worker, args): args[0]
-                for args in worker_args
+                executor.submit(process_single_dataview_worker, wa): wa.data_view_id
+                for wa in worker_args
             }
 
             # Collect results as they complete with progress bar
@@ -7710,9 +7719,9 @@ class BatchProcessor:
 
         # Log to file
         self.logger.info("")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
         self.logger.info(f"[{self.batch_id}] BATCH PROCESSING SUMMARY")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
         self.logger.info(f"[{self.batch_id}] Total data views: {total}")
         self.logger.info(f"[{self.batch_id}] Successful: {successful_count}")
         self.logger.info(f"[{self.batch_id}] Failed: {failed_count}")
@@ -7723,13 +7732,13 @@ class BatchProcessor:
         if total_duration > 0:
             throughput = total / total_duration
             self.logger.info(f"[{self.batch_id}] Throughput: {throughput:.2f} views/second")
-        self.logger.info("=" * 60)
+        self.logger.info("=" * BANNER_WIDTH)
 
         # Print color-coded console output
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print(ConsoleColors.bold("BATCH PROCESSING SUMMARY"))
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print(f"Total data views: {total}")
         print(f"Successful: {ConsoleColors.success(str(successful_count))}")
         if failed_count > 0:
@@ -7767,15 +7776,15 @@ class BatchProcessor:
             print()
             self.logger.info("")
 
-        print("=" * 60)
-        self.logger.info("=" * 60)
+        print("=" * BANNER_WIDTH)
+        self.logger.info("=" * BANNER_WIDTH)
 
         if total > 0 and total_duration > 0:
             throughput = (total / total_duration) * 60  # per minute
             print(f"Throughput: {throughput:.1f} data views per minute")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             self.logger.info(f"Throughput: {throughput:.1f} data views per minute")
-            self.logger.info("=" * 60)
+            self.logger.info("=" * BANNER_WIDTH)
 
 # ==================== DRY-RUN MODE ====================
 
@@ -7799,9 +7808,9 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         True if all validations pass, False otherwise
     """
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("DRY-RUN MODE - Validating configuration and connectivity")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
 
     all_passed = True
@@ -7833,9 +7842,9 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
     if not all_passed:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("DRY-RUN FAILED - Fix configuration issues before proceeding")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         return False
 
     # Step 2: Test CJA connection
@@ -7846,9 +7855,9 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         if not success:
             print(f"  ✗ Credential configuration failed: {source}")
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print("DRY-RUN FAILED - Cannot configure credentials")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             return False
         cja = cjapy.CJA()
 
@@ -7873,9 +7882,9 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         print(f"  ✗ API connection failed: {str(e)}")
         all_passed = False
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("DRY-RUN FAILED - Cannot connect to CJA API")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         return False
 
     # Step 3: Validate each data view
@@ -7967,9 +7976,9 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
     # Summary
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("DRY-RUN SUMMARY")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"  Configuration: ✓ Valid")
     print(f"  API Connection: ✓ Connected")
     print(f"  Data Views: {valid_count} valid, {invalid_count} invalid")
@@ -7990,7 +7999,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
     else:
         print("✗ Some validations failed - please fix issues before proceeding")
 
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
 
     return all_passed
 
@@ -9574,6 +9583,55 @@ def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None
         print(text)
 
 
+# ==================== SHARED DISCOVERY FORMATTERS ====================
+
+
+def _format_as_json(payload: dict) -> str:
+    """Format a discovery result dict as indented JSON."""
+    return json.dumps(payload, indent=2)
+
+
+def _format_as_csv(columns: list[str], rows: list[dict]) -> str:
+    """Format discovery rows as CSV with the given column headers."""
+    buf = io.StringIO(newline='')
+    writer = csv.writer(buf, lineterminator='\n')
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([row.get(col, '') for col in columns])
+    return buf.getvalue()
+
+
+def _format_as_table(
+    header_line: str,
+    items: list[dict],
+    columns: list[str],
+    col_labels: Optional[list[str]] = None,
+) -> str:
+    """Format discovery items as an aligned text table.
+
+    Args:
+        header_line: Summary line (e.g. "Found 5 accessible data view(s):").
+        items: List of dicts, one per row.
+        columns: Dict keys to include, in order.
+        col_labels: Display labels for each column (defaults to title-cased keys).
+
+    Returns:
+        Formatted table string with leading/trailing blank lines.
+    """
+    labels = col_labels or [c.replace('_', ' ').title() for c in columns]
+    widths = [
+        max(len(lbl), max((len(str(item.get(col, ''))) for item in items), default=0)) + 2
+        for col, lbl in zip(columns, labels)
+    ]
+    lines: list[str] = ['', header_line, '']
+    lines.append(''.join(f'{lbl:<{w}}' for lbl, w in zip(labels, widths)))
+    lines.append('-' * sum(widths))
+    for item in items:
+        lines.append(''.join(f'{str(item.get(col, "")):<{w}}' for col, w in zip(columns, widths)))
+    lines.append('')
+    return '\n'.join(lines)
+
+
 def _extract_owner_name(owner_data: Any) -> str:
     """Extract a displayable owner name from an API owner object.
 
@@ -9652,9 +9710,9 @@ def _run_list_command(
 
     if not is_machine_readable:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print(banner_text)
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
         if active_profile:
             print(f"Using profile: {active_profile}")
@@ -9738,38 +9796,34 @@ def _fetch_dataviews(output_format: str) -> Callable:
                 display_data.append({'id': dv_id, 'name': dv_name, 'owner': owner_name})
 
         if output_format == 'json':
-            return json.dumps({"dataViews": display_data, "count": len(display_data)}, indent=2)
+            return _format_as_json({"dataViews": display_data, "count": len(display_data)})
         elif output_format == 'csv':
-            buf = io.StringIO(newline='')
-            writer = csv.writer(buf, lineterminator='\n')
-            writer.writerow(['id', 'name', 'owner'])
-            for item in display_data:
-                writer.writerow([item['id'], item['name'], item['owner']])
-            return buf.getvalue()
+            return _format_as_csv(['id', 'name', 'owner'], display_data)
         else:
-            lines: list[str] = []
-            lines.append("")
-            lines.append(f"Found {len(display_data)} accessible data view(s):")
-            lines.append("")
-
-            max_id_width = max(len('ID'), max(len(item['id']) for item in display_data)) + 2
-            max_name_width = max(len('Name'), max(len(item['name']) for item in display_data)) + 2
-            max_owner_width = max(len('Owner'), max(len(item['owner']) for item in display_data)) + 2
-            total_width = max_id_width + max_name_width + max_owner_width
-
-            lines.append(f"{'ID':<{max_id_width}} {'Name':<{max_name_width}} {'Owner':<{max_owner_width}}")
-            lines.append("-" * total_width)
-            for item in display_data:
-                lines.append(f"{item['id']:<{max_id_width}} {item['name']:<{max_name_width}} {item['owner']:<{max_owner_width}}")
-            lines.append("")
-            lines.append("=" * total_width)
-            lines.append("Usage:")
-            lines.append("  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly")
-            lines.append("  cja_auto_sdr \"<DATA_VIEW_NAME>\"   # Use exact name (quotes recommended)")
-            lines.append("")
-            lines.append("Note: If multiple data views share the same name, all will be processed.")
-            lines.append("=" * total_width)
-            return '\n'.join(lines)
+            table = _format_as_table(
+                f"Found {len(display_data)} accessible data view(s):",
+                display_data,
+                columns=['id', 'name', 'owner'],
+                col_labels=['ID', 'Name', 'Owner'],
+            )
+            # Compute total width to match table separator for usage footer
+            labels = ['ID', 'Name', 'Owner']
+            cols = ['id', 'name', 'owner']
+            widths = [
+                max(len(lbl), max((len(str(item.get(col, ''))) for item in display_data), default=0)) + 2
+                for col, lbl in zip(cols, labels)
+            ]
+            total_width = sum(widths)
+            footer_lines = [
+                "=" * total_width,
+                "Usage:",
+                "  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly",
+                "  cja_auto_sdr \"<DATA_VIEW_NAME>\"   # Use exact name (quotes recommended)",
+                "",
+                "Note: If multiple data views share the same name, all will be processed.",
+                "=" * total_width,
+            ]
+            return table + '\n'.join(footer_lines)
 
     return _inner
 
@@ -9825,19 +9879,18 @@ def _fetch_connections(output_format: str) -> Callable:
                            for cid, cnt in sorted(conn_ids_from_dvs.items())]
 
                 if output_format == 'json':
-                    return json.dumps({
+                    return _format_as_json({
                         "connections": derived,
                         "count": len(derived),
                         "warning": _PERM_WARNING.replace('\n', ' '),
-                    }, indent=2)
+                    })
                 elif output_format == 'csv':
-                    buf = io.StringIO(newline='')
-                    writer = csv.writer(buf, lineterminator='\n')
-                    writer.writerow(['connection_id', 'connection_name', 'owner',
-                                     'dataset_id', 'dataset_name', 'dataview_count'])
-                    for d in derived:
-                        writer.writerow([d['id'], '', '', '', '', d['dataview_count']])
-                    return buf.getvalue()
+                    flat = [{'connection_id': d['id'], 'connection_name': '',
+                             'owner': '', 'dataset_id': '', 'dataset_name': '',
+                             'dataview_count': d['dataview_count']} for d in derived]
+                    return _format_as_csv(
+                        ['connection_id', 'connection_name', 'owner',
+                         'dataset_id', 'dataset_name', 'dataview_count'], flat)
                 else:
                     lines: list[str] = []
                     lines.append("")
@@ -9853,7 +9906,7 @@ def _fetch_connections(output_format: str) -> Callable:
             # Genuinely no connections
             if is_machine_readable:
                 if output_format == 'json':
-                    return json.dumps({"connections": [], "count": 0}, indent=2)
+                    return _format_as_json({"connections": [], "count": 0})
                 return "connection_id,connection_name,owner,dataset_id,dataset_name\n"
             return "\nNo connections found or no access to any connections.\n"
 
@@ -9878,18 +9931,26 @@ def _fetch_connections(output_format: str) -> Callable:
             })
 
         if output_format == 'json':
-            return json.dumps({"connections": display_data, "count": len(display_data)}, indent=2)
+            return _format_as_json({"connections": display_data, "count": len(display_data)})
         elif output_format == 'csv':
-            buf = io.StringIO(newline='')
-            writer = csv.writer(buf, lineterminator='\n')
-            writer.writerow(['connection_id', 'connection_name', 'owner', 'dataset_id', 'dataset_name'])
+            # Flatten nested datasets: one CSV row per dataset
+            flat_rows: list[dict] = []
             for conn in display_data:
                 if conn['datasets']:
                     for ds in conn['datasets']:
-                        writer.writerow([conn['id'], conn['name'], conn['owner'], ds['id'], ds['name']])
+                        flat_rows.append({
+                            'connection_id': conn['id'], 'connection_name': conn['name'],
+                            'owner': conn['owner'], 'dataset_id': ds['id'],
+                            'dataset_name': ds['name'],
+                        })
                 else:
-                    writer.writerow([conn['id'], conn['name'], conn['owner'], '', ''])
-            return buf.getvalue()
+                    flat_rows.append({
+                        'connection_id': conn['id'], 'connection_name': conn['name'],
+                        'owner': conn['owner'], 'dataset_id': '', 'dataset_name': '',
+                    })
+            return _format_as_csv(
+                ['connection_id', 'connection_name', 'owner', 'dataset_id', 'dataset_name'],
+                flat_rows)
         else:
             lines: list[str] = []
             lines.append("")
@@ -9955,7 +10016,7 @@ def _fetch_datasets(output_format: str) -> Callable:
         if not available_dvs:
             if is_machine_readable:
                 if output_format == 'json':
-                    return json.dumps({"dataViews": [], "count": 0}, indent=2)
+                    return _format_as_json({"dataViews": [], "count": 0})
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
             return "\nNo data views found or no access to any data views.\n"
 
@@ -10014,20 +10075,29 @@ def _fetch_datasets(output_format: str) -> Callable:
             result_payload["warning"] = _CONN_PERM_WARNING.replace('\n', ' ')
 
         if output_format == 'json':
-            return json.dumps(result_payload, indent=2)
+            return _format_as_json(result_payload)
         elif output_format == 'csv':
-            buf = io.StringIO(newline='')
-            writer = csv.writer(buf, lineterminator='\n')
-            writer.writerow(['dataview_id', 'dataview_name', 'connection_id', 'connection_name', 'dataset_id', 'dataset_name'])
+            # Flatten nested datasets: one CSV row per dataset per data view
+            flat_rows: list[dict] = []
             for entry in display_data:
                 conn_id = entry['connection']['id']
                 conn_name_val = entry['connection']['name'] or ''
                 if entry['datasets']:
                     for ds in entry['datasets']:
-                        writer.writerow([entry['id'], entry['name'], conn_id, conn_name_val, ds['id'], ds['name']])
+                        flat_rows.append({
+                            'dataview_id': entry['id'], 'dataview_name': entry['name'],
+                            'connection_id': conn_id, 'connection_name': conn_name_val,
+                            'dataset_id': ds['id'], 'dataset_name': ds['name'],
+                        })
                 else:
-                    writer.writerow([entry['id'], entry['name'], conn_id, conn_name_val, '', ''])
-            return buf.getvalue()
+                    flat_rows.append({
+                        'dataview_id': entry['id'], 'dataview_name': entry['name'],
+                        'connection_id': conn_id, 'connection_name': conn_name_val,
+                        'dataset_id': '', 'dataset_name': '',
+                    })
+            return _format_as_csv(
+                ['dataview_id', 'dataview_name', 'connection_id', 'connection_name',
+                 'dataset_id', 'dataset_name'], flat_rows)
         else:
             lines: list[str] = []
             lines.append("")
@@ -10092,9 +10162,9 @@ def interactive_select_dataviews(config_file: str = "config.json",
         List of selected data view IDs, or empty list on error/cancel
     """
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("INTERACTIVE DATA VIEW SELECTION")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
     if profile:
         print(f"Using profile: {profile}")
@@ -10360,9 +10430,9 @@ def interactive_wizard(config_file: str = "config.json",
             print(ConsoleColors.warning(f"Invalid input '{answer}'. Please enter 'y' or 'n' (or 'q' to quit)."))
 
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("  CJA SDR GENERATOR - INTERACTIVE MODE")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
     print("This interactive mode will guide you through generating an SDR.")
     print("Press 'q' at any prompt to cancel.")
@@ -10590,9 +10660,9 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
     }
 
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("GENERATING SAMPLE CONFIGURATION FILE")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
 
     try:
@@ -10610,7 +10680,7 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
         print("  3. Test your configuration:")
         print("     cja_auto_sdr --list-dataviews")
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
 
         return True
 
@@ -10643,9 +10713,9 @@ def show_config_status(config_file: str = "config.json",
     # For JSON output, we'll collect data and print at the end
     if not output_json:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("CONFIGURATION STATUS")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
 
     config_source = None
@@ -10821,9 +10891,9 @@ def validate_config_only(config_file: str = "config.json",
         True if configuration is valid and API is reachable
     """
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print("CONFIGURATION VALIDATION")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
 
     all_passed = True
@@ -10946,9 +11016,9 @@ def validate_config_only(config_file: str = "config.json",
 
     if not all_passed:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print(ConsoleColors.error("VALIDATION FAILED - Fix issues above"))
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         return False
 
     # Step 3: Test API connection
@@ -10983,12 +11053,12 @@ def validate_config_only(config_file: str = "config.json",
 
     # Summary
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     if all_passed:
         print(ConsoleColors.success("VALIDATION PASSED - Configuration is valid!"))
     else:
         print(ConsoleColors.error("VALIDATION FAILED - Check errors above"))
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
 
     return all_passed
 
@@ -11017,9 +11087,9 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
 
     if not is_machine_readable and not quiet:
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("DATA VIEW STATISTICS")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         if profile:
             print(f"\nUsing profile: {profile}")
         print()
@@ -11131,7 +11201,7 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
                 print(f"{'TOTAL':<{max_id_width}} {'':<{max_name_width}} {total_metrics:>8} {total_dims:>10} {total_all:>8}")
 
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
 
         return True
 
@@ -11601,9 +11671,9 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
         return
 
     print()
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"ORG STATS: {result.org_id}")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print(f"Data Views: {result.successful_data_views} analyzed")
     print(f"Components: {result.total_unique_components} unique")
     print(f"  Metrics:    {result.total_unique_metrics}")
@@ -11616,7 +11686,7 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
     print(f"  Limited:  {dist.total_limited:>6} ({dist.total_limited/total*100:>5.1f}%)")
     print(f"  Isolated: {dist.total_isolated:>6} ({dist.total_isolated/total*100:>5.1f}%)")
     print(f"Duration: {result.duration:.2f}s")
-    print("=" * 60)
+    print("=" * BANNER_WIDTH)
     print()
 
 
@@ -13106,9 +13176,9 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
 
         if not quiet:
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print("CREATING DATA VIEW SNAPSHOT")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(f"Data View: {data_view_id}")
             print(f"Output: {snapshot_file}")
             if inventory_info:
@@ -13136,9 +13206,9 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
 
         if not quiet:
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(ConsoleColors.success("SNAPSHOT CREATED SUCCESSFULLY"))
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(f"Data View: {snapshot.data_view_name} ({snapshot.data_view_id})")
             print(f"Metrics: {len(snapshot.metrics)}")
             print(f"Dimensions: {len(snapshot.dimensions)}")
@@ -13149,7 +13219,7 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
                 print(f"Segments: {len(snapshot.segments_inventory)}")
             print(f"Snapshot Version: {snapshot.snapshot_version}")
             print(f"Saved to: {saved_path}")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
 
         return True
 
@@ -13220,9 +13290,9 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
 
         if not quiet and not quiet_diff:
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print("COMPARING DATA VIEWS")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(f"Source: {source_id}")
             print(f"Target: {target_id}")
             if reverse_diff:
@@ -13423,9 +13493,9 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
 
         if not quiet and not quiet_diff:
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print("COMPARING DATA VIEW AGAINST SNAPSHOT")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(f"Data View: {data_view_id}")
             print(f"Snapshot: {snapshot_file}")
             if reverse_diff:
@@ -13681,9 +13751,9 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
 
         if not quiet and not quiet_diff:
             print()
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print("COMPARING TWO SNAPSHOTS")
-            print("=" * 60)
+            print("=" * BANNER_WIDTH)
             print(f"Source: {source_file}")
             print(f"Target: {target_file}")
             if reverse_diff:
@@ -13848,34 +13918,25 @@ def main():
         try:
             args.workers = int(args.workers)
         except ValueError:
-            print(ConsoleColors.error(f"ERROR: --workers must be 'auto' or an integer, got '{args.workers}'"), file=sys.stderr)
-            sys.exit(1)
+            _exit_error(f"--workers must be 'auto' or an integer, got '{args.workers}'")
 
     # Validate numeric parameter bounds
     if not workers_auto and args.workers < 1:
-        print(ConsoleColors.error("ERROR: --workers must be at least 1"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--workers must be at least 1")
     if not workers_auto and args.workers > MAX_BATCH_WORKERS:
-        print(ConsoleColors.error(f"ERROR: --workers cannot exceed {MAX_BATCH_WORKERS}"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error(f"--workers cannot exceed {MAX_BATCH_WORKERS}")
     if args.cache_size < 1:
-        print(ConsoleColors.error("ERROR: --cache-size must be at least 1"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--cache-size must be at least 1")
     if args.cache_ttl < 1:
-        print(ConsoleColors.error("ERROR: --cache-ttl must be at least 1 second"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--cache-ttl must be at least 1 second")
     if args.max_issues < 0:
-        print(ConsoleColors.error("ERROR: --max-issues cannot be negative"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--max-issues cannot be negative")
     if args.max_retries < 0:
-        print(ConsoleColors.error("ERROR: --max-retries cannot be negative"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--max-retries cannot be negative")
     if args.retry_base_delay < 0:
-        print(ConsoleColors.error("ERROR: --retry-base-delay cannot be negative"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--retry-base-delay cannot be negative")
     if args.retry_max_delay < args.retry_base_delay:
-        print(ConsoleColors.error("ERROR: --retry-max-delay must be >= --retry-base-delay"), file=sys.stderr)
-        sys.exit(1)
+        _exit_error("--retry-max-delay must be >= --retry-base-delay")
 
     # Update global retry config with CLI arguments
     DEFAULT_RETRY_CONFIG['max_retries'] = args.max_retries
@@ -13907,9 +13968,9 @@ def main():
 
     # Handle --exit-codes mode (no data view required)
     if getattr(args, 'exit_codes', False):
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("EXIT CODE REFERENCE")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
         print("  Code  Meaning")
         print("  ----  " + "-" * 50)
@@ -13933,9 +13994,9 @@ def main():
         print("        - Example: cja_auto_sdr --diff dv_A dv_B --warn-threshold 10")
         print("        - Exits 3 if change percentage > threshold")
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("CI/CD Examples:")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
         print("  # Fail CI if any changes detected")
         print("  cja_auto_sdr --diff dv_prod dv_staging --quiet")
@@ -14063,9 +14124,9 @@ def main():
         args.inventory_only = wizard_config.inventory_only
 
         print()
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print("GENERATING SDR...")
-        print("=" * 60)
+        print("=" * BANNER_WIDTH)
         print()
 
     # Handle --stats mode (requires data views)
