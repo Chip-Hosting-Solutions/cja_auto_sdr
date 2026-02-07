@@ -39,7 +39,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,231 comprehensive tests**
+**Total: 1,275 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -49,7 +49,7 @@ tests/
 | `test_ux_features.py` | 116 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 144 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 76 | Command-line interface and argument parsing |
+| `test_cli.py` | 120 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 41 | Inventory utilities and helpers |
@@ -78,7 +78,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
-| **Total** | **1,231** | **Collected via pytest --collect-only** |
+| **Total** | **1,275** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -482,7 +482,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,231 tests total)
+- [x] Comprehensive test coverage (1,275 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 43 tests
