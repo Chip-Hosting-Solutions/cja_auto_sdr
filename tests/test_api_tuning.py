@@ -10,15 +10,14 @@ Validates that APIWorkerTuner:
 7. Provides accurate statistics
 8. Properly resets state
 """
-import pytest
-import time
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import sys
+
 import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import APIWorkerTuner, APITuningConfig
+from cja_auto_sdr.generator import APITuningConfig, APIWorkerTuner
 
 
 class TestAPIWorkerTunerBasics:
@@ -65,13 +64,13 @@ class TestAPIWorkerTunerScaling:
             scale_up_threshold_ms=200,
             scale_down_threshold_ms=2000,
             sample_window=3,
-            cooldown_seconds=0  # Disable cooldown for testing
+            cooldown_seconds=0,  # Disable cooldown for testing
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
         # Record fast responses
         for i in range(3):
-            result = tuner.record_response_time(50)  # 50ms - below scale_up threshold
+            tuner.record_response_time(50)  # 50ms - below scale_up threshold
 
         # Should have scaled up
         assert tuner.current_workers == 4
@@ -84,13 +83,13 @@ class TestAPIWorkerTunerScaling:
             scale_up_threshold_ms=200,
             scale_down_threshold_ms=2000,
             sample_window=3,
-            cooldown_seconds=0  # Disable cooldown for testing
+            cooldown_seconds=0,  # Disable cooldown for testing
         )
         tuner = APIWorkerTuner(config=config, initial_workers=5)
 
         # Record slow responses
         for i in range(3):
-            result = tuner.record_response_time(3000)  # 3000ms - above scale_down threshold
+            tuner.record_response_time(3000)  # 3000ms - above scale_down threshold
 
         # Should have scaled down
         assert tuner.current_workers == 4
@@ -103,7 +102,7 @@ class TestAPIWorkerTunerScaling:
             scale_up_threshold_ms=200,
             scale_down_threshold_ms=2000,
             sample_window=3,
-            cooldown_seconds=0
+            cooldown_seconds=0,
         )
         tuner = APIWorkerTuner(config=config, initial_workers=5)
 
@@ -116,11 +115,7 @@ class TestAPIWorkerTunerScaling:
     def test_does_not_exceed_max_workers(self):
         """Should not scale beyond max_workers"""
         config = APITuningConfig(
-            min_workers=1,
-            max_workers=3,
-            scale_up_threshold_ms=200,
-            sample_window=3,
-            cooldown_seconds=0
+            min_workers=1, max_workers=3, scale_up_threshold_ms=200, sample_window=3, cooldown_seconds=0
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -135,11 +130,7 @@ class TestAPIWorkerTunerScaling:
     def test_does_not_go_below_min_workers(self):
         """Should not scale below min_workers"""
         config = APITuningConfig(
-            min_workers=2,
-            max_workers=10,
-            scale_down_threshold_ms=2000,
-            sample_window=3,
-            cooldown_seconds=0
+            min_workers=2, max_workers=10, scale_down_threshold_ms=2000, sample_window=3, cooldown_seconds=0
         )
         tuner = APIWorkerTuner(config=config, initial_workers=2)
 
@@ -162,7 +153,7 @@ class TestAPIWorkerTunerCooldown:
             max_workers=10,
             scale_up_threshold_ms=200,
             sample_window=3,
-            cooldown_seconds=1.0  # 1 second cooldown
+            cooldown_seconds=1.0,  # 1 second cooldown
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -173,7 +164,7 @@ class TestAPIWorkerTunerCooldown:
 
         # Try to adjust again immediately - should be in cooldown
         for i in range(3):
-            result = tuner.record_response_time(50)
+            tuner.record_response_time(50)
         assert tuner.current_workers == 4  # No change due to cooldown
 
     def test_allows_adjustment_after_cooldown(self):
@@ -183,7 +174,7 @@ class TestAPIWorkerTunerCooldown:
             max_workers=10,
             scale_up_threshold_ms=200,
             sample_window=3,
-            cooldown_seconds=0.1  # 100ms cooldown
+            cooldown_seconds=0.1,  # 100ms cooldown
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -212,16 +203,12 @@ class TestAPIWorkerTunerStatistics:
             tuner.record_response_time(100)
 
         stats = tuner.get_statistics()
-        assert stats['total_requests'] == 10
+        assert stats["total_requests"] == 10
 
     def test_tracks_scale_ups(self):
         """Should track scale-up count"""
         config = APITuningConfig(
-            min_workers=1,
-            max_workers=10,
-            scale_up_threshold_ms=200,
-            sample_window=3,
-            cooldown_seconds=0
+            min_workers=1, max_workers=10, scale_up_threshold_ms=200, sample_window=3, cooldown_seconds=0
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -230,16 +217,12 @@ class TestAPIWorkerTunerStatistics:
             tuner.record_response_time(50)
 
         stats = tuner.get_statistics()
-        assert stats['scale_ups'] == 1
+        assert stats["scale_ups"] == 1
 
     def test_tracks_scale_downs(self):
         """Should track scale-down count"""
         config = APITuningConfig(
-            min_workers=1,
-            max_workers=10,
-            scale_down_threshold_ms=2000,
-            sample_window=3,
-            cooldown_seconds=0
+            min_workers=1, max_workers=10, scale_down_threshold_ms=2000, sample_window=3, cooldown_seconds=0
         )
         tuner = APIWorkerTuner(config=config, initial_workers=5)
 
@@ -248,7 +231,7 @@ class TestAPIWorkerTunerStatistics:
             tuner.record_response_time(3000)
 
         stats = tuner.get_statistics()
-        assert stats['scale_downs'] == 1
+        assert stats["scale_downs"] == 1
 
     def test_calculates_average_response_time(self):
         """Should calculate average response time correctly"""
@@ -260,7 +243,7 @@ class TestAPIWorkerTunerStatistics:
 
         stats = tuner.get_statistics()
         expected_avg = sum(response_times) / len(response_times)
-        assert abs(stats['average_response_ms'] - expected_avg) < 0.01
+        assert abs(stats["average_response_ms"] - expected_avg) < 0.01
 
 
 class TestAPIWorkerTunerThreadSafety:
@@ -268,12 +251,7 @@ class TestAPIWorkerTunerThreadSafety:
 
     def test_concurrent_response_recording(self):
         """Should handle concurrent response recordings safely"""
-        config = APITuningConfig(
-            min_workers=1,
-            max_workers=50,
-            sample_window=100,
-            cooldown_seconds=0
-        )
+        config = APITuningConfig(min_workers=1, max_workers=50, sample_window=100, cooldown_seconds=0)
         tuner = APIWorkerTuner(config=config, initial_workers=10)
 
         errors = []
@@ -292,7 +270,7 @@ class TestAPIWorkerTunerThreadSafety:
 
         assert len(errors) == 0
         stats = tuner.get_statistics()
-        assert stats['total_requests'] == 1000
+        assert stats["total_requests"] == 1000
 
     def test_concurrent_worker_reads(self):
         """Should handle concurrent worker count reads safely"""
@@ -327,7 +305,7 @@ class TestAPIWorkerTunerReset:
         tuner.reset()
 
         stats = tuner.get_statistics()
-        assert stats['sample_window_size'] == 0
+        assert stats["sample_window_size"] == 0
 
     def test_reset_keeps_worker_count_by_default(self):
         """Reset should keep current worker count by default"""
@@ -379,7 +357,7 @@ class TestAPITuningConfig:
             scale_up_threshold_ms=100.0,
             scale_down_threshold_ms=5000.0,
             sample_window=10,
-            cooldown_seconds=5.0
+            cooldown_seconds=5.0,
         )
 
         assert config.min_workers == 2

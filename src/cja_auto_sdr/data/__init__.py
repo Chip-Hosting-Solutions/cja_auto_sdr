@@ -19,7 +19,9 @@ __all__ = []
 
 
 _ALLOWED_GENERATOR_IMPORTS = {
-    "ProcessingResult", "DiffSummary", "DiffChange",
+    "ProcessingResult",
+    "DiffSummary",
+    "DiffChange",
 }
 
 
@@ -30,5 +32,6 @@ def __getattr__(name):
     """
     if name in _ALLOWED_GENERATOR_IMPORTS:
         from cja_auto_sdr import generator
+
         return getattr(generator, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

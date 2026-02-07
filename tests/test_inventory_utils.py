@@ -3,7 +3,7 @@ Tests for shared CJA inventory utilities.
 """
 
 import logging
-import pytest
+
 import pandas as pd
 
 from cja_auto_sdr.inventory.utils import (

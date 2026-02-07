@@ -1,12 +1,12 @@
 """CJA client initialization for CJA Auto SDR."""
 
 import atexit
+import contextlib
 import json
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Union
 
 import cjapy
 
@@ -20,7 +20,25 @@ from cja_auto_sdr.core.exceptions import (
 )
 
 
-def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
+def _bootstrap_dotenv(logger: logging.Logger) -> None:
+    """Load .env variables if python-dotenv is available."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        logger.debug("python-dotenv not installed (.env files will not be auto-loaded)")
+        return
+
+    try:
+        dotenv_loaded = load_dotenv()
+        if dotenv_loaded:
+            logger.debug(".env file found and loaded")
+        else:
+            logger.debug(".env file not found (python-dotenv available but no .env file)")
+    except Exception as e:
+        logger.debug(f"Failed to load .env via python-dotenv: {e}")
+
+
+def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
     """
     Configure cjapy using environment credentials.
 
@@ -32,36 +50,27 @@ def _config_from_env(credentials: Dict[str, str], logger: logging.Logger):
     """
     # cjapy.importConfigFile expects a JSON file, so we create a temporary one
     # This is cleaned up on exit. Use restrictive permissions (0o600) since it contains credentials.
-    temp_config = tempfile.NamedTemporaryFile(
-        mode='w',
-        suffix='.json',
-        delete=False,
-        prefix='cja_env_config_'
-    )
-    json.dump(credentials, temp_config)
-    temp_config.close()
-    os.chmod(temp_config.name, 0o600)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="cja_env_config_") as temp_config:
+        json.dump(credentials, temp_config)
+        temp_config_path = temp_config.name
+    os.chmod(temp_config_path, 0o600)
 
-    logger.debug(f"Created temporary config file: {temp_config.name}")
+    logger.debug(f"Created temporary config file: {temp_config_path}")
 
     # Register cleanup
     def cleanup_temp_config():
-        try:
-            os.unlink(temp_config.name)
-        except OSError:
-            pass
+        with contextlib.suppress(OSError):
+            os.unlink(temp_config_path)
 
     atexit.register(cleanup_temp_config)
 
     # Import the temporary config
-    cjapy.importConfigFile(temp_config.name)
+    cjapy.importConfigFile(temp_config_path)
 
 
 def configure_cjapy(
-    profile: Optional[str] = None,
-    config_file: str = "config.json",
-    logger: Optional[logging.Logger] = None
-) -> tuple[bool, str, Optional[Dict[str, str]]]:
+    profile: str | None = None, config_file: str = "config.json", logger: logging.Logger | None = None
+) -> tuple[bool, str, dict[str, str] | None]:
     """
     Configure cjapy with credentials using priority: profile > env > config file.
 
@@ -88,6 +97,9 @@ def configure_cjapy(
         logger.setLevel(logging.WARNING)
 
     try:
+        # Ensure direct api.client consumers get .env loading parity with generator path.
+        _bootstrap_dotenv(logger)
+
         # Use CredentialResolver for unified credential resolution
         resolver = CredentialResolver(logger)
         credentials, source = resolver.resolve(profile=profile, config_file=config_file)
@@ -122,10 +134,8 @@ def configure_cjapy(
 
 
 def initialize_cja(
-    config_file: Union[str, Path] = "config.json",
-    logger: Optional[logging.Logger] = None,
-    profile: Optional[str] = None
-) -> Optional[cjapy.CJA]:
+    config_file: str | Path = "config.json", logger: logging.Logger | None = None, profile: str | None = None
+) -> cjapy.CJA | None:
     """Initialize CJA connection with comprehensive error handling.
 
     Uses CredentialResolver for unified credential loading with priority:
@@ -173,10 +183,7 @@ def initialize_cja(
         # Use CredentialResolver for unified credential loading
         resolver = CredentialResolver(logger)
         try:
-            credentials, source = resolver.resolve(
-                profile=active_profile,
-                config_file=config_file
-            )
+            credentials, source = resolver.resolve(profile=active_profile, config_file=config_file)
             logger.info(f"Credentials loaded from: {source}")
         except CredentialSourceError as e:
             logger.critical("=" * BANNER_WIDTH)
@@ -216,22 +223,22 @@ def initialize_cja(
         try:
             # Attempt to list data views to verify connection with retry
             test_call = make_api_call_with_retry(
-                cja.getDataViews,
-                logger=logger,
-                operation_name="getDataViews (connection test)"
+                cja.getDataViews, logger=logger, operation_name="getDataViews (connection test)"
             )
             if test_call is not None:
-                logger.info(f"\u2713 API connection successful! Found {len(test_call) if hasattr(test_call, '__len__') else 'multiple'} data view(s)")
+                logger.info(
+                    f"\u2713 API connection successful! Found {len(test_call) if hasattr(test_call, '__len__') else 'multiple'} data view(s)"
+                )
             else:
                 logger.warning("API connection test returned None - connection may be unstable")
         except Exception as test_error:
-            logger.warning(f"Could not verify connection with test call: {str(test_error)}")
+            logger.warning(f"Could not verify connection with test call: {test_error!s}")
             logger.warning("Proceeding anyway - errors may occur during data fetching")
 
         logger.info("CJA initialization complete")
         return cja
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("CONFIGURATION FILE ERROR")
         logger.critical("=" * BANNER_WIDTH)
@@ -244,7 +251,7 @@ def initialize_cja(
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("DEPENDENCY ERROR")
         logger.critical("=" * BANNER_WIDTH)
-        logger.critical(f"Failed to import cjapy module: {str(e)}")
+        logger.critical(f"Failed to import cjapy module: {e!s}")
         logger.critical("Please ensure cjapy is installed: pip install cjapy")
         return None
 
@@ -252,7 +259,7 @@ def initialize_cja(
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA CONFIGURATION ERROR")
         logger.critical("=" * BANNER_WIDTH)
-        logger.critical(f"Configuration error: {str(e)}")
+        logger.critical(f"Configuration error: {e!s}")
         logger.critical("This usually indicates an issue with the authentication credentials")
         logger.critical("Please verify all fields in your configuration file are correct")
         return None
@@ -261,7 +268,7 @@ def initialize_cja(
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("PERMISSION ERROR")
         logger.critical("=" * BANNER_WIDTH)
-        logger.critical(f"Cannot read configuration file: {str(e)}")
+        logger.critical(f"Cannot read configuration file: {e!s}")
         logger.critical("Please check file permissions")
         return None
 
@@ -269,7 +276,7 @@ def initialize_cja(
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA INITIALIZATION FAILED")
         logger.critical("=" * BANNER_WIDTH)
-        logger.critical(f"Unexpected error: {str(e)}")
+        logger.critical(f"Unexpected error: {e!s}")
         logger.critical(f"Error type: {type(e).__name__}")
         logger.exception("Full error details:")
         logger.critical("")

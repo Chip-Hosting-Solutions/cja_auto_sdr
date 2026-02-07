@@ -2,41 +2,42 @@
 Tests for org-wide component analysis report functionality
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
-import pandas as pd
 import json
-import tempfile
 import os
-from pathlib import Path
-
 import sys
-sys.path.insert(0, '.')
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import Mock, patch
 
+import pandas as pd
+import pytest
+
+sys.path.insert(0, ".")
+
+import time
+
+from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 from cja_auto_sdr.generator import (
-    OrgReportConfig,
-    ComponentInfo,
-    DataViewSummary,
-    SimilarityPair,
-    DataViewCluster,
     ComponentDistribution,
-    OrgReportResult,
-    OrgReportComparison,
+    ComponentInfo,
+    DataViewCluster,
+    DataViewSummary,
     OrgComponentAnalyzer,
     OrgReportCache,
-    compare_org_reports,
+    OrgReportConfig,
+    OrgReportResult,
+    SimilarityPair,
     _render_distribution_bar,
-    write_org_report_json,
-    write_org_report_excel,
-    write_org_report_markdown,
-    write_org_report_html,
-    write_org_report_csv,
+    compare_org_reports,
     run_org_report,
+    write_org_report_csv,
+    write_org_report_excel,
+    write_org_report_html,
+    write_org_report_json,
+    write_org_report_markdown,
 )
 from cja_auto_sdr.org.cache import OrgReportLock
-from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
-import time
 
 
 class TestOrgReportLock:
@@ -86,11 +87,14 @@ class TestOrgReportLock:
 
             # Write a stale lock with a non-existent PID
             with open(lock_file, "w") as f:
-                json.dump({
-                    "pid": 999999999,  # Very unlikely to exist
-                    "timestamp": time.time() - 7200,  # 2 hours ago
-                    "started_at": "2024-01-01T00:00:00",
-                }, f)
+                json.dump(
+                    {
+                        "pid": 999999999,  # Very unlikely to exist
+                        "timestamp": time.time() - 7200,  # 2 hours ago
+                        "started_at": "2024-01-01T00:00:00",
+                    },
+                    f,
+                )
 
             # New lock should take over
             lock = OrgReportLock("test_org@AdobeOrg", lock_dir=lock_dir, stale_threshold_seconds=3600)
@@ -156,11 +160,14 @@ class TestAnalyzerLockIntegration:
             lock_file = lock_dir / "locks" / "org_report_test_org_at_AdobeOrg.lock"
             lock_file.parent.mkdir(parents=True, exist_ok=True)
             with open(lock_file, "w") as f:
-                json.dump({
-                    "pid": os.getpid(),  # Use current PID so it appears "running"
-                    "timestamp": time.time(),
-                    "started_at": datetime.now().isoformat(),
-                }, f)
+                json.dump(
+                    {
+                        "pid": os.getpid(),  # Use current PID so it appears "running"
+                        "timestamp": time.time(),
+                        "started_at": datetime.now().isoformat(),
+                    },
+                    f,
+                )
 
             config = OrgReportConfig(skip_lock=False)
 
@@ -247,21 +254,14 @@ class TestOrgReportConfig:
 
     def test_custom_thresholds(self):
         """Test custom threshold values"""
-        config = OrgReportConfig(
-            core_threshold=0.7,
-            overlap_threshold=0.9,
-            core_min_count=5
-        )
+        config = OrgReportConfig(core_threshold=0.7, overlap_threshold=0.9, core_min_count=5)
         assert config.core_threshold == 0.7
         assert config.overlap_threshold == 0.9
         assert config.core_min_count == 5
 
     def test_filter_patterns(self):
         """Test filter and exclude patterns"""
-        config = OrgReportConfig(
-            filter_pattern="Prod.*",
-            exclude_pattern="Test|Dev"
-        )
+        config = OrgReportConfig(filter_pattern="Prod.*", exclude_pattern="Test|Dev")
         assert config.filter_pattern == "Prod.*"
         assert config.exclude_pattern == "Test|Dev"
 
@@ -271,34 +271,20 @@ class TestComponentInfo:
 
     def test_presence_count(self):
         """Test presence_count property"""
-        info = ComponentInfo(
-            component_id="metric/test",
-            component_type="metric",
-            data_views={"dv_1", "dv_2", "dv_3"}
-        )
+        info = ComponentInfo(component_id="metric/test", component_type="metric", data_views={"dv_1", "dv_2", "dv_3"})
         assert info.presence_count == 3
 
     def test_empty_data_views(self):
         """Test with no data views"""
-        info = ComponentInfo(
-            component_id="dim/test",
-            component_type="dimension"
-        )
+        info = ComponentInfo(component_id="dim/test", component_type="dimension")
         assert info.presence_count == 0
 
     def test_name_optional(self):
         """Test name field is optional"""
-        info = ComponentInfo(
-            component_id="metric/test",
-            component_type="metric"
-        )
+        info = ComponentInfo(component_id="metric/test", component_type="metric")
         assert info.name is None
 
-        info_with_name = ComponentInfo(
-            component_id="metric/test",
-            component_type="metric",
-            name="Test Metric"
-        )
+        info_with_name = ComponentInfo(component_id="metric/test", component_type="metric", name="Test Metric")
         assert info_with_name.name == "Test Metric"
 
 
@@ -313,27 +299,20 @@ class TestDataViewSummary:
             metric_ids={"m1", "m2", "m3"},
             dimension_ids={"d1", "d2"},
             metric_count=3,
-            dimension_count=2
+            dimension_count=2,
         )
         assert summary.total_components == 5
 
     def test_all_component_ids(self):
         """Test all_component_ids property"""
         summary = DataViewSummary(
-            data_view_id="dv_123",
-            data_view_name="Test DV",
-            metric_ids={"m1", "m2"},
-            dimension_ids={"d1", "d2", "d3"}
+            data_view_id="dv_123", data_view_name="Test DV", metric_ids={"m1", "m2"}, dimension_ids={"d1", "d2", "d3"}
         )
         assert summary.all_component_ids == {"m1", "m2", "d1", "d2", "d3"}
 
     def test_error_state(self):
         """Test error state"""
-        summary = DataViewSummary(
-            data_view_id="dv_error",
-            data_view_name="Error DV",
-            error="API Error"
-        )
+        summary = DataViewSummary(data_view_id="dv_error", data_view_name="Error DV", error="API Error")
         assert summary.error == "API Error"
         assert summary.total_components == 0
 
@@ -350,7 +329,7 @@ class TestSimilarityPair:
             dv2_name="DV Two",
             jaccard_similarity=0.85,
             shared_count=17,
-            union_count=20
+            union_count=20,
         )
         assert pair.jaccard_similarity == 0.85
         assert pair.shared_count == 17
@@ -370,7 +349,7 @@ class TestComponentDistribution:
             limited_metrics=["m6"],
             limited_dimensions=["d4", "d5", "d6"],
             isolated_metrics=["m7", "m8", "m9", "m10"],
-            isolated_dimensions=["d7"]
+            isolated_dimensions=["d7"],
         )
         assert dist.total_core == 3
         assert dist.total_common == 5
@@ -408,7 +387,7 @@ class TestOrgReportResult:
             distribution=ComponentDistribution(),
             similarity_pairs=None,
             recommendations=[],
-            duration=5.5
+            duration=5.5,
         )
         assert result.total_data_views == 3
         assert result.successful_data_views == 2
@@ -456,6 +435,7 @@ class TestOrgComponentAnalyzer:
     def mock_logger(self):
         """Create mock logger"""
         import logging
+
         return logging.getLogger("test")
 
     def test_compute_distribution_buckets(self, mock_cja, mock_logger):
@@ -509,16 +489,8 @@ class TestOrgComponentAnalyzer:
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
         summaries = [
-            DataViewSummary(
-                "dv_1", "DV 1",
-                metric_ids={"m1", "m2", "m3"},
-                dimension_ids={"d1", "d2"}
-            ),
-            DataViewSummary(
-                "dv_2", "DV 2",
-                metric_ids={"m1", "m2", "m4"},
-                dimension_ids={"d1", "d3"}
-            ),
+            DataViewSummary("dv_1", "DV 1", metric_ids={"m1", "m2", "m3"}, dimension_ids={"d1", "d2"}),
+            DataViewSummary("dv_2", "DV 2", metric_ids={"m1", "m2", "m4"}, dimension_ids={"d1", "d3"}),
         ]
 
         # DV1 components: {m1, m2, m3, d1, d2} = 5
@@ -536,7 +508,7 @@ class TestOrgComponentAnalyzer:
         config.overlap_threshold = 0.4
         pairs = analyzer._compute_similarity_matrix(summaries)
         assert len(pairs) == 1
-        assert pairs[0].jaccard_similarity == pytest.approx(3/7, abs=0.01)
+        assert pairs[0].jaccard_similarity == pytest.approx(3 / 7, abs=0.01)
 
     def test_similarity_with_error_summaries(self, mock_cja, mock_logger):
         """Test similarity skips error summaries"""
@@ -563,12 +535,14 @@ class TestOrgComponentAnalyzer:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2"},
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2", "d3"},
             ),
@@ -586,12 +560,14 @@ class TestOrgComponentAnalyzer:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 9)},
                 dimension_ids=set(),
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 10)},
                 dimension_ids=set(),
             ),
@@ -608,12 +584,14 @@ class TestOrgComponentAnalyzer:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids=set(),
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 12)},
                 dimension_ids=set(),
             ),
@@ -631,22 +609,27 @@ class TestOrgComponentAnalyzer:
         mock_logger = Mock()
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        with patch.object(analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}], False, 1)), \
-             patch.object(analyzer, "_fetch_all_data_views", return_value=[
-                 DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set())
-             ]), \
-             patch.object(analyzer, "_build_component_index", return_value={}), \
-             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
-             patch.object(analyzer, "_compute_similarity_matrix", return_value=[
-                 SimilarityPair("dv_1", "DV 1", "dv_2", "DV 2", 0.91, 10, 11)
-             ]), \
-             patch.object(analyzer, "_generate_recommendations", return_value=[]):
+        with (
+            patch.object(
+                analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}], False, 1)
+            ),
+            patch.object(
+                analyzer,
+                "_fetch_all_data_views",
+                return_value=[DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set())],
+            ),
+            patch.object(analyzer, "_build_component_index", return_value={}),
+            patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()),
+            patch.object(
+                analyzer,
+                "_compute_similarity_matrix",
+                return_value=[SimilarityPair("dv_1", "DV 1", "dv_2", "DV 2", 0.91, 10, 11)],
+            ),
+            patch.object(analyzer, "_generate_recommendations", return_value=[]),
+        ):
             analyzer.run_analysis()
 
-        assert any(
-            "pairs above threshold (>= 0.9)" in str(call.args[0])
-            for call in mock_logger.info.call_args_list
-        )
+        assert any("pairs above threshold (>= 0.9)" in str(call.args[0]) for call in mock_logger.info.call_args_list)
 
     def test_similarity_includes_exact_ninety_percent(self, mock_cja, mock_logger):
         """Test exact 0.9 similarity is included when overlap threshold is higher"""
@@ -655,12 +638,14 @@ class TestOrgComponentAnalyzer:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 10)},
                 dimension_ids=set(),
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 10)} | {"m10"},
                 dimension_ids=set(),
             ),
@@ -682,12 +667,14 @@ class TestOrgComponentAnalyzer:
             DataViewSummary("dv_2", "DV 2", metric_ids={"m2"}, dimension_ids=set()),
         ]
 
-        with patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)), \
-             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
-             patch.object(analyzer, "_build_component_index", return_value={}), \
-             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
-             patch.object(analyzer, "_generate_recommendations", return_value=[]), \
-             patch.object(analyzer, "_compute_similarity_matrix") as compute_similarity:
+        with (
+            patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_build_component_index", return_value={}),
+            patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()),
+            patch.object(analyzer, "_generate_recommendations", return_value=[]),
+            patch.object(analyzer, "_compute_similarity_matrix") as compute_similarity,
+        ):
             result = analyzer.run_analysis()
 
         assert result.similarity_pairs is None
@@ -704,12 +691,14 @@ class TestOrgComponentAnalyzer:
             DataViewSummary("dv_2", "DV 2", metric_ids={"m2"}, dimension_ids=set()),
         ]
 
-        with patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)), \
-             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
-             patch.object(analyzer, "_build_component_index", return_value={}), \
-             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()), \
-             patch.object(analyzer, "_generate_recommendations", return_value=[]), \
-             patch.object(analyzer, "_compute_similarity_matrix", return_value=[] ) as compute_similarity:
+        with (
+            patch.object(analyzer, "_list_and_filter_data_views", return_value=(data_views, False, 2)),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_build_component_index", return_value={}),
+            patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()),
+            patch.object(analyzer, "_generate_recommendations", return_value=[]),
+            patch.object(analyzer, "_compute_similarity_matrix", return_value=[]) as compute_similarity,
+        ):
             result = analyzer.run_analysis()
 
         assert result.similarity_pairs == []
@@ -746,21 +735,29 @@ class TestOrgComponentAnalyzer:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2"},
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2", "d3"},
             ),
         ]
 
-        with patch.object(analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}], False, 2)), \
-             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries), \
-             patch.object(analyzer, "_build_component_index", return_value={}), \
-             patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()):
+        with (
+            patch.object(
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=([{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}], False, 2),
+            ),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_build_component_index", return_value={}),
+            patch.object(analyzer, "_compute_distribution", return_value=ComponentDistribution()),
+        ):
             result = analyzer.run_analysis()
 
         overlap_recs = [r for r in result.recommendations if r.get("type") == "review_overlap"]
@@ -770,17 +767,19 @@ class TestOrgComponentAnalyzer:
 
     def test_filter_data_views(self, mock_cja, mock_logger):
         """Test data view filtering with regex"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": "dv_1", "name": "Production DV"},
-            {"id": "dv_2", "name": "Test DV"},
-            {"id": "dv_3", "name": "Prod Analytics"},
-            {"id": "dv_4", "name": "Dev Sandbox"},
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame(
+            [
+                {"id": "dv_1", "name": "Production DV"},
+                {"id": "dv_2", "name": "Test DV"},
+                {"id": "dv_3", "name": "Prod Analytics"},
+                {"id": "dv_4", "name": "Dev Sandbox"},
+            ]
+        )
 
         config = OrgReportConfig(filter_pattern="Prod.*")
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, is_sampled, _total_available = analyzer._list_and_filter_data_views()
 
         assert len(result) == 2
         assert is_sampled is False
@@ -790,17 +789,19 @@ class TestOrgComponentAnalyzer:
 
     def test_exclude_data_views(self, mock_cja, mock_logger):
         """Test data view exclusion with regex"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": "dv_1", "name": "Production DV"},
-            {"id": "dv_2", "name": "Test DV"},
-            {"id": "dv_3", "name": "Prod Analytics"},
-            {"id": "dv_4", "name": "Dev Sandbox"},
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame(
+            [
+                {"id": "dv_1", "name": "Production DV"},
+                {"id": "dv_2", "name": "Test DV"},
+                {"id": "dv_3", "name": "Prod Analytics"},
+                {"id": "dv_4", "name": "Dev Sandbox"},
+            ]
+        )
 
         config = OrgReportConfig(exclude_pattern="Test|Dev")
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, is_sampled, _total_available = analyzer._list_and_filter_data_views()
 
         assert len(result) == 2
         assert is_sampled is False
@@ -812,15 +813,12 @@ class TestOrgComponentAnalyzer:
 
     def test_limit_data_views(self, mock_cja, mock_logger):
         """Test data view limit"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": f"dv_{i}", "name": f"DV {i}"}
-            for i in range(10)
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": f"dv_{i}", "name": f"DV {i}"} for i in range(10)])
 
         config = OrgReportConfig(limit=3)
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, _is_sampled, total_available = analyzer._list_and_filter_data_views()
 
         assert len(result) == 3
         assert total_available == 10
@@ -837,14 +835,11 @@ class TestOrgComponentAnalyzer:
 
         # dv_1 has 25 isolated components
         component_index = {
-            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
-            for i in range(25)
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"}) for i in range(25)
         }
 
         distribution = ComponentDistribution()
-        recommendations = analyzer._generate_recommendations(
-            summaries, component_index, distribution, None
-        )
+        recommendations = analyzer._generate_recommendations(summaries, component_index, distribution, None)
 
         # Should have recommendation about isolated components
         isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
@@ -861,13 +856,9 @@ class TestOrgComponentAnalyzer:
         component_index = {}
         distribution = ComponentDistribution()
 
-        similarity_pairs = [
-            SimilarityPair("dv_1", "Prod DV", "dv_2", "Prod DV Copy", 0.95, 190, 200)
-        ]
+        similarity_pairs = [SimilarityPair("dv_1", "Prod DV", "dv_2", "Prod DV Copy", 0.95, 190, 200)]
 
-        recommendations = analyzer._generate_recommendations(
-            summaries, component_index, distribution, similarity_pairs
-        )
+        recommendations = analyzer._generate_recommendations(summaries, component_index, distribution, similarity_pairs)
 
         overlap_rec = [r for r in recommendations if r["type"] == "review_overlap"]
         assert len(overlap_rec) == 1
@@ -885,8 +876,22 @@ class TestOutputWriters:
             org_id="org_123",
             parameters=OrgReportConfig(core_threshold=0.5, overlap_threshold=0.8),
             data_view_summaries=[
-                DataViewSummary("dv_1", "Production DV", metric_ids={"m1", "m2"}, dimension_ids={"d1"}, metric_count=2, dimension_count=1),
-                DataViewSummary("dv_2", "Staging DV", metric_ids={"m1"}, dimension_ids={"d1", "d2"}, metric_count=1, dimension_count=2),
+                DataViewSummary(
+                    "dv_1",
+                    "Production DV",
+                    metric_ids={"m1", "m2"},
+                    dimension_ids={"d1"},
+                    metric_count=2,
+                    dimension_count=1,
+                ),
+                DataViewSummary(
+                    "dv_2",
+                    "Staging DV",
+                    metric_ids={"m1"},
+                    dimension_ids={"d1", "d2"},
+                    metric_count=1,
+                    dimension_count=2,
+                ),
             ],
             component_index={
                 "m1": ComponentInfo("m1", "metric", data_views={"dv_1", "dv_2"}),
@@ -895,29 +900,23 @@ class TestOutputWriters:
                 "d2": ComponentInfo("d2", "dimension", data_views={"dv_2"}),
             },
             distribution=ComponentDistribution(
-                core_metrics=["m1"],
-                core_dimensions=["d1"],
-                isolated_metrics=["m2"],
-                isolated_dimensions=["d2"]
+                core_metrics=["m1"], core_dimensions=["d1"], isolated_metrics=["m2"], isolated_dimensions=["d2"]
             ),
-            similarity_pairs=[
-                SimilarityPair("dv_1", "Production DV", "dv_2", "Staging DV", 0.6, 2, 4)
-            ],
-            recommendations=[
-                {"type": "test_recommendation", "severity": "low", "reason": "Test reason"}
-            ],
-            duration=1.5
+            similarity_pairs=[SimilarityPair("dv_1", "Production DV", "dv_2", "Staging DV", 0.6, 2, 4)],
+            recommendations=[{"type": "test_recommendation", "severity": "low", "reason": "Test reason"}],
+            duration=1.5,
         )
 
     def test_json_output_structure(self, sample_result):
         """Test JSON output has correct structure"""
         import logging
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = write_org_report_json(sample_result, None, tmpdir, logger)
 
-            with open(output_path, 'r') as f:
+            with open(output_path) as f:
                 data = json.load(f)
 
             # Check for required top-level keys (actual structure)
@@ -935,12 +934,13 @@ class TestOutputWriters:
     def test_markdown_output_structure(self, sample_result):
         """Test Markdown output has correct sections"""
         import logging
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = write_org_report_markdown(sample_result, None, tmpdir, logger)
 
-            with open(output_path, 'r') as f:
+            with open(output_path) as f:
                 content = f.read()
 
             # Check for required sections
@@ -958,12 +958,13 @@ class TestOutputWriters:
     def test_html_output_structure(self, sample_result):
         """Test HTML output has correct structure"""
         import logging
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = write_org_report_html(sample_result, None, tmpdir, logger)
 
-            with open(output_path, 'r') as f:
+            with open(output_path) as f:
                 content = f.read()
 
             # Check for required HTML elements
@@ -984,6 +985,7 @@ class TestOutputWriters:
         """Test CSV output creates correct files"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1003,13 +1005,13 @@ class TestOutputWriters:
 
             # Read and verify summary CSV content
             summary_df = pd.read_csv(os.path.join(csv_dir, "org_report_summary.csv"))
-            assert summary_df['Total Data Views'].iloc[0] == 2
-            assert summary_df['Total Unique Components'].iloc[0] == 4
+            assert summary_df["Total Data Views"].iloc[0] == 2
+            assert summary_df["Total Unique Components"].iloc[0] == 4
 
             # Read and verify components CSV
             comp_df = pd.read_csv(os.path.join(csv_dir, "org_report_components.csv"))
             assert len(comp_df) == 4  # 4 components in sample
-            assert 'm1' in comp_df['Component ID'].values
+            assert "m1" in comp_df["Component ID"].values
 
 
 class TestIncludeNames:
@@ -1025,7 +1027,7 @@ class TestIncludeNames:
             metric_count=2,
             dimension_count=1,
             metric_names={"m1": "Page Views", "m2": "Visits"},
-            dimension_names={"d1": "Page Name"}
+            dimension_names={"d1": "Page Name"},
         )
         assert summary.get_component_name("m1") == "Page Views"
         assert summary.get_component_name("d1") == "Page Name"
@@ -1034,6 +1036,7 @@ class TestIncludeNames:
     def test_component_index_captures_names(self):
         """Test _build_component_index includes names"""
         import logging
+
         mock_cja = Mock()
         mock_logger = logging.getLogger("test")
 
@@ -1042,18 +1045,20 @@ class TestIncludeNames:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={"m1", "m2"},
                 dimension_ids={"d1"},
                 metric_names={"m1": "Page Views", "m2": "Visits"},
-                dimension_names={"d1": "Page Name"}
+                dimension_names={"d1": "Page Name"},
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={"m1"},
                 dimension_ids={"d2"},
                 metric_names={"m1": "Page Views"},  # Same name for m1
-                dimension_names={"d2": "Browser"}
+                dimension_names={"d2": "Browser"},
             ),
         ]
 
@@ -1068,6 +1073,7 @@ class TestIncludeNames:
     def test_component_without_names(self):
         """Test index works without names"""
         import logging
+
         mock_cja = Mock()
         mock_logger = logging.getLogger("test")
 
@@ -1076,7 +1082,8 @@ class TestIncludeNames:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={"m1"},
                 dimension_ids={"d1"},
                 # No names provided
@@ -1099,6 +1106,7 @@ class TestEdgeCases:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_empty_org(self, mock_cja, mock_logger):
@@ -1108,7 +1116,7 @@ class TestEdgeCases:
         config = OrgReportConfig()
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, _is_sampled, total_available = analyzer._list_and_filter_data_views()
         assert len(result) == 0
         assert total_available == 0
 
@@ -1117,9 +1125,7 @@ class TestEdgeCases:
         config = OrgReportConfig()
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        summaries = [
-            DataViewSummary("dv_1", "Only DV", metric_ids={"m1", "m2"}, dimension_ids={"d1"})
-        ]
+        summaries = [DataViewSummary("dv_1", "Only DV", metric_ids={"m1", "m2"}, dimension_ids={"d1"})]
 
         pairs = analyzer._compute_similarity_matrix(summaries)
         assert len(pairs) == 0
@@ -1157,16 +1163,14 @@ class TestEdgeCases:
 
     def test_invalid_regex_filter(self, mock_cja, mock_logger):
         """Test handling of invalid regex pattern"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": "dv_1", "name": "Test DV"}
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": "dv_1", "name": "Test DV"}])
 
         # Invalid regex (unclosed bracket)
         config = OrgReportConfig(filter_pattern="[invalid")
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
         # Should handle gracefully and return all DVs
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, _is_sampled, _total_available = analyzer._list_and_filter_data_views()
         assert len(result) == 1  # Falls back to unfiltered
 
 
@@ -1190,34 +1194,23 @@ class TestNewOrgReportConfig:
 
     def test_sampling_options(self):
         """Test sampling options"""
-        config = OrgReportConfig(
-            sample_size=10,
-            sample_seed=42,
-            sample_stratified=True
-        )
+        config = OrgReportConfig(sample_size=10, sample_seed=42, sample_stratified=True)
         assert config.sample_size == 10
         assert config.sample_seed == 42
         assert config.sample_stratified is True
 
     def test_caching_options(self):
         """Test caching options"""
-        config = OrgReportConfig(
-            use_cache=True,
-            cache_max_age_hours=12,
-            clear_cache=True
-        )
+        config = OrgReportConfig(use_cache=True, cache_max_age_hours=12, clear_cache=True)
         assert config.use_cache is True
         assert config.cache_max_age_hours == 12
         assert config.clear_cache is True
 
     def test_clustering_options(self):
         """Test clustering options"""
-        config = OrgReportConfig(
-            enable_clustering=True,
-            cluster_method='average'
-        )
+        config = OrgReportConfig(enable_clustering=True, cluster_method="average")
         assert config.enable_clustering is True
-        assert config.cluster_method == 'average'
+        assert config.cluster_method == "average"
 
 
 class TestDataViewCluster:
@@ -1230,7 +1223,7 @@ class TestDataViewCluster:
             cluster_name="Test Cluster",
             data_view_ids=["dv_1", "dv_2", "dv_3"],
             data_view_names=["DV 1", "DV 2", "DV 3"],
-            cohesion_score=0.85
+            cohesion_score=0.85,
         )
         assert cluster.size == 3
         assert cluster.cohesion_score == 0.85
@@ -1331,14 +1324,12 @@ class TestSampling:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_sampling_applied(self, mock_cja, mock_logger):
         """Test sampling when sample_size < available DVs"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": f"dv_{i}", "name": f"DV {i}"}
-            for i in range(20)
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": f"dv_{i}", "name": f"DV {i}"} for i in range(20)])
 
         config = OrgReportConfig(sample_size=5, sample_seed=42)
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
@@ -1351,10 +1342,7 @@ class TestSampling:
 
     def test_sampling_reproducible(self, mock_cja, mock_logger):
         """Test sampling is reproducible with same seed"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": f"dv_{i}", "name": f"DV {i}"}
-            for i in range(20)
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": f"dv_{i}", "name": f"DV {i}"} for i in range(20)])
 
         config = OrgReportConfig(sample_size=5, sample_seed=42)
 
@@ -1365,19 +1353,16 @@ class TestSampling:
         result2, _, _ = analyzer2._list_and_filter_data_views()
 
         # Same seed should produce same sample
-        assert [dv['id'] for dv in result1] == [dv['id'] for dv in result2]
+        assert [dv["id"] for dv in result1] == [dv["id"] for dv in result2]
 
     def test_no_sampling_when_below_threshold(self, mock_cja, mock_logger):
         """Test no sampling when available < sample_size"""
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": f"dv_{i}", "name": f"DV {i}"}
-            for i in range(3)
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": f"dv_{i}", "name": f"DV {i}"} for i in range(3)])
 
         config = OrgReportConfig(sample_size=10, sample_seed=42)
         analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
 
-        result, is_sampled, total_available = analyzer._list_and_filter_data_views()
+        result, is_sampled, _total_available = analyzer._list_and_filter_data_views()
 
         assert len(result) == 3
         assert is_sampled is False
@@ -1458,6 +1443,7 @@ class TestLargeOrgScaling:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_large_component_index_building(self, mock_cja, mock_logger):
@@ -1497,16 +1483,18 @@ class TestLargeOrgScaling:
             metric_names = {m: f"Metric {m.split('/')[-1]}" for m in metrics}
             dim_names = {d: f"Dimension {d.split('/')[-1]}" for d in dims}
 
-            summaries.append(DataViewSummary(
-                data_view_id=f"dv_{dv_idx}",
-                data_view_name=f"Data View {dv_idx}",
-                metric_ids=metrics,
-                dimension_ids=dims,
-                metric_count=len(metrics),
-                dimension_count=len(dims),
-                metric_names=metric_names,
-                dimension_names=dim_names,
-            ))
+            summaries.append(
+                DataViewSummary(
+                    data_view_id=f"dv_{dv_idx}",
+                    data_view_name=f"Data View {dv_idx}",
+                    metric_ids=metrics,
+                    dimension_ids=dims,
+                    metric_count=len(metrics),
+                    dimension_count=len(dims),
+                    metric_names=metric_names,
+                    dimension_names=dim_names,
+                )
+            )
 
         # Build the index
         component_index = analyzer._build_component_index(summaries)
@@ -1540,30 +1528,24 @@ class TestLargeOrgScaling:
         # Core: in 60% of DVs (120+ DVs)
         for i in range(25):
             component_index[f"m_core_{i}"] = ComponentInfo(
-                f"m_core_{i}", "metric",
-                data_views={f"dv_{j}" for j in range(120)}
+                f"m_core_{i}", "metric", data_views={f"dv_{j}" for j in range(120)}
             )
 
         # Common: in 30% of DVs (60 DVs)
         for i in range(50):
             component_index[f"d_common_{i}"] = ComponentInfo(
-                f"d_common_{i}", "dimension",
-                data_views={f"dv_{j}" for j in range(60)}
+                f"d_common_{i}", "dimension", data_views={f"dv_{j}" for j in range(60)}
             )
 
         # Limited: in 5% of DVs (10 DVs)
         for i in range(100):
             component_index[f"m_limited_{i}"] = ComponentInfo(
-                f"m_limited_{i}", "metric",
-                data_views={f"dv_{j}" for j in range(10)}
+                f"m_limited_{i}", "metric", data_views={f"dv_{j}" for j in range(10)}
             )
 
         # Isolated: in 1 DV each
         for i in range(200):
-            component_index[f"d_isolated_{i}"] = ComponentInfo(
-                f"d_isolated_{i}", "dimension",
-                data_views={f"dv_{i}"}
-            )
+            component_index[f"d_isolated_{i}"] = ComponentInfo(f"d_isolated_{i}", "dimension", data_views={f"dv_{i}"})
 
         distribution = analyzer._compute_distribution(component_index, total_dvs=num_dvs)
 
@@ -1599,12 +1581,14 @@ class TestLargeOrgScaling:
                 metrics.add(f"m_unique_{i}_{j}")
                 dims.add(f"d_unique_{i}_{j}")
 
-            summaries.append(DataViewSummary(
-                data_view_id=f"dv_{i}",
-                data_view_name=f"DV {i}",
-                metric_ids=metrics,
-                dimension_ids=dims,
-            ))
+            summaries.append(
+                DataViewSummary(
+                    data_view_id=f"dv_{i}",
+                    data_view_name=f"DV {i}",
+                    metric_ids=metrics,
+                    dimension_ids=dims,
+                )
+            )
 
         pairs = analyzer._compute_similarity_matrix(summaries)
 
@@ -1652,12 +1636,14 @@ class TestLargeOrgScaling:
         """Test output writers handle large result sets"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         # Create result with 100 DVs and 500+ components
         summaries = [
             DataViewSummary(
-                f"dv_{i}", f"Production Data View {i}",
+                f"dv_{i}",
+                f"Production Data View {i}",
                 metric_ids={f"m_{j}" for j in range(50)},
                 dimension_ids={f"d_{j}" for j in range(30)},
                 metric_count=50,
@@ -1669,15 +1655,14 @@ class TestLargeOrgScaling:
         component_index = {}
         for i in range(300):
             component_index[f"metric_{i}"] = ComponentInfo(
-                f"metric_{i}", "metric",
-                name=f"Metric Name {i}",
-                data_views={f"dv_{j}" for j in range(min(i + 1, 100))}
+                f"metric_{i}", "metric", name=f"Metric Name {i}", data_views={f"dv_{j}" for j in range(min(i + 1, 100))}
             )
         for i in range(200):
             component_index[f"dim_{i}"] = ComponentInfo(
-                f"dim_{i}", "dimension",
+                f"dim_{i}",
+                "dimension",
                 name=f"Dimension Name {i}",
-                data_views={f"dv_{j}" for j in range(min(i + 1, 100))}
+                data_views={f"dv_{j}" for j in range(min(i + 1, 100))},
             )
 
         result = OrgReportResult(
@@ -1693,11 +1678,11 @@ class TestLargeOrgScaling:
                 isolated_dimensions=[f"dim_{i}" for i in range(50)],
             ),
             similarity_pairs=[
-                SimilarityPair(f"dv_{i}", f"DV {i}", f"dv_{i+1}", f"DV {i+1}", 0.85, 70, 80)
+                SimilarityPair(f"dv_{i}", f"DV {i}", f"dv_{i + 1}", f"DV {i + 1}", 0.85, 70, 80)
                 for i in range(0, 50, 2)
             ],
             recommendations=[{"type": "test", "severity": "low", "reason": f"Reason {i}"} for i in range(10)],
-            duration=25.5
+            duration=25.5,
         )
 
         assert result.total_data_views == 100
@@ -1739,7 +1724,9 @@ class TestOutputPathWithFormatAliases:
             org_id="test_org@AdobeOrg",
             parameters=OrgReportConfig(core_threshold=0.5, overlap_threshold=0.8),
             data_view_summaries=[
-                DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1),
+                DataViewSummary(
+                    "dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1
+                ),
             ],
             component_index={
                 "m1": ComponentInfo("m1", "metric", data_views={"dv_1"}),
@@ -1748,13 +1735,14 @@ class TestOutputPathWithFormatAliases:
             distribution=ComponentDistribution(isolated_metrics=["m1"], isolated_dimensions=["d1"]),
             similarity_pairs=[],
             recommendations=[],
-            duration=1.0
+            duration=1.0,
         )
 
     def test_json_with_explicit_output_path(self, sample_result):
         """Test JSON output with explicit --output path"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1768,6 +1756,7 @@ class TestOutputPathWithFormatAliases:
         """Test JSON output when path lacks extension (should add .json)"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1781,6 +1770,7 @@ class TestOutputPathWithFormatAliases:
         """Test Excel output with explicit --output path"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1794,6 +1784,7 @@ class TestOutputPathWithFormatAliases:
         """Test Markdown output with explicit --output path"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1807,6 +1798,7 @@ class TestOutputPathWithFormatAliases:
         """Test HTML output with explicit --output path"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1820,6 +1812,7 @@ class TestOutputPathWithFormatAliases:
         """Test CSV output with explicit --output path (creates directory)"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1834,13 +1827,14 @@ class TestOutputPathWithFormatAliases:
         """Test that alias base path correctly strips extension for multi-format output"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Simulate what run_org_report does with an alias
             # User provides: --output /path/to/my_report.xlsx --format reports
             output_path = Path(tmpdir) / "my_report.xlsx"
-            alias_base = output_path.with_suffix('')  # Strip .xlsx -> my_report
+            alias_base = output_path.with_suffix("")  # Strip .xlsx -> my_report
 
             # Each format writer should use the base name and add its own extension
             json_path_str = write_org_report_json(sample_result, alias_base, tmpdir, logger)
@@ -1861,12 +1855,13 @@ class TestOutputPathWithFormatAliases:
         """Test 'reports' alias generates excel + markdown with consistent naming"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Simulate: --format reports --output my_analysis
             output_path = Path(tmpdir) / "my_analysis"
-            alias_base = output_path.with_suffix('')
+            alias_base = output_path.with_suffix("")
 
             # 'reports' alias = ['excel', 'markdown']
             excel_path_str = write_org_report_excel(sample_result, alias_base, tmpdir, logger)
@@ -1881,12 +1876,13 @@ class TestOutputPathWithFormatAliases:
         """Test 'data' alias generates csv + json with consistent naming"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Simulate: --format data --output export
             output_path = Path(tmpdir) / "export"
-            alias_base = output_path.with_suffix('')
+            alias_base = output_path.with_suffix("")
 
             # 'data' alias = ['csv', 'json']
             json_path_str = write_org_report_json(sample_result, alias_base, tmpdir, logger)
@@ -1901,12 +1897,13 @@ class TestOutputPathWithFormatAliases:
         """Test 'ci' alias generates json + markdown with consistent naming"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Simulate: --format ci --output ci_report
             output_path = Path(tmpdir) / "ci_report"
-            alias_base = output_path.with_suffix('')
+            alias_base = output_path.with_suffix("")
 
             # 'ci' alias = ['json', 'markdown']
             json_path_str = write_org_report_json(sample_result, alias_base, tmpdir, logger)
@@ -1921,6 +1918,7 @@ class TestOutputPathWithFormatAliases:
         """Test output path works when specifying a subdirectory"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1938,6 +1936,7 @@ class TestOutputPathWithFormatAliases:
         """Test explicit output path takes precedence over output_dir"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1961,6 +1960,7 @@ class TestOutputPathWithFormatAliases:
         """Test when no output path, uses output_dir with auto-generated name"""
         import logging
         import os
+
         logger = logging.getLogger("test")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1984,7 +1984,9 @@ class TestOrgReportOutputHandling:
             org_id="org_123",
             parameters=OrgReportConfig(core_threshold=0.5, overlap_threshold=0.8),
             data_view_summaries=[
-                DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1),
+                DataViewSummary(
+                    "dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1
+                ),
             ],
             component_index={
                 "m1": ComponentInfo("m1", "metric", data_views={"dv_1"}),
@@ -1993,15 +1995,17 @@ class TestOrgReportOutputHandling:
             distribution=ComponentDistribution(isolated_metrics=["m1"], isolated_dimensions=["d1"]),
             similarity_pairs=[],
             recommendations=[],
-            duration=1.0
+            duration=1.0,
         )
 
     def test_org_stats_json_without_output_path_creates_file(self, sample_result):
         """Org-stats JSON should still write a file when --output is not provided."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('cja_auto_sdr.generator.configure_cjapy', return_value=(True, "ok", {"org_id": "org_123"})), \
-                 patch('cja_auto_sdr.generator.cjapy.CJA', return_value=Mock()), \
-                 patch('cja_auto_sdr.generator.OrgComponentAnalyzer') as mock_analyzer:
+            with (
+                patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+                patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+                patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+            ):
                 mock_analyzer.return_value.run_analysis.return_value = sample_result
 
                 success, thresholds = run_org_report(
@@ -2023,9 +2027,11 @@ class TestOrgReportOutputHandling:
         """--format all should respect --output base path for all formats."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base_path = Path(tmpdir) / "org_report_base.json"
-            with patch('cja_auto_sdr.generator.configure_cjapy', return_value=(True, "ok", {"org_id": "org_123"})), \
-                 patch('cja_auto_sdr.generator.cjapy.CJA', return_value=Mock()), \
-                 patch('cja_auto_sdr.generator.OrgComponentAnalyzer') as mock_analyzer:
+            with (
+                patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+                patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+                patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+            ):
                 mock_analyzer.return_value.run_analysis.return_value = sample_result
 
                 success, _ = run_org_report(
@@ -2047,9 +2053,11 @@ class TestOrgReportOutputHandling:
 
     def test_json_output_to_stdout(self, sample_result, capsys):
         """--output - should emit JSON to stdout for org-report."""
-        with patch('cja_auto_sdr.generator.configure_cjapy', return_value=(True, "ok", {"org_id": "org_123"})), \
-             patch('cja_auto_sdr.generator.cjapy.CJA', return_value=Mock()), \
-             patch('cja_auto_sdr.generator.OrgComponentAnalyzer') as mock_analyzer:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
             mock_analyzer.return_value.run_analysis.return_value = sample_result
 
             success, _ = run_org_report(
@@ -2069,9 +2077,11 @@ class TestOrgReportOutputHandling:
 
     def test_csv_output_to_stdout_errors(self, sample_result, capsys):
         """CSV org-report should error on stdout since it writes multiple files."""
-        with patch('cja_auto_sdr.generator.configure_cjapy', return_value=(True, "ok", {"org_id": "org_123"})), \
-             patch('cja_auto_sdr.generator.cjapy.CJA', return_value=Mock()), \
-             patch('cja_auto_sdr.generator.OrgComponentAnalyzer') as mock_analyzer:
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
             mock_analyzer.return_value.run_analysis.return_value = sample_result
 
             success, _ = run_org_report(
@@ -2102,6 +2112,7 @@ class TestGovernanceThresholds:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_duplicate_threshold_not_exceeded(self, mock_cja, mock_logger):
@@ -2117,9 +2128,7 @@ class TestGovernanceThresholds:
         ]
         distribution = ComponentDistribution()
 
-        violations, exceeded = analyzer._check_governance_thresholds(
-            similarity_pairs, distribution, 100
-        )
+        violations, exceeded = analyzer._check_governance_thresholds(similarity_pairs, distribution, 100)
 
         assert exceeded is False
         assert len(violations) == 0
@@ -2138,14 +2147,12 @@ class TestGovernanceThresholds:
         ]
         distribution = ComponentDistribution()
 
-        violations, exceeded = analyzer._check_governance_thresholds(
-            similarity_pairs, distribution, 100
-        )
+        violations, exceeded = analyzer._check_governance_thresholds(similarity_pairs, distribution, 100)
 
         assert exceeded is True
         assert len(violations) == 1
-        assert violations[0]['type'] == 'duplicate_threshold_exceeded'
-        assert violations[0]['actual'] == 4
+        assert violations[0]["type"] == "duplicate_threshold_exceeded"
+        assert violations[0]["actual"] == 4
 
     def test_isolated_threshold_exceeded(self, mock_cja, mock_logger):
         """Test violation when isolated percentage exceeds threshold"""
@@ -2159,12 +2166,14 @@ class TestGovernanceThresholds:
         )
 
         violations, exceeded = analyzer._check_governance_thresholds(
-            None, distribution, 10  # 5 isolated out of 10 total
+            None,
+            distribution,
+            10,  # 5 isolated out of 10 total
         )
 
         assert exceeded is True
         assert len(violations) == 1
-        assert violations[0]['type'] == 'isolated_threshold_exceeded'
+        assert violations[0]["type"] == "isolated_threshold_exceeded"
 
     def test_isolated_threshold_not_exceeded(self, mock_cja, mock_logger):
         """Test no violation when isolated percentage below threshold"""
@@ -2177,9 +2186,7 @@ class TestGovernanceThresholds:
             isolated_metrics=["m8", "m9", "m10"],  # 30% isolated
         )
 
-        violations, exceeded = analyzer._check_governance_thresholds(
-            None, distribution, 10
-        )
+        violations, exceeded = analyzer._check_governance_thresholds(None, distribution, 10)
 
         assert exceeded is False
         assert len(violations) == 0
@@ -2191,26 +2198,27 @@ class TestGovernanceThresholds:
 
         summaries = [
             DataViewSummary(
-                "dv_1", "DV 1",
+                "dv_1",
+                "DV 1",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2"},
             ),
             DataViewSummary(
-                "dv_2", "DV 2",
+                "dv_2",
+                "DV 2",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2", "d3"},
             ),
             DataViewSummary(
-                "dv_3", "DV 3",
+                "dv_3",
+                "DV 3",
                 metric_ids={f"m{i}" for i in range(1, 11)},
                 dimension_ids={"d1", "d2", "d3"},
             ),
         ]
 
         similarity_pairs = analyzer._compute_similarity_matrix(summaries)
-        violations, exceeded = analyzer._check_governance_thresholds(
-            similarity_pairs, ComponentDistribution(), 100
-        )
+        violations, exceeded = analyzer._check_governance_thresholds(similarity_pairs, ComponentDistribution(), 100)
 
         assert exceeded is True
         assert len(violations) == 1
@@ -2228,6 +2236,7 @@ class TestNamingAudit:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_case_style_detection(self, mock_cja, mock_logger):
@@ -2244,9 +2253,9 @@ class TestNamingAudit:
 
         audit = analyzer._audit_naming_conventions(component_index)
 
-        assert audit['case_styles']['snake_case'] == 1
-        assert audit['case_styles']['camelCase'] == 1
-        assert audit['case_styles']['PascalCase'] == 1
+        assert audit["case_styles"]["snake_case"] == 1
+        assert audit["case_styles"]["camelCase"] == 1
+        assert audit["case_styles"]["PascalCase"] == 1
 
     def test_stale_keyword_detection(self, mock_cja, mock_logger):
         """Test detection of stale naming patterns"""
@@ -2263,8 +2272,8 @@ class TestNamingAudit:
         audit = analyzer._audit_naming_conventions(component_index)
 
         # Should find 3 stale patterns (test_, old_, temp_)
-        assert len(audit['stale_patterns']) == 3
-        stale_names = [p['name'] for p in audit['stale_patterns']]
+        assert len(audit["stale_patterns"]) == 3
+        stale_names = [p["name"] for p in audit["stale_patterns"]]
         assert "test_metric" in stale_names
         assert "old_dimension" in stale_names
         assert "temp_field" in stale_names
@@ -2283,7 +2292,7 @@ class TestNamingAudit:
         audit = analyzer._audit_naming_conventions(component_index)
 
         # Should find 2 version suffix patterns
-        version_patterns = [p for p in audit['stale_patterns'] if p['pattern'] == 'version_suffix']
+        version_patterns = [p for p in audit["stale_patterns"] if p["pattern"] == "version_suffix"]
         assert len(version_patterns) == 2
 
     def test_date_pattern_detection(self, mock_cja, mock_logger):
@@ -2293,13 +2302,15 @@ class TestNamingAudit:
 
         component_index = {
             "metric_20240101": ComponentInfo("metric_20240101", "metric", name="metric_20240101", data_views={"dv_1"}),
-            "metric_2024-01-15": ComponentInfo("metric_2024-01-15", "metric", name="metric_2024-01-15", data_views={"dv_1"}),
+            "metric_2024-01-15": ComponentInfo(
+                "metric_2024-01-15", "metric", name="metric_2024-01-15", data_views={"dv_1"}
+            ),
             "current_metric": ComponentInfo("current_metric", "metric", name="current_metric", data_views={"dv_1"}),
         }
 
         audit = analyzer._audit_naming_conventions(component_index)
 
-        date_patterns = [p for p in audit['stale_patterns'] if p['pattern'] == 'date_pattern']
+        date_patterns = [p for p in audit["stale_patterns"] if p["pattern"] == "date_pattern"]
         assert len(date_patterns) == 2
 
 
@@ -2313,6 +2324,7 @@ class TestOwnerSummary:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_owner_grouping(self, mock_cja, mock_logger):
@@ -2329,18 +2341,18 @@ class TestOwnerSummary:
 
         owner_summary = analyzer._compute_owner_summary(summaries)
 
-        assert owner_summary['total_owners'] == 3
-        assert "Alice" in owner_summary['by_owner']
-        assert "Bob" in owner_summary['by_owner']
+        assert owner_summary["total_owners"] == 3
+        assert "Alice" in owner_summary["by_owner"]
+        assert "Bob" in owner_summary["by_owner"]
 
-        alice_stats = owner_summary['by_owner']['Alice']
-        assert alice_stats['data_view_count'] == 2
-        assert alice_stats['total_metrics'] == 90
-        assert alice_stats['avg_metrics_per_dv'] == 45.0
+        alice_stats = owner_summary["by_owner"]["Alice"]
+        assert alice_stats["data_view_count"] == 2
+        assert alice_stats["total_metrics"] == 90
+        assert alice_stats["avg_metrics_per_dv"] == 45.0
 
-        bob_stats = owner_summary['by_owner']['Bob']
-        assert bob_stats['data_view_count'] == 1
-        assert bob_stats['total_metrics'] == 100
+        bob_stats = owner_summary["by_owner"]["Bob"]
+        assert bob_stats["data_view_count"] == 1
+        assert bob_stats["total_metrics"] == 100
 
     def test_owner_summary_empty_owner(self, mock_cja, mock_logger):
         """Test handling of data views with no owner"""
@@ -2355,8 +2367,8 @@ class TestOwnerSummary:
         owner_summary = analyzer._compute_owner_summary(summaries)
 
         # Both should be grouped under "Unknown"
-        assert "Unknown" in owner_summary['by_owner']
-        assert owner_summary['by_owner']['Unknown']['data_view_count'] == 2
+        assert "Unknown" in owner_summary["by_owner"]
+        assert owner_summary["by_owner"]["Unknown"]["data_view_count"] == 2
 
 
 class TestStaleComponents:
@@ -2369,6 +2381,7 @@ class TestStaleComponents:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_detect_stale_keywords(self, mock_cja, mock_logger):
@@ -2386,7 +2399,7 @@ class TestStaleComponents:
         stale = analyzer._detect_stale_components(component_index)
 
         assert len(stale) == 3
-        stale_ids = [s['component_id'] for s in stale]
+        stale_ids = [s["component_id"] for s in stale]
         assert "test_metric" in stale_ids
         assert "deprecated_dim" in stale_ids
         assert "backup_field" in stale_ids
@@ -2407,8 +2420,8 @@ class TestStaleComponents:
 
         # Should find 2 version suffix patterns
         assert len(stale) == 2
-        patterns = [s['pattern'] for s in stale]
-        assert all(p == 'version_suffix' for p in patterns)
+        patterns = [s["pattern"] for s in stale]
+        assert all(p == "version_suffix" for p in patterns)
 
 
 class TestOrgReportComparison:
@@ -2416,7 +2429,7 @@ class TestOrgReportComparison:
 
     def test_compare_data_views_added(self):
         """Test detection of added data views"""
-        from cja_auto_sdr.generator import compare_org_reports, OrgReportResult, OrgReportComparison
+        from cja_auto_sdr.generator import OrgReportResult
 
         # Create current result with 3 DVs
         current = OrgReportResult(
@@ -2432,7 +2445,7 @@ class TestOrgReportComparison:
             distribution=ComponentDistribution(),
             similarity_pairs=[],
             recommendations=[],
-            duration=1.0
+            duration=1.0,
         )
 
         # Create previous report JSON with 2 DVs
@@ -2445,7 +2458,7 @@ class TestOrgReportComparison:
             "summary": {"total_unique_components": 50},
             "distribution": {
                 "core": {"metrics_count": 6, "dimensions_count": 4},
-                "isolated": {"metrics_count": 7, "dimensions_count": 8}
+                "isolated": {"metrics_count": 7, "dimensions_count": 8},
             },
             "similarity_pairs": [
                 {
@@ -2453,12 +2466,12 @@ class TestOrgReportComparison:
                     "data_view_2": {"id": "dv_2", "name": "DV 2"},
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
-                    "union_size": 12
+                    "union_size": 12,
                 }
-            ]
+            ],
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(prev_data, f)
             prev_path = f.name
 
@@ -2468,13 +2481,12 @@ class TestOrgReportComparison:
             assert len(comparison.data_views_added) == 1
             assert "dv_3" in comparison.data_views_added
             assert len(comparison.data_views_removed) == 0
-            assert comparison.summary['data_views_delta'] == 1
+            assert comparison.summary["data_views_delta"] == 1
         finally:
             os.unlink(prev_path)
 
     def test_compare_data_views_removed(self):
         """Test detection of removed data views"""
-        from cja_auto_sdr.generator import compare_org_reports
 
         # Create current result with 1 DV
         current = OrgReportResult(
@@ -2488,7 +2500,7 @@ class TestOrgReportComparison:
             distribution=ComponentDistribution(),
             similarity_pairs=[],
             recommendations=[],
-            duration=1.0
+            duration=1.0,
         )
 
         # Previous had 2 DVs
@@ -2501,7 +2513,7 @@ class TestOrgReportComparison:
             "summary": {"total_unique_components": 50},
             "distribution": {
                 "core": {"metrics_count": 6, "dimensions_count": 4},
-                "isolated": {"metrics_count": 7, "dimensions_count": 8}
+                "isolated": {"metrics_count": 7, "dimensions_count": 8},
             },
             "similarity_pairs": [
                 {
@@ -2509,12 +2521,12 @@ class TestOrgReportComparison:
                     "data_view_2": {"id": "dv_2", "name": "DV 2"},
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
-                    "union_size": 12
+                    "union_size": 12,
                 }
-            ]
+            ],
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(prev_data, f)
             prev_path = f.name
 
@@ -2523,13 +2535,12 @@ class TestOrgReportComparison:
 
             assert len(comparison.data_views_removed) == 1
             assert "dv_2" in comparison.data_views_removed
-            assert comparison.summary['data_views_delta'] == -1
+            assert comparison.summary["data_views_delta"] == -1
         finally:
             os.unlink(prev_path)
 
     def test_compare_similarity_pair_order_normalized(self):
         """Test that high-similarity pairs are compared order-independently"""
-        from cja_auto_sdr.generator import compare_org_reports
 
         current = OrgReportResult(
             timestamp="2024-02-01T10:00:00",
@@ -2557,7 +2568,7 @@ class TestOrgReportComparison:
                 )
             ],
             recommendations=[],
-            duration=1.0
+            duration=1.0,
         )
 
         prev_data = {
@@ -2569,7 +2580,7 @@ class TestOrgReportComparison:
             "summary": {"total_unique_components": 50},
             "distribution": {
                 "core": {"metrics_count": 6, "dimensions_count": 4},
-                "isolated": {"metrics_count": 7, "dimensions_count": 8}
+                "isolated": {"metrics_count": 7, "dimensions_count": 8},
             },
             "similarity_pairs": [
                 {
@@ -2577,19 +2588,19 @@ class TestOrgReportComparison:
                     "data_view_2": {"id": "dv_2", "name": "DV 2"},
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
-                    "union_size": 12
+                    "union_size": 12,
                 }
-            ]
+            ],
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(prev_data, f)
             prev_path = f.name
 
         try:
             comparison = compare_org_reports(current, prev_path)
-            assert comparison.summary['new_duplicates'] == 0
-            assert comparison.summary['resolved_duplicates'] == 0
+            assert comparison.summary["new_duplicates"] == 0
+            assert comparison.summary["resolved_duplicates"] == 0
         finally:
             os.unlink(prev_path)
 
@@ -2621,20 +2632,29 @@ class TestOrgStatsMode:
         }
 
         import logging
+
         logger = logging.getLogger("test_org_stats_skip_sim")
         analyzer = OrgComponentAnalyzer(mock_cja, config, logger)
 
-        with patch.object(analyzer, '_compute_similarity_matrix') as mock_sim:
-            with patch.object(analyzer, '_list_and_filter_data_views', return_value=(
-                [{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}],
-                False,
-                2,
-            )):
-                with patch.object(analyzer, '_fetch_all_data_views', return_value=[
-                    DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
-                    DataViewSummary("dv_2", "DV 2", metric_ids={"m1"}, dimension_ids=set()),
-                ]):
-                    result = analyzer.run_analysis()
+        with patch.object(analyzer, "_compute_similarity_matrix") as mock_sim:
+            with patch.object(
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=(
+                    [{"id": "dv_1", "name": "DV 1"}, {"id": "dv_2", "name": "DV 2"}],
+                    False,
+                    2,
+                ),
+            ):
+                with patch.object(
+                    analyzer,
+                    "_fetch_all_data_views",
+                    return_value=[
+                        DataViewSummary("dv_1", "DV 1", metric_ids={"m1"}, dimension_ids=set()),
+                        DataViewSummary("dv_2", "DV 2", metric_ids={"m1"}, dimension_ids=set()),
+                    ],
+                ):
+                    analyzer.run_analysis()
             mock_sim.assert_not_called()
 
 
@@ -2654,7 +2674,7 @@ class TestNewOrgReportResultFields:
             recommendations=[],
             duration=1.0,
             governance_violations=[{"type": "test_violation"}],
-            thresholds_exceeded=True
+            thresholds_exceeded=True,
         )
         assert result.governance_violations is not None
         assert result.thresholds_exceeded is True
@@ -2671,10 +2691,10 @@ class TestNewOrgReportResultFields:
             similarity_pairs=None,
             recommendations=[],
             duration=1.0,
-            naming_audit={"case_styles": {"snake_case": 10}}
+            naming_audit={"case_styles": {"snake_case": 10}},
         )
         assert result.naming_audit is not None
-        assert result.naming_audit['case_styles']['snake_case'] == 10
+        assert result.naming_audit["case_styles"]["snake_case"] == 10
 
     def test_owner_summary_field(self):
         """Test owner_summary field"""
@@ -2688,10 +2708,10 @@ class TestNewOrgReportResultFields:
             similarity_pairs=None,
             recommendations=[],
             duration=1.0,
-            owner_summary={"total_owners": 3}
+            owner_summary={"total_owners": 3},
         )
         assert result.owner_summary is not None
-        assert result.owner_summary['total_owners'] == 3
+        assert result.owner_summary["total_owners"] == 3
 
     def test_stale_components_field(self):
         """Test stale_components field"""
@@ -2705,7 +2725,7 @@ class TestNewOrgReportResultFields:
             similarity_pairs=None,
             recommendations=[],
             duration=1.0,
-            stale_components=[{"component_id": "test", "pattern": "stale_keyword"}]
+            stale_components=[{"component_id": "test", "pattern": "stale_keyword"}],
         )
         assert result.stale_components is not None
         assert len(result.stale_components) == 1
@@ -2716,11 +2736,7 @@ class TestNewOrgReportConfigFields:
 
     def test_governance_threshold_fields(self):
         """Test governance threshold configuration"""
-        config = OrgReportConfig(
-            duplicate_threshold=5,
-            isolated_threshold=0.3,
-            fail_on_threshold=True
-        )
+        config = OrgReportConfig(duplicate_threshold=5, isolated_threshold=0.3, fail_on_threshold=True)
         assert config.duplicate_threshold == 5
         assert config.isolated_threshold == 0.3
         assert config.fail_on_threshold is True
@@ -2732,7 +2748,7 @@ class TestNewOrgReportConfigFields:
             audit_naming=True,
             compare_org_report="/path/to/prev.json",
             include_owner_summary=True,
-            flag_stale=True
+            flag_stale=True,
         )
         assert config.org_stats_only is True
         assert config.audit_naming is True
@@ -2773,6 +2789,7 @@ class TestIsolatedReviewThreshold:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         return logging.getLogger("test")
 
     def test_recommendation_uses_configurable_threshold(self, mock_cja, mock_logger):
@@ -2787,14 +2804,11 @@ class TestIsolatedReviewThreshold:
 
         # Create 21 isolated components (exceeds default of 20)
         component_index = {
-            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
-            for i in range(21)
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"}) for i in range(21)
         }
 
         distribution = ComponentDistribution()
-        recommendations = analyzer._generate_recommendations(
-            summaries, component_index, distribution, None
-        )
+        recommendations = analyzer._generate_recommendations(summaries, component_index, distribution, None)
 
         isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
         assert len(isolated_rec) == 1
@@ -2811,14 +2825,11 @@ class TestIsolatedReviewThreshold:
 
         # Create 21 isolated components (below threshold of 50)
         component_index = {
-            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
-            for i in range(21)
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"}) for i in range(21)
         }
 
         distribution = ComponentDistribution()
-        recommendations = analyzer._generate_recommendations(
-            summaries, component_index, distribution, None
-        )
+        recommendations = analyzer._generate_recommendations(summaries, component_index, distribution, None)
 
         # Should NOT trigger recommendation since 21 <= 50
         isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
@@ -2836,14 +2847,11 @@ class TestIsolatedReviewThreshold:
 
         # Create only 6 isolated components (exceeds threshold of 5)
         component_index = {
-            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"})
-            for i in range(6)
+            f"isolated_{i}": ComponentInfo(f"isolated_{i}", "metric", data_views={"dv_1"}) for i in range(6)
         }
 
         distribution = ComponentDistribution()
-        recommendations = analyzer._generate_recommendations(
-            summaries, component_index, distribution, None
-        )
+        recommendations = analyzer._generate_recommendations(summaries, component_index, distribution, None)
 
         # Should trigger recommendation since 6 > 5
         isolated_rec = [r for r in recommendations if r["type"] == "review_isolated"]
@@ -2906,6 +2914,7 @@ class TestMemoryWarning:
     @pytest.fixture
     def mock_logger(self):
         import logging
+
         logger = logging.getLogger("test_memory_warning")
         logger.setLevel(logging.WARNING)
         return logger
@@ -2918,10 +2927,7 @@ class TestMemoryWarning:
         # Create a component index with known sizes
         component_index = {
             f"metric/comp_{i}": ComponentInfo(
-                f"metric/comp_{i}",
-                "metric",
-                name=f"Component {i}",
-                data_views={f"dv_{j}" for j in range(10)}
+                f"metric/comp_{i}", "metric", name=f"Component {i}", data_views={f"dv_{j}" for j in range(10)}
             )
             for i in range(100)
         }
@@ -2963,7 +2969,7 @@ class TestMemoryWarning:
                 f"metric/comp_{i}",
                 "metric",
                 name=f"Component {i} with a longer name to increase memory",
-                data_views={f"dv_{j}" for j in range(50)}  # Many data views
+                data_views={f"dv_{j}" for j in range(50)},  # Many data views
             )
             for i in range(1000)  # Many components
         }
@@ -3000,12 +3006,7 @@ class TestMemoryWarning:
 
         # Create a small component index
         component_index = {
-            f"metric/comp_{i}": ComponentInfo(
-                f"metric/comp_{i}",
-                "metric",
-                data_views={"dv_1"}
-            )
-            for i in range(10)
+            f"metric/comp_{i}": ComponentInfo(f"metric/comp_{i}", "metric", data_views={"dv_1"}) for i in range(10)
         }
 
         try:
@@ -3044,7 +3045,7 @@ class TestMemoryWarning:
                 f"metric/comp_{i}",
                 "metric",
                 name=f"Component {i} with a longer name",
-                data_views={f"dv_{j}" for j in range(50)}
+                data_views={f"dv_{j}" for j in range(50)},
             )
             for i in range(1000)
         }
@@ -3081,11 +3082,7 @@ class TestMemoryWarning:
 
         # Create a large component index
         component_index = {
-            f"metric/comp_{i}": ComponentInfo(
-                f"metric/comp_{i}",
-                "metric",
-                data_views={f"dv_{j}" for j in range(50)}
-            )
+            f"metric/comp_{i}": ComponentInfo(f"metric/comp_{i}", "metric", data_views={f"dv_{j}" for j in range(50)})
             for i in range(1000)
         }
 
@@ -3119,11 +3116,7 @@ class TestSmartCacheInvalidation:
             cache.put(summary, include_metadata=True)
 
             # Try to get with same modification timestamp - should succeed
-            retrieved = cache.get(
-                "dv_test",
-                max_age_hours=24,
-                current_modified="2024-01-15T10:00:00Z"
-            )
+            retrieved = cache.get("dv_test", max_age_hours=24, current_modified="2024-01-15T10:00:00Z")
             assert retrieved is not None
             assert retrieved.data_view_id == "dv_test"
 
@@ -3131,7 +3124,7 @@ class TestSmartCacheInvalidation:
             retrieved = cache.get(
                 "dv_test",
                 max_age_hours=24,
-                current_modified="2024-01-16T10:00:00Z"  # Different timestamp
+                current_modified="2024-01-16T10:00:00Z",  # Different timestamp
             )
             assert retrieved is None
 
@@ -3263,7 +3256,7 @@ class TestSmartCacheInvalidation:
                 validate_cache=False,
                 cache_max_age_hours=24,
             )
-            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
+            OrgComponentAnalyzer(mock_cja, config, logger, cache=cache)
 
             # Simulate _fetch_all_data_views behavior - should use standard lookup
             # Get from cache without validation

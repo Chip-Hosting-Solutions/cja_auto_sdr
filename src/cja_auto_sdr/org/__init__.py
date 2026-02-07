@@ -21,6 +21,7 @@ Example usage:
     result = analyzer.run_analysis()
 """
 
+from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
     ComponentInfo,
@@ -31,7 +32,6 @@ from cja_auto_sdr.org.models import (
     OrgReportResult,
     SimilarityPair,
 )
-from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
 
 __all__ = [
     # Models
@@ -39,15 +39,15 @@ __all__ = [
     "ComponentInfo",
     "DataViewCluster",
     "DataViewSummary",
-    "OrgReportComparison",
-    "OrgReportConfig",
-    "OrgReportResult",
-    "SimilarityPair",
-    # Cache & Lock
-    "OrgReportCache",
-    "OrgReportLock",
     # Analyzer (lazy)
     "OrgComponentAnalyzer",
+    # Cache & Lock
+    "OrgReportCache",
+    "OrgReportComparison",
+    "OrgReportConfig",
+    "OrgReportLock",
+    "OrgReportResult",
+    "SimilarityPair",
 ]
 
 

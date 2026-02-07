@@ -1,13 +1,9 @@
 """Tests for Git integration functionality."""
 
 import json
-import os
 import subprocess
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from cja_auto_sdr.generator import (
     DataViewSnapshot,
@@ -25,7 +21,7 @@ class TestIsGitRepository:
     def test_returns_true_for_git_repo(self, tmp_path):
         """Test that function returns True for a valid Git repository."""
         # Initialize a git repo
-        subprocess.run(['git', 'init'], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
         assert is_git_repository(tmp_path) is True
 
     def test_returns_false_for_non_git_directory(self, tmp_path):
@@ -37,17 +33,17 @@ class TestIsGitRepository:
         nonexistent = tmp_path / "nonexistent"
         assert is_git_repository(nonexistent) is False
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handles_timeout(self, mock_run):
         """Test that function handles timeout gracefully."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd='git', timeout=10)
-        assert is_git_repository(Path('.')) is False
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+        assert is_git_repository(Path(".")) is False
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handles_git_not_found(self, mock_run):
         """Test that function handles missing Git gracefully."""
         mock_run.side_effect = FileNotFoundError()
-        assert is_git_repository(Path('.')) is False
+        assert is_git_repository(Path(".")) is False
 
 
 class TestSaveGitFriendlySnapshot:
@@ -56,236 +52,223 @@ class TestSaveGitFriendlySnapshot:
     def test_creates_directory_structure(self, tmp_path):
         """Test that function creates correct directory structure."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test Data View',
-            metrics=[{'id': 'cm1', 'name': 'Metric 1'}],
-            dimensions=[{'id': 'dim1', 'name': 'Dimension 1'}]
+            data_view_id="dv_12345",
+            data_view_name="Test Data View",
+            metrics=[{"id": "cm1", "name": "Metric 1"}],
+            dimensions=[{"id": "dim1", "name": "Dimension 1"}],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        assert 'metrics' in saved_files
-        assert 'dimensions' in saved_files
-        assert 'metadata' in saved_files
-        assert saved_files['metrics'].exists()
-        assert saved_files['dimensions'].exists()
-        assert saved_files['metadata'].exists()
+        assert "metrics" in saved_files
+        assert "dimensions" in saved_files
+        assert "metadata" in saved_files
+        assert saved_files["metrics"].exists()
+        assert saved_files["dimensions"].exists()
+        assert saved_files["metadata"].exists()
 
     def test_sorts_metrics_by_id(self, tmp_path):
         """Test that metrics are sorted by ID for consistent diffs."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics=[
-                {'id': 'cm_z', 'name': 'Z Metric'},
-                {'id': 'cm_a', 'name': 'A Metric'},
-                {'id': 'cm_m', 'name': 'M Metric'},
+                {"id": "cm_z", "name": "Z Metric"},
+                {"id": "cm_a", "name": "A Metric"},
+                {"id": "cm_m", "name": "M Metric"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        with open(saved_files['metrics']) as f:
+        with open(saved_files["metrics"]) as f:
             metrics = json.load(f)
 
-        ids = [m['id'] for m in metrics]
-        assert ids == ['cm_a', 'cm_m', 'cm_z']
+        ids = [m["id"] for m in metrics]
+        assert ids == ["cm_a", "cm_m", "cm_z"]
 
     def test_sorts_dimensions_by_id(self, tmp_path):
         """Test that dimensions are sorted by ID for consistent diffs."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics=[],
             dimensions=[
-                {'id': 'dim_z', 'name': 'Z Dimension'},
-                {'id': 'dim_a', 'name': 'A Dimension'},
-            ]
+                {"id": "dim_z", "name": "Z Dimension"},
+                {"id": "dim_a", "name": "A Dimension"},
+            ],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        with open(saved_files['dimensions']) as f:
+        with open(saved_files["dimensions"]) as f:
             dimensions = json.load(f)
 
-        ids = [d['id'] for d in dimensions]
-        assert ids == ['dim_a', 'dim_z']
+        ids = [d["id"] for d in dimensions]
+        assert ids == ["dim_a", "dim_z"]
 
     def test_metadata_includes_summary(self, tmp_path):
         """Test that metadata file includes component counts."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test Data View',
-            owner='test_owner',
-            description='Test description',
-            metrics=[{'id': 'cm1'}, {'id': 'cm2'}],
-            dimensions=[{'id': 'dim1'}]
+            data_view_id="dv_12345",
+            data_view_name="Test Data View",
+            owner="test_owner",
+            description="Test description",
+            metrics=[{"id": "cm1"}, {"id": "cm2"}],
+            dimensions=[{"id": "dim1"}],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        with open(saved_files['metadata']) as f:
+        with open(saved_files["metadata"]) as f:
             metadata = json.load(f)
 
-        assert metadata['data_view_id'] == 'dv_12345'
-        assert metadata['data_view_name'] == 'Test Data View'
-        assert metadata['summary']['metrics_count'] == 2
-        assert metadata['summary']['dimensions_count'] == 1
-        assert metadata['summary']['total_components'] == 3
+        assert metadata["data_view_id"] == "dv_12345"
+        assert metadata["data_view_name"] == "Test Data View"
+        assert metadata["summary"]["metrics_count"] == 2
+        assert metadata["summary"]["dimensions_count"] == 1
+        assert metadata["summary"]["total_components"] == 3
 
     def test_includes_quality_issues_in_metadata(self, tmp_path):
         """Test that quality issues are included in metadata."""
-        snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics=[],
-            dimensions=[]
-        )
+        snapshot = DataViewSnapshot(data_view_id="dv_12345", data_view_name="Test", metrics=[], dimensions=[])
 
         quality_issues = [
-            {'Severity': 'HIGH', 'Issue': 'Test issue 1'},
-            {'Severity': 'HIGH', 'Issue': 'Test issue 2'},
-            {'Severity': 'LOW', 'Issue': 'Test issue 3'},
+            {"Severity": "HIGH", "Issue": "Test issue 1"},
+            {"Severity": "HIGH", "Issue": "Test issue 2"},
+            {"Severity": "LOW", "Issue": "Test issue 3"},
         ]
 
-        saved_files = save_git_friendly_snapshot(
-            snapshot, tmp_path, quality_issues=quality_issues
-        )
+        saved_files = save_git_friendly_snapshot(snapshot, tmp_path, quality_issues=quality_issues)
 
-        with open(saved_files['metadata']) as f:
+        with open(saved_files["metadata"]) as f:
             metadata = json.load(f)
 
-        assert 'quality' in metadata
-        assert metadata['quality']['total_issues'] == 3
-        assert metadata['quality']['by_severity']['HIGH'] == 2
-        assert metadata['quality']['by_severity']['LOW'] == 1
+        assert "quality" in metadata
+        assert metadata["quality"]["total_issues"] == 3
+        assert metadata["quality"]["by_severity"]["HIGH"] == 2
+        assert metadata["quality"]["by_severity"]["LOW"] == 1
 
     def test_sanitizes_data_view_name_for_directory(self, tmp_path):
         """Test that special characters in name are sanitized."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test / Data View: With <Special> Chars!',
-            metrics=[],
-            dimensions=[]
+            data_view_id="dv_12345", data_view_name="Test / Data View: With <Special> Chars!", metrics=[], dimensions=[]
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
         # Check that directory was created with sanitized name
-        parent_dir = saved_files['metadata'].parent
-        assert '/' not in parent_dir.name
-        assert '<' not in parent_dir.name
-        assert '>' not in parent_dir.name
+        parent_dir = saved_files["metadata"].parent
+        assert "/" not in parent_dir.name
+        assert "<" not in parent_dir.name
+        assert ">" not in parent_dir.name
 
     def test_saves_calculated_metrics_inventory(self, tmp_path):
         """Test that calculated metrics inventory is saved as separate file."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics=[{'id': 'cm1'}],
-            dimensions=[{'id': 'dim1'}],
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics=[{"id": "cm1"}],
+            dimensions=[{"id": "dim1"}],
             calculated_metrics_inventory=[
-                {'id': 'calc_z', 'name': 'Z Calculated'},
-                {'id': 'calc_a', 'name': 'A Calculated'},
-            ]
+                {"id": "calc_z", "name": "Z Calculated"},
+                {"id": "calc_a", "name": "A Calculated"},
+            ],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        assert 'calculated_metrics' in saved_files
-        assert saved_files['calculated_metrics'].exists()
-        assert saved_files['calculated_metrics'].name == 'calculated-metrics.json'
+        assert "calculated_metrics" in saved_files
+        assert saved_files["calculated_metrics"].exists()
+        assert saved_files["calculated_metrics"].name == "calculated-metrics.json"
 
-        with open(saved_files['calculated_metrics']) as f:
+        with open(saved_files["calculated_metrics"]) as f:
             calc_metrics = json.load(f)
 
         # Should be sorted by ID
-        ids = [m['id'] for m in calc_metrics]
-        assert ids == ['calc_a', 'calc_z']
+        ids = [m["id"] for m in calc_metrics]
+        assert ids == ["calc_a", "calc_z"]
 
     def test_saves_segments_inventory(self, tmp_path):
         """Test that segments inventory is saved as separate file."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics=[],
             dimensions=[],
             segments_inventory=[
-                {'id': 'seg_z', 'name': 'Z Segment'},
-                {'id': 'seg_a', 'name': 'A Segment'},
-                {'id': 'seg_m', 'name': 'M Segment'},
-            ]
+                {"id": "seg_z", "name": "Z Segment"},
+                {"id": "seg_a", "name": "A Segment"},
+                {"id": "seg_m", "name": "M Segment"},
+            ],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        assert 'segments' in saved_files
-        assert saved_files['segments'].exists()
-        assert saved_files['segments'].name == 'segments.json'
+        assert "segments" in saved_files
+        assert saved_files["segments"].exists()
+        assert saved_files["segments"].name == "segments.json"
 
-        with open(saved_files['segments']) as f:
+        with open(saved_files["segments"]) as f:
             segments = json.load(f)
 
         # Should be sorted by ID
-        ids = [s['id'] for s in segments]
-        assert ids == ['seg_a', 'seg_m', 'seg_z']
+        ids = [s["id"] for s in segments]
+        assert ids == ["seg_a", "seg_m", "seg_z"]
 
     def test_no_inventory_files_when_not_present(self, tmp_path):
         """Test that inventory files are not created when data not present."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics=[{'id': 'cm1'}],
-            dimensions=[{'id': 'dim1'}]
+            data_view_id="dv_12345", data_view_name="Test", metrics=[{"id": "cm1"}], dimensions=[{"id": "dim1"}]
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        assert 'calculated_metrics' not in saved_files
-        assert 'segments' not in saved_files
+        assert "calculated_metrics" not in saved_files
+        assert "segments" not in saved_files
 
         # Verify files don't exist
-        parent_dir = saved_files['metadata'].parent
-        assert not (parent_dir / 'calculated-metrics.json').exists()
-        assert not (parent_dir / 'segments.json').exists()
+        parent_dir = saved_files["metadata"].parent
+        assert not (parent_dir / "calculated-metrics.json").exists()
+        assert not (parent_dir / "segments.json").exists()
 
     def test_metadata_includes_inventory_summary(self, tmp_path):
         """Test that metadata includes inventory counts when present."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics=[{'id': 'cm1'}],
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics=[{"id": "cm1"}],
             dimensions=[],
-            calculated_metrics_inventory=[{'id': 'calc1'}, {'id': 'calc2'}],
-            segments_inventory=[{'id': 'seg1'}]
+            calculated_metrics_inventory=[{"id": "calc1"}, {"id": "calc2"}],
+            segments_inventory=[{"id": "seg1"}],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        with open(saved_files['metadata']) as f:
+        with open(saved_files["metadata"]) as f:
             metadata = json.load(f)
 
-        assert 'inventory' in metadata
-        assert metadata['inventory']['calculated_metrics_count'] == 2
-        assert metadata['inventory']['segments_count'] == 1
+        assert "inventory" in metadata
+        assert metadata["inventory"]["calculated_metrics_count"] == 2
+        assert metadata["inventory"]["segments_count"] == 1
 
     def test_snapshot_version_upgraded_with_inventory(self, tmp_path):
         """Test that snapshot version is 2.0 when inventory is included."""
         snapshot = DataViewSnapshot(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics=[],
             dimensions=[],
-            calculated_metrics_inventory=[{'id': 'calc1'}]
+            calculated_metrics_inventory=[{"id": "calc1"}],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
 
-        with open(saved_files['metadata']) as f:
+        with open(saved_files["metadata"]) as f:
             metadata = json.load(f)
 
-        assert metadata['snapshot_version'] == '2.0'
+        assert metadata["snapshot_version"] == "2.0"
 
 
 class TestGenerateGitCommitMessage:
@@ -294,49 +277,46 @@ class TestGenerateGitCommitMessage:
     def test_basic_message_structure(self):
         """Test that commit message has correct structure."""
         message = generate_git_commit_message(
-            data_view_id='dv_12345',
-            data_view_name='Test Data View',
-            metrics_count=10,
-            dimensions_count=5
+            data_view_id="dv_12345", data_view_name="Test Data View", metrics_count=10, dimensions_count=5
         )
 
-        assert '[dv_12345]' in message
-        assert 'Test Data View' in message
-        assert '10 metrics' in message
-        assert '5 dimensions' in message
+        assert "[dv_12345]" in message
+        assert "Test Data View" in message
+        assert "10 metrics" in message
+        assert "5 dimensions" in message
 
     def test_custom_message_included(self):
         """Test that custom message is included in commit."""
         message = generate_git_commit_message(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics_count=1,
             dimensions_count=1,
-            custom_message='Weekly sync'
+            custom_message="Weekly sync",
         )
 
-        assert 'Weekly sync' in message
-        assert '[dv_12345]' in message
+        assert "Weekly sync" in message
+        assert "[dv_12345]" in message
 
     def test_quality_issues_in_message(self):
         """Test that quality issues are summarized in commit message."""
         quality_issues = [
-            {'Severity': 'CRITICAL', 'Issue': 'Issue 1'},
-            {'Severity': 'HIGH', 'Issue': 'Issue 2'},
-            {'Severity': 'HIGH', 'Issue': 'Issue 3'},
+            {"Severity": "CRITICAL", "Issue": "Issue 1"},
+            {"Severity": "HIGH", "Issue": "Issue 2"},
+            {"Severity": "HIGH", "Issue": "Issue 3"},
         ]
 
         message = generate_git_commit_message(
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics_count=1,
             dimensions_count=1,
-            quality_issues=quality_issues
+            quality_issues=quality_issues,
         )
 
-        assert 'Quality:' in message
-        assert 'CRITICAL: 1' in message
-        assert 'HIGH: 2' in message
+        assert "Quality:" in message
+        assert "CRITICAL: 1" in message
+        assert "HIGH: 2" in message
 
     def test_diff_result_changes_in_message(self):
         """Test that diff result changes are included in message."""
@@ -354,17 +334,13 @@ class TestGenerateGitCommitMessage:
         mock_diff.summary = mock_summary
 
         message = generate_git_commit_message(
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics_count=10,
-            dimensions_count=5,
-            diff_result=mock_diff
+            data_view_id="dv_12345", data_view_name="Test", metrics_count=10, dimensions_count=5, diff_result=mock_diff
         )
 
-        assert 'Changes:' in message
-        assert '2 metrics added' in message
-        assert '1 metrics removed' in message
-        assert '3 dimensions modified' in message
+        assert "Changes:" in message
+        assert "2 metrics added" in message
+        assert "1 metrics removed" in message
+        assert "3 dimensions modified" in message
 
 
 class TestGitInitSnapshotRepo:
@@ -372,47 +348,47 @@ class TestGitInitSnapshotRepo:
 
     def test_initializes_new_repo(self, tmp_path):
         """Test that function initializes a new Git repository."""
-        repo_dir = tmp_path / 'new_repo'
+        repo_dir = tmp_path / "new_repo"
 
-        success, message = git_init_snapshot_repo(repo_dir)
+        success, _message = git_init_snapshot_repo(repo_dir)
 
         assert success is True
         assert is_git_repository(repo_dir)
-        assert (repo_dir / '.gitignore').exists()
-        assert (repo_dir / 'README.md').exists()
+        assert (repo_dir / ".gitignore").exists()
+        assert (repo_dir / "README.md").exists()
 
     def test_handles_existing_repo(self, tmp_path):
         """Test that function handles existing Git repository."""
         # Initialize repo first
-        subprocess.run(['git', 'init'], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
 
         success, message = git_init_snapshot_repo(tmp_path)
 
         assert success is True
-        assert 'Already a Git repository' in message
+        assert "Already a Git repository" in message
 
     def test_creates_gitignore(self, tmp_path):
         """Test that .gitignore is created with appropriate content."""
-        repo_dir = tmp_path / 'new_repo'
+        repo_dir = tmp_path / "new_repo"
         git_init_snapshot_repo(repo_dir)
 
-        gitignore = repo_dir / '.gitignore'
+        gitignore = repo_dir / ".gitignore"
         content = gitignore.read_text()
 
-        assert '*.log' in content
-        assert '.DS_Store' in content
+        assert "*.log" in content
+        assert ".DS_Store" in content
 
     def test_creates_readme(self, tmp_path):
         """Test that README.md is created with documentation."""
-        repo_dir = tmp_path / 'new_repo'
+        repo_dir = tmp_path / "new_repo"
         git_init_snapshot_repo(repo_dir)
 
-        readme = repo_dir / 'README.md'
+        readme = repo_dir / "README.md"
         content = readme.read_text()
 
-        assert 'CJA SDR Snapshots' in content
-        assert 'metrics.json' in content
-        assert 'dimensions.json' in content
+        assert "CJA SDR Snapshots" in content
+        assert "metrics.json" in content
+        assert "dimensions.json" in content
 
 
 class TestGitCommitSnapshot:
@@ -421,26 +397,16 @@ class TestGitCommitSnapshot:
     def test_commits_changes(self, tmp_path):
         """Test that function commits changes to Git."""
         # Initialize repo
-        subprocess.run(['git', 'init'], cwd=str(tmp_path), capture_output=True)
-        subprocess.run(
-            ['git', 'config', 'user.email', 'test@test.com'],
-            cwd=str(tmp_path), capture_output=True
-        )
-        subprocess.run(
-            ['git', 'config', 'user.name', 'Test User'],
-            cwd=str(tmp_path), capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
 
         # Create a file to commit
-        test_file = tmp_path / 'test.json'
+        test_file = tmp_path / "test.json"
         test_file.write_text('{"test": "data"}')
 
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path,
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics_count=1,
-            dimensions_count=1
+            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
         )
 
         assert success is True
@@ -448,90 +414,61 @@ class TestGitCommitSnapshot:
 
         # Verify commit exists
         log_result = subprocess.run(
-            ['git', 'log', '--oneline', '-1'],
-            cwd=str(tmp_path),
-            capture_output=True,
-            text=True
+            ["git", "log", "--oneline", "-1"], cwd=str(tmp_path), capture_output=True, text=True
         )
-        assert 'dv_12345' in log_result.stdout
+        assert "dv_12345" in log_result.stdout
 
     def test_returns_no_changes_when_unchanged(self, tmp_path):
         """Test that function returns no_changes when nothing changed."""
         # Initialize repo with initial commit
-        subprocess.run(['git', 'init'], cwd=str(tmp_path), capture_output=True)
-        subprocess.run(
-            ['git', 'config', 'user.email', 'test@test.com'],
-            cwd=str(tmp_path), capture_output=True
-        )
-        subprocess.run(
-            ['git', 'config', 'user.name', 'Test User'],
-            cwd=str(tmp_path), capture_output=True
-        )
-        test_file = tmp_path / 'test.json'
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
+        test_file = tmp_path / "test.json"
         test_file.write_text('{"test": "data"}')
-        subprocess.run(['git', 'add', '.'], cwd=str(tmp_path), capture_output=True)
-        subprocess.run(
-            ['git', 'commit', '-m', 'Initial'],
-            cwd=str(tmp_path), capture_output=True
-        )
+        subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Initial"], cwd=str(tmp_path), capture_output=True)
 
         # Try to commit again without changes
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path,
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics_count=1,
-            dimensions_count=1
+            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
         )
 
         assert success is True
-        assert result == 'no_changes'
+        assert result == "no_changes"
 
     def test_fails_for_non_git_directory(self, tmp_path):
         """Test that function fails for non-Git directory."""
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path,
-            data_view_id='dv_12345',
-            data_view_name='Test',
-            metrics_count=1,
-            dimensions_count=1
+            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
         )
 
         assert success is False
-        assert 'Not a Git repository' in result
+        assert "Not a Git repository" in result
 
     def test_includes_custom_message(self, tmp_path):
         """Test that custom message is included in commit."""
         # Initialize repo
-        subprocess.run(['git', 'init'], cwd=str(tmp_path), capture_output=True)
-        subprocess.run(
-            ['git', 'config', 'user.email', 'test@test.com'],
-            cwd=str(tmp_path), capture_output=True
-        )
-        subprocess.run(
-            ['git', 'config', 'user.name', 'Test User'],
-            cwd=str(tmp_path), capture_output=True
-        )
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
 
-        test_file = tmp_path / 'test.json'
+        test_file = tmp_path / "test.json"
         test_file.write_text('{"test": "data"}')
 
         git_commit_snapshot(
             snapshot_dir=tmp_path,
-            data_view_id='dv_12345',
-            data_view_name='Test',
+            data_view_id="dv_12345",
+            data_view_name="Test",
             metrics_count=1,
             dimensions_count=1,
-            custom_message='Custom commit message'
+            custom_message="Custom commit message",
         )
 
         log_result = subprocess.run(
-            ['git', 'log', '--oneline', '-1'],
-            cwd=str(tmp_path),
-            capture_output=True,
-            text=True
+            ["git", "log", "--oneline", "-1"], cwd=str(tmp_path), capture_output=True, text=True
         )
-        assert 'Custom commit message' in log_result.stdout
+        assert "Custom commit message" in log_result.stdout
 
 
 class TestCLIGitArguments:
@@ -539,69 +476,74 @@ class TestCLIGitArguments:
 
     def test_git_init_argument_exists(self):
         """Test that --git-init argument is recognized."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         # Temporarily modify sys.argv
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator', '--git-init']
+            sys.argv = ["cja_sdr_generator", "--git-init"]
             args = parse_arguments()
-            assert hasattr(args, 'git_init')
+            assert hasattr(args, "git_init")
             assert args.git_init is True
         finally:
             sys.argv = original_argv
 
     def test_git_commit_argument_exists(self):
         """Test that --git-commit argument is recognized."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator', 'dv_test', '--git-commit']
+            sys.argv = ["cja_sdr_generator", "dv_test", "--git-commit"]
             args = parse_arguments()
-            assert hasattr(args, 'git_commit')
+            assert hasattr(args, "git_commit")
             assert args.git_commit is True
         finally:
             sys.argv = original_argv
 
     def test_git_push_argument_exists(self):
         """Test that --git-push argument is recognized."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator', 'dv_test', '--git-commit', '--git-push']
+            sys.argv = ["cja_sdr_generator", "dv_test", "--git-commit", "--git-push"]
             args = parse_arguments()
-            assert hasattr(args, 'git_push')
+            assert hasattr(args, "git_push")
             assert args.git_push is True
         finally:
             sys.argv = original_argv
 
     def test_git_dir_default_value(self):
         """Test that --git-dir has correct default value."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator', 'dv_test']
+            sys.argv = ["cja_sdr_generator", "dv_test"]
             args = parse_arguments()
-            assert args.git_dir == './sdr-snapshots'
+            assert args.git_dir == "./sdr-snapshots"
         finally:
             sys.argv = original_argv
 
     def test_git_message_argument(self):
         """Test that --git-message argument is recognized."""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator', 'dv_test', '--git-commit', '--git-message', 'Test message']
+            sys.argv = ["cja_sdr_generator", "dv_test", "--git-commit", "--git-message", "Test message"]
             args = parse_arguments()
-            assert args.git_message == 'Test message'
+            assert args.git_message == "Test message"
         finally:
             sys.argv = original_argv

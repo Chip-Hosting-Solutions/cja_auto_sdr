@@ -3,7 +3,7 @@
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from cja_auto_sdr.core.config import APITuningConfig
 
@@ -36,8 +36,7 @@ class APIWorkerTuner:
             executor.resize(new_count)  # Adjust pool size
     """
 
-    def __init__(self, config: APITuningConfig = None, initial_workers: int = 3,
-                 logger: logging.Logger = None):
+    def __init__(self, config: APITuningConfig = None, initial_workers: int = 3, logger: logging.Logger | None = None):
         """
         Initialize the API worker tuner.
 
@@ -50,13 +49,10 @@ class APIWorkerTuner:
         self.logger = logger or logging.getLogger(__name__)
 
         # Current worker count
-        self._current_workers = max(
-            self.config.min_workers,
-            min(initial_workers, self.config.max_workers)
-        )
+        self._current_workers = max(self.config.min_workers, min(initial_workers, self.config.max_workers))
 
         # Rolling window of response times
-        self._response_times: List[float] = []
+        self._response_times: list[float] = []
         self._last_adjustment_time = 0.0
 
         # Thread safety
@@ -74,7 +70,7 @@ class APIWorkerTuner:
         with self._lock:
             return self._current_workers
 
-    def record_response_time(self, duration_ms: float) -> Optional[int]:
+    def record_response_time(self, duration_ms: float) -> int | None:
         """
         Record a response time and potentially adjust worker count.
 
@@ -94,7 +90,7 @@ class APIWorkerTuner:
 
             # Keep only the most recent samples
             if len(self._response_times) > self.config.sample_window:
-                self._response_times = self._response_times[-self.config.sample_window:]
+                self._response_times = self._response_times[-self.config.sample_window :]
 
             # Only adjust after we have enough samples
             if len(self._response_times) < self.config.sample_window:
@@ -121,15 +117,14 @@ class APIWorkerTuner:
                         f"(avg response: {avg_time:.0f}ms < {self.config.scale_up_threshold_ms}ms threshold)"
                     )
 
-            elif avg_time > self.config.scale_down_threshold_ms:
+            elif avg_time > self.config.scale_down_threshold_ms and self._current_workers > self.config.min_workers:
                 # Slow responses - try to reduce workers
-                if self._current_workers > self.config.min_workers:
-                    new_workers = self._current_workers - 1
-                    self._scale_downs += 1
-                    self.logger.info(
-                        f"API tuner: scaling DOWN {self._current_workers} \u2192 {new_workers} workers "
-                        f"(avg response: {avg_time:.0f}ms > {self.config.scale_down_threshold_ms}ms threshold)"
-                    )
+                new_workers = self._current_workers - 1
+                self._scale_downs += 1
+                self.logger.info(
+                    f"API tuner: scaling DOWN {self._current_workers} \u2192 {new_workers} workers "
+                    f"(avg response: {avg_time:.0f}ms > {self.config.scale_down_threshold_ms}ms threshold)"
+                )
 
             if new_workers is not None:
                 self._current_workers = new_workers
@@ -139,7 +134,7 @@ class APIWorkerTuner:
 
             return None
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get tuner statistics.
 
@@ -147,23 +142,20 @@ class APIWorkerTuner:
             Dict with worker counts, adjustment history, and performance metrics
         """
         with self._lock:
-            avg_response = (
-                self._total_response_time_ms / self._total_requests
-                if self._total_requests > 0 else 0.0
-            )
+            avg_response = self._total_response_time_ms / self._total_requests if self._total_requests > 0 else 0.0
 
             return {
-                'current_workers': self._current_workers,
-                'min_workers': self.config.min_workers,
-                'max_workers': self.config.max_workers,
-                'total_requests': self._total_requests,
-                'scale_ups': self._scale_ups,
-                'scale_downs': self._scale_downs,
-                'average_response_ms': avg_response,
-                'sample_window_size': len(self._response_times),
+                "current_workers": self._current_workers,
+                "min_workers": self.config.min_workers,
+                "max_workers": self.config.max_workers,
+                "total_requests": self._total_requests,
+                "scale_ups": self._scale_ups,
+                "scale_downs": self._scale_downs,
+                "average_response_ms": avg_response,
+                "sample_window_size": len(self._response_times),
             }
 
-    def reset(self, workers: int = None) -> None:
+    def reset(self, workers: int | None = None) -> None:
         """
         Reset the tuner state.
 
@@ -172,10 +164,7 @@ class APIWorkerTuner:
         """
         with self._lock:
             if workers is not None:
-                self._current_workers = max(
-                    self.config.min_workers,
-                    min(workers, self.config.max_workers)
-                )
+                self._current_workers = max(self.config.min_workers, min(workers, self.config.max_workers))
             self._response_times.clear()
             self._last_adjustment_time = 0.0
             self.logger.debug(f"API tuner reset (workers: {self._current_workers})")

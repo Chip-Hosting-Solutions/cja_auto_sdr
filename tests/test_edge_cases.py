@@ -10,42 +10,43 @@ Validates:
 6. OutputWriter Protocol
 """
 
-import pytest
-import pandas as pd
-import logging
 import argparse
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any, List, Optional
-
-import sys
+import logging
 import os
+import sys
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.generator import (
+    DEFAULT_CACHE,
+    DEFAULT_LOG,
+    DEFAULT_RETRY,
+    DEFAULT_RETRY_CONFIG,
+    DEFAULT_WORKERS,
+    APIError,
+    CacheConfig,
     # Custom exceptions
     CJASDRError,
     ConfigurationError,
-    APIError,
-    ValidationError,
-    OutputError,
-    # Configuration dataclasses
-    RetryConfig,
-    CacheConfig,
+    DataQualityChecker,
     LogConfig,
-    WorkerConfig,
-    SDRConfig,
+    OutputError,
     # OutputWriter Protocol
     OutputWriter,
+    # Configuration dataclasses
+    RetryConfig,
+    SDRConfig,
+    ValidationCache,
+    ValidationError,
+    WorkerConfig,
     # Existing functionality
     retry_with_backoff,
-    DEFAULT_RETRY,
-    DEFAULT_CACHE,
-    DEFAULT_LOG,
-    DEFAULT_WORKERS,
-    DEFAULT_RETRY_CONFIG,
-    ValidationCache,
-    DataQualityChecker,
 )
 
 
@@ -68,10 +69,7 @@ class TestCustomExceptions:
     def test_configuration_error(self):
         """Test ConfigurationError"""
         error = ConfigurationError(
-            "Missing credentials",
-            config_file="config.json",
-            field="client_id",
-            details="Field is empty"
+            "Missing credentials", config_file="config.json", field="client_id", details="Field is empty"
         )
         assert error.config_file == "config.json"
         assert error.field == "client_id"
@@ -85,12 +83,7 @@ class TestCustomExceptions:
 
     def test_api_error(self):
         """Test APIError"""
-        error = APIError(
-            "API call failed",
-            status_code=401,
-            operation="getMetrics",
-            details="Invalid token"
-        )
+        error = APIError("API call failed", status_code=401, operation="getMetrics", details="Invalid token")
         assert error.status_code == 401
         assert error.operation == "getMetrics"
         assert "401" in str(error)
@@ -99,20 +92,14 @@ class TestCustomExceptions:
     def test_api_error_with_original_error(self):
         """Test APIError with wrapped exception"""
         original = ConnectionError("Network unreachable")
-        error = APIError(
-            "Connection failed",
-            original_error=original
-        )
+        error = APIError("Connection failed", original_error=original)
         assert error.original_error is original
         assert isinstance(error.original_error, ConnectionError)
 
     def test_validation_error(self):
         """Test ValidationError"""
         error = ValidationError(
-            "Data quality check failed",
-            item_type="Metrics",
-            issue_count=5,
-            details="Found 5 critical issues"
+            "Data quality check failed", item_type="Metrics", issue_count=5, details="Found 5 critical issues"
         )
         assert error.item_type == "Metrics"
         assert error.issue_count == 5
@@ -120,10 +107,7 @@ class TestCustomExceptions:
     def test_output_error(self):
         """Test OutputError"""
         error = OutputError(
-            "Failed to write file",
-            output_path="/tmp/output.xlsx",
-            output_format="excel",
-            details="Permission denied"
+            "Failed to write file", output_path="/tmp/output.xlsx", output_format="excel", details="Permission denied"
         )
         assert error.output_path == "/tmp/output.xlsx"
         assert error.output_format == "excel"
@@ -134,7 +118,7 @@ class TestCustomExceptions:
             ConfigurationError("config"),
             APIError("api"),
             ValidationError("validation"),
-            OutputError("output")
+            OutputError("output"),
         ]
 
         for exc in exceptions:
@@ -160,13 +144,7 @@ class TestConfigurationDataclasses:
 
     def test_retry_config_custom_values(self):
         """Test RetryConfig with custom values"""
-        config = RetryConfig(
-            max_retries=5,
-            base_delay=0.5,
-            max_delay=60.0,
-            exponential_base=3,
-            jitter=False
-        )
+        config = RetryConfig(max_retries=5, base_delay=0.5, max_delay=60.0, exponential_base=3, jitter=False)
         assert config.max_retries == 5
         assert config.base_delay == 0.5
         assert config.max_delay == 60.0
@@ -178,9 +156,9 @@ class TestConfigurationDataclasses:
         config = RetryConfig()
         d = config.to_dict()
         assert isinstance(d, dict)
-        assert d['max_retries'] == 3
-        assert d['base_delay'] == 1.0
-        assert d['jitter'] is True
+        assert d["max_retries"] == 3
+        assert d["base_delay"] == 1.0
+        assert d["jitter"] is True
 
     def test_cache_config_defaults(self):
         """Test CacheConfig default values"""
@@ -233,13 +211,13 @@ class TestConfigurationDataclasses:
             enable_cache=True,
             cache_size=500,
             cache_ttl=7200,
-            log_level='DEBUG',
+            log_level="DEBUG",
             workers=8,
-            format='json',
-            output_dir='/tmp/output',
+            format="json",
+            output_dir="/tmp/output",
             skip_validation=True,
             max_issues=10,
-            quiet=True
+            quiet=True,
         )
 
         config = SDRConfig.from_args(args)
@@ -250,10 +228,10 @@ class TestConfigurationDataclasses:
         assert config.cache.enabled is True
         assert config.cache.max_size == 500
         assert config.cache.ttl_seconds == 7200
-        assert config.log.level == 'DEBUG'
+        assert config.log.level == "DEBUG"
         assert config.workers.batch_workers == 8
-        assert config.output_format == 'json'
-        assert config.output_dir == '/tmp/output'
+        assert config.output_format == "json"
+        assert config.output_dir == "/tmp/output"
         assert config.skip_validation is True
         assert config.max_issues == 10
         assert config.quiet is True
@@ -267,7 +245,7 @@ class TestConfigurationDataclasses:
         # Should use defaults for missing attributes
         assert config.retry.max_retries == 3
         assert config.cache.enabled is False
-        assert config.output_format == 'excel'
+        assert config.output_format == "excel"
 
 
 class TestDefaultConfigInstances:
@@ -296,9 +274,9 @@ class TestDefaultConfigInstances:
     def test_default_retry_config_dict_backward_compatible(self):
         """Test DEFAULT_RETRY_CONFIG dict is backward compatible"""
         assert isinstance(DEFAULT_RETRY_CONFIG, dict)
-        assert DEFAULT_RETRY_CONFIG['max_retries'] == 3
-        assert DEFAULT_RETRY_CONFIG['base_delay'] == 1.0
-        assert DEFAULT_RETRY_CONFIG['jitter'] is True
+        assert DEFAULT_RETRY_CONFIG["max_retries"] == 3
+        assert DEFAULT_RETRY_CONFIG["base_delay"] == 1.0
+        assert DEFAULT_RETRY_CONFIG["jitter"] is True
 
 
 class TestOutputWriterProtocol:
@@ -306,11 +284,9 @@ class TestOutputWriterProtocol:
 
     def test_protocol_is_runtime_checkable(self):
         """Test that OutputWriter Protocol is runtime checkable"""
-        from typing import runtime_checkable, Protocol
 
         # Should be a Protocol
-        assert hasattr(OutputWriter, '__protocol_attrs__') or \
-               OutputWriter.__class__.__name__ == '_ProtocolMeta'
+        assert hasattr(OutputWriter, "__protocol_attrs__") or OutputWriter.__class__.__name__ == "_ProtocolMeta"
 
     def test_class_implementing_protocol(self):
         """Test a class implementing OutputWriter protocol"""
@@ -320,19 +296,14 @@ class TestOutputWriterProtocol:
                 self,
                 metrics_df: pd.DataFrame,
                 dimensions_df: pd.DataFrame,
-                dataview_info: Dict[str, Any],
+                dataview_info: dict[str, Any],
                 output_path: Path,
-                quality_results: Optional[List[Dict[str, Any]]] = None
+                quality_results: list[dict[str, Any]] | None = None,
             ) -> str:
                 return str(output_path)
 
         writer = TestWriter()
-        result = writer.write(
-            pd.DataFrame(),
-            pd.DataFrame(),
-            {},
-            Path("/tmp/output")
-        )
+        result = writer.write(pd.DataFrame(), pd.DataFrame(), {}, Path("/tmp/output"))
         assert result == "/tmp/output"
 
     def test_protocol_isinstance_check(self):
@@ -343,9 +314,9 @@ class TestOutputWriterProtocol:
                 self,
                 metrics_df: pd.DataFrame,
                 dimensions_df: pd.DataFrame,
-                dataview_info: Dict[str, Any],
+                dataview_info: dict[str, Any],
                 output_path: Path,
-                quality_results: Optional[List[Dict[str, Any]]] = None
+                quality_results: list[dict[str, Any]] | None = None,
             ) -> str:
                 return "output"
 
@@ -357,7 +328,7 @@ class TestOutputWriterProtocol:
         # and may not work perfectly for structural subtyping
         writer = ValidWriter()
         # At minimum, the writer should have the write method
-        assert hasattr(writer, 'write')
+        assert hasattr(writer, "write")
         assert callable(writer.write)
 
 
@@ -391,7 +362,7 @@ class TestRetryEdgeCases:
                 raise ConnectionError("Fail")
             return "success"
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             result = immediate_retry_func()
 
         assert result == "success"
@@ -402,17 +373,12 @@ class TestRetryEdgeCases:
 
     def test_retry_with_very_large_exponential_base(self):
         """Test retry with large exponential base hits max_delay cap"""
-        @retry_with_backoff(
-            max_retries=3,
-            base_delay=1,
-            max_delay=10,
-            exponential_base=100,
-            jitter=False
-        )
+
+        @retry_with_backoff(max_retries=3, base_delay=1, max_delay=10, exponential_base=100, jitter=False)
         def large_base_func():
             raise ConnectionError("Fail")
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             with pytest.raises(ConnectionError):
                 large_base_func()
 
@@ -430,15 +396,13 @@ class TestEmptyDataFrameHandling:
         empty_df = pd.DataFrame()
 
         # Should not raise
-        result, cache_key = cache.get(
-            empty_df, 'Metrics', ['id', 'name', 'type'], ['id', 'name']
-        )
+        result, cache_key = cache.get(empty_df, "Metrics", ["id", "name", "type"], ["id", "name"])
         assert result is None
         assert cache_key is not None
 
         # Should be able to store and retrieve
-        cache.put(empty_df, 'Metrics', ['id', 'name', 'type'], ['id', 'name'], [])
-        result, _ = cache.get(empty_df, 'Metrics', ['id', 'name', 'type'], ['id', 'name'])
+        cache.put(empty_df, "Metrics", ["id", "name", "type"], ["id", "name"], [])
+        result, _ = cache.get(empty_df, "Metrics", ["id", "name", "type"], ["id", "name"])
         assert result == []
 
     def test_data_quality_checker_empty_df(self):
@@ -450,8 +414,8 @@ class TestEmptyDataFrameHandling:
 
         # Should not raise
         checker.check_duplicates(empty_df, "Metrics")
-        checker.check_required_fields(empty_df, "Metrics", ['id', 'name'])
-        checker.check_null_values(empty_df, "Metrics", ['id', 'name'])
+        checker.check_required_fields(empty_df, "Metrics", ["id", "name"])
+        checker.check_null_values(empty_df, "Metrics", ["id", "name"])
 
         # Empty DataFrame checks should not add issues (or add appropriate ones)
         # This is existing behavior we're testing doesn't break
@@ -461,15 +425,11 @@ class TestEmptyDataFrameHandling:
         logger = logging.getLogger("test")
         checker = DataQualityChecker(logger)
 
-        single_row_df = pd.DataFrame({
-            'id': ['m1'],
-            'name': ['Metric 1'],
-            'type': ['int']
-        })
+        single_row_df = pd.DataFrame({"id": ["m1"], "name": ["Metric 1"], "type": ["int"]})
 
         checker.check_duplicates(single_row_df, "Metrics")
         # Single row can't have duplicates
-        assert not any(i['Category'] == 'Duplicates' for i in checker.issues)
+        assert not any(i["Category"] == "Duplicates" for i in checker.issues)
 
 
 class TestCacheEdgeCases:
@@ -479,55 +439,56 @@ class TestCacheEdgeCases:
         """Test cache with max_size=1"""
         cache = ValidationCache(max_size=1, ttl_seconds=3600)
 
-        df1 = pd.DataFrame({'id': [1]})
-        df2 = pd.DataFrame({'id': [2]})
+        df1 = pd.DataFrame({"id": [1]})
+        df2 = pd.DataFrame({"id": [2]})
 
-        cache.put(df1, 'Metrics', ['id'], [], [{'issue': '1'}])
-        cache.put(df2, 'Metrics', ['id'], [], [{'issue': '2'}])
+        cache.put(df1, "Metrics", ["id"], [], [{"issue": "1"}])
+        cache.put(df2, "Metrics", ["id"], [], [{"issue": "2"}])
 
         # Cache should only have the latest entry
         stats = cache.get_statistics()
-        assert stats['size'] == 1
-        assert stats['evictions'] == 1
+        assert stats["size"] == 1
+        assert stats["evictions"] == 1
 
         # df2 should be cached, df1 should be evicted
-        result1, _ = cache.get(df1, 'Metrics', ['id'], [])
-        result2, _ = cache.get(df2, 'Metrics', ['id'], [])
+        result1, _ = cache.get(df1, "Metrics", ["id"], [])
+        result2, _ = cache.get(df2, "Metrics", ["id"], [])
         assert result1 is None
         assert result2 is not None
 
     def test_cache_ttl_one_second(self):
         """Test cache with very short TTL"""
         import time
+
         cache = ValidationCache(max_size=100, ttl_seconds=1)
 
-        df = pd.DataFrame({'id': [1]})
-        cache.put(df, 'Metrics', ['id'], [], [{'issue': 'test'}])
+        df = pd.DataFrame({"id": [1]})
+        cache.put(df, "Metrics", ["id"], [], [{"issue": "test"}])
 
         # Immediately should be cached
-        result, _ = cache.get(df, 'Metrics', ['id'], [])
+        result, _ = cache.get(df, "Metrics", ["id"], [])
         assert result is not None
 
         # After expiry
         time.sleep(1.1)
-        result, _ = cache.get(df, 'Metrics', ['id'], [])
+        result, _ = cache.get(df, "Metrics", ["id"], [])
         assert result is None
 
     def test_cache_with_identical_df_different_item_type(self):
         """Test cache distinguishes by item_type"""
         cache = ValidationCache(max_size=100, ttl_seconds=3600)
 
-        df = pd.DataFrame({'id': [1], 'name': ['Test']})
+        df = pd.DataFrame({"id": [1], "name": ["Test"]})
 
-        cache.put(df, 'Metrics', ['id', 'name'], [], [{'issue': 'metrics'}])
-        cache.put(df, 'Dimensions', ['id', 'name'], [], [{'issue': 'dimensions'}])
+        cache.put(df, "Metrics", ["id", "name"], [], [{"issue": "metrics"}])
+        cache.put(df, "Dimensions", ["id", "name"], [], [{"issue": "dimensions"}])
 
         # Should have two separate entries
-        result_m, _ = cache.get(df, 'Metrics', ['id', 'name'], [])
-        result_d, _ = cache.get(df, 'Dimensions', ['id', 'name'], [])
+        result_m, _ = cache.get(df, "Metrics", ["id", "name"], [])
+        result_d, _ = cache.get(df, "Dimensions", ["id", "name"], [])
 
-        assert result_m[0]['issue'] == 'metrics'
-        assert result_d[0]['issue'] == 'dimensions'
+        assert result_m[0]["issue"] == "metrics"
+        assert result_d[0]["issue"] == "dimensions"
 
 
 class TestDataFrameColumnHandling:
@@ -539,10 +500,7 @@ class TestDataFrameColumnHandling:
         checker = DataQualityChecker(logger)
 
         # DataFrame without 'name' column
-        df = pd.DataFrame({
-            'id': ['m1', 'm2'],
-            'type': ['int', 'currency']
-        })
+        df = pd.DataFrame({"id": ["m1", "m2"], "type": ["int", "currency"]})
 
         # check_duplicates should skip gracefully
         checker.check_duplicates(df, "Metrics")
@@ -553,20 +511,22 @@ class TestDataFrameColumnHandling:
         logger = logging.getLogger("test")
         checker = DataQualityChecker(logger)
 
-        df = pd.DataFrame({
-            'id': ['m1', 'm2'],
-            'name': ['Metric 1', 'Metric 2'],
-            'type': ['int', 'currency'],
-            'extra_col': ['a', 'b'],
-            'another_extra': [1, 2]
-        })
+        df = pd.DataFrame(
+            {
+                "id": ["m1", "m2"],
+                "name": ["Metric 1", "Metric 2"],
+                "type": ["int", "currency"],
+                "extra_col": ["a", "b"],
+                "another_extra": [1, 2],
+            }
+        )
 
         # Should handle extra columns gracefully
-        checker.check_required_fields(df, "Metrics", ['id', 'name', 'type'])
+        checker.check_required_fields(df, "Metrics", ["id", "name", "type"])
         checker.check_duplicates(df, "Metrics")
 
         # No "missing fields" issues should be logged for required fields
-        missing_issues = [i for i in checker.issues if 'Missing Fields' in i.get('Category', '')]
+        missing_issues = [i for i in checker.issues if "Missing Fields" in i.get("Category", "")]
         assert len(missing_issues) == 0
 
 
@@ -576,7 +536,6 @@ class TestConcurrentAccessEdgeCases:
     def test_cache_clear_during_access(self):
         """Test cache clear while other operations are occurring"""
         from concurrent.futures import ThreadPoolExecutor
-        import threading
 
         cache = ValidationCache(max_size=100, ttl_seconds=3600)
         errors = []
@@ -584,16 +543,16 @@ class TestConcurrentAccessEdgeCases:
         def reader():
             for _ in range(100):
                 try:
-                    df = pd.DataFrame({'id': [1]})
-                    cache.get(df, 'Metrics', ['id'], [])
+                    df = pd.DataFrame({"id": [1]})
+                    cache.get(df, "Metrics", ["id"], [])
                 except Exception as e:
                     errors.append(e)
 
         def writer():
             for _ in range(50):
                 try:
-                    df = pd.DataFrame({'id': [1]})
-                    cache.put(df, 'Metrics', ['id'], [], [])
+                    df = pd.DataFrame({"id": [1]})
+                    cache.put(df, "Metrics", ["id"], [], [])
                 except Exception as e:
                     errors.append(e)
 
@@ -610,7 +569,7 @@ class TestConcurrentAccessEdgeCases:
                 executor.submit(reader),
                 executor.submit(writer),
                 executor.submit(writer),
-                executor.submit(clearer)
+                executor.submit(clearer),
             ]
             for f in futures:
                 f.result()
@@ -623,20 +582,24 @@ class TestConcurrentAccessEdgeCases:
 @pytest.fixture
 def sample_metrics_df():
     """Sample metrics DataFrame for testing"""
-    return pd.DataFrame({
-        'id': ['m1', 'm2', 'm3'],
-        'name': ['Metric 1', 'Metric 2', 'Metric 3'],
-        'type': ['int', 'currency', 'percent'],
-        'description': ['First metric', None, 'Third metric']
-    })
+    return pd.DataFrame(
+        {
+            "id": ["m1", "m2", "m3"],
+            "name": ["Metric 1", "Metric 2", "Metric 3"],
+            "type": ["int", "currency", "percent"],
+            "description": ["First metric", None, "Third metric"],
+        }
+    )
 
 
 @pytest.fixture
 def sample_dimensions_df():
     """Sample dimensions DataFrame for testing"""
-    return pd.DataFrame({
-        'id': ['d1', 'd2', 'd3'],
-        'name': ['Dimension 1', 'Dimension 2', 'Dimension 3'],
-        'type': ['string', 'string', 'string'],
-        'description': ['First dimension', 'Second dimension', None]
-    })
+    return pd.DataFrame(
+        {
+            "id": ["d1", "d2", "d3"],
+            "name": ["Dimension 1", "Dimension 2", "Dimension 3"],
+            "type": ["string", "string", "string"],
+            "description": ["First dimension", "Second dimension", None],
+        }
+    )

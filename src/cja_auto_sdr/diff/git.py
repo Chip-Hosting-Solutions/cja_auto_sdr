@@ -5,7 +5,6 @@ import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 from cja_auto_sdr.core.version import __version__
 from cja_auto_sdr.diff.models import DataViewSnapshot, DiffResult
@@ -15,40 +14,30 @@ def is_git_repository(path: Path) -> bool:
     """Check if the given path is inside a Git repository."""
     try:
         result = subprocess.run(
-            ['git', 'rev-parse', '--git-dir'],
-            cwd=str(path),
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["git", "rev-parse", "--git-dir"], cwd=str(path), capture_output=True, text=True, timeout=10
         )
         return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         return False
 
 
-def git_get_user_info() -> Tuple[str, str]:
+def git_get_user_info() -> tuple[str, str]:
     """Get Git user name and email from config."""
     name = "CJA SDR Generator"
     email = ""
 
     try:
-        result = subprocess.run(
-            ['git', 'config', 'user.name'],
-            capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             name = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         pass
 
     try:
-        result = subprocess.run(
-            ['git', 'config', 'user.email'],
-            capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             email = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         pass
 
     return name, email
@@ -57,91 +46,84 @@ def git_get_user_info() -> Tuple[str, str]:
 def save_git_friendly_snapshot(
     snapshot: DataViewSnapshot,
     output_dir: Path,
-    quality_issues: List[Dict] = None,
-    logger: logging.Logger = None
-) -> Dict[str, Path]:
+    quality_issues: list[dict] | None = None,
+    logger: logging.Logger | None = None,
+) -> dict[str, Path]:
     """Save snapshot in Git-friendly format (separate JSON files)."""
     logger = logger or logging.getLogger(__name__)
 
-    safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in snapshot.data_view_name)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in snapshot.data_view_name)
     safe_name = safe_name[:50] if safe_name else snapshot.data_view_id
     dv_dir = output_dir / f"{safe_name}_{snapshot.data_view_id}"
     dv_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = {}
 
-    metrics_sorted = sorted(snapshot.metrics, key=lambda x: x.get('id', ''))
+    metrics_sorted = sorted(snapshot.metrics, key=lambda x: x.get("id", ""))
     metrics_file = dv_dir / "metrics.json"
-    with open(metrics_file, 'w', encoding='utf-8') as f:
+    with open(metrics_file, "w", encoding="utf-8") as f:
         json.dump(metrics_sorted, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['metrics'] = metrics_file
+    saved_files["metrics"] = metrics_file
     logger.debug(f"Saved {len(metrics_sorted)} metrics to {metrics_file}")
 
-    dimensions_sorted = sorted(snapshot.dimensions, key=lambda x: x.get('id', ''))
+    dimensions_sorted = sorted(snapshot.dimensions, key=lambda x: x.get("id", ""))
     dimensions_file = dv_dir / "dimensions.json"
-    with open(dimensions_file, 'w', encoding='utf-8') as f:
+    with open(dimensions_file, "w", encoding="utf-8") as f:
         json.dump(dimensions_sorted, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['dimensions'] = dimensions_file
+    saved_files["dimensions"] = dimensions_file
     logger.debug(f"Saved {len(dimensions_sorted)} dimensions to {dimensions_file}")
 
     if snapshot.calculated_metrics_inventory:
         calc_metrics_sorted = sorted(
-            snapshot.calculated_metrics_inventory,
-            key=lambda x: x.get('id', x.get('metric_id', ''))
+            snapshot.calculated_metrics_inventory, key=lambda x: x.get("id", x.get("metric_id", ""))
         )
         calc_metrics_file = dv_dir / "calculated-metrics.json"
-        with open(calc_metrics_file, 'w', encoding='utf-8') as f:
+        with open(calc_metrics_file, "w", encoding="utf-8") as f:
             json.dump(calc_metrics_sorted, f, indent=2, ensure_ascii=False, default=str)
-        saved_files['calculated_metrics'] = calc_metrics_file
+        saved_files["calculated_metrics"] = calc_metrics_file
         logger.debug(f"Saved {len(calc_metrics_sorted)} calculated metrics to {calc_metrics_file}")
 
     if snapshot.segments_inventory:
-        segments_sorted = sorted(
-            snapshot.segments_inventory,
-            key=lambda x: x.get('id', x.get('segment_id', ''))
-        )
+        segments_sorted = sorted(snapshot.segments_inventory, key=lambda x: x.get("id", x.get("segment_id", "")))
         segments_file = dv_dir / "segments.json"
-        with open(segments_file, 'w', encoding='utf-8') as f:
+        with open(segments_file, "w", encoding="utf-8") as f:
             json.dump(segments_sorted, f, indent=2, ensure_ascii=False, default=str)
-        saved_files['segments'] = segments_file
+        saved_files["segments"] = segments_file
         logger.debug(f"Saved {len(segments_sorted)} segments to {segments_file}")
 
     metadata = {
-        'snapshot_version': snapshot.snapshot_version,
-        'created_at': snapshot.created_at,
-        'data_view_id': snapshot.data_view_id,
-        'data_view_name': snapshot.data_view_name,
-        'owner': snapshot.owner,
-        'description': snapshot.description,
-        'tool_version': __version__,
-        'summary': {
-            'metrics_count': len(snapshot.metrics),
-            'dimensions_count': len(snapshot.dimensions),
-            'total_components': len(snapshot.metrics) + len(snapshot.dimensions)
-        }
+        "snapshot_version": snapshot.snapshot_version,
+        "created_at": snapshot.created_at,
+        "data_view_id": snapshot.data_view_id,
+        "data_view_name": snapshot.data_view_name,
+        "owner": snapshot.owner,
+        "description": snapshot.description,
+        "tool_version": __version__,
+        "summary": {
+            "metrics_count": len(snapshot.metrics),
+            "dimensions_count": len(snapshot.dimensions),
+            "total_components": len(snapshot.metrics) + len(snapshot.dimensions),
+        },
     }
 
     if snapshot.calculated_metrics_inventory or snapshot.segments_inventory:
-        metadata['inventory'] = {}
+        metadata["inventory"] = {}
         if snapshot.calculated_metrics_inventory:
-            metadata['inventory']['calculated_metrics_count'] = len(snapshot.calculated_metrics_inventory)
+            metadata["inventory"]["calculated_metrics_count"] = len(snapshot.calculated_metrics_inventory)
         if snapshot.segments_inventory:
-            metadata['inventory']['segments_count'] = len(snapshot.segments_inventory)
+            metadata["inventory"]["segments_count"] = len(snapshot.segments_inventory)
 
     if quality_issues:
         severity_counts = {}
         for issue in quality_issues:
-            sev = issue.get('Severity', 'UNKNOWN')
+            sev = issue.get("Severity", "UNKNOWN")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        metadata['quality'] = {
-            'total_issues': len(quality_issues),
-            'by_severity': severity_counts
-        }
+        metadata["quality"] = {"total_issues": len(quality_issues), "by_severity": severity_counts}
 
     metadata_file = dv_dir / "metadata.json"
-    with open(metadata_file, 'w', encoding='utf-8') as f:
+    with open(metadata_file, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False, default=str)
-    saved_files['metadata'] = metadata_file
+    saved_files["metadata"] = metadata_file
     logger.debug(f"Saved metadata to {metadata_file}")
 
     return saved_files
@@ -152,12 +134,12 @@ def generate_git_commit_message(
     data_view_name: str,
     metrics_count: int,
     dimensions_count: int,
-    quality_issues: List[Dict] = None,
+    quality_issues: list[dict] | None = None,
     diff_result: DiffResult = None,
-    custom_message: str = None
+    custom_message: str | None = None,
 ) -> str:
     """Generate a descriptive Git commit message for SDR snapshot."""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     if custom_message:
         subject = f"[{data_view_id}] {custom_message}"
@@ -191,11 +173,11 @@ def generate_git_commit_message(
     if quality_issues:
         severity_counts = {}
         for issue in quality_issues:
-            sev = issue.get('Severity', 'UNKNOWN')
+            sev = issue.get("Severity", "UNKNOWN")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
         lines.append("Quality:")
-        for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
             count = severity_counts.get(sev, 0)
             if count > 0:
                 lines.append(f"  {sev}: {count}")
@@ -212,12 +194,12 @@ def git_commit_snapshot(
     data_view_name: str,
     metrics_count: int,
     dimensions_count: int,
-    quality_issues: List[Dict] = None,
+    quality_issues: list[dict] | None = None,
     diff_result: DiffResult = None,
-    custom_message: str = None,
+    custom_message: str | None = None,
     push: bool = False,
-    logger: logging.Logger = None
-) -> Tuple[bool, str]:
+    logger: logging.Logger | None = None,
+) -> tuple[bool, str]:
     """Commit snapshot files to Git with auto-generated message."""
     logger = logger or logging.getLogger(__name__)
 
@@ -226,21 +208,12 @@ def git_commit_snapshot(
 
     try:
         logger.info(f"Staging snapshot files in {snapshot_dir}")
-        result = subprocess.run(
-            ['git', 'add', '.'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        result = subprocess.run(["git", "add", "."], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             return False, f"git add failed: {result.stderr}"
 
         result = subprocess.run(
-            ['git', 'diff', '--cached', '--quiet'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            timeout=10
+            ["git", "diff", "--cached", "--quiet"], cwd=str(snapshot_dir), capture_output=True, timeout=10
         )
         if result.returncode == 0:
             logger.info("No changes to commit (snapshot unchanged)")
@@ -253,26 +226,18 @@ def git_commit_snapshot(
             dimensions_count=dimensions_count,
             quality_issues=quality_issues,
             diff_result=diff_result,
-            custom_message=custom_message
+            custom_message=custom_message,
         )
 
         logger.info("Committing snapshot to Git")
         result = subprocess.run(
-            ['git', 'commit', '-m', commit_message],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["git", "commit", "-m", commit_message], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
             return False, f"git commit failed: {result.stderr}"
 
         result = subprocess.run(
-            ['git', 'rev-parse', 'HEAD'],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["git", "rev-parse", "HEAD"], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=10
         )
         commit_sha = result.stdout.strip()[:8] if result.returncode == 0 else "unknown"
 
@@ -280,13 +245,7 @@ def git_commit_snapshot(
 
         if push:
             logger.info("Pushing to remote")
-            result = subprocess.run(
-                ['git', 'push'],
-                cwd=str(snapshot_dir),
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            result = subprocess.run(["git", "push"], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
                 logger.warning(f"git push failed: {result.stderr}")
                 return True, f"{commit_sha} (push failed: {result.stderr.strip()})"
@@ -299,13 +258,10 @@ def git_commit_snapshot(
     except FileNotFoundError:
         return False, "Git not found - ensure Git is installed and in PATH"
     except Exception as e:
-        return False, f"Git error: {str(e)}"
+        return False, f"Git error: {e!s}"
 
 
-def git_init_snapshot_repo(
-    directory: Path,
-    logger: logging.Logger = None
-) -> Tuple[bool, str]:
+def git_init_snapshot_repo(directory: Path, logger: logging.Logger | None = None) -> tuple[bool, str]:
     """Initialize a new Git repository for snapshots."""
     logger = logger or logging.getLogger(__name__)
 
@@ -316,13 +272,7 @@ def git_init_snapshot_repo(
             return True, "Already a Git repository"
 
         logger.info(f"Initializing Git repository in {directory}")
-        result = subprocess.run(
-            ['git', 'init'],
-            cwd=str(directory),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        result = subprocess.run(["git", "init"], cwd=str(directory), capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             return False, f"git init failed: {result.stderr}"
 
@@ -359,16 +309,16 @@ git diff HEAD~1 HEAD -- <data_view_dir>/metrics.json
 Generated by CJA SDR Generator v{__version__}
 """)
 
-        subprocess.run(['git', 'add', '.'], cwd=str(directory), capture_output=True, timeout=30)
+        subprocess.run(["git", "add", "."], cwd=str(directory), capture_output=True, timeout=30)
         subprocess.run(
-            ['git', 'commit', '-m', 'Initialize SDR snapshot repository'],
+            ["git", "commit", "-m", "Initialize SDR snapshot repository"],
             cwd=str(directory),
             capture_output=True,
-            timeout=30
+            timeout=30,
         )
 
         logger.info(f"Initialized Git repository: {directory}")
         return True, "Repository initialized"
 
     except Exception as e:
-        return False, f"Initialization failed: {str(e)}"
+        return False, f"Initialization failed: {e!s}"

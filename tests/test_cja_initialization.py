@@ -1,22 +1,24 @@
 """Tests for CJA initialization and validation functions"""
-import pytest
+
 import json
 import logging
-import sys
 import os
+import sys
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from cja_auto_sdr.api.client import configure_cjapy
 from cja_auto_sdr.generator import (
+    CredentialSourceError,
     initialize_cja,
-    validate_data_view,
     list_dataviews,
     validate_config_only,
-    CredentialResolver,
-    CredentialSourceError,
+    validate_data_view,
 )
 
 
@@ -40,7 +42,7 @@ def mock_config_file(tmp_path):
         "org_id": "test_org@AdobeOrg",
         "client_id": "test_client_id",
         "secret": "test_secret",
-        "scopes": "openid, AdobeID, additional_info.projectedProductContext"
+        "scopes": "openid, AdobeID, additional_info.projectedProductContext",
     }
     config_file = tmp_path / "test_config.json"
     config_file.write_text(json.dumps(config_data))
@@ -70,22 +72,16 @@ def incomplete_config_file(tmp_path):
 class TestInitializeCjaSuccess:
     """Tests for successful CJA initialization"""
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_init_with_config_file(self, mock_api_call, mock_cjapy, mock_resolver_class,
-                                    mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_init_with_config_file(self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file):
         """Test successful initialization with config file"""
         # Mock CredentialResolver to return config file as source
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {
-                'org_id': 'test_org@AdobeOrg',
-                'client_id': 'test_client_id',
-                'secret': 'test_secret',
-                'scopes': 'openid'
-            },
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test_org@AdobeOrg", "client_id": "test_client_id", "secret": "test_secret", "scopes": "openid"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -98,22 +94,19 @@ class TestInitializeCjaSuccess:
         assert result is not None
         mock_cjapy.importConfigFile.assert_called_once_with(mock_config_file)
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client._config_from_env')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_init_with_env_credentials(self, mock_api_call, mock_cjapy, mock_config_env,
-                                        mock_resolver_class, mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client._config_from_env")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_init_with_env_credentials(
+        self, mock_api_call, mock_cjapy, mock_config_env, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """Test successful initialization with environment credentials"""
         # Mock CredentialResolver to return env credentials
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {
-                'org_id': 'test_org@AdobeOrg',
-                'client_id': 'test_client',
-                'secret': 'test_secret'
-            },
-            'environment'
+            {"org_id": "test_org@AdobeOrg", "client_id": "test_client", "secret": "test_secret"},
+            "environment",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -126,17 +119,18 @@ class TestInitializeCjaSuccess:
         assert result is not None
         mock_config_env.assert_called_once()  # _config_from_env should be called for env credentials
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_init_logs_connection_success(self, mock_api_call, mock_cjapy, mock_resolver_class,
-                                           mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_init_logs_connection_success(
+        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """Test that successful connection is logged"""
         # Mock CredentialResolver
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -154,16 +148,13 @@ class TestInitializeCjaSuccess:
 class TestInitializeCjaFailures:
     """Tests for CJA initialization failures"""
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    def test_init_fails_with_invalid_config(self, mock_resolver_class,
-                                             mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    def test_init_fails_with_invalid_config(self, mock_resolver_class, mock_logger, mock_config_file):
         """Test that initialization fails with invalid config"""
         # Mock CredentialResolver to raise CredentialSourceError
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found",
-            source="all",
-            reason="Config validation failed"
+            "No valid credentials found", source="all", reason="Config validation failed"
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -172,16 +163,13 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    def test_init_fails_with_missing_config_file(self, mock_resolver_class,
-                                                  mock_logger):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    def test_init_fails_with_missing_config_file(self, mock_resolver_class, mock_logger):
         """Test that initialization fails when config file is missing"""
         # Mock CredentialResolver to raise CredentialSourceError
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found",
-            source="all",
-            reason="Config file not found"
+            "No valid credentials found", source="all", reason="Config file not found"
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -190,16 +178,15 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    def test_init_fails_on_import_error(self, mock_cjapy, mock_resolver_class,
-                                         mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    def test_init_fails_on_import_error(self, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file):
         """Test handling of import errors"""
         # Mock CredentialResolver to return valid credentials
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -210,16 +197,15 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    def test_init_fails_on_attribute_error(self, mock_cjapy, mock_resolver_class,
-                                            mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    def test_init_fails_on_attribute_error(self, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file):
         """Test handling of attribute errors (bad credentials)"""
         # Mock CredentialResolver to return valid credentials
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -230,15 +216,14 @@ class TestInitializeCjaFailures:
         assert result is None
         mock_logger.critical.assert_called()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    def test_init_fails_on_permission_error(self, mock_cjapy, mock_resolver_class,
-                                             mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    def test_init_fails_on_permission_error(self, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file):
         """Test handling of permission errors"""
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -250,19 +235,65 @@ class TestInitializeCjaFailures:
         mock_logger.critical.assert_called()
 
 
+class TestConfigureCjapy:
+    """Tests for configure_cjapy helper behavior."""
+
+    @patch("cja_auto_sdr.api.client._bootstrap_dotenv")
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client._config_from_env")
+    def test_configure_bootstraps_dotenv_before_resolve(
+        self,
+        mock_config_from_env,
+        mock_resolver_class,
+        mock_bootstrap_dotenv,
+        mock_logger,
+    ):
+        """Ensure dotenv bootstrap runs before credential resolution."""
+        call_order = []
+
+        def bootstrap_side_effect(logger):
+            call_order.append("dotenv")
+
+        def resolve_side_effect(*args, **kwargs):
+            call_order.append("resolve")
+            return (
+                {
+                    "org_id": "test_org@AdobeOrg",
+                    "client_id": "test_client",
+                    "secret": "test_secret",
+                    "scopes": "openid",
+                },
+                "environment",
+            )
+
+        mock_bootstrap_dotenv.side_effect = bootstrap_side_effect
+        mock_resolver = Mock()
+        mock_resolver.resolve.side_effect = resolve_side_effect
+        mock_resolver_class.return_value = mock_resolver
+
+        success, source, credentials = configure_cjapy(logger=mock_logger)
+
+        assert success is True
+        assert source == "Environment variables"
+        assert credentials is not None
+        assert call_order[:2] == ["dotenv", "resolve"]
+        mock_config_from_env.assert_called_once()
+
+
 class TestInitializeCjaConnectionTest:
     """Tests for connection testing during initialization"""
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_connection_test_returns_none(self, mock_api_call, mock_cjapy, mock_resolver_class,
-                                           mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_connection_test_returns_none(
+        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """Test handling when connection test returns None"""
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -276,16 +307,17 @@ class TestInitializeCjaConnectionTest:
         assert result is not None
         mock_logger.warning.assert_called()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_connection_test_raises_exception(self, mock_api_call, mock_cjapy, mock_resolver_class,
-                                               mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_connection_test_raises_exception(
+        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """Test handling when connection test raises exception"""
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -309,7 +341,7 @@ class TestValidateDataView:
         mock_cja.getDataView.return_value = {
             "id": "dv_test_12345",
             "name": "Test Data View",
-            "owner": {"name": "Test Owner"}
+            "owner": {"name": "Test Owner"},
         }
 
         result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
@@ -336,11 +368,7 @@ class TestValidateDataView:
     def test_warns_for_non_standard_format(self, mock_logger):
         """Test warning for non-standard data view ID format"""
         mock_cja = Mock()
-        mock_cja.getDataView.return_value = {
-            "id": "custom_id",
-            "name": "Test",
-            "owner": {"name": "Owner"}
-        }
+        mock_cja.getDataView.return_value = {"id": "custom_id", "name": "Test", "owner": {"name": "Owner"}}
 
         result = validate_data_view(mock_cja, "custom_id", mock_logger)
 
@@ -385,7 +413,7 @@ class TestValidateDataView:
             "id": "dv_test_12345",
             "name": "Test Data View",
             "owner": {"name": "Test Owner"},
-            "description": "Test description"
+            "description": "Test description",
         }
 
         validate_data_view(mock_cja, "dv_test_12345", mock_logger)
@@ -399,7 +427,7 @@ class TestValidateDataView:
         mock_cja.getDataView.return_value = None
         mock_cja.getDataViews.return_value = [
             {"id": "dv_other1", "name": "Other DV 1"},
-            {"id": "dv_other2", "name": "Other DV 2"}
+            {"id": "dv_other2", "name": "Other DV 2"},
         ]
 
         validate_data_view(mock_cja, "dv_invalid", mock_logger)
@@ -411,15 +439,15 @@ class TestValidateDataView:
 class TestListDataviews:
     """Tests for list_dataviews function"""
 
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_lists_available_dataviews(self, mock_print, mock_cjapy, mock_config_file):
         """Test listing available data views"""
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
         mock_cja.getDataViews.return_value = [
             {"id": "dv_1", "name": "Data View 1", "owner": {"name": "Owner 1"}},
-            {"id": "dv_2", "name": "Data View 2", "owner": {"name": "Owner 2"}}
+            {"id": "dv_2", "name": "Data View 2", "owner": {"name": "Owner 2"}},
         ]
 
         result = list_dataviews(mock_config_file)
@@ -428,8 +456,8 @@ class TestListDataviews:
         # Should print data view information
         mock_print.assert_called()
 
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_handles_empty_dataviews_list(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of empty data views list"""
         mock_cja = Mock()
@@ -442,23 +470,24 @@ class TestListDataviews:
         # Should print no data views message
         mock_print.assert_called()
 
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_handles_dataframe_response(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of DataFrame response"""
         import pandas as pd
+
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_cja.getDataViews.return_value = pd.DataFrame([
-            {"id": "dv_1", "name": "Data View 1", "owner": {"name": "Owner 1"}}
-        ])
+        mock_cja.getDataViews.return_value = pd.DataFrame(
+            [{"id": "dv_1", "name": "Data View 1", "owner": {"name": "Owner 1"}}]
+        )
 
         result = list_dataviews(mock_config_file)
 
         assert result is True
 
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_handles_config_not_found(self, mock_print, mock_cjapy):
         """Test handling of missing config file"""
         mock_cjapy.importConfigFile.side_effect = FileNotFoundError("Not found")
@@ -468,8 +497,8 @@ class TestListDataviews:
         assert result is False
         mock_print.assert_called()
 
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_handles_api_error(self, mock_print, mock_cjapy, mock_config_file):
         """Test handling of API errors"""
         mock_cja = Mock()
@@ -484,9 +513,9 @@ class TestListDataviews:
 class TestValidateConfigOnly:
     """Tests for validate_config_only function"""
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
     def test_validates_valid_config(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test validation of valid configuration"""
         mock_load_env.return_value = None
@@ -498,19 +527,16 @@ class TestValidateConfigOnly:
 
         assert result is True
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('cja_auto_sdr.generator.validate_env_credentials')
-    @patch('cja_auto_sdr.generator._config_from_env')
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
-    def test_validates_env_credentials(self, mock_print, mock_cjapy, mock_config_env,
-                                        mock_validate_env, mock_load_env, mock_config_file):
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.validate_env_credentials")
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
+    def test_validates_env_credentials(
+        self, mock_print, mock_cjapy, mock_config_env, mock_validate_env, mock_load_env, mock_config_file
+    ):
         """Test validation with environment credentials"""
-        mock_load_env.return_value = {
-            'org_id': 'test@AdobeOrg',
-            'client_id': 'test_client',
-            'secret': 'test_secret'
-        }
+        mock_load_env.return_value = {"org_id": "test@AdobeOrg", "client_id": "test_client", "secret": "test_secret"}
         mock_validate_env.return_value = True
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
@@ -520,8 +546,8 @@ class TestValidateConfigOnly:
 
         assert result is True
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("builtins.print")
     def test_fails_with_missing_config(self, mock_print, mock_load_env):
         """Test failure with missing config file"""
         mock_load_env.return_value = None
@@ -530,11 +556,10 @@ class TestValidateConfigOnly:
 
         assert result is False
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
-    def test_fails_on_api_connection_error(self, mock_print, mock_cjapy,
-                                            mock_load_env, mock_config_file):
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
+    def test_fails_on_api_connection_error(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test failure when API connection fails"""
         mock_load_env.return_value = None
         mock_cja = Mock()
@@ -545,8 +570,8 @@ class TestValidateConfigOnly:
 
         assert result is False
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('builtins.print')
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("builtins.print")
     def test_shows_credential_status(self, mock_print, mock_load_env, mock_config_file):
         """Test that credential status is shown"""
         mock_load_env.return_value = None
@@ -556,11 +581,10 @@ class TestValidateConfigOnly:
 
         mock_print.assert_called()
 
-    @patch('cja_auto_sdr.generator.load_credentials_from_env')
-    @patch('cja_auto_sdr.generator.cjapy')
-    @patch('builtins.print')
-    def test_shows_data_view_count(self, mock_print, mock_cjapy,
-                                    mock_load_env, mock_config_file):
+    @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("builtins.print")
+    def test_shows_data_view_count(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test that data view count is shown on success"""
         mock_load_env.return_value = None
         mock_cja = Mock()
@@ -576,18 +600,18 @@ class TestValidateConfigOnly:
 class TestInitializeCjaEnvFallback:
     """Tests for environment to config file fallback"""
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    @patch('cja_auto_sdr.api.client.cjapy')
-    @patch('cja_auto_sdr.api.client.make_api_call_with_retry')
-    def test_falls_back_to_config_when_env_incomplete(self, mock_api_call, mock_cjapy,
-                                                       mock_resolver_class,
-                                                       mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_falls_back_to_config_when_env_incomplete(
+        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """Test fallback to config file when env credentials incomplete"""
         # CredentialResolver handles fallback internally — mock it to return config source
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
-            {'org_id': 'test@AdobeOrg', 'client_id': 'x', 'secret': 'y'},
-            f'config:{Path(mock_config_file).name}'
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -600,16 +624,13 @@ class TestInitializeCjaEnvFallback:
         assert result is not None
         mock_cjapy.importConfigFile.assert_called_once()
 
-    @patch('cja_auto_sdr.api.client.CredentialResolver')
-    def test_fails_when_both_env_and_config_invalid(self, mock_resolver_class,
-                                                     mock_logger, mock_config_file):
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    def test_fails_when_both_env_and_config_invalid(self, mock_resolver_class, mock_logger, mock_config_file):
         """Test failure when both env and config are invalid"""
         # CredentialResolver raises when no valid credentials found
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found",
-            source="all",
-            reason="All sources failed"
+            "No valid credentials found", source="all", reason="All sources failed"
         )
         mock_resolver_class.return_value = mock_resolver
 

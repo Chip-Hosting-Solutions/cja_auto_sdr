@@ -3,7 +3,7 @@
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import ClassVar
 
 import pandas as pd
 from tqdm import tqdm
@@ -16,26 +16,26 @@ TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
 
 class DataQualityChecker:
     # Severity levels in priority order (highest to lowest) for proper sorting
-    SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+    SEVERITY_ORDER: ClassVar[list[str]] = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
-    def __init__(self, logger: logging.Logger, validation_cache: Optional[ValidationCache] = None,
-                 quiet: bool = False):
+    def __init__(self, logger: logging.Logger, validation_cache: ValidationCache | None = None, quiet: bool = False):
         self.issues = []
         self.logger = logger
         self.validation_cache = validation_cache  # Optional cache for performance
         self._issues_lock = threading.Lock()  # Thread safety for parallel validation
         self.quiet = quiet
 
-    def add_issue(self, severity: str, category: str, item_type: str,
-                  item_name: str, description: str, details: str = ""):
+    def add_issue(
+        self, severity: str, category: str, item_type: str, item_name: str, description: str, details: str = ""
+    ):
         """Add a data quality issue to the tracker (thread-safe)"""
         issue = {
-            'Severity': severity,
-            'Category': category,
-            'Type': item_type,
-            'Item Name': item_name,
-            'Issue': description,
-            'Details': details
+            "Severity": severity,
+            "Category": category,
+            "Type": item_type,
+            "Item Name": item_name,
+            "Issue": description,
+            "Details": details,
         }
 
         # Thread-safe append operation
@@ -46,7 +46,7 @@ class DataQualityChecker:
         # Only log individual issues in DEBUG mode
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(f"DQ Issue [{severity}] - {item_type}: {description}")
-        elif severity in ['CRITICAL', 'HIGH'] and self.logger.isEnabledFor(logging.WARNING):
+        elif severity in ["CRITICAL", "HIGH"] and self.logger.isEnabledFor(logging.WARNING):
             # In non-DEBUG modes, only log CRITICAL/HIGH severity issues
             self.logger.warning(f"DQ Issue [{severity}] - {item_type}: {description}")
 
@@ -57,27 +57,26 @@ class DataQualityChecker:
                 self.logger.info(f"Skipping duplicate check for empty {item_type} dataframe")
                 return
 
-            if 'name' not in df.columns:
+            if "name" not in df.columns:
                 self.logger.warning(f"'name' column not found in {item_type}. Skipping duplicate check.")
                 return
 
-            duplicates = df['name'].value_counts()
+            duplicates = df["name"].value_counts()
             duplicates = duplicates[duplicates > 1]
 
             for name, count in duplicates.items():
                 self.add_issue(
-                    severity='HIGH',
-                    category='Duplicates',
+                    severity="HIGH",
+                    category="Duplicates",
                     item_type=item_type,
                     item_name=str(name),
-                    description=f'Duplicate name found {count} times',
-                    details=f'This {item_type.lower()} name appears {count} times in the data view'
+                    description=f"Duplicate name found {count} times",
+                    details=f"This {item_type.lower()} name appears {count} times in the data view",
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking duplicates", item_type, e))
 
-    def check_required_fields(self, df: pd.DataFrame, item_type: str,
-                            required_fields: List[str]):
+    def check_required_fields(self, df: pd.DataFrame, item_type: str, required_fields: list[str]):
         """Validate that required fields are present"""
         try:
             if df.empty:
@@ -88,18 +87,17 @@ class DataQualityChecker:
 
             if missing_fields:
                 self.add_issue(
-                    severity='CRITICAL',
-                    category='Missing Fields',
+                    severity="CRITICAL",
+                    category="Missing Fields",
                     item_type=item_type,
-                    item_name='N/A',
-                    description=f'Required fields missing from API response',
-                    details=f'Missing fields: {", ".join(missing_fields)}'
+                    item_name="N/A",
+                    description="Required fields missing from API response",
+                    details=f"Missing fields: {', '.join(missing_fields)}",
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking required fields", item_type, e))
 
-    def check_null_values(self, df: pd.DataFrame, item_type: str,
-                         critical_fields: List[str]):
+    def check_null_values(self, df: pd.DataFrame, item_type: str, critical_fields: list[str]):
         """Check for null values in critical fields"""
         try:
             if df.empty:
@@ -110,14 +108,14 @@ class DataQualityChecker:
                 if field in df.columns:
                     null_count = df[field].isna().sum()
                     if null_count > 0:
-                        null_items = df[df[field].isna()]['name'].tolist() if 'name' in df.columns else []
+                        null_items = df[df[field].isna()]["name"].tolist() if "name" in df.columns else []
                         self.add_issue(
-                            severity='MEDIUM',
-                            category='Null Values',
+                            severity="MEDIUM",
+                            category="Null Values",
                             item_type=item_type,
-                            item_name=', '.join(str(x) for x in null_items),
+                            item_name=", ".join(str(x) for x in null_items),
                             description=f'Null values in "{field}" field',
-                            details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items)}'
+                            details=f"{null_count} item(s) missing {field}. Items: {', '.join(str(x) for x in null_items)}",
                         )
         except Exception as e:
             self.logger.error(_format_error_msg("checking null values", item_type, e))
@@ -129,21 +127,21 @@ class DataQualityChecker:
                 self.logger.info(f"Skipping description check for empty {item_type} dataframe")
                 return
 
-            if 'description' not in df.columns:
+            if "description" not in df.columns:
                 self.logger.info(f"'description' column not found in {item_type}")
                 return
 
-            missing_desc = df[df['description'].isna() | (df['description'] == '')]
+            missing_desc = df[df["description"].isna() | (df["description"] == "")]
 
             if len(missing_desc) > 0:
-                item_names = missing_desc['name'].tolist() if 'name' in missing_desc.columns else []
+                item_names = missing_desc["name"].tolist() if "name" in missing_desc.columns else []
                 self.add_issue(
-                    severity='LOW',
-                    category='Missing Descriptions',
+                    severity="LOW",
+                    category="Missing Descriptions",
                     item_type=item_type,
-                    item_name=f'{len(missing_desc)} items',
-                    description=f'{len(missing_desc)} items without descriptions',
-                    details=f'Items: {", ".join(str(x) for x in item_names)}'
+                    item_name=f"{len(missing_desc)} items",
+                    description=f"{len(missing_desc)} items without descriptions",
+                    details=f"Items: {', '.join(str(x) for x in item_names)}",
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking descriptions", item_type, e))
@@ -153,12 +151,12 @@ class DataQualityChecker:
         try:
             if df.empty:
                 self.add_issue(
-                    severity='CRITICAL',
-                    category='Empty Data',
+                    severity="CRITICAL",
+                    category="Empty Data",
                     item_type=item_type,
-                    item_name='N/A',
-                    description=f'No {item_type.lower()} found in data view',
-                    details=f'The API returned an empty dataset for {item_type.lower()}'
+                    item_name="N/A",
+                    description=f"No {item_type.lower()} found in data view",
+                    details=f"The API returned an empty dataset for {item_type.lower()}",
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking if dataframe is empty", item_type, e))
@@ -170,26 +168,26 @@ class DataQualityChecker:
                 self.logger.info(f"Skipping ID validity check for empty {item_type} dataframe")
                 return
 
-            if 'id' not in df.columns:
+            if "id" not in df.columns:
                 self.logger.warning(f"'id' column not found in {item_type}")
                 return
 
-            missing_ids = df[df['id'].isna() | (df['id'] == '')]
+            missing_ids = df[df["id"].isna() | (df["id"] == "")]
             if len(missing_ids) > 0:
                 self.add_issue(
-                    severity='HIGH',
-                    category='Invalid IDs',
+                    severity="HIGH",
+                    category="Invalid IDs",
                     item_type=item_type,
-                    item_name=f'{len(missing_ids)} items',
-                    description=f'{len(missing_ids)} items with missing or invalid IDs',
-                    details='Items without valid IDs may cause issues in reporting'
+                    item_name=f"{len(missing_ids)} items",
+                    description=f"{len(missing_ids)} items with missing or invalid IDs",
+                    details="Items without valid IDs may cause issues in reporting",
                 )
         except Exception as e:
             self.logger.error(_format_error_msg("checking ID validity", item_type, e))
 
-    def check_all_quality_issues_optimized(self, df: pd.DataFrame, item_type: str,
-                                           required_fields: List[str],
-                                           critical_fields: List[str]):
+    def check_all_quality_issues_optimized(
+        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+    ):
         """
         Optimized single-pass validation combining all checks
 
@@ -205,9 +203,7 @@ class DataQualityChecker:
             # Check cache first (before any processing)
             cache_key = None
             if self.validation_cache is not None:
-                cached_issues, cache_key = self.validation_cache.get(
-                    df, item_type, required_fields, critical_fields
-                )
+                cached_issues, cache_key = self.validation_cache.get(df, item_type, required_fields, critical_fields)
                 if cached_issues is not None:
                     with self._issues_lock:
                         self.issues.extend(cached_issues)
@@ -219,12 +215,12 @@ class DataQualityChecker:
             # Check 1: Empty DataFrame (quick exit)
             if df.empty:
                 self.add_issue(
-                    severity='CRITICAL',
-                    category='Empty Data',
+                    severity="CRITICAL",
+                    category="Empty Data",
                     item_type=item_type,
-                    item_name='N/A',
-                    description=f'No {item_type.lower()} found in data view',
-                    details=f'The API returned an empty dataset for {item_type.lower()}'
+                    item_name="N/A",
+                    description=f"No {item_type.lower()} found in data view",
+                    details=f"The API returned an empty dataset for {item_type.lower()}",
                 )
                 if self.validation_cache is not None:
                     new_issues = self.issues[issues_start_index:]
@@ -235,12 +231,12 @@ class DataQualityChecker:
             missing_fields = [field for field in required_fields if field not in df.columns]
             if missing_fields:
                 self.add_issue(
-                    severity='CRITICAL',
-                    category='Missing Fields',
+                    severity="CRITICAL",
+                    category="Missing Fields",
                     item_type=item_type,
-                    item_name='N/A',
-                    description='Required fields missing from API response',
-                    details=f'Missing fields: {", ".join(missing_fields)}'
+                    item_name="N/A",
+                    description="Required fields missing from API response",
+                    details=f"Missing fields: {', '.join(missing_fields)}",
                 )
                 if self.validation_cache is not None:
                     new_issues = self.issues[issues_start_index:]
@@ -248,17 +244,17 @@ class DataQualityChecker:
                 return
 
             # Check 3: Vectorized duplicate detection
-            if 'name' in df.columns:
-                duplicates = df['name'].value_counts()
+            if "name" in df.columns:
+                duplicates = df["name"].value_counts()
                 duplicates = duplicates[duplicates > 1]
                 for name, count in duplicates.items():
                     self.add_issue(
-                        severity='HIGH',
-                        category='Duplicates',
+                        severity="HIGH",
+                        category="Duplicates",
                         item_type=item_type,
                         item_name=str(name),
-                        description=f'Duplicate name found {count} times',
-                        details=f'This {item_type.lower()} name appears {count} times in the data view'
+                        description=f"Duplicate name found {count} times",
+                        details=f"This {item_type.lower()} name appears {count} times in the data view",
                     )
 
             # Check 4: Vectorized null value checks
@@ -266,41 +262,41 @@ class DataQualityChecker:
             if available_critical_fields:
                 null_counts = df[available_critical_fields].isna().sum()
                 for field, null_count in null_counts[null_counts > 0].items():
-                    null_items = df[df[field].isna()]['name'].tolist() if 'name' in df.columns else []
+                    null_items = df[df[field].isna()]["name"].tolist() if "name" in df.columns else []
                     self.add_issue(
-                        severity='MEDIUM',
-                        category='Null Values',
+                        severity="MEDIUM",
+                        category="Null Values",
                         item_type=item_type,
-                        item_name=', '.join(str(x) for x in null_items),
+                        item_name=", ".join(str(x) for x in null_items),
                         description=f'Null values in "{field}" field',
-                        details=f'{null_count} item(s) missing {field}. Items: {", ".join(str(x) for x in null_items)}'
+                        details=f"{null_count} item(s) missing {field}. Items: {', '.join(str(x) for x in null_items)}",
                     )
 
             # Check 5: Vectorized missing descriptions check
-            if 'description' in df.columns:
-                missing_desc = df[df['description'].isna() | (df['description'] == '')]
+            if "description" in df.columns:
+                missing_desc = df[df["description"].isna() | (df["description"] == "")]
                 if len(missing_desc) > 0:
-                    item_names = missing_desc['name'].tolist() if 'name' in missing_desc.columns else []
+                    item_names = missing_desc["name"].tolist() if "name" in missing_desc.columns else []
                     self.add_issue(
-                        severity='LOW',
-                        category='Missing Descriptions',
+                        severity="LOW",
+                        category="Missing Descriptions",
                         item_type=item_type,
-                        item_name=f'{len(missing_desc)} items',
-                        description=f'{len(missing_desc)} items without descriptions',
-                        details=f'Items: {", ".join(str(x) for x in item_names)}'
+                        item_name=f"{len(missing_desc)} items",
+                        description=f"{len(missing_desc)} items without descriptions",
+                        details=f"Items: {', '.join(str(x) for x in item_names)}",
                     )
 
             # Check 6: Vectorized ID validity check
-            if 'id' in df.columns:
-                missing_ids = df[df['id'].isna() | (df['id'] == '')]
+            if "id" in df.columns:
+                missing_ids = df[df["id"].isna() | (df["id"] == "")]
                 if len(missing_ids) > 0:
                     self.add_issue(
-                        severity='HIGH',
-                        category='Invalid IDs',
+                        severity="HIGH",
+                        category="Invalid IDs",
                         item_type=item_type,
-                        item_name=f'{len(missing_ids)} items',
-                        description=f'{len(missing_ids)} items with missing or invalid IDs',
-                        details='Items without valid IDs may cause issues in reporting'
+                        item_name=f"{len(missing_ids)} items",
+                        description=f"{len(missing_ids)} items with missing or invalid IDs",
+                        details="Items without valid IDs may cause issues in reporting",
                     )
 
             if self.logger.isEnabledFor(logging.DEBUG):
@@ -314,13 +310,15 @@ class DataQualityChecker:
             self.logger.error(_format_error_msg("in optimized validation", item_type, e))
             self.logger.exception("Full error details:")
 
-    def check_all_parallel(self,
-                          metrics_df: pd.DataFrame,
-                          dimensions_df: pd.DataFrame,
-                          metrics_required_fields: List[str],
-                          dimensions_required_fields: List[str],
-                          critical_fields: List[str],
-                          max_workers: int = 2):
+    def check_all_parallel(
+        self,
+        metrics_df: pd.DataFrame,
+        dimensions_df: pd.DataFrame,
+        metrics_required_fields: list[str],
+        dimensions_required_fields: list[str],
+        critical_fields: list[str],
+        max_workers: int = 2,
+    ):
         """
         Run validation checks in parallel for metrics and dimensions
         """
@@ -328,19 +326,16 @@ class DataQualityChecker:
             self.logger.info("Starting parallel validation (metrics and dimensions)")
 
             tasks = {
-                'metrics': lambda: self.check_all_quality_issues_optimized(
-                    metrics_df, 'Metrics', metrics_required_fields, critical_fields
+                "metrics": lambda: self.check_all_quality_issues_optimized(
+                    metrics_df, "Metrics", metrics_required_fields, critical_fields
                 ),
-                'dimensions': lambda: self.check_all_quality_issues_optimized(
-                    dimensions_df, 'Dimensions', dimensions_required_fields, critical_fields
-                )
+                "dimensions": lambda: self.check_all_quality_issues_optimized(
+                    dimensions_df, "Dimensions", dimensions_required_fields, critical_fields
+                ),
             }
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_name = {
-                    executor.submit(task): name
-                    for name, task in tasks.items()
-                }
+                future_to_name = {executor.submit(task): name for name, task in tasks.items()}
 
                 with tqdm(
                     total=len(tasks),
@@ -348,7 +343,7 @@ class DataQualityChecker:
                     unit="check",
                     bar_format=TQDM_BAR_FORMAT,
                     leave=False,
-                    disable=self.quiet
+                    disable=self.quiet,
                 ) as pbar:
                     for future in as_completed(future_to_name):
                         task_name = future_to_name[future]
@@ -378,32 +373,31 @@ class DataQualityChecker:
         try:
             if not self.issues:
                 self.logger.info("No data quality issues found")
-                return pd.DataFrame({
-                    'Severity': ['INFO'],
-                    'Category': ['Data Quality'],
-                    'Type': ['All'],
-                    'Item Name': ['N/A'],
-                    'Issue': ['No data quality issues detected'],
-                    'Details': ['All validation checks passed successfully']
-                })
+                return pd.DataFrame(
+                    {
+                        "Severity": ["INFO"],
+                        "Category": ["Data Quality"],
+                        "Type": ["All"],
+                        "Item Name": ["N/A"],
+                        "Issue": ["No data quality issues detected"],
+                        "Details": ["All validation checks passed successfully"],
+                    }
+                )
 
             df = pd.DataFrame(self.issues)
 
             # Use CategoricalDtype for proper severity ordering (CRITICAL > HIGH > MEDIUM > LOW > INFO)
             severity_dtype = pd.CategoricalDtype(categories=self.SEVERITY_ORDER, ordered=True)
-            df['Severity'] = df['Severity'].astype(severity_dtype)
+            df["Severity"] = df["Severity"].astype(severity_dtype)
 
             # Reorder columns: Severity first for better readability
-            preferred_order = ['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details']
+            preferred_order = ["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
             existing_cols = [col for col in preferred_order if col in df.columns]
             other_cols = [col for col in df.columns if col not in preferred_order]
             df = df[existing_cols + other_cols]
 
             # Sort by severity then by Category alphabetically
-            df = df.sort_values(
-                by=['Severity', 'Category'],
-                ascending=[True, True]
-            )
+            df = df.sort_values(by=["Severity", "Category"], ascending=[True, True])
 
             # Limit to top N issues if max_issues > 0
             if max_issues > 0 and len(df) > max_issues:
@@ -413,14 +407,16 @@ class DataQualityChecker:
             return df
         except Exception as e:
             self.logger.error(_format_error_msg("creating issues dataframe", error=e))
-            return pd.DataFrame({
-                'Severity': ['ERROR'],
-                'Category': ['System'],
-                'Type': ['Processing'],
-                'Item Name': ['N/A'],
-                'Issue': ['Error generating data quality report'],
-                'Details': [str(e)]
-            })
+            return pd.DataFrame(
+                {
+                    "Severity": ["ERROR"],
+                    "Category": ["System"],
+                    "Type": ["Processing"],
+                    "Item Name": ["N/A"],
+                    "Issue": ["Error generating data quality report"],
+                    "Details": [str(e)],
+                }
+            )
 
     def log_summary(self):
         """Log aggregated summary of data quality issues for performance"""
@@ -429,14 +425,14 @@ class DataQualityChecker:
             return
 
         # Aggregate by severity
-        severity_counts: Dict[str, int] = {}
+        severity_counts: dict[str, int] = {}
         for issue in self.issues:
-            sev = issue['Severity']
+            sev = issue["Severity"]
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
         self.logger.info(f"Data quality validation complete: {len(self.issues)} issue(s) found")
 
         if self.logger.isEnabledFor(logging.INFO):
-            for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+            for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
                 if sev in severity_counts:
                     self.logger.info(f"  {sev}: {severity_counts[sev]}")

@@ -2,19 +2,19 @@
 
 import logging
 import time
-from typing import Dict
 
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 
 
 class PerformanceTracker:
     """Track execution time for operations"""
+
     MAX_METRICS = 500
 
     def __init__(self, logger: logging.Logger):
-        self.metrics: Dict[str, float] = {}
+        self.metrics: dict[str, float] = {}
         self.logger = logger
-        self.start_times: Dict[str, float] = {}
+        self.start_times: dict[str, float] = {}
 
     def start(self, operation_name: str):
         """Start timing an operation"""
@@ -55,7 +55,7 @@ class PerformanceTracker:
         """Add cache statistics to performance metrics"""
         stats = cache.get_statistics()
 
-        if stats['total_requests'] > 0:
+        if stats["total_requests"] > 0:
             self.logger.info("")
             self.logger.info("=" * BANNER_WIDTH)
             self.logger.info("VALIDATION CACHE STATISTICS")
@@ -66,9 +66,9 @@ class PerformanceTracker:
             self.logger.info(f"Cache Size:        {stats['size']}/{stats['max_size']}")
             self.logger.info(f"Evictions:         {stats['evictions']}")
 
-            if stats['hits'] > 0:
+            if stats["hits"] > 0:
                 # Assume average validation takes 50ms, cache lookup takes 1ms
-                time_saved = stats['hits'] * 0.049  # 49ms saved per hit
+                time_saved = stats["hits"] * 0.049  # 49ms saved per hit
                 self.logger.info(f"Estimated Time Saved: {time_saved:.2f}s")
 
             self.logger.info("=" * BANNER_WIDTH)

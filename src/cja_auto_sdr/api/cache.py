@@ -1,11 +1,12 @@
 """Validation caches for CJA Auto SDR."""
 
+import contextlib
 import hashlib
 import logging
 import multiprocessing
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -27,7 +28,7 @@ class ValidationCache:
     - Safe for use with parallel validation (check_all_parallel)
     """
 
-    def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600, logger: logging.Logger = None):
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600, logger: logging.Logger | None = None):
         """
         Initialize validation cache
 
@@ -41,10 +42,10 @@ class ValidationCache:
         self.logger = logger or logging.getLogger(__name__)
 
         # Cache storage: key -> (issues_list, timestamp)
-        self._cache: Dict[str, Tuple[List[Dict], float]] = {}
+        self._cache: dict[str, tuple[list[dict], float]] = {}
 
         # LRU tracking: key -> last_access_time
-        self._access_times: Dict[str, float] = {}
+        self._access_times: dict[str, float] = {}
 
         # Thread safety
         self._lock = threading.Lock()
@@ -56,8 +57,9 @@ class ValidationCache:
 
         self.logger.debug(f"ValidationCache initialized: max_size={max_size}, ttl={ttl_seconds}s")
 
-    def _generate_cache_key(self, df: pd.DataFrame, item_type: str,
-                           required_fields: List[str], critical_fields: List[str]) -> str:
+    def _generate_cache_key(
+        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+    ) -> str:
         """
         Generate cache key from DataFrame content and configuration
 
@@ -96,8 +98,9 @@ class ValidationCache:
             # Return unique key to force cache miss
             return f"error:{time.time()}"
 
-    def get(self, df: pd.DataFrame, item_type: str,
-           required_fields: List[str], critical_fields: List[str]) -> Tuple[Optional[List[Dict]], str]:
+    def get(
+        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+    ) -> tuple[list[dict] | None, str]:
         """
         Retrieve cached validation results if available
 
@@ -138,9 +141,15 @@ class ValidationCache:
             # Return deep copy to prevent mutation of cached data
             return [issue.copy() for issue in cached_issues], cache_key
 
-    def put(self, df: pd.DataFrame, item_type: str,
-           required_fields: List[str], critical_fields: List[str],
-           issues: List[Dict], cache_key: str = None):
+    def put(
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
+        issues: list[dict],
+        cache_key: str | None = None,
+    ):
         """
         Store validation results in cache
 
@@ -188,7 +197,7 @@ class ValidationCache:
         if debug_enabled:
             self.logger.debug(f"Cache EVICT: LRU entry removed (total evictions: {self._evictions})")
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get cache performance statistics
 
@@ -200,13 +209,13 @@ class ValidationCache:
             hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
 
             return {
-                'hits': self._hits,
-                'misses': self._misses,
-                'hit_rate': hit_rate,
-                'size': len(self._cache),
-                'max_size': self.max_size,
-                'evictions': self._evictions,
-                'total_requests': total_requests
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": hit_rate,
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "evictions": self._evictions,
+                "total_requests": total_requests,
             }
 
     def clear(self):
@@ -224,17 +233,18 @@ class ValidationCache:
         Only logs if there have been cache requests.
         """
         stats = self.get_statistics()
-        if stats['total_requests'] == 0:
+        if stats["total_requests"] == 0:
             self.logger.debug("Cache statistics: No requests recorded")
             return
 
         # Estimate time saved (average validation ~50ms, cache lookup ~1ms)
-        estimated_time_saved = stats['hits'] * 0.049  # 49ms saved per hit
+        estimated_time_saved = stats["hits"] * 0.049  # 49ms saved per hit
 
-        self.logger.info(f"Cache Statistics: {stats['hits']}/{stats['total_requests']} hits "
-                        f"({stats['hit_rate']:.1f}% hit rate)")
+        self.logger.info(
+            f"Cache Statistics: {stats['hits']}/{stats['total_requests']} hits ({stats['hit_rate']:.1f}% hit rate)"
+        )
         self.logger.info(f"  - Cache size: {stats['size']}/{stats['max_size']} entries")
-        if stats['evictions'] > 0:
+        if stats["evictions"] > 0:
             self.logger.info(f"  - Evictions: {stats['evictions']}")
         if estimated_time_saved > 0.1:
             self.logger.info(f"  - Estimated time saved: {estimated_time_saved:.2f}s")
@@ -275,7 +285,7 @@ class SharedValidationCache:
         shared_cache.shutdown()
     """
 
-    def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600, logger: logging.Logger = None):
+    def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600, logger: logging.Logger | None = None):
         """
         Initialize shared validation cache.
 
@@ -298,17 +308,14 @@ class SharedValidationCache:
         self._access_times = self._manager.dict()
 
         # Shared statistics
-        self._stats = self._manager.dict({
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0
-        })
+        self._stats = self._manager.dict({"hits": 0, "misses": 0, "evictions": 0})
 
         # Manager-level lock for cache operations
         self._lock = self._manager.Lock()
 
-    def _generate_cache_key(self, df: pd.DataFrame, item_type: str,
-                            required_fields: List[str], critical_fields: List[str]) -> str:
+    def _generate_cache_key(
+        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+    ) -> str:
         """
         Generate cache key from DataFrame content and configuration.
 
@@ -330,8 +337,9 @@ class SharedValidationCache:
             # Return unique key to force cache miss
             return f"error:{time.time()}"
 
-    def get(self, df: pd.DataFrame, item_type: str,
-            required_fields: List[str], critical_fields: List[str]) -> Tuple[Optional[List[Dict]], str]:
+    def get(
+        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+    ) -> tuple[list[dict] | None, str]:
         """
         Retrieve cached validation results if available.
 
@@ -351,7 +359,7 @@ class SharedValidationCache:
 
         with self._lock:
             if cache_key not in self._cache:
-                self._stats['misses'] = self._stats.get('misses', 0) + 1
+                self._stats["misses"] = self._stats.get("misses", 0) + 1
                 return None, cache_key
 
             cached_data = self._cache[cache_key]
@@ -363,19 +371,25 @@ class SharedValidationCache:
                 del self._cache[cache_key]
                 if cache_key in self._access_times:
                     del self._access_times[cache_key]
-                self._stats['misses'] = self._stats.get('misses', 0) + 1
+                self._stats["misses"] = self._stats.get("misses", 0) + 1
                 return None, cache_key
 
             # Cache hit - update access time and stats
             self._access_times[cache_key] = time.time()
-            self._stats['hits'] = self._stats.get('hits', 0) + 1
+            self._stats["hits"] = self._stats.get("hits", 0) + 1
 
             # Return copy to prevent mutation
             return [issue.copy() for issue in cached_issues], cache_key
 
-    def put(self, df: pd.DataFrame, item_type: str,
-            required_fields: List[str], critical_fields: List[str],
-            issues: List[Dict], cache_key: str = None) -> None:
+    def put(
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
+        issues: list[dict],
+        cache_key: str | None = None,
+    ) -> None:
         """
         Store validation results in cache.
 
@@ -419,9 +433,9 @@ class SharedValidationCache:
         if lru_key in self._access_times:
             del self._access_times[lru_key]
 
-        self._stats['evictions'] = self._stats.get('evictions', 0) + 1
+        self._stats["evictions"] = self._stats.get("evictions", 0) + 1
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get cache performance statistics.
 
@@ -430,19 +444,19 @@ class SharedValidationCache:
         """
         with self._lock:
             stats = dict(self._stats)
-            hits = stats.get('hits', 0)
-            misses = stats.get('misses', 0)
+            hits = stats.get("hits", 0)
+            misses = stats.get("misses", 0)
             total_requests = hits + misses
             hit_rate = (hits / total_requests * 100) if total_requests > 0 else 0
 
             return {
-                'hits': hits,
-                'misses': misses,
-                'hit_rate': hit_rate,
-                'size': len(self._cache),
-                'max_size': self.max_size,
-                'evictions': stats.get('evictions', 0),
-                'total_requests': total_requests
+                "hits": hits,
+                "misses": misses,
+                "hit_rate": hit_rate,
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "evictions": stats.get("evictions", 0),
+                "total_requests": total_requests,
             }
 
     def clear(self) -> None:
@@ -458,7 +472,5 @@ class SharedValidationCache:
         IMPORTANT: Call this after batch processing is complete to avoid
         resource leaks. The cache cannot be used after shutdown.
         """
-        try:
+        with contextlib.suppress(Exception):
             self._manager.shutdown()
-        except Exception:
-            pass  # Manager may already be shutdown

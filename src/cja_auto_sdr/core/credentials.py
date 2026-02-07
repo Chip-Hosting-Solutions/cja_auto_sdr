@@ -5,7 +5,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from cja_auto_sdr.core.config_validation import validate_credentials
 from cja_auto_sdr.core.constants import (
@@ -35,13 +35,12 @@ def normalize_credential_value(value: Any) -> str:
         return ""
     s = str(value).strip()
     # Remove surrounding quotes (common in .env files)
-    if len(s) >= 2 and ((s.startswith('"') and s.endswith('"')) or
-                         (s.startswith("'") and s.endswith("'"))):
+    if len(s) >= 2 and ((s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'"))):
         s = s[1:-1]
     return s
 
 
-def filter_credentials(credentials: Dict[str, Any]) -> Dict[str, str]:
+def filter_credentials(credentials: dict[str, Any]) -> dict[str, str]:
     """Filter and normalize credentials to known fields only.
 
     Args:
@@ -50,14 +49,11 @@ def filter_credentials(credentials: Dict[str, Any]) -> Dict[str, str]:
     Returns:
         Filtered dictionary with only known credential fields, normalized values
     """
-    return {
-        k: normalize_credential_value(v)
-        for k, v in credentials.items()
-        if k in CREDENTIAL_FIELDS['all'] and v
-    }
+    return {k: normalize_credential_value(v) for k, v in credentials.items() if k in CREDENTIAL_FIELDS["all"] and v}
 
 
 # ==================== CREDENTIAL LOADERS ====================
+
 
 class CredentialLoader(ABC):
     """Abstract base class for loading credentials from different sources.
@@ -71,7 +67,7 @@ class CredentialLoader(ABC):
         """Return the name of this credential source."""
         pass
 
-    def load(self, logger: logging.Logger) -> Optional[Dict[str, str]]:
+    def load(self, logger: logging.Logger) -> dict[str, str] | None:
         """Load credentials, handling errors gracefully.
 
         Args:
@@ -85,12 +81,12 @@ class CredentialLoader(ABC):
             if creds:
                 return filter_credentials(creds)
             return None
-        except (IOError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.debug(f"Failed to load credentials from {self.source_name}: {e}")
             return None
 
     @abstractmethod
-    def _load_impl(self, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
         """Implementation-specific loading logic.
 
         Args:
@@ -112,11 +108,11 @@ class JsonFileCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return f"json:{self.file_path.name}"
 
-    def _load_impl(self, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
         if not self.file_path.exists():
             return None
 
-        with open(self.file_path, 'r') as f:
+        with open(self.file_path) as f:
             config = json.load(f)
 
         if isinstance(config, dict):
@@ -134,25 +130,30 @@ class DotenvCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return f"dotenv:{self.file_path.name}"
 
-    def _load_impl(self, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
         if not self.file_path.exists():
             return None
 
         credentials = {}
-        with open(self.file_path, 'r') as f:
+        with open(self.file_path) as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
-                if '=' in line:
-                    key, _, value = line.partition('=')
+                if "=" in line:
+                    key, _, value = line.partition("=")
                     key = key.strip().lower()
                     value = value.strip()
                     # Remove quotes
-                    if value and len(value) >= 2:
-                        if (value.startswith('"') and value.endswith('"')) or \
-                           (value.startswith("'") and value.endswith("'")):
-                            value = value[1:-1]
+                    if (
+                        value
+                        and len(value) >= 2
+                        and (
+                            (value.startswith('"') and value.endswith('"'))
+                            or (value.startswith("'") and value.endswith("'"))
+                        )
+                    ):
+                        value = value[1:-1]
                     if key and value:
                         credentials[key] = value
 
@@ -166,7 +167,7 @@ class EnvironmentCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return "environment"
 
-    def _load_impl(self, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
         credentials = {}
         for config_key, env_var in ENV_VAR_MAPPING.items():
             value = os.environ.get(env_var)
@@ -177,6 +178,7 @@ class EnvironmentCredentialLoader(CredentialLoader):
 
 
 # ==================== CREDENTIAL RESOLVER ====================
+
 
 class CredentialResolver:
     """Resolves credentials using priority-based strategy.
@@ -194,10 +196,8 @@ class CredentialResolver:
         self.logger = logger
 
     def resolve(
-        self,
-        profile: Optional[str] = None,
-        config_file: Union[str, Path] = "config.json"
-    ) -> Tuple[Dict[str, str], str]:
+        self, profile: str | None = None, config_file: str | Path = "config.json"
+    ) -> tuple[dict[str, str], str]:
         """Resolve credentials following priority order.
 
         Args:
@@ -235,10 +235,10 @@ class CredentialResolver:
             "No valid credentials found",
             source="all",
             reason="Checked profile, environment variables, and config file",
-            details="Set credentials via --profile, environment variables, or config.json"
+            details="Set credentials via --profile, environment variables, or config.json",
         )
 
-    def _try_profile(self, profile_name: str) -> Tuple[Optional[Dict[str, str]], str]:
+    def _try_profile(self, profile_name: str) -> tuple[dict[str, str] | None, str]:
         """Try to load credentials from a profile.
 
         Args:
@@ -264,27 +264,19 @@ class CredentialResolver:
                     self.logger.info(f"Using credentials from profile '{profile_name}'")
                     return creds, f"profile:{profile_name}"
                 else:
-                    self.logger.warning(
-                        f"Profile '{profile_name}' credentials have issues: {issues}"
-                    )
+                    self.logger.warning(f"Profile '{profile_name}' credentials have issues: {issues}")
         except ProfileNotFoundError as e:
             raise CredentialSourceError(
-                str(e),
-                source=f"profile:{profile_name}",
-                reason="Profile directory not found",
-                details=e.details
-            )
+                str(e), source=f"profile:{profile_name}", reason="Profile directory not found", details=e.details
+            ) from e
         except ProfileConfigError as e:
             raise CredentialSourceError(
-                str(e),
-                source=f"profile:{profile_name}",
-                reason="Invalid profile configuration",
-                details=e.details
-            )
+                str(e), source=f"profile:{profile_name}", reason="Invalid profile configuration", details=e.details
+            ) from e
 
         return None, ""
 
-    def _try_environment(self) -> Tuple[Optional[Dict[str, str]], str]:
+    def _try_environment(self) -> tuple[dict[str, str] | None, str]:
         """Try to load credentials from environment variables.
 
         Returns:
@@ -294,9 +286,7 @@ class CredentialResolver:
         creds = loader.load(self.logger)
 
         if creds:
-            is_valid, _ = validate_credentials(
-                creds, self.logger, strict=False, source="environment"
-            )
+            is_valid, _ = validate_credentials(creds, self.logger, strict=False, source="environment")
             if is_valid:
                 self.logger.info("Using credentials from environment variables")
                 return creds, "environment"
@@ -305,10 +295,7 @@ class CredentialResolver:
 
         return None, ""
 
-    def _try_config_file(
-        self,
-        config_file: Union[str, Path]
-    ) -> Tuple[Optional[Dict[str, str]], str]:
+    def _try_config_file(self, config_file: str | Path) -> tuple[dict[str, str] | None, str]:
         """Try to load credentials from config file.
 
         Args:
@@ -342,7 +329,7 @@ class CredentialResolver:
                     f"Config file '{config_file}' has validation errors",
                     source=f"config:{config_path.name}",
                     reason="; ".join(issues[:3]),  # Show first 3 issues
-                    details="Fix the issues or use environment variables instead"
+                    details="Fix the issues or use environment variables instead",
                 )
 
         return None, ""
@@ -351,7 +338,7 @@ class CredentialResolver:
         """Warn user when multiple credential sources exist."""
         self.logger.warning("=" * BANNER_WIDTH)
         self.logger.warning("NOTICE: Both environment variables AND config file detected")
-        self.logger.warning(f"  Environment variables: ORG_ID, CLIENT_ID, SECRET, etc.")
+        self.logger.warning("  Environment variables: ORG_ID, CLIENT_ID, SECRET, etc.")
         self.logger.warning(f"  Config file: {config_path}")
         self.logger.warning("  Using: ENVIRONMENT VARIABLES (takes precedence)")
         self.logger.warning("")
@@ -361,7 +348,7 @@ class CredentialResolver:
         self.logger.warning("=" * BANNER_WIDTH)
 
 
-def load_credentials_from_env() -> Optional[Dict[str, str]]:
+def load_credentials_from_env() -> dict[str, str] | None:
     """
     Load Adobe API credentials from environment variables.
 
@@ -388,7 +375,7 @@ def load_credentials_from_env() -> Optional[Dict[str, str]]:
     return credentials
 
 
-def validate_env_credentials(credentials: Dict[str, str], logger: logging.Logger) -> bool:
+def validate_env_credentials(credentials: dict[str, str], logger: logging.Logger) -> bool:
     """
     Validate that environment credentials have minimum required fields for OAuth.
 
@@ -403,12 +390,12 @@ def validate_env_credentials(credentials: Dict[str, str], logger: logging.Logger
         True if credentials have minimum required fields
     """
     # Use CREDENTIAL_FIELDS for required fields (single source of truth)
-    for field in CREDENTIAL_FIELDS['required']:
+    for field in CREDENTIAL_FIELDS["required"]:
         if field not in credentials or not credentials[field].strip():
             logger.debug(f"Missing required environment variable: {ENV_VAR_MAPPING.get(field, field)}")
             return False
 
     # Use unified validation function
-    is_valid, issues = validate_credentials(credentials, logger, strict=False, source="environment")
+    is_valid, _issues = validate_credentials(credentials, logger, strict=False, source="environment")
 
     return is_valid

@@ -1,16 +1,17 @@
 """Tests for shared discovery command formatting helpers."""
+
 import json
+
 import pytest
 
+from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.generator import (
-    _format_as_json,
-    _format_as_csv,
-    _format_as_table,
     WorkerArgs,
     _exit_error,
+    _format_as_csv,
+    _format_as_json,
+    _format_as_table,
 )
-from cja_auto_sdr.core.constants import BANNER_WIDTH
-
 
 # ==================== _format_as_json ====================
 
@@ -54,40 +55,40 @@ class TestFormatAsCsv:
 
     def test_basic_rows(self):
         """Produces CSV with header and data rows."""
-        cols = ['id', 'name']
-        rows = [{'id': '1', 'name': 'Alice'}, {'id': '2', 'name': 'Bob'}]
+        cols = ["id", "name"]
+        rows = [{"id": "1", "name": "Alice"}, {"id": "2", "name": "Bob"}]
         result = _format_as_csv(cols, rows)
-        lines = result.strip().split('\n')
-        assert lines[0] == 'id,name'
-        assert lines[1] == '1,Alice'
-        assert lines[2] == '2,Bob'
+        lines = result.strip().split("\n")
+        assert lines[0] == "id,name"
+        assert lines[1] == "1,Alice"
+        assert lines[2] == "2,Bob"
 
     def test_empty_rows(self):
         """Empty row list produces header only."""
-        result = _format_as_csv(['a', 'b'], [])
-        assert result.strip() == 'a,b'
+        result = _format_as_csv(["a", "b"], [])
+        assert result.strip() == "a,b"
 
     def test_missing_keys(self):
         """Missing keys default to empty string."""
-        result = _format_as_csv(['id', 'name'], [{'id': '1'}])
-        lines = result.strip().split('\n')
-        assert lines[1] == '1,'
+        result = _format_as_csv(["id", "name"], [{"id": "1"}])
+        lines = result.strip().split("\n")
+        assert lines[1] == "1,"
 
     def test_values_with_commas(self):
         """Values containing commas are properly quoted."""
-        result = _format_as_csv(['name'], [{'name': 'Last, First'}])
-        lines = result.strip().split('\n')
+        result = _format_as_csv(["name"], [{"name": "Last, First"}])
+        lines = result.strip().split("\n")
         assert '"Last, First"' in lines[1]
 
     def test_unicode_values(self):
         """Unicode values in CSV."""
-        result = _format_as_csv(['name'], [{'name': 'données'}])
-        assert 'données' in result
+        result = _format_as_csv(["name"], [{"name": "données"}])
+        assert "données" in result
 
     def test_newline_terminator(self):
         """Each row ends with \\n, not \\r\\n."""
-        result = _format_as_csv(['a'], [{'a': '1'}])
-        assert '\r\n' not in result
+        result = _format_as_csv(["a"], [{"a": "1"}])
+        assert "\r\n" not in result
 
 
 # ==================== _format_as_table ====================
@@ -98,51 +99,51 @@ class TestFormatAsTable:
 
     def test_basic_table(self):
         """Produces a table with header, separator, and data."""
-        items = [{'id': 'abc', 'name': 'Test'}]
-        result = _format_as_table("Found 1 item(s):", items, ['id', 'name'])
+        items = [{"id": "abc", "name": "Test"}]
+        result = _format_as_table("Found 1 item(s):", items, ["id", "name"])
         assert "Found 1 item(s):" in result
         assert "Id" in result  # default title-cased label
         assert "Name" in result
         assert "abc" in result
         assert "Test" in result
         # Should contain a dash separator line
-        assert '---' in result
+        assert "---" in result
 
     def test_custom_labels(self):
         """Custom col_labels override defaults."""
-        items = [{'x': '1'}]
-        result = _format_as_table("Header:", items, ['x'], col_labels=['Custom'])
+        items = [{"x": "1"}]
+        result = _format_as_table("Header:", items, ["x"], col_labels=["Custom"])
         assert "Custom" in result
         assert "X" not in result  # default label not used
 
     def test_column_width_adapts(self):
         """Columns are wide enough for the longest value."""
-        items = [{'id': 'short'}, {'id': 'a_very_long_value_here'}]
-        result = _format_as_table("Header:", items, ['id'])
-        lines = result.split('\n')
+        items = [{"id": "short"}, {"id": "a_very_long_value_here"}]
+        result = _format_as_table("Header:", items, ["id"])
+        lines = result.split("\n")
         # Find the data lines — they should all be consistently wide
-        data_lines = [l for l in lines if 'a_very_long_value_here' in l]
+        data_lines = [line for line in lines if "a_very_long_value_here" in line]
         assert len(data_lines) == 1
 
     def test_empty_items(self):
         """Empty items list produces header but no data rows."""
-        result = _format_as_table("No items:", [], ['id', 'name'])
+        result = _format_as_table("No items:", [], ["id", "name"])
         assert "No items:" in result
         # Still has column labels and separator
         assert "Id" in result
-        assert '---' in result
+        assert "---" in result
 
     def test_missing_keys_in_items(self):
         """Items with missing keys show empty string."""
-        items = [{'id': '1'}]
-        result = _format_as_table("Header:", items, ['id', 'name'])
-        assert '1' in result
+        items = [{"id": "1"}]
+        result = _format_as_table("Header:", items, ["id", "name"])
+        assert "1" in result
 
     def test_leading_trailing_blank_lines(self):
         """Result starts and ends with blank lines for spacing."""
-        items = [{'a': '1'}]
-        result = _format_as_table("H:", items, ['a'])
-        assert result.startswith('\n')
+        items = [{"a": "1"}]
+        result = _format_as_table("H:", items, ["a"])
+        assert result.startswith("\n")
 
 
 # ==================== WorkerArgs ====================

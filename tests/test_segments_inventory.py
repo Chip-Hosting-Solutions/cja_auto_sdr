@@ -9,18 +9,16 @@ Tests cover:
 - DataFrame output
 """
 
-import pytest
-import json
+from unittest.mock import Mock
+
 import pandas as pd
-from unittest.mock import Mock, MagicMock
+import pytest
 
 from cja_auto_sdr.inventory.segments import (
-    SegmentsInventoryBuilder,
     SegmentsInventory,
+    SegmentsInventoryBuilder,
     SegmentSummary,
-    SEGMENT_FUNCTION_DISPLAY_NAMES,
 )
-
 
 # ==================== FIXTURES ====================
 
@@ -36,12 +34,8 @@ def sample_simple_segment():
         "definition": {
             "func": "container",
             "context": "hits",
-            "pred": {
-                "func": "contains",
-                "dimension": "variables/pageurl",
-                "val": "checkout"
-            }
-        }
+            "pred": {"func": "contains", "dimension": "variables/pageurl", "val": "checkout"},
+        },
     }
 
 
@@ -59,24 +53,12 @@ def sample_complex_segment():
             "pred": {
                 "func": "and",
                 "preds": [
-                    {
-                        "func": "eq",
-                        "dimension": "variables/mobiledevicetype",
-                        "val": "Mobile Phone"
-                    },
-                    {
-                        "func": "gt",
-                        "metric": "metrics/revenue",
-                        "val": 100
-                    },
-                    {
-                        "func": "gte",
-                        "metric": "metrics/orders",
-                        "val": 3
-                    }
-                ]
-            }
-        }
+                    {"func": "eq", "dimension": "variables/mobiledevicetype", "val": "Mobile Phone"},
+                    {"func": "gt", "metric": "metrics/revenue", "val": 100},
+                    {"func": "gte", "metric": "metrics/orders", "val": 3},
+                ],
+            },
+        },
     }
 
 
@@ -97,35 +79,20 @@ def sample_nested_segment():
                     {
                         "func": "or",
                         "preds": [
-                            {
-                                "func": "eq",
-                                "dimension": "variables/channel",
-                                "val": "paid"
-                            },
-                            {
-                                "func": "eq",
-                                "dimension": "variables/channel",
-                                "val": "organic"
-                            }
-                        ]
+                            {"func": "eq", "dimension": "variables/channel", "val": "paid"},
+                            {"func": "eq", "dimension": "variables/channel", "val": "organic"},
+                        ],
                     },
                     {
                         "func": "and",
                         "preds": [
-                            {
-                                "func": "gt",
-                                "metric": "metrics/pageviews",
-                                "val": 5
-                            },
-                            {
-                                "func": "exists",
-                                "dimension": "variables/purchaseid"
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
+                            {"func": "gt", "metric": "metrics/pageviews", "val": 5},
+                            {"func": "exists", "dimension": "variables/purchaseid"},
+                        ],
+                    },
+                ],
+            },
+        },
     }
 
 
@@ -146,33 +113,21 @@ def sample_sequence_segment():
                     {
                         "func": "container",
                         "context": "hits",
-                        "pred": {
-                            "func": "eq",
-                            "dimension": "variables/pagename",
-                            "val": "Cart"
-                        }
+                        "pred": {"func": "eq", "dimension": "variables/pagename", "val": "Cart"},
                     },
                     {
                         "func": "container",
                         "context": "hits",
-                        "pred": {
-                            "func": "eq",
-                            "dimension": "variables/pagename",
-                            "val": "Checkout"
-                        }
+                        "pred": {"func": "eq", "dimension": "variables/pagename", "val": "Checkout"},
                     },
                     {
                         "func": "container",
                         "context": "hits",
-                        "pred": {
-                            "func": "eq",
-                            "dimension": "variables/pagename",
-                            "val": "Thank You"
-                        }
-                    }
-                ]
-            }
-        }
+                        "pred": {"func": "eq", "dimension": "variables/pagename", "val": "Thank You"},
+                    },
+                ],
+            },
+        },
     }
 
 
@@ -190,21 +145,14 @@ def sample_exclude_segment():
             "pred": {
                 "func": "and",
                 "preds": [
-                    {
-                        "func": "exists",
-                        "dimension": "variables/pageurl"
-                    },
+                    {"func": "exists", "dimension": "variables/pageurl"},
                     {
                         "func": "exclude",
-                        "container": {
-                            "func": "contains",
-                            "dimension": "variables/ipaddress",
-                            "val": "192.168"
-                        }
-                    }
-                ]
-            }
-        }
+                        "container": {"func": "contains", "dimension": "variables/ipaddress", "val": "192.168"},
+                    },
+                ],
+            },
+        },
     }
 
 
@@ -219,12 +167,8 @@ def sample_regex_segment():
         "definition": {
             "func": "container",
             "context": "hits",
-            "pred": {
-                "func": "matches",
-                "dimension": "variables/pageurl",
-                "val": "^/products/[a-z0-9-]+$"
-            }
-        }
+            "pred": {"func": "matches", "dimension": "variables/pageurl", "val": "^/products/[a-z0-9-]+$"},
+        },
     }
 
 
@@ -232,10 +176,7 @@ def sample_regex_segment():
 def mock_cja_instance(sample_simple_segment, sample_complex_segment):
     """Create a mock CJA instance with segments"""
     mock_cja = Mock()
-    mock_cja.getFilters.return_value = pd.DataFrame([
-        sample_simple_segment,
-        sample_complex_segment
-    ])
+    mock_cja.getFilters.return_value = pd.DataFrame([sample_simple_segment, sample_complex_segment])
     return mock_cja
 
 
@@ -243,10 +184,7 @@ def mock_cja_instance(sample_simple_segment, sample_complex_segment):
 def mock_cja_instance_list_response(sample_simple_segment, sample_complex_segment):
     """Create a mock CJA instance that returns a list (not DataFrame)"""
     mock_cja = Mock()
-    mock_cja.getFilters.return_value = [
-        sample_simple_segment,
-        sample_complex_segment
-    ]
+    mock_cja.getFilters.return_value = [sample_simple_segment, sample_complex_segment]
     return mock_cja
 
 
@@ -293,10 +231,7 @@ class TestSegmentsInventoryBuilder:
         builder = SegmentsInventoryBuilder()
         builder.build(mock_cja_instance, "dv_abc123", "Test")
 
-        mock_cja_instance.getFilters.assert_called_once_with(
-            dataIds="dv_abc123",
-            full=True
-        )
+        mock_cja_instance.getFilters.assert_called_once_with(dataIds="dv_abc123", full=True)
 
     def test_complexity_score_calculated(self, mock_cja_instance):
         """Test that complexity scores are calculated"""
@@ -529,9 +464,11 @@ class TestDefinitionSummary:
 
         segment = inventory.segments[0]
         # Should mention the dimension or contain keyword
-        assert ("pageurl" in segment.definition_summary.lower() or
-                "contains" in segment.definition_summary.lower() or
-                "checkout" in segment.definition_summary.lower())
+        assert (
+            "pageurl" in segment.definition_summary.lower()
+            or "contains" in segment.definition_summary.lower()
+            or "checkout" in segment.definition_summary.lower()
+        )
 
     def test_visitor_context_summary(self, sample_complex_segment):
         """Test definition summary for visitor-level segment"""
@@ -543,9 +480,11 @@ class TestDefinitionSummary:
 
         segment = inventory.segments[0]
         # Should use Person/Visitor for visitor context
-        assert ("person" in segment.definition_summary.lower() or
-                "visitor" in segment.definition_summary.lower() or
-                segment.container_type == "visitors")
+        assert (
+            "person" in segment.definition_summary.lower()
+            or "visitor" in segment.definition_summary.lower()
+            or segment.container_type == "visitors"
+        )
 
     def test_sequence_summary(self, sample_sequence_segment):
         """Test definition summary for sequential segment"""
@@ -557,9 +496,11 @@ class TestDefinitionSummary:
 
         segment = inventory.segments[0]
         # Should mention sequence or steps
-        assert ("sequential" in segment.definition_summary.lower() or
-                "sequence" in segment.definition_summary.lower() or
-                "steps" in segment.definition_summary.lower())
+        assert (
+            "sequential" in segment.definition_summary.lower()
+            or "sequence" in segment.definition_summary.lower()
+            or "steps" in segment.definition_summary.lower()
+        )
 
     def test_exclude_summary(self, sample_exclude_segment):
         """Test definition summary for exclusion segment"""
@@ -571,9 +512,11 @@ class TestDefinitionSummary:
 
         segment = inventory.segments[0]
         # Should mention exclusion or contain relevant keywords
-        assert ("exclud" in segment.definition_summary.lower() or
-                "exist" in segment.definition_summary.lower() or
-                len(segment.definition_summary) > 0)
+        assert (
+            "exclud" in segment.definition_summary.lower()
+            or "exist" in segment.definition_summary.lower()
+            or len(segment.definition_summary) > 0
+        )
 
 
 # ==================== EDGE CASE TESTS ====================
@@ -591,11 +534,8 @@ class TestEdgeCases:
             "definition": {
                 "func": "container",
                 "context": "hits",
-                "pred": {
-                    "func": "exists",
-                    "dimension": "variables/pageurl"
-                }
-            }
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
         }
         mock_cja = Mock()
         mock_cja.getFilters.return_value = [segment]
@@ -616,11 +556,8 @@ class TestEdgeCases:
             "definition": {
                 "func": "container",
                 "context": "hits",
-                "pred": {
-                    "func": "exists",
-                    "dimension": "variables/pageurl"
-                }
-            }
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
         }
         mock_cja = Mock()
         mock_cja.getFilters.return_value = [segment]
@@ -632,12 +569,7 @@ class TestEdgeCases:
 
     def test_empty_definition(self):
         """Test handling of empty definition"""
-        segment = {
-            "id": "s_test",
-            "name": "Test",
-            "description": "",
-            "definition": {}
-        }
+        segment = {"id": "s_test", "name": "Test", "description": "", "definition": {}}
         mock_cja = Mock()
         mock_cja.getFilters.return_value = [segment]
 
@@ -751,40 +683,55 @@ class TestSegmentsInventoryProperties:
 
     def test_avg_complexity_empty(self):
         """Test average complexity with no segments"""
-        inventory = SegmentsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
         assert inventory.avg_complexity == 0.0
 
     def test_max_complexity_empty(self):
         """Test max complexity with no segments"""
-        inventory = SegmentsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
         assert inventory.max_complexity == 0.0
 
     def test_approved_count(self):
         """Test approved count property"""
-        inventory = SegmentsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
         # Add some test segments manually
         summary1 = SegmentSummary(
-            segment_id="s1", segment_name="S1", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", approved=True
+            segment_id="s1",
+            segment_name="S1",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            approved=True,
         )
         summary2 = SegmentSummary(
-            segment_id="s2", segment_name="S2", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", approved=False
+            segment_id="s2",
+            segment_name="S2",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            approved=False,
         )
         inventory.segments = [summary1, summary2]
 
@@ -792,23 +739,44 @@ class TestSegmentsInventoryProperties:
 
     def test_shared_count(self):
         """Test shared count property"""
-        inventory = SegmentsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
         summary1 = SegmentSummary(
-            segment_id="s1", segment_name="S1", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", shared_to_count=2
+            segment_id="s1",
+            segment_name="S1",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            shared_to_count=2,
         )
         summary2 = SegmentSummary(
-            segment_id="s2", segment_name="S2", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", shared_to_count=0
+            segment_id="s2",
+            segment_name="S2",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            shared_to_count=0,
         )
         inventory.segments = [summary1, summary2]
 
@@ -816,23 +784,44 @@ class TestSegmentsInventoryProperties:
 
     def test_tagged_count(self):
         """Test tagged count property"""
-        inventory = SegmentsInventory(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
         summary1 = SegmentSummary(
-            segment_id="s1", segment_name="S1", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", tags=["KPI", "Revenue"]
+            segment_id="s1",
+            segment_name="S1",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            tags=["KPI", "Revenue"],
         )
         summary2 = SegmentSummary(
-            segment_id="s2", segment_name="S2", description="", owner="",
-            complexity_score=10.0, functions_used=[], functions_used_internal=[],
-            predicate_count=1, logic_operator_count=0, nesting_depth=1, container_count=1,
-            dimension_references=[], metric_references=[], other_segment_references=[],
-            definition_summary="", container_type="hits", tags=[]
+            segment_id="s2",
+            segment_name="S2",
+            description="",
+            owner="",
+            complexity_score=10.0,
+            functions_used=[],
+            functions_used_internal=[],
+            predicate_count=1,
+            logic_operator_count=0,
+            nesting_depth=1,
+            container_count=1,
+            dimension_references=[],
+            metric_references=[],
+            other_segment_references=[],
+            definition_summary="",
+            container_type="hits",
+            tags=[],
         )
         inventory.segments = [summary1, summary2]
 

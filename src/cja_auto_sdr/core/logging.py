@@ -8,9 +8,8 @@ import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
-from cja_auto_sdr.core.constants import LOG_FILE_MAX_BYTES, LOG_FILE_BACKUP_COUNT
+from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
 
 
 class JSONFormatter(logging.Formatter):
@@ -38,7 +37,7 @@ class JSONFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # Add any extra fields passed to the logger
-        if hasattr(record, 'extra_fields'):
+        if hasattr(record, "extra_fields"):
             log_entry.update(record.extra_fields)
 
         return json.dumps(log_entry, default=str)
@@ -49,11 +48,9 @@ _logging_initialized = False
 _current_log_file = None
 _atexit_registered = False
 
+
 def setup_logging(
-    data_view_id: Optional[str] = None,
-    batch_mode: bool = False,
-    log_level: Optional[str] = None,
-    log_format: str = "text"
+    data_view_id: str | None = None, batch_mode: bool = False, log_level: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
     """Setup logging to both file and console.
 
@@ -80,14 +77,14 @@ def setup_logging(
     try:
         log_dir.mkdir(exist_ok=True)
     except PermissionError:
-        print(f"Warning: Cannot create logs directory (permission denied). Logging to console only.", file=sys.stderr)
+        print("Warning: Cannot create logs directory (permission denied). Logging to console only.", file=sys.stderr)
         log_dir = None
     except OSError as e:
         print(f"Warning: Cannot create logs directory: {e}. Logging to console only.", file=sys.stderr)
         log_dir = None
 
     # Create log filename with timestamp
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if log_dir is not None:
         if batch_mode:
@@ -99,13 +96,13 @@ def setup_logging(
 
     # Determine log level with priority: parameter > env var > default
     if log_level is None:
-        log_level = os.environ.get('LOG_LEVEL', 'INFO')
+        log_level = os.environ.get("LOG_LEVEL", "INFO")
 
     # Validate log level
-    valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     if log_level.upper() not in valid_levels:
         print(f"Warning: Invalid log level '{log_level}', using INFO", file=sys.stderr)
-        log_level = 'INFO'
+        log_level = "INFO"
 
     # Get numeric log level
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
@@ -119,17 +116,13 @@ def setup_logging(
     handlers = [logging.StreamHandler(sys.stdout)]
     if log_file is not None:
         # Use RotatingFileHandler to prevent unbounded log growth
-        handlers.append(RotatingFileHandler(
-            log_file,
-            maxBytes=LOG_FILE_MAX_BYTES,
-            backupCount=LOG_FILE_BACKUP_COUNT
-        ))
+        handlers.append(RotatingFileHandler(log_file, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUP_COUNT))
 
     # Select formatter based on log_format
     if log_format.lower() == "json":
         formatter = JSONFormatter()
     else:
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
     # Apply formatter and level to all handlers, then add to root logger
     for handler in handlers:
@@ -141,7 +134,7 @@ def setup_logging(
     logging.root.setLevel(numeric_level)
 
     # Get the module logger
-    logger = logging.getLogger('cja_auto_sdr.generator')
+    logger = logging.getLogger("cja_auto_sdr.generator")
     # Ensure it propagates to root and doesn't have its own restrictive level
     logger.propagate = True
     logger.setLevel(logging.NOTSET)

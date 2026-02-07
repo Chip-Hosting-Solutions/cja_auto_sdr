@@ -7,38 +7,37 @@ Validates that:
 4. Diff output writers produce correct output
 5. CLI integration handles diff arguments correctly
 """
-import pytest
+
 import json
 import os
-import tempfile
 import sys
-from datetime import datetime
-from pathlib import Path
+import tempfile
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import logging
 
 from cja_auto_sdr.generator import (
     ChangeType,
     ComponentDiff,
-    MetadataDiff,
-    DiffSummary,
-    DiffResult,
-    DataViewSnapshot,
-    SnapshotManager,
     DataViewComparator,
+    DataViewSnapshot,
+    DiffSummary,
+    SnapshotManager,
+    _format_markdown_side_by_side,
+    _format_side_by_side,
     write_diff_console_output,
+    write_diff_csv_output,
+    write_diff_excel_output,
+    write_diff_html_output,
     write_diff_json_output,
     write_diff_markdown_output,
-    write_diff_html_output,
-    write_diff_excel_output,
-    write_diff_csv_output,
-    _format_side_by_side,
-    _format_markdown_side_by_side,
 )
-import logging
-
 
 # ==================== Fixtures ====================
+
 
 @pytest.fixture
 def sample_metrics():
@@ -68,7 +67,7 @@ def source_snapshot(sample_metrics, sample_dimensions):
         owner="admin@example.com",
         description="Source description",
         metrics=sample_metrics,
-        dimensions=sample_dimensions
+        dimensions=sample_dimensions,
     )
 
 
@@ -81,7 +80,7 @@ def target_snapshot_identical(sample_metrics, sample_dimensions):
         owner="admin@example.com",
         description="Target description",
         metrics=sample_metrics.copy(),
-        dimensions=sample_dimensions.copy()
+        dimensions=sample_dimensions.copy(),
     )
 
 
@@ -90,7 +89,12 @@ def target_snapshot_with_changes(sample_metrics, sample_dimensions):
     """Create a target snapshot with changes"""
     # Modify metrics
     modified_metrics = [
-        {"id": "metrics/pageviews", "name": "Page Views", "type": "int", "description": "Updated description"},  # Modified
+        {
+            "id": "metrics/pageviews",
+            "name": "Page Views",
+            "type": "int",
+            "description": "Updated description",
+        },  # Modified
         # metrics/visits removed
         {"id": "metrics/bounce_rate", "name": "Bounce Rate", "type": "decimal", "description": "Bounce percentage"},
         {"id": "metrics/new_metric", "name": "New Metric", "type": "int", "description": "Added metric"},  # Added
@@ -109,7 +113,7 @@ def target_snapshot_with_changes(sample_metrics, sample_dimensions):
         owner="admin@example.com",
         description="Target description",
         metrics=modified_metrics,
-        dimensions=modified_dimensions
+        dimensions=modified_dimensions,
     )
 
 
@@ -127,6 +131,7 @@ def logger():
 
 # ==================== DataViewSnapshot Tests ====================
 
+
 class TestDataViewSnapshot:
     """Tests for DataViewSnapshot class"""
 
@@ -138,7 +143,7 @@ class TestDataViewSnapshot:
             owner="test@example.com",
             description="Test description",
             metrics=sample_metrics,
-            dimensions=sample_dimensions
+            dimensions=sample_dimensions,
         )
 
         assert snapshot.data_view_id == "dv_test_12345"
@@ -152,12 +157,12 @@ class TestDataViewSnapshot:
         """Test converting snapshot to dictionary"""
         data = source_snapshot.to_dict()
 
-        assert data['snapshot_version'] == "1.0"
-        assert data['data_view_id'] == "dv_source_12345"
-        assert data['data_view_name'] == "Source Data View"
-        assert len(data['metrics']) == 3
-        assert len(data['dimensions']) == 2
-        assert 'created_at' in data
+        assert data["snapshot_version"] == "1.0"
+        assert data["data_view_id"] == "dv_source_12345"
+        assert data["data_view_name"] == "Source Data View"
+        assert len(data["metrics"]) == 3
+        assert len(data["dimensions"]) == 2
+        assert "created_at" in data
 
     def test_snapshot_from_dict(self, source_snapshot):
         """Test creating snapshot from dictionary"""
@@ -171,10 +176,7 @@ class TestDataViewSnapshot:
 
     def test_snapshot_defaults(self):
         """Test snapshot with minimal data"""
-        snapshot = DataViewSnapshot(
-            data_view_id="dv_test",
-            data_view_name="Test"
-        )
+        snapshot = DataViewSnapshot(data_view_id="dv_test", data_view_name="Test")
 
         assert snapshot.metrics == []
         assert snapshot.dimensions == []
@@ -183,6 +185,7 @@ class TestDataViewSnapshot:
 
 
 # ==================== SnapshotManager Tests ====================
+
 
 class TestSnapshotManager:
     """Tests for SnapshotManager class"""
@@ -215,7 +218,7 @@ class TestSnapshotManager:
         filepath = str(tmp_path / "invalid.json")
 
         # Create invalid JSON (not a snapshot)
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump({"foo": "bar"}, f)
 
         with pytest.raises(ValueError):
@@ -230,7 +233,7 @@ class TestSnapshotManager:
         manager.save_snapshot(source_snapshot, str(tmp_path / "snap2.json"))
 
         # Create a non-snapshot file
-        with open(tmp_path / "other.json", 'w') as f:
+        with open(tmp_path / "other.json", "w") as f:
             json.dump({"foo": "bar"}, f)
 
         snapshots = manager.list_snapshots(str(tmp_path))
@@ -244,6 +247,7 @@ class TestSnapshotManager:
 
 
 # ==================== DataViewComparator Tests ====================
+
 
 class TestDataViewComparator:
     """Tests for DataViewComparator class"""
@@ -276,7 +280,7 @@ class TestDataViewComparator:
 
     def test_compare_with_ignore_fields(self, source_snapshot, target_snapshot_with_changes, logger):
         """Test comparing with ignored fields"""
-        comparator = DataViewComparator(logger, ignore_fields=['description', 'name'])
+        comparator = DataViewComparator(logger, ignore_fields=["description", "name"])
         result = comparator.compare(source_snapshot, target_snapshot_with_changes)
 
         # With name and description ignored, only adds/removes should be detected
@@ -287,8 +291,7 @@ class TestDataViewComparator:
         """Test comparing with custom labels"""
         comparator = DataViewComparator(logger)
         result = comparator.compare(
-            source_snapshot, target_snapshot_identical,
-            source_label="Production", target_label="Staging"
+            source_snapshot, target_snapshot_identical, source_label="Production", target_label="Staging"
         )
 
         assert result.source_label == "Production"
@@ -315,10 +318,11 @@ class TestDataViewComparator:
         pageviews_diff = next(d for d in result.metric_diffs if d.id == "metrics/pageviews")
 
         assert pageviews_diff.change_type == ChangeType.MODIFIED
-        assert 'description' in pageviews_diff.changed_fields
+        assert "description" in pageviews_diff.changed_fields
 
 
 # ==================== DiffSummary Tests ====================
+
 
 class TestDiffSummary:
     """Tests for DiffSummary class"""
@@ -344,12 +348,13 @@ class TestDiffSummary:
             metrics_modified=3,
             dimensions_added=4,
             dimensions_removed=5,
-            dimensions_modified=6
+            dimensions_modified=6,
         )
         assert summary.total_changes == 21
 
 
 # ==================== Diff Output Writer Tests ====================
+
 
 class TestDiffOutputWriters:
     """Tests for diff output writers"""
@@ -359,8 +364,7 @@ class TestDiffOutputWriters:
         """Create a sample diff result for output testing"""
         comparator = DataViewComparator(logger)
         return comparator.compare(
-            source_snapshot, target_snapshot_with_changes,
-            source_label="Source", target_label="Target"
+            source_snapshot, target_snapshot_with_changes, source_label="Source", target_label="Target"
         )
 
     def test_console_output(self, sample_diff_result):
@@ -391,29 +395,25 @@ class TestDiffOutputWriters:
 
     def test_json_output(self, sample_diff_result, temp_output_dir, logger):
         """Test JSON output generation"""
-        filepath = write_diff_json_output(
-            sample_diff_result, "test_diff", temp_output_dir, logger
-        )
+        filepath = write_diff_json_output(sample_diff_result, "test_diff", temp_output_dir, logger)
 
         assert os.path.exists(filepath)
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             data = json.load(f)
 
-        assert 'metadata' in data
-        assert 'source' in data
-        assert 'target' in data
-        assert 'summary' in data
-        assert 'metric_diffs' in data
-        assert 'dimension_diffs' in data
+        assert "metadata" in data
+        assert "source" in data
+        assert "target" in data
+        assert "summary" in data
+        assert "metric_diffs" in data
+        assert "dimension_diffs" in data
 
     def test_markdown_output(self, sample_diff_result, temp_output_dir, logger):
         """Test Markdown output generation"""
-        filepath = write_diff_markdown_output(
-            sample_diff_result, "test_diff", temp_output_dir, logger
-        )
+        filepath = write_diff_markdown_output(sample_diff_result, "test_diff", temp_output_dir, logger)
 
         assert os.path.exists(filepath)
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             content = f.read()
 
         assert "# Data View Comparison Report" in content
@@ -422,12 +422,10 @@ class TestDiffOutputWriters:
 
     def test_html_output(self, sample_diff_result, temp_output_dir, logger):
         """Test HTML output generation"""
-        filepath = write_diff_html_output(
-            sample_diff_result, "test_diff", temp_output_dir, logger
-        )
+        filepath = write_diff_html_output(sample_diff_result, "test_diff", temp_output_dir, logger)
 
         assert os.path.exists(filepath)
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             content = f.read()
 
         assert "<!DOCTYPE html>" in content
@@ -436,45 +434,32 @@ class TestDiffOutputWriters:
 
     def test_excel_output(self, sample_diff_result, temp_output_dir, logger):
         """Test Excel output generation"""
-        filepath = write_diff_excel_output(
-            sample_diff_result, "test_diff", temp_output_dir, logger
-        )
+        filepath = write_diff_excel_output(sample_diff_result, "test_diff", temp_output_dir, logger)
 
         assert os.path.exists(filepath)
-        assert filepath.endswith('.xlsx')
+        assert filepath.endswith(".xlsx")
 
     def test_csv_output(self, sample_diff_result, temp_output_dir, logger):
         """Test CSV output generation"""
-        dirpath = write_diff_csv_output(
-            sample_diff_result, "test_diff", temp_output_dir, logger
-        )
+        dirpath = write_diff_csv_output(sample_diff_result, "test_diff", temp_output_dir, logger)
 
         assert os.path.isdir(dirpath)
-        assert os.path.exists(os.path.join(dirpath, 'summary.csv'))
-        assert os.path.exists(os.path.join(dirpath, 'metadata.csv'))
-        assert os.path.exists(os.path.join(dirpath, 'metrics_diff.csv'))
-        assert os.path.exists(os.path.join(dirpath, 'dimensions_diff.csv'))
+        assert os.path.exists(os.path.join(dirpath, "summary.csv"))
+        assert os.path.exists(os.path.join(dirpath, "metadata.csv"))
+        assert os.path.exists(os.path.join(dirpath, "metrics_diff.csv"))
+        assert os.path.exists(os.path.join(dirpath, "dimensions_diff.csv"))
 
 
 # ==================== Edge Case Tests ====================
+
 
 class TestEdgeCases:
     """Tests for edge cases"""
 
     def test_empty_snapshots(self, logger):
         """Test comparing empty snapshots"""
-        source = DataViewSnapshot(
-            data_view_id="dv_empty1",
-            data_view_name="Empty 1",
-            metrics=[],
-            dimensions=[]
-        )
-        target = DataViewSnapshot(
-            data_view_id="dv_empty2",
-            data_view_name="Empty 2",
-            metrics=[],
-            dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_empty1", data_view_name="Empty 1", metrics=[], dimensions=[])
+        target = DataViewSnapshot(data_view_id="dv_empty2", data_view_name="Empty 2", metrics=[], dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -484,17 +469,9 @@ class TestEdgeCases:
 
     def test_all_added(self, logger, sample_metrics, sample_dimensions):
         """Test when all items are added (empty source)"""
-        source = DataViewSnapshot(
-            data_view_id="dv_empty",
-            data_view_name="Empty",
-            metrics=[],
-            dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_empty", data_view_name="Empty", metrics=[], dimensions=[])
         target = DataViewSnapshot(
-            data_view_id="dv_full",
-            data_view_name="Full",
-            metrics=sample_metrics,
-            dimensions=sample_dimensions
+            data_view_id="dv_full", data_view_name="Full", metrics=sample_metrics, dimensions=sample_dimensions
         )
 
         comparator = DataViewComparator(logger)
@@ -507,17 +484,9 @@ class TestEdgeCases:
     def test_all_removed(self, logger, sample_metrics, sample_dimensions):
         """Test when all items are removed (empty target)"""
         source = DataViewSnapshot(
-            data_view_id="dv_full",
-            data_view_name="Full",
-            metrics=sample_metrics,
-            dimensions=sample_dimensions
+            data_view_id="dv_full", data_view_name="Full", metrics=sample_metrics, dimensions=sample_dimensions
         )
-        target = DataViewSnapshot(
-            data_view_id="dv_empty",
-            data_view_name="Empty",
-            metrics=[],
-            dimensions=[]
-        )
+        target = DataViewSnapshot(data_view_id="dv_empty", data_view_name="Empty", metrics=[], dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -530,15 +499,15 @@ class TestEdgeCases:
         """Test handling of special characters in component names"""
         source = DataViewSnapshot(
             data_view_id="dv_special",
-            data_view_name="Special <> & \"quotes\" View",
+            data_view_name='Special <> & "quotes" View',
             metrics=[{"id": "m1", "name": "Metric with | pipe", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_special2",
-            data_view_name="Special <> & \"quotes\" View 2",
+            data_view_name='Special <> & "quotes" View 2',
             metrics=[{"id": "m1", "name": "Metric with | pipe", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -551,6 +520,7 @@ class TestEdgeCases:
 
 # ==================== Comparison Fields Tests ====================
 
+
 class TestComparisonFields:
     """Tests for field comparison logic as documented in DIFF_COMPARISON.md"""
 
@@ -559,28 +529,32 @@ class TestComparisonFields:
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Original Name",
-                "title": "Original Title",
-                "description": "Original Description",
-                "type": "int",
-                "schemaPath": "/path/original"
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Original Name",
+                    "title": "Original Title",
+                    "description": "Original Description",
+                    "type": "int",
+                    "schemaPath": "/path/original",
+                }
+            ],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Changed Name",
-                "title": "Changed Title",
-                "description": "Changed Description",
-                "type": "decimal",
-                "schemaPath": "/path/changed"
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Changed Name",
+                    "title": "Changed Title",
+                    "description": "Changed Description",
+                    "type": "decimal",
+                    "schemaPath": "/path/changed",
+                }
+            ],
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -589,11 +563,11 @@ class TestComparisonFields:
         metric_diff = result.metric_diffs[0]
         assert metric_diff.change_type == ChangeType.MODIFIED
         # All 5 default fields should be detected as changed
-        assert 'name' in metric_diff.changed_fields
-        assert 'title' in metric_diff.changed_fields
-        assert 'description' in metric_diff.changed_fields
-        assert 'type' in metric_diff.changed_fields
-        assert 'schemaPath' in metric_diff.changed_fields
+        assert "name" in metric_diff.changed_fields
+        assert "title" in metric_diff.changed_fields
+        assert "description" in metric_diff.changed_fields
+        assert "type" in metric_diff.changed_fields
+        assert "schemaPath" in metric_diff.changed_fields
 
     def test_id_based_matching(self, logger):
         """Test that components are matched by ID, not by name"""
@@ -602,9 +576,9 @@ class TestComparisonFields:
             data_view_name="Test",
             metrics=[
                 {"id": "metrics/pageviews", "name": "Page Views", "type": "int"},
-                {"id": "metrics/visits", "name": "Visits", "type": "int"}
+                {"id": "metrics/visits", "name": "Visits", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
         # Same IDs but names swapped - should be detected as MODIFIED, not ADD/REMOVE
         target = DataViewSnapshot(
@@ -612,9 +586,9 @@ class TestComparisonFields:
             data_view_name="Test",
             metrics=[
                 {"id": "metrics/pageviews", "name": "Visits", "type": "int"},  # Name changed
-                {"id": "metrics/visits", "name": "Page Views", "type": "int"}  # Name changed
+                {"id": "metrics/visits", "name": "Page Views", "type": "int"},  # Name changed
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -633,7 +607,7 @@ class TestComparisonFields:
             owner="original@example.com",
             description="Original description",
             metrics=[],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
@@ -641,7 +615,7 @@ class TestComparisonFields:
             owner="changed@example.com",
             description="Changed description",
             metrics=[],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -650,9 +624,9 @@ class TestComparisonFields:
         # Metadata changes should be tracked
         assert result.metadata_diff.source_name == "Original Name"
         assert result.metadata_diff.target_name == "Changed Name"
-        assert 'name' in result.metadata_diff.changed_fields
-        assert 'owner' in result.metadata_diff.changed_fields
-        assert 'description' in result.metadata_diff.changed_fields
+        assert "name" in result.metadata_diff.changed_fields
+        assert "owner" in result.metadata_diff.changed_fields
+        assert "description" in result.metadata_diff.changed_fields
 
     def test_unchanged_detection(self, logger):
         """Test that unchanged components are correctly identified"""
@@ -660,17 +634,12 @@ class TestComparisonFields:
             {"id": "m1", "name": "Metric 1", "type": "int", "description": "Desc 1"},
             {"id": "m2", "name": "Metric 2", "type": "int", "description": "Desc 2"},
         ]
-        source = DataViewSnapshot(
-            data_view_id="dv_1",
-            data_view_name="Test",
-            metrics=metrics,
-            dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_1", data_view_name="Test", metrics=metrics, dimensions=[])
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
             metrics=metrics.copy(),  # Identical
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -687,13 +656,13 @@ class TestComparisonFields:
             data_view_id="dv_1",
             data_view_name="Test",
             metrics=[{"id": "m1", "name": "Name", "description": "Old desc", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
             metrics=[{"id": "m1", "name": "Name", "description": "New desc", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         # Without ignore - should detect change
@@ -702,7 +671,7 @@ class TestComparisonFields:
         assert result1.summary.metrics_modified == 1
 
         # With ignore description - should not detect change
-        comparator2 = DataViewComparator(logger, ignore_fields=['description'])
+        comparator2 = DataViewComparator(logger, ignore_fields=["description"])
         result2 = comparator2.compare(source, target)
         assert result2.summary.metrics_modified == 0
         assert result2.summary.metrics_unchanged == 1
@@ -710,47 +679,49 @@ class TestComparisonFields:
 
 # ==================== CLI Argument Tests ====================
 
+
 class TestCLIArguments:
     """Tests for CLI argument parsing related to diff feature"""
 
     def test_parse_ignore_fields(self):
         """Test that --ignore-fields argument is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         # Mock sys.argv
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2',
-                       '--ignore-fields', 'description,title']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--ignore-fields", "description,title"]
             args = parse_arguments()
-            assert args.ignore_fields == 'description,title'
+            assert args.ignore_fields == "description,title"
             assert args.diff is True
         finally:
             sys.argv = original_argv
 
     def test_parse_diff_labels(self):
         """Test that --diff-labels argument is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2',
-                       '--diff-labels', 'Production', 'Staging']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--diff-labels", "Production", "Staging"]
             args = parse_arguments()
-            assert args.diff_labels == ['Production', 'Staging']
+            assert args.diff_labels == ["Production", "Staging"]
         finally:
             sys.argv = original_argv
 
     def test_parse_changes_only(self):
         """Test that --changes-only flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--changes-only']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--changes-only"]
             args = parse_arguments()
             assert args.changes_only is True
         finally:
@@ -758,12 +729,13 @@ class TestCLIArguments:
 
     def test_parse_summary_flag(self):
         """Test that --summary flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--summary']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--summary"]
             args = parse_arguments()
             assert args.summary is True
         finally:
@@ -771,34 +743,35 @@ class TestCLIArguments:
 
     def test_parse_snapshot_argument(self):
         """Test that --snapshot argument is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', 'dv_12345',
-                       '--snapshot', './snapshots/baseline.json']
+            sys.argv = ["cja_sdr_generator.py", "dv_12345", "--snapshot", "./snapshots/baseline.json"]
             args = parse_arguments()
-            assert args.snapshot == './snapshots/baseline.json'
+            assert args.snapshot == "./snapshots/baseline.json"
         finally:
             sys.argv = original_argv
 
     def test_parse_diff_snapshot_argument(self):
         """Test that --diff-snapshot argument is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', 'dv_12345',
-                       '--diff-snapshot', './snapshots/baseline.json']
+            sys.argv = ["cja_sdr_generator.py", "dv_12345", "--diff-snapshot", "./snapshots/baseline.json"]
             args = parse_arguments()
-            assert args.diff_snapshot == './snapshots/baseline.json'
+            assert args.diff_snapshot == "./snapshots/baseline.json"
         finally:
             sys.argv = original_argv
 
 
 # ==================== Output Format Verification Tests ====================
+
 
 class TestOutputFormatVerification:
     """Tests to verify output formats match documentation"""
@@ -818,7 +791,7 @@ class TestOutputFormatVerification:
             ],
             dimensions=[
                 {"id": "d1", "name": "Unchanged Dim", "type": "string"},
-            ]
+            ],
         )
         target = DataViewSnapshot(
             data_view_id="dv_target",
@@ -833,7 +806,7 @@ class TestOutputFormatVerification:
             dimensions=[
                 {"id": "d1", "name": "Unchanged Dim", "type": "string"},
                 {"id": "d2", "name": "Added Dim", "type": "string"},
-            ]
+            ],
         )
 
         comparator = DataViewComparator(logger)
@@ -849,27 +822,25 @@ class TestOutputFormatVerification:
 
     def test_json_output_structure(self, diff_result_with_all_change_types, tmp_path, logger):
         """Test JSON output has correct structure"""
-        filepath = write_diff_json_output(
-            diff_result_with_all_change_types, "test", str(tmp_path), logger
-        )
+        filepath = write_diff_json_output(diff_result_with_all_change_types, "test", str(tmp_path), logger)
 
         with open(filepath) as f:
             data = json.load(f)
 
         # Verify structure matches documentation
-        assert 'metadata' in data
-        assert 'source' in data
-        assert 'target' in data
-        assert 'summary' in data
-        assert 'metric_diffs' in data
-        assert 'dimension_diffs' in data
+        assert "metadata" in data
+        assert "source" in data
+        assert "target" in data
+        assert "summary" in data
+        assert "metric_diffs" in data
+        assert "dimension_diffs" in data
 
         # Verify change types
-        change_types = [d['change_type'] for d in data['metric_diffs']]
-        assert 'added' in change_types
-        assert 'removed' in change_types
-        assert 'modified' in change_types
-        assert 'unchanged' in change_types
+        change_types = [d["change_type"] for d in data["metric_diffs"]]
+        assert "added" in change_types
+        assert "removed" in change_types
+        assert "modified" in change_types
+        assert "unchanged" in change_types
 
     def test_summary_statistics_accuracy(self, diff_result_with_all_change_types):
         """Test that summary statistics are accurate"""
@@ -894,39 +865,42 @@ class TestOutputFormatVerification:
 
 # ==================== New Feature Tests (v3.0.10) ====================
 
+
 class TestExtendedFieldComparison:
     """Tests for extended field comparison (attribution, format, etc.)"""
 
     def test_extended_compare_fields_list(self, logger):
         """Test that EXTENDED_COMPARE_FIELDS contains expected fields"""
-        assert 'name' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'attribution' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'format' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'precision' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'hidden' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'bucketing' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'persistence' in DataViewComparator.EXTENDED_COMPARE_FIELDS
-        assert 'formula' in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "name" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "attribution" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "format" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "precision" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "hidden" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "bucketing" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "persistence" in DataViewComparator.EXTENDED_COMPARE_FIELDS
+        assert "formula" in DataViewComparator.EXTENDED_COMPARE_FIELDS
 
     def test_use_extended_fields_flag(self, logger):
         """Test that use_extended_fields enables extended comparison"""
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1", "name": "Metric",
-                "type": "int", "hidden": False, "precision": 2
-            }],
-            dimensions=[]
+            metrics=[{"id": "m1", "name": "Metric", "type": "int", "hidden": False, "precision": 2}],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1", "name": "Metric",
-                "type": "int", "hidden": True, "precision": 4  # Changed
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Metric",
+                    "type": "int",
+                    "hidden": True,
+                    "precision": 4,  # Changed
+                }
+            ],
+            dimensions=[],
         )
 
         # Without extended - only basic fields compared
@@ -939,35 +913,35 @@ class TestExtendedFieldComparison:
         comparator2 = DataViewComparator(logger, use_extended_fields=True)
         result2 = comparator2.compare(source, target)
         assert result2.summary.metrics_modified == 1
-        assert 'hidden' in result2.metric_diffs[0].changed_fields
-        assert 'precision' in result2.metric_diffs[0].changed_fields
+        assert "hidden" in result2.metric_diffs[0].changed_fields
+        assert "precision" in result2.metric_diffs[0].changed_fields
 
     def test_attribution_settings_comparison(self, logger):
         """Test comparison of attribution settings (nested structure)"""
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1", "name": "Metric",
-                "attribution": {"model": "lastTouch", "lookback": 30}
-            }],
-            dimensions=[]
+            metrics=[{"id": "m1", "name": "Metric", "attribution": {"model": "lastTouch", "lookback": 30}}],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1", "name": "Metric",
-                "attribution": {"model": "firstTouch", "lookback": 30}  # Model changed
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Metric",
+                    "attribution": {"model": "firstTouch", "lookback": 30},  # Model changed
+                }
+            ],
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger, use_extended_fields=True)
         result = comparator.compare(source, target)
 
         assert result.summary.metrics_modified == 1
-        assert 'attribution' in result.metric_diffs[0].changed_fields
+        assert "attribution" in result.metric_diffs[0].changed_fields
 
 
 class TestShowOnlyFilter:
@@ -976,20 +950,22 @@ class TestShowOnlyFilter:
     def test_show_only_added(self, logger, sample_metrics, sample_dimensions):
         """Test filtering to show only added items"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "Existing", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[
                 {"id": "m1", "name": "Existing", "type": "int"},
-                {"id": "m2", "name": "New", "type": "int"}  # Added
+                {"id": "m2", "name": "New", "type": "int"},  # Added
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
-        comparator = DataViewComparator(logger, show_only=['added'])
+        comparator = DataViewComparator(logger, show_only=["added"])
         result = comparator.compare(source, target)
 
         # Should only contain added items
@@ -999,20 +975,19 @@ class TestShowOnlyFilter:
     def test_show_only_removed(self, logger):
         """Test filtering to show only removed items"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=[
-                {"id": "m1", "name": "Keep", "type": "int"},
-                {"id": "m2", "name": "Remove", "type": "int"}
-            ],
-            dimensions=[]
+            data_view_id="dv_1",
+            data_view_name="Source",
+            metrics=[{"id": "m1", "name": "Keep", "type": "int"}, {"id": "m2", "name": "Remove", "type": "int"}],
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m1", "name": "Keep", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
-        comparator = DataViewComparator(logger, show_only=['removed'])
+        comparator = DataViewComparator(logger, show_only=["removed"])
         result = comparator.compare(source, target)
 
         assert len(result.metric_diffs) == 1
@@ -1021,25 +996,27 @@ class TestShowOnlyFilter:
     def test_show_only_multiple_types(self, logger):
         """Test filtering with multiple change types"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[
                 {"id": "m1", "name": "Unchanged", "type": "int"},
                 {"id": "m2", "name": "Modified", "type": "int", "description": "Old"},
-                {"id": "m3", "name": "Removed", "type": "int"}
+                {"id": "m3", "name": "Removed", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[
                 {"id": "m1", "name": "Unchanged", "type": "int"},
                 {"id": "m2", "name": "Modified", "type": "int", "description": "New"},
-                {"id": "m4", "name": "Added", "type": "int"}
+                {"id": "m4", "name": "Added", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
-        comparator = DataViewComparator(logger, show_only=['added', 'modified'])
+        comparator = DataViewComparator(logger, show_only=["added", "modified"])
         result = comparator.compare(source, target)
 
         # Should contain added and modified, but not unchanged or removed
@@ -1056,14 +1033,13 @@ class TestMetricsOnlyAndDimensionsOnly:
     def test_metrics_only_flag(self, logger, sample_metrics, sample_dimensions):
         """Test that --metrics-only excludes dimensions"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=sample_metrics,
-            dimensions=sample_dimensions
+            data_view_id="dv_1", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=sample_metrics,
-            dimensions=[]  # All dimensions removed
+            dimensions=[],  # All dimensions removed
         )
 
         comparator = DataViewComparator(logger, metrics_only=True)
@@ -1077,14 +1053,13 @@ class TestMetricsOnlyAndDimensionsOnly:
     def test_dimensions_only_flag(self, logger, sample_metrics, sample_dimensions):
         """Test that --dimensions-only excludes metrics"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=sample_metrics,
-            dimensions=sample_dimensions
+            data_view_id="dv_1", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[],  # All metrics removed
-            dimensions=sample_dimensions
+            dimensions=sample_dimensions,
         )
 
         comparator = DataViewComparator(logger, dimensions_only=True)
@@ -1101,7 +1076,6 @@ class TestSideBySideOutput:
 
     def test_side_by_side_console_output(self, logger):
         """Test that side-by-side console output contains table characters"""
-        from cja_auto_sdr.generator import _format_side_by_side
 
         diff = ComponentDiff(
             id="m1",
@@ -1109,10 +1083,7 @@ class TestSideBySideOutput:
             change_type=ChangeType.MODIFIED,
             source_data={"name": "Old Name", "description": "Old desc"},
             target_data={"name": "New Name", "description": "New desc"},
-            changed_fields={
-                "name": ("Old Name", "New Name"),
-                "description": ("Old desc", "New desc")
-            }
+            changed_fields={"name": ("Old Name", "New Name"), "description": ("Old desc", "New desc")},
         )
 
         lines = _format_side_by_side(diff, "Source", "Target")
@@ -1124,7 +1095,6 @@ class TestSideBySideOutput:
 
     def test_side_by_side_markdown_output(self, logger):
         """Test that side-by-side markdown output creates a table"""
-        from cja_auto_sdr.generator import _format_markdown_side_by_side
 
         diff = ComponentDiff(
             id="m1",
@@ -1132,10 +1102,7 @@ class TestSideBySideOutput:
             change_type=ChangeType.MODIFIED,
             source_data={"name": "Old", "type": "int"},
             target_data={"name": "New", "type": "decimal"},
-            changed_fields={
-                "name": ("Old", "New"),
-                "type": ("int", "decimal")
-            }
+            changed_fields={"name": ("Old", "New"), "type": ("int", "decimal")},
         )
 
         lines = _format_markdown_side_by_side(diff, "Source", "Target")
@@ -1148,14 +1115,16 @@ class TestSideBySideOutput:
     def test_console_output_with_side_by_side_flag(self, logger):
         """Test console output when side_by_side=True"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "Old Name", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m1", "name": "New Name", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1167,6 +1136,7 @@ class TestSideBySideOutput:
 
 
 # ==================== Large Dataset Performance Tests ====================
+
 
 class TestLargeDatasetPerformance:
     """Tests for large dataset handling (500+ components)"""
@@ -1180,7 +1150,7 @@ class TestLargeDatasetPerformance:
                 "name": f"Metric {i}",
                 "type": "int" if i % 2 == 0 else "decimal",
                 "description": f"Description for metric {i}",
-                "schemaPath": f"/schema/path/{i}"
+                "schemaPath": f"/schema/path/{i}",
             }
             for i in range(600)
         ]
@@ -1194,7 +1164,7 @@ class TestLargeDatasetPerformance:
                 "name": f"Dimension {i}",
                 "type": "string",
                 "description": f"Description for dimension {i}",
-                "schemaPath": f"/schema/path/dim/{i}"
+                "schemaPath": f"/schema/path/dim/{i}",
             }
             for i in range(250)
         ]
@@ -1204,16 +1174,13 @@ class TestLargeDatasetPerformance:
         import time
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1",
-            data_view_name="Large Source",
-            metrics=large_metrics,
-            dimensions=large_dimensions
+            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
             data_view_name="Large Target",
             metrics=large_metrics.copy(),
-            dimensions=large_dimensions.copy()
+            dimensions=large_dimensions.copy(),
         )
 
         start = time.time()
@@ -1237,24 +1204,23 @@ class TestLargeDatasetPerformance:
             target_metrics[i] = {**target_metrics[i], "description": f"Modified desc {i}"}
         # Add 50 new metrics
         for i in range(600, 650):
-            target_metrics.append({
-                "id": f"metrics/new_metric_{i}",
-                "name": f"New Metric {i}",
-                "type": "int",
-                "description": f"New description {i}"
-            })
+            target_metrics.append(
+                {
+                    "id": f"metrics/new_metric_{i}",
+                    "name": f"New Metric {i}",
+                    "type": "int",
+                    "description": f"New description {i}",
+                }
+            )
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1",
-            data_view_name="Large Source",
-            metrics=large_metrics,
-            dimensions=large_dimensions
+            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
             data_view_name="Large Target",
             metrics=target_metrics,
-            dimensions=large_dimensions.copy()
+            dimensions=large_dimensions.copy(),
         )
 
         start = time.time()
@@ -1270,19 +1236,15 @@ class TestLargeDatasetPerformance:
 
     def test_large_dataset_memory_efficiency(self, logger, large_metrics, large_dimensions):
         """Test that large dataset comparison doesn't consume excessive memory"""
-        import sys
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1",
-            data_view_name="Large Source",
-            metrics=large_metrics,
-            dimensions=large_dimensions
+            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
             data_view_name="Large Target",
             metrics=large_metrics.copy(),
-            dimensions=large_dimensions.copy()
+            dimensions=large_dimensions.copy(),
         )
 
         comparator = DataViewComparator(logger)
@@ -1297,6 +1259,7 @@ class TestLargeDatasetPerformance:
 
 # ==================== Unicode Edge Case Tests ====================
 
+
 class TestUnicodeEdgeCases:
     """Tests for Unicode handling in diff comparison"""
 
@@ -1306,20 +1269,20 @@ class TestUnicodeEdgeCases:
             data_view_id="dv_1",
             data_view_name="Test 📊",
             metrics=[{"id": "m1", "name": "Pageviews 📈", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test 📊",
             metrics=[{"id": "m1", "name": "Pageviews 📉", "type": "int"}],  # Different emoji
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
 
         assert result.summary.metrics_modified == 1
-        assert "📈" in str(result.metric_diffs[0].changed_fields.get('name', ('', ''))[0])
+        assert "📈" in str(result.metric_diffs[0].changed_fields.get("name", ("", ""))[0])
 
     def test_rtl_text_in_descriptions(self, logger):
         """Test components with RTL (Hebrew/Arabic) text"""
@@ -1327,13 +1290,13 @@ class TestUnicodeEdgeCases:
             data_view_id="dv_1",
             data_view_name="Test",
             metrics=[{"id": "m1", "name": "Metric", "description": "תיאור עברי", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
             metrics=[{"id": "m1", "name": "Metric", "description": "תיאור אחר", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1346,24 +1309,28 @@ class TestUnicodeEdgeCases:
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test <>&\"'",
-            metrics=[{
-                "id": "m1",
-                "name": "Metric with <html> & \"quotes\"",
-                "description": "Line1\nLine2\tTabbed",
-                "type": "int"
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": 'Metric with <html> & "quotes"',
+                    "description": "Line1\nLine2\tTabbed",
+                    "type": "int",
+                }
+            ],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test <>&\"'",
-            metrics=[{
-                "id": "m1",
-                "name": "Metric with <html> & \"quotes\"",
-                "description": "Different\nContent",
-                "type": "int"
-            }],
-            dimensions=[]
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": 'Metric with <html> & "quotes"',
+                    "description": "Different\nContent",
+                    "type": "int",
+                }
+            ],
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1377,13 +1344,13 @@ class TestUnicodeEdgeCases:
             data_view_id="dv_1",
             data_view_name="数据视图",  # Chinese
             metrics=[{"id": "m1", "name": "指标 🎯", "type": "int", "description": "描述文字"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="数据视图",
             metrics=[{"id": "m1", "name": "指标 🎯", "type": "int", "description": "新描述"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1391,7 +1358,7 @@ class TestUnicodeEdgeCases:
 
         filepath = write_diff_json_output(result, "unicode_test", str(tmp_path), logger)
 
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
         # Unicode should be preserved, not escaped
@@ -1401,6 +1368,7 @@ class TestUnicodeEdgeCases:
 
 # ==================== Deeply Nested Structure Tests ====================
 
+
 class TestDeeplyNestedStructures:
     """Tests for deeply nested configuration structures"""
 
@@ -1409,75 +1377,74 @@ class TestDeeplyNestedStructures:
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Revenue",
-                "attribution": {
-                    "model": "lastTouch",
-                    "lookback": {
-                        "type": "visitor",
-                        "granularity": "day",
-                        "numPeriods": 30
-                    }
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Revenue",
+                    "attribution": {
+                        "model": "lastTouch",
+                        "lookback": {"type": "visitor", "granularity": "day", "numPeriods": 30},
+                    },
                 }
-            }],
-            dimensions=[]
+            ],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Revenue",
-                "attribution": {
-                    "model": "lastTouch",
-                    "lookback": {
-                        "type": "visitor",
-                        "granularity": "day",
-                        "numPeriods": 60  # Changed from 30 to 60
-                    }
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Revenue",
+                    "attribution": {
+                        "model": "lastTouch",
+                        "lookback": {
+                            "type": "visitor",
+                            "granularity": "day",
+                            "numPeriods": 60,  # Changed from 30 to 60
+                        },
+                    },
                 }
-            }],
-            dimensions=[]
+            ],
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger, use_extended_fields=True)
         result = comparator.compare(source, target)
 
         assert result.summary.metrics_modified == 1
-        assert 'attribution' in result.metric_diffs[0].changed_fields
+        assert "attribution" in result.metric_diffs[0].changed_fields
 
     def test_nested_format_config(self, logger):
         """Test comparison of nested format configuration"""
         source = DataViewSnapshot(
             data_view_id="dv_1",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Currency",
-                "format": {
-                    "type": "currency",
-                    "currency": "USD",
-                    "precision": 2,
-                    "negativeFormat": "parentheses"
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Currency",
+                    "format": {"type": "currency", "currency": "USD", "precision": 2, "negativeFormat": "parentheses"},
                 }
-            }],
-            dimensions=[]
+            ],
+            dimensions=[],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
-            metrics=[{
-                "id": "m1",
-                "name": "Currency",
-                "format": {
-                    "type": "currency",
-                    "currency": "EUR",  # Changed
-                    "precision": 2,
-                    "negativeFormat": "parentheses"
+            metrics=[
+                {
+                    "id": "m1",
+                    "name": "Currency",
+                    "format": {
+                        "type": "currency",
+                        "currency": "EUR",  # Changed
+                        "precision": 2,
+                        "negativeFormat": "parentheses",
+                    },
                 }
-            }],
-            dimensions=[]
+            ],
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger, use_extended_fields=True)
@@ -1491,29 +1458,33 @@ class TestDeeplyNestedStructures:
             data_view_id="dv_1",
             data_view_name="Test",
             metrics=[],
-            dimensions=[{
-                "id": "d1",
-                "name": "Price Range",
-                "bucketing": {
-                    "enabled": True,
-                    "buckets": [0, 100, 500, 1000],
-                    "labels": ["Low", "Medium", "High", "Premium"]
+            dimensions=[
+                {
+                    "id": "d1",
+                    "name": "Price Range",
+                    "bucketing": {
+                        "enabled": True,
+                        "buckets": [0, 100, 500, 1000],
+                        "labels": ["Low", "Medium", "High", "Premium"],
+                    },
                 }
-            }]
+            ],
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
             data_view_name="Test",
             metrics=[],
-            dimensions=[{
-                "id": "d1",
-                "name": "Price Range",
-                "bucketing": {
-                    "enabled": True,
-                    "buckets": [0, 50, 200, 500, 1000],  # Changed
-                    "labels": ["Very Low", "Low", "Medium", "High", "Premium"]  # Changed
+            dimensions=[
+                {
+                    "id": "d1",
+                    "name": "Price Range",
+                    "bucketing": {
+                        "enabled": True,
+                        "buckets": [0, 50, 200, 500, 1000],  # Changed
+                        "labels": ["Very Low", "Low", "Medium", "High", "Premium"],  # Changed
+                    },
                 }
-            }]
+            ],
         )
 
         comparator = DataViewComparator(logger, use_extended_fields=True)
@@ -1524,6 +1495,7 @@ class TestDeeplyNestedStructures:
 
 # ==================== Concurrent Comparison Thread Safety Tests ====================
 
+
 class TestConcurrentComparison:
     """Tests for thread safety in concurrent comparisons"""
 
@@ -1532,10 +1504,7 @@ class TestConcurrentComparison:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         source = DataViewSnapshot(
-            data_view_id="dv_source",
-            data_view_name="Source",
-            metrics=sample_metrics,
-            dimensions=sample_dimensions
+            data_view_id="dv_source", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
         )
 
         targets = [
@@ -1543,7 +1512,7 @@ class TestConcurrentComparison:
                 data_view_id=f"dv_target_{i}",
                 data_view_name=f"Target {i}",
                 metrics=[{**m, "description": f"Modified {i}"} for m in sample_metrics],
-                dimensions=sample_dimensions
+                dimensions=sample_dimensions,
             )
             for i in range(10)
         ]
@@ -1579,6 +1548,7 @@ class TestConcurrentComparison:
 
 # ==================== Snapshot Version Migration Tests ====================
 
+
 class TestSnapshotVersionMigration:
     """Tests for handling different snapshot versions"""
 
@@ -1593,11 +1563,11 @@ class TestSnapshotVersionMigration:
             "description": "Old format",
             "metrics": [{"id": "m1", "name": "Metric", "type": "int"}],
             "dimensions": [],
-            "metadata": {"tool_version": "3.0.0"}
+            "metadata": {"tool_version": "3.0.0"},
         }
 
         filepath = str(tmp_path / "v1_snapshot.json")
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(v1_snapshot, f)
 
         manager = SnapshotManager(logger)
@@ -1614,12 +1584,12 @@ class TestSnapshotVersionMigration:
             "data_view_id": "dv_minimal",
             "data_view_name": "Minimal",
             "metrics": [],
-            "dimensions": []
+            "dimensions": [],
             # No metadata, owner, description, created_at
         }
 
         filepath = str(tmp_path / "minimal_snapshot.json")
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(minimal_snapshot, f)
 
         manager = SnapshotManager(logger)
@@ -1636,7 +1606,7 @@ class TestSnapshotVersionMigration:
             data_view_id="dv_old",
             data_view_name="Old",
             metrics=[{"id": "m1", "name": "Metric", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         old_snapshot.metadata = {"tool_version": "2.0.0"}
 
@@ -1645,7 +1615,7 @@ class TestSnapshotVersionMigration:
             data_view_id="dv_new",
             data_view_name="New",
             metrics=[{"id": "m1", "name": "Metric", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         new_snapshot.metadata = {"tool_version": "3.0.10"}
 
@@ -1659,31 +1629,33 @@ class TestSnapshotVersionMigration:
 
 # ==================== New CLI Argument Tests ====================
 
+
 class TestNewCLIArguments:
     """Tests for new CLI arguments added in v3.0.10"""
 
     def test_parse_show_only_argument(self):
         """Test that --show-only argument is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2',
-                       '--show-only', 'added,modified']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--show-only", "added,modified"]
             args = parse_arguments()
-            assert args.show_only == 'added,modified'
+            assert args.show_only == "added,modified"
         finally:
             sys.argv = original_argv
 
     def test_parse_metrics_only_flag(self):
         """Test that --metrics-only flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--metrics-only']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--metrics-only"]
             args = parse_arguments()
             assert args.metrics_only is True
         finally:
@@ -1691,12 +1663,13 @@ class TestNewCLIArguments:
 
     def test_parse_dimensions_only_flag(self):
         """Test that --dimensions-only flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--dimensions-only']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--dimensions-only"]
             args = parse_arguments()
             assert args.dimensions_only is True
         finally:
@@ -1704,12 +1677,13 @@ class TestNewCLIArguments:
 
     def test_parse_extended_fields_flag(self):
         """Test that --extended-fields flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--extended-fields']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--extended-fields"]
             args = parse_arguments()
             assert args.extended_fields is True
         finally:
@@ -1717,12 +1691,13 @@ class TestNewCLIArguments:
 
     def test_parse_side_by_side_flag(self):
         """Test that --side-by-side flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--side-by-side']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--side-by-side"]
             args = parse_arguments()
             assert args.side_by_side is True
         finally:
@@ -1730,6 +1705,7 @@ class TestNewCLIArguments:
 
 
 # ==================== v3.0.10 New Feature Tests ====================
+
 
 class TestDiffSummaryPercentages:
     """Tests for new DiffSummary percentage properties"""
@@ -1739,11 +1715,7 @@ class TestDiffSummaryPercentages:
         from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
-            source_metrics_count=100,
-            target_metrics_count=100,
-            metrics_added=5,
-            metrics_removed=3,
-            metrics_modified=2
+            source_metrics_count=100, target_metrics_count=100, metrics_added=5, metrics_removed=3, metrics_modified=2
         )
 
         assert summary.metrics_changed == 10
@@ -1758,7 +1730,7 @@ class TestDiffSummaryPercentages:
             target_dimensions_count=60,
             dimensions_added=10,
             dimensions_removed=0,
-            dimensions_modified=5
+            dimensions_modified=5,
         )
 
         assert summary.dimensions_changed == 15
@@ -1769,10 +1741,7 @@ class TestDiffSummaryPercentages:
         """Test percentage is 0 when no components exist"""
         from cja_auto_sdr.generator import DiffSummary
 
-        summary = DiffSummary(
-            source_metrics_count=0,
-            target_metrics_count=0
-        )
+        summary = DiffSummary(source_metrics_count=0, target_metrics_count=0)
 
         assert summary.metrics_change_percent == 0.0
 
@@ -1786,7 +1755,7 @@ class TestDiffSummaryPercentages:
             metrics_modified=1,
             dimensions_added=1,
             dimensions_removed=0,
-            dimensions_modified=2
+            dimensions_modified=2,
         )
 
         nl_summary = summary.natural_language_summary
@@ -1806,30 +1775,21 @@ class TestDiffSummaryPercentages:
         """Test total_added property sums across all component types"""
         from cja_auto_sdr.generator import DiffSummary
 
-        summary = DiffSummary(
-            metrics_added=5,
-            dimensions_added=3
-        )
+        summary = DiffSummary(metrics_added=5, dimensions_added=3)
         assert summary.total_added == 8
 
     def test_total_removed(self, logger):
         """Test total_removed property sums across all component types"""
         from cja_auto_sdr.generator import DiffSummary
 
-        summary = DiffSummary(
-            metrics_removed=2,
-            dimensions_removed=4
-        )
+        summary = DiffSummary(metrics_removed=2, dimensions_removed=4)
         assert summary.total_removed == 6
 
     def test_total_modified(self, logger):
         """Test total_modified property sums across all component types"""
         from cja_auto_sdr.generator import DiffSummary
 
-        summary = DiffSummary(
-            metrics_modified=3,
-            dimensions_modified=7
-        )
+        summary = DiffSummary(metrics_modified=3, dimensions_modified=7)
         assert summary.total_modified == 10
 
     def test_total_summary_with_changes(self, logger):
@@ -1842,7 +1802,7 @@ class TestDiffSummaryPercentages:
             metrics_modified=1,
             dimensions_added=1,
             dimensions_removed=4,
-            dimensions_modified=2
+            dimensions_modified=2,
         )
         total_summary = summary.total_summary
         assert "4 added" in total_summary  # 3 + 1
@@ -1860,10 +1820,7 @@ class TestDiffSummaryPercentages:
         """Test total_summary only shows non-zero values"""
         from cja_auto_sdr.generator import DiffSummary
 
-        summary = DiffSummary(
-            metrics_added=5,
-            dimensions_added=2
-        )
+        summary = DiffSummary(metrics_added=5, dimensions_added=2)
         total_summary = summary.total_summary
         assert "7 added" in total_summary
         assert "removed" not in total_summary
@@ -1875,17 +1832,19 @@ class TestColoredConsoleOutput:
 
     def test_console_output_with_color(self, logger):
         """Test console output includes ANSI color codes when enabled"""
-        from cja_auto_sdr.generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_console_output
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "Test", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m2", "name": "New", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1897,17 +1856,19 @@ class TestColoredConsoleOutput:
 
     def test_console_output_without_color(self, logger):
         """Test console output has no ANSI codes when disabled"""
-        from cja_auto_sdr.generator import write_diff_console_output, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_console_output
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "Test", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m2", "name": "New", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1925,26 +1886,25 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_output(self, logger):
         """Test group by field output format"""
-        from cja_auto_sdr.generator import (
-            write_diff_grouped_by_field_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_grouped_by_field_output
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[
                 {"id": "m1", "name": "A", "description": "Old A", "type": "int"},
                 {"id": "m2", "name": "B", "description": "Old B", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[
                 {"id": "m1", "name": "A", "description": "New A", "type": "int"},
                 {"id": "m2", "name": "B", "description": "New B", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -1957,29 +1917,18 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_default(self, logger):
         """Test that default limit of 10 truncates output"""
-        from cja_auto_sdr.generator import (
-            write_diff_grouped_by_field_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_grouped_by_field_output
 
         # Create 15 metrics with description changes to exceed the default limit of 10
         source_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
-            for i in range(15)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"} for i in range(15)
         ]
         target_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
-            for i in range(15)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"} for i in range(15)
         ]
 
-        source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=source_metrics, dimensions=[]
-        )
-        target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
-            metrics=target_metrics, dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_1", data_view_name="Source", metrics=source_metrics, dimensions=[])
+        target = DataViewSnapshot(data_view_id="dv_2", data_view_name="Target", metrics=target_metrics, dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -1990,29 +1939,18 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_zero_shows_all(self, logger):
         """Test that limit=0 shows all items without truncation"""
-        from cja_auto_sdr.generator import (
-            write_diff_grouped_by_field_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_grouped_by_field_output
 
         # Create 15 metrics with description changes
         source_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
-            for i in range(15)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"} for i in range(15)
         ]
         target_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
-            for i in range(15)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"} for i in range(15)
         ]
 
-        source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=source_metrics, dimensions=[]
-        )
-        target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
-            metrics=target_metrics, dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_1", data_view_name="Source", metrics=source_metrics, dimensions=[])
+        target = DataViewSnapshot(data_view_id="dv_2", data_view_name="Target", metrics=target_metrics, dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -2026,29 +1964,18 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_custom(self, logger):
         """Test that custom limit value works correctly"""
-        from cja_auto_sdr.generator import (
-            write_diff_grouped_by_field_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_grouped_by_field_output
 
         # Create 20 metrics with description changes
         source_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"}
-            for i in range(20)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Old desc {i}", "type": "int"} for i in range(20)
         ]
         target_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"}
-            for i in range(20)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"New desc {i}", "type": "int"} for i in range(20)
         ]
 
-        source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=source_metrics, dimensions=[]
-        )
-        target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
-            metrics=target_metrics, dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_1", data_view_name="Source", metrics=source_metrics, dimensions=[])
+        target = DataViewSnapshot(data_view_id="dv_2", data_view_name="Target", metrics=target_metrics, dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -2059,25 +1986,15 @@ class TestGroupByFieldOutput:
 
     def test_grouped_by_field_limit_added_removed(self, logger):
         """Test that limit applies to ADDED and REMOVED sections too"""
-        from cja_auto_sdr.generator import (
-            write_diff_grouped_by_field_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_grouped_by_field_output
 
         # Source has 15 metrics, target has none (all removed)
         source_metrics = [
-            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Desc {i}", "type": "int"}
-            for i in range(15)
+            {"id": f"m{i}", "name": f"Metric {i}", "description": f"Desc {i}", "type": "int"} for i in range(15)
         ]
 
-        source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
-            metrics=source_metrics, dimensions=[]
-        )
-        target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
-            metrics=[], dimensions=[]
-        )
+        source = DataViewSnapshot(data_view_id="dv_1", data_view_name="Source", metrics=source_metrics, dimensions=[])
+        target = DataViewSnapshot(data_view_id="dv_2", data_view_name="Target", metrics=[], dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
@@ -2098,23 +2015,22 @@ class TestPRCommentOutput:
 
     def test_pr_comment_output_format(self, logger):
         """Test PR comment markdown format"""
-        from cja_auto_sdr.generator import (
-            write_diff_pr_comment_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_pr_comment_output
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "A", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[
                 {"id": "m1", "name": "A", "type": "decimal"},  # Type change - breaking
-                {"id": "m2", "name": "B", "type": "int"}
+                {"id": "m2", "name": "B", "type": "int"},
             ],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -2129,20 +2045,19 @@ class TestPRCommentOutput:
 
     def test_pr_comment_breaking_changes(self, logger):
         """Test PR comment shows breaking changes"""
-        from cja_auto_sdr.generator import (
-            write_diff_pr_comment_output, DataViewSnapshot,
-            DataViewComparator
-        )
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, write_diff_pr_comment_output
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "A", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m1", "name": "A", "type": "decimal"}],  # Type change
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -2158,17 +2073,19 @@ class TestBreakingChangeDetection:
 
     def test_detect_type_change_as_breaking(self, logger):
         """Test type changes are flagged as breaking"""
-        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, detect_breaking_changes
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "A", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m1", "name": "A", "type": "decimal"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -2176,44 +2093,43 @@ class TestBreakingChangeDetection:
         breaking = detect_breaking_changes(result)
 
         assert len(breaking) == 1
-        assert breaking[0]['change_type'] == 'type_changed'
-        assert breaking[0]['severity'] == 'high'
+        assert breaking[0]["change_type"] == "type_changed"
+        assert breaking[0]["severity"] == "high"
 
     def test_detect_removal_as_breaking(self, logger):
         """Test component removal is flagged as breaking"""
-        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, detect_breaking_changes
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "A", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
-        target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
-            metrics=[],
-            dimensions=[]
-        )
+        target = DataViewSnapshot(data_view_id="dv_2", data_view_name="Target", metrics=[], dimensions=[])
 
         comparator = DataViewComparator(logger)
         result = comparator.compare(source, target)
         breaking = detect_breaking_changes(result)
 
         assert len(breaking) == 1
-        assert breaking[0]['change_type'] == 'removed'
+        assert breaking[0]["change_type"] == "removed"
 
     def test_no_breaking_changes(self, logger):
         """Test no breaking changes when only non-breaking changes"""
-        from cja_auto_sdr.generator import detect_breaking_changes, DataViewSnapshot, DataViewComparator
+        from cja_auto_sdr.generator import DataViewComparator, DataViewSnapshot, detect_breaking_changes
 
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source",
+            data_view_id="dv_1",
+            data_view_name="Source",
             metrics=[{"id": "m1", "name": "A", "description": "Old", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
         target = DataViewSnapshot(
-            data_view_id="dv_2", data_view_name="Target",
+            data_view_id="dv_2",
+            data_view_name="Target",
             metrics=[{"id": "m1", "name": "A", "description": "New", "type": "int"}],
-            dimensions=[]
+            dimensions=[],
         )
 
         comparator = DataViewComparator(logger)
@@ -2229,12 +2145,13 @@ class TestNewCLIFlags:
 
     def test_parse_no_color_flag(self):
         """Test that --no-color flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--no-color']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--no-color"]
             args = parse_arguments()
             assert args.no_color is True
         finally:
@@ -2242,12 +2159,13 @@ class TestNewCLIFlags:
 
     def test_parse_quiet_diff_flag(self):
         """Test that --quiet-diff flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--quiet-diff']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--quiet-diff"]
             args = parse_arguments()
             assert args.quiet_diff is True
         finally:
@@ -2255,12 +2173,13 @@ class TestNewCLIFlags:
 
     def test_parse_reverse_diff_flag(self):
         """Test that --reverse-diff flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--reverse-diff']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--reverse-diff"]
             args = parse_arguments()
             assert args.reverse_diff is True
         finally:
@@ -2268,12 +2187,13 @@ class TestNewCLIFlags:
 
     def test_parse_warn_threshold_flag(self):
         """Test that --warn-threshold flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--warn-threshold', '10.5']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--warn-threshold", "10.5"]
             args = parse_arguments()
             assert args.warn_threshold == 10.5
         finally:
@@ -2281,12 +2201,13 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_flag(self):
         """Test that --group-by-field flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--group-by-field"]
             args = parse_arguments()
             assert args.group_by_field is True
         finally:
@@ -2294,18 +2215,35 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_limit_flag(self):
         """Test that --group-by-field-limit flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
             # Test custom value
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field', '--group-by-field-limit', '25']
+            sys.argv = [
+                "cja_sdr_generator.py",
+                "--diff",
+                "dv_1",
+                "dv_2",
+                "--group-by-field",
+                "--group-by-field-limit",
+                "25",
+            ]
             args = parse_arguments()
             assert args.group_by_field_limit == 25
 
             # Test zero (unlimited)
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field', '--group-by-field-limit', '0']
+            sys.argv = [
+                "cja_sdr_generator.py",
+                "--diff",
+                "dv_1",
+                "dv_2",
+                "--group-by-field",
+                "--group-by-field-limit",
+                "0",
+            ]
             args = parse_arguments()
             assert args.group_by_field_limit == 0
         finally:
@@ -2313,12 +2251,13 @@ class TestNewCLIFlags:
 
     def test_parse_group_by_field_limit_default(self):
         """Test that --group-by-field-limit defaults to 10"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--group-by-field']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--group-by-field"]
             args = parse_arguments()
             assert args.group_by_field_limit == 10
         finally:
@@ -2326,25 +2265,27 @@ class TestNewCLIFlags:
 
     def test_parse_diff_output_flag(self):
         """Test that --diff-output flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--diff-output', '/tmp/diff.txt']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--diff-output", "/tmp/diff.txt"]
             args = parse_arguments()
-            assert args.diff_output == '/tmp/diff.txt'
+            assert args.diff_output == "/tmp/diff.txt"
         finally:
             sys.argv = original_argv
 
     def test_parse_format_pr_comment_flag(self):
         """Test that --format-pr-comment flag is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--diff', 'dv_1', 'dv_2', '--format-pr-comment']
+            sys.argv = ["cja_sdr_generator.py", "--diff", "dv_1", "dv_2", "--format-pr-comment"]
             args = parse_arguments()
             assert args.format_pr_comment is True
         finally:
@@ -2352,6 +2293,7 @@ class TestNewCLIFlags:
 
 
 # ==================== Ambiguous Name Resolution Tests ====================
+
 
 class TestAmbiguousNameResolution:
     """Tests for ambiguous data view name handling in diff commands.
@@ -2362,30 +2304,30 @@ class TestAmbiguousNameResolution:
 
     def test_resolve_single_name_to_single_id(self):
         """Test that a unique name resolves to exactly one ID"""
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_12345", "name": "Unique Analytics"},
             {"id": "dv_67890", "name": "Other View"},
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
-                resolved_ids, name_map = resolve_data_view_names(
-                    ["Unique Analytics"], "config.json", logger
-                )
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
+                resolved_ids, _name_map = resolve_data_view_names(["Unique Analytics"], "config.json", logger)
 
                 assert len(resolved_ids) == 1
                 assert resolved_ids[0] == "dv_12345"
 
     def test_resolve_name_to_multiple_ids(self):
         """Test that an ambiguous name returns ALL matching IDs"""
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_prod_001", "name": "Analytics"},
@@ -2394,15 +2336,13 @@ class TestAmbiguousNameResolution:
             {"id": "dv_other_999", "name": "Other View"},
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
             # Mock the cached data views function
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
-                resolved_ids, name_map = resolve_data_view_names(
-                    ["Analytics"], "config.json", logger
-                )
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
+                resolved_ids, name_map = resolve_data_view_names(["Analytics"], "config.json", logger)
 
                 # Should return all 3 matching IDs
                 assert len(resolved_ids) == 3
@@ -2417,21 +2357,20 @@ class TestAmbiguousNameResolution:
 
     def test_resolve_explicit_id_unchanged(self):
         """Test that explicit IDs pass through unchanged"""
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_12345", "name": "Analytics"},
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
-                resolved_ids, name_map = resolve_data_view_names(
-                    ["dv_12345"], "config.json", logger
-                )
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
+                resolved_ids, name_map = resolve_data_view_names(["dv_12345"], "config.json", logger)
 
                 assert len(resolved_ids) == 1
                 assert resolved_ids[0] == "dv_12345"
@@ -2442,52 +2381,48 @@ class TestAmbiguousNameResolution:
         """Test that diff command rejects ambiguous source name"""
         # This tests the CLI validation logic that should reject
         # names that resolve to multiple data views
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_prod_001", "name": "Analytics"},
             {"id": "dv_staging_001", "name": "Analytics"},  # Duplicate name
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
                 # When diff receives "Analytics", it should get multiple IDs back
-                resolved_ids, _ = resolve_data_view_names(
-                    ["Analytics"], "config.json", logger
-                )
+                resolved_ids, _ = resolve_data_view_names(["Analytics"], "config.json", logger)
 
                 # Validation: more than 1 result means ambiguous
                 assert len(resolved_ids) > 1, "Ambiguous name should return multiple IDs"
 
     def test_diff_command_handles_source_target_separately(self):
         """Test that diff command resolves source and target independently"""
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_prod_001", "name": "Production Analytics"},
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
 
                 # Resolve source separately
-                source_ids, _ = resolve_data_view_names(
-                    ["Production Analytics"], "config.json", logger
-                )
+                source_ids, _ = resolve_data_view_names(["Production Analytics"], "config.json", logger)
 
                 # Resolve target separately
-                target_ids, _ = resolve_data_view_names(
-                    ["Staging Analytics"], "config.json", logger
-                )
+                target_ids, _ = resolve_data_view_names(["Staging Analytics"], "config.json", logger)
 
                 # Each should resolve to exactly one
                 assert len(source_ids) == 1
@@ -2497,27 +2432,24 @@ class TestAmbiguousNameResolution:
 
     def test_mixed_id_and_name_resolution(self):
         """Test resolving mix of explicit IDs and names"""
+        from unittest.mock import MagicMock, patch
+
         from cja_auto_sdr.generator import resolve_data_view_names
-        from unittest.mock import patch, MagicMock
 
         mock_data_views = [
             {"id": "dv_prod_001", "name": "Production Analytics"},
             {"id": "dv_staging_001", "name": "Staging Analytics"},
         ]
 
-        with patch('cja_auto_sdr.generator.cjapy') as mock_cjapy:
+        with patch("cja_auto_sdr.generator.cjapy") as mock_cjapy:
             mock_cjapy.CJA.return_value = MagicMock()
             mock_cjapy.importConfigFile = MagicMock()
-            with patch('cja_auto_sdr.generator.get_cached_data_views', return_value=mock_data_views):
-                logger = logging.getLogger('test')
+            with patch("cja_auto_sdr.generator.get_cached_data_views", return_value=mock_data_views):
+                logger = logging.getLogger("test")
 
                 # Source by ID, target by name
-                source_ids, _ = resolve_data_view_names(
-                    ["dv_prod_001"], "config.json", logger
-                )
-                target_ids, _ = resolve_data_view_names(
-                    ["Staging Analytics"], "config.json", logger
-                )
+                source_ids, _ = resolve_data_view_names(["dv_prod_001"], "config.json", logger)
+                target_ids, _ = resolve_data_view_names(["Staging Analytics"], "config.json", logger)
 
                 assert len(source_ids) == 1
                 assert len(target_ids) == 1
@@ -2527,12 +2459,14 @@ class TestAmbiguousNameResolution:
 
 # ==================== Levenshtein Distance Tests ====================
 
+
 class TestLevenshteinDistance:
     """Tests for fuzzy matching using Levenshtein distance."""
 
     def test_levenshtein_identical_strings(self):
         """Test that identical strings have distance 0"""
         from cja_auto_sdr.generator import levenshtein_distance
+
         assert levenshtein_distance("hello", "hello") == 0
         assert levenshtein_distance("", "") == 0
         assert levenshtein_distance("Analytics", "Analytics") == 0
@@ -2540,12 +2474,14 @@ class TestLevenshteinDistance:
     def test_levenshtein_empty_string(self):
         """Test distance with empty string"""
         from cja_auto_sdr.generator import levenshtein_distance
+
         assert levenshtein_distance("", "hello") == 5
         assert levenshtein_distance("hello", "") == 5
 
     def test_levenshtein_single_edit(self):
         """Test single character edits"""
         from cja_auto_sdr.generator import levenshtein_distance
+
         # Substitution
         assert levenshtein_distance("cat", "bat") == 1
         # Insertion
@@ -2556,6 +2492,7 @@ class TestLevenshteinDistance:
     def test_levenshtein_multiple_edits(self):
         """Test multiple edits"""
         from cja_auto_sdr.generator import levenshtein_distance
+
         assert levenshtein_distance("kitten", "sitting") == 3
         assert levenshtein_distance("saturday", "sunday") == 3
 
@@ -2566,6 +2503,7 @@ class TestFindSimilarNames:
     def test_find_exact_case_insensitive_match(self):
         """Test finding exact case-insensitive match"""
         from cja_auto_sdr.generator import find_similar_names
+
         names = ["Production Analytics", "Staging View", "Dev Environment"]
         similar = find_similar_names("production analytics", names)
 
@@ -2576,6 +2514,7 @@ class TestFindSimilarNames:
     def test_find_similar_with_typo(self):
         """Test finding similar names with typos"""
         from cja_auto_sdr.generator import find_similar_names
+
         names = ["Production Analytics", "Staging View", "Development"]
         similar = find_similar_names("Prodction Analytics", names)  # Missing 'u'
 
@@ -2585,6 +2524,7 @@ class TestFindSimilarNames:
     def test_find_similar_limits_results(self):
         """Test that results are limited to max_suggestions"""
         from cja_auto_sdr.generator import find_similar_names
+
         names = [f"View {i}" for i in range(20)]
         similar = find_similar_names("View", names, max_suggestions=3)
 
@@ -2593,6 +2533,7 @@ class TestFindSimilarNames:
     def test_find_similar_respects_max_distance(self):
         """Test that max_distance is respected"""
         from cja_auto_sdr.generator import find_similar_names
+
         names = ["Analytics", "Completely Different Name"]
         similar = find_similar_names("Analytics", names, max_distance=2)
 
@@ -2602,11 +2543,13 @@ class TestFindSimilarNames:
     def test_find_similar_empty_list(self):
         """Test with empty available names"""
         from cja_auto_sdr.generator import find_similar_names
+
         similar = find_similar_names("Analytics", [])
         assert len(similar) == 0
 
 
 # ==================== DataViewCache Tests ====================
+
 
 class TestDataViewCache:
     """Tests for the data view caching mechanism."""
@@ -2657,8 +2600,9 @@ class TestDataViewCache:
 
     def test_cache_ttl_expiry(self):
         """Test that cache expires after TTL"""
-        from cja_auto_sdr.generator import DataViewCache
         import time
+
+        from cja_auto_sdr.generator import DataViewCache
 
         cache = DataViewCache.__new__(DataViewCache)
         cache._cache = {}
@@ -2673,6 +2617,7 @@ class TestDataViewCache:
 
 
 # ==================== Snapshot-to-Snapshot Comparison Tests ====================
+
 
 class TestSnapshotToSnapshotComparison:
     """Tests for comparing two snapshot files directly."""
@@ -2694,7 +2639,7 @@ class TestSnapshotToSnapshotComparison:
             "description": "Source data view",
             "metrics": source_metrics,
             "dimensions": source_dimensions,
-            "metadata": {"tool_version": "3.0.10"}
+            "metadata": {"tool_version": "3.0.10"},
         }
 
         # Target snapshot (with changes) - use deep copy and modify
@@ -2710,15 +2655,15 @@ class TestSnapshotToSnapshotComparison:
             "description": "Target data view",
             "metrics": target_metrics,
             "dimensions": target_dimensions,
-            "metadata": {"tool_version": "3.0.10"}
+            "metadata": {"tool_version": "3.0.10"},
         }
 
         source_file = tmp_path / "source_snapshot.json"
         target_file = tmp_path / "target_snapshot.json"
 
-        with open(source_file, 'w') as f:
+        with open(source_file, "w") as f:
             json.dump(source_snapshot, f)
-        with open(target_file, 'w') as f:
+        with open(target_file, "w") as f:
             json.dump(target_snapshot, f)
 
         return str(source_file), str(target_file)
@@ -2728,11 +2673,8 @@ class TestSnapshotToSnapshotComparison:
         from cja_auto_sdr.generator import handle_compare_snapshots_command
 
         source_file, target_file = temp_snapshots
-        success, has_changes, exit_code = handle_compare_snapshots_command(
-            source_file=source_file,
-            target_file=target_file,
-            quiet=True,
-            quiet_diff=True
+        success, has_changes, _exit_code = handle_compare_snapshots_command(
+            source_file=source_file, target_file=target_file, quiet=True, quiet_diff=True
         )
 
         assert success is True
@@ -2751,22 +2693,19 @@ class TestSnapshotToSnapshotComparison:
             "description": "Test",
             "metrics": sample_metrics,
             "dimensions": sample_dimensions,
-            "metadata": {}
+            "metadata": {},
         }
 
         file1 = tmp_path / "snap1.json"
         file2 = tmp_path / "snap2.json"
 
-        with open(file1, 'w') as f:
+        with open(file1, "w") as f:
             json.dump(snapshot_data, f)
-        with open(file2, 'w') as f:
+        with open(file2, "w") as f:
             json.dump(snapshot_data, f)
 
         success, has_changes, _ = handle_compare_snapshots_command(
-            source_file=str(file1),
-            target_file=str(file2),
-            quiet=True,
-            quiet_diff=True
+            source_file=str(file1), target_file=str(file2), quiet=True, quiet_diff=True
         )
 
         assert success is True
@@ -2780,7 +2719,7 @@ class TestSnapshotToSnapshotComparison:
             source_file=str(tmp_path / "nonexistent.json"),
             target_file=str(tmp_path / "also_nonexistent.json"),
             quiet=True,
-            quiet_diff=True
+            quiet_diff=True,
         )
 
         assert success is False
@@ -2791,11 +2730,7 @@ class TestSnapshotToSnapshotComparison:
 
         source_file, target_file = temp_snapshots
         success, has_changes, _ = handle_compare_snapshots_command(
-            source_file=source_file,
-            target_file=target_file,
-            reverse_diff=True,
-            quiet=True,
-            quiet_diff=True
+            source_file=source_file, target_file=target_file, reverse_diff=True, quiet=True, quiet_diff=True
         )
 
         assert success is True
@@ -2804,97 +2739,109 @@ class TestSnapshotToSnapshotComparison:
 
 # ==================== CLI Arguments for New Features ====================
 
+
 class TestNewFeatureCLIArguments:
     """Tests for CLI argument parsing of new features."""
 
     def test_parse_compare_snapshots_argument(self):
         """Test that --compare-snapshots is parsed correctly"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
-            sys.argv = ['cja_sdr_generator.py', '--compare-snapshots', 'source.json', 'target.json']
+            sys.argv = ["cja_sdr_generator.py", "--compare-snapshots", "source.json", "target.json"]
             args = parse_arguments()
-            assert args.compare_snapshots == ['source.json', 'target.json']
+            assert args.compare_snapshots == ["source.json", "target.json"]
         finally:
             sys.argv = original_argv
 
     def test_compare_snapshots_with_options(self):
         """Test --compare-snapshots with additional options"""
-        from cja_auto_sdr.generator import parse_arguments
         import sys
+
+        from cja_auto_sdr.generator import parse_arguments
 
         original_argv = sys.argv
         try:
             sys.argv = [
-                'cja_sdr_generator.py',
-                '--compare-snapshots', 'a.json', 'b.json',
-                '--changes-only',
-                '--format', 'json'
+                "cja_sdr_generator.py",
+                "--compare-snapshots",
+                "a.json",
+                "b.json",
+                "--changes-only",
+                "--format",
+                "json",
             ]
             args = parse_arguments()
-            assert args.compare_snapshots == ['a.json', 'b.json']
+            assert args.compare_snapshots == ["a.json", "b.json"]
             assert args.changes_only is True
-            assert args.format == 'json'
+            assert args.format == "json"
         finally:
             sys.argv = original_argv
 
 
 # ==================== Interactive Prompt Tests ====================
 
+
 class TestPromptForSelection:
     """Tests for interactive selection prompt."""
 
     def test_prompt_returns_none_for_non_tty(self):
         """Test that prompt returns None when not in interactive terminal"""
-        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
 
+        from cja_auto_sdr.generator import prompt_for_selection
+
         # Mock sys.stdin.isatty() to return False
-        with patch('sys.stdin.isatty', return_value=False):
+        with patch("sys.stdin.isatty", return_value=False):
             options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
             result = prompt_for_selection(options, "Select one:")
             assert result is None
 
     def test_prompt_handles_valid_selection(self):
         """Test that valid selection returns correct ID"""
-        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
+
+        from cja_auto_sdr.generator import prompt_for_selection
 
         options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
 
-        with patch('sys.stdin.isatty', return_value=True):
-            with patch('builtins.input', return_value='1'):
+        with patch("sys.stdin.isatty", return_value=True):
+            with patch("builtins.input", return_value="1"):
                 result = prompt_for_selection(options, "Select one:")
                 assert result == "dv_1"
 
     def test_prompt_handles_cancel(self):
         """Test that cancel selection returns None"""
-        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
+
+        from cja_auto_sdr.generator import prompt_for_selection
 
         options = [("dv_1", "Option 1"), ("dv_2", "Option 2")]
 
-        with patch('sys.stdin.isatty', return_value=True):
-            with patch('builtins.input', return_value='0'):
+        with patch("sys.stdin.isatty", return_value=True):
+            with patch("builtins.input", return_value="0"):
                 result = prompt_for_selection(options, "Select one:")
                 assert result is None
 
     def test_prompt_handles_eof(self):
         """Test that EOF is handled gracefully"""
-        from cja_auto_sdr.generator import prompt_for_selection
         from unittest.mock import patch
+
+        from cja_auto_sdr.generator import prompt_for_selection
 
         options = [("dv_1", "Option 1")]
 
-        with patch('sys.stdin.isatty', return_value=True):
-            with patch('builtins.input', side_effect=EOFError):
+        with patch("sys.stdin.isatty", return_value=True):
+            with patch("builtins.input", side_effect=EOFError):
                 result = prompt_for_selection(options, "Select:")
                 assert result is None
 
 
 # ==================== Auto-Snapshot Tests ====================
+
 
 class TestAutoSnapshotFilenameGeneration:
     """Tests for snapshot filename generation"""
@@ -2958,7 +2905,7 @@ class TestRetentionPolicy:
                     owner="test",
                     description="test",
                     metrics=[],
-                    dimensions=[]
+                    dimensions=[],
                 )
                 manager.save_snapshot(snapshot, os.path.join(tmpdir, f"snapshot_{i}.json"))
 
@@ -2973,17 +2920,16 @@ class TestRetentionPolicy:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create 5 snapshots with different timestamps
             from datetime import datetime, timedelta
-            from unittest.mock import patch
 
             for i in range(5):
-                timestamp = datetime.now() - timedelta(days=5-i)
+                timestamp = datetime.now() - timedelta(days=5 - i)
                 snapshot = DataViewSnapshot(
                     data_view_id="dv_test",
                     data_view_name="Test",
                     owner="test",
                     description="test",
                     metrics=[],
-                    dimensions=[]
+                    dimensions=[],
                 )
                 # Manually set created_at for ordering
                 snapshot.created_at = timestamp.isoformat()
@@ -3010,7 +2956,7 @@ class TestRetentionPolicy:
                         owner="test",
                         description="test",
                         metrics=[],
-                        dimensions=[]
+                        dimensions=[],
                     )
                     manager.save_snapshot(snapshot, os.path.join(tmpdir, f"{dv_id}_snapshot_{i}.json"))
 
@@ -3020,7 +2966,7 @@ class TestRetentionPolicy:
             assert len(deleted) == 2
             # dv_b should still have all 3
             remaining = manager.list_snapshots(tmpdir)
-            dv_b_count = sum(1 for s in remaining if s['data_view_id'] == 'dv_b')
+            dv_b_count = sum(1 for s in remaining if s["data_view_id"] == "dv_b")
             assert dv_b_count == 3
 
     def test_retention_handles_empty_directory(self):
@@ -3043,113 +2989,120 @@ class TestAutoSnapshotCLIArguments:
 
     def test_auto_snapshot_flag_default(self):
         """Test that --auto-snapshot defaults to False"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123"]):
             args = parse_arguments()
             assert args.auto_snapshot is False
 
     def test_auto_snapshot_flag_enabled(self):
         """Test that --auto-snapshot can be enabled"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--auto-snapshot']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "--diff", "dv_a", "dv_b", "--auto-snapshot"]):
             args = parse_arguments()
             assert args.auto_snapshot is True
 
     def test_snapshot_dir_default(self):
         """Test that --snapshot-dir has correct default"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123"]):
             args = parse_arguments()
-            assert args.snapshot_dir == './snapshots'
+            assert args.snapshot_dir == "./snapshots"
 
     def test_snapshot_dir_custom(self):
         """Test that --snapshot-dir can be customized"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--snapshot-dir', './my_snapshots']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "--diff", "dv_a", "dv_b", "--snapshot-dir", "./my_snapshots"]):
             args = parse_arguments()
-            assert args.snapshot_dir == './my_snapshots'
+            assert args.snapshot_dir == "./my_snapshots"
 
     def test_keep_last_default(self):
         """Test that --keep-last defaults to 0 (keep all)"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123"]):
             args = parse_arguments()
             assert args.keep_last == 0
 
     def test_keep_last_custom(self):
         """Test that --keep-last can be set"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', '--diff', 'dv_a', 'dv_b', '--keep-last', '10']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "--diff", "dv_a", "dv_b", "--keep-last", "10"]):
             args = parse_arguments()
             assert args.keep_last == 10
 
     def test_all_auto_snapshot_flags_together(self):
         """Test all auto-snapshot flags used together"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', [
-            'prog', '--diff', 'dv_a', 'dv_b',
-            '--auto-snapshot',
-            '--snapshot-dir', './history',
-            '--keep-last', '5'
-        ]):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(
+            sys,
+            "argv",
+            ["prog", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--snapshot-dir", "./history", "--keep-last", "5"],
+        ):
             args = parse_arguments()
             assert args.auto_snapshot is True
-            assert args.snapshot_dir == './history'
+            assert args.snapshot_dir == "./history"
             assert args.keep_last == 5
 
     def test_compare_with_prev_flag_default(self):
         """Test that --compare-with-prev defaults to False"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', 'dv_123']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123"]):
             args = parse_arguments()
             assert args.compare_with_prev is False
 
     def test_compare_with_prev_flag_enabled(self):
         """Test that --compare-with-prev can be enabled"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', ['prog', 'dv_123', '--compare-with-prev']):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123", "--compare-with-prev"]):
             args = parse_arguments()
             assert args.compare_with_prev is True
 
     def test_compare_with_prev_with_snapshot_dir(self):
         """Test --compare-with-prev works with --snapshot-dir"""
-        from cja_auto_sdr.generator import parse_arguments
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
-        with patch.object(sys, 'argv', [
-            'prog', 'dv_123', '--compare-with-prev', '--snapshot-dir', './my_snapshots'
-        ]):
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "dv_123", "--compare-with-prev", "--snapshot-dir", "./my_snapshots"]):
             args = parse_arguments()
             assert args.compare_with_prev is True
-            assert args.snapshot_dir == './my_snapshots'
+            assert args.snapshot_dir == "./my_snapshots"
 
 
 class TestGetMostRecentSnapshot:
@@ -3157,8 +3110,8 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_returns_latest(self):
         """Test that get_most_recent_snapshot returns the most recent snapshot"""
-        from cja_auto_sdr.generator import SnapshotManager, DataViewSnapshot
-        import time
+
+        from cja_auto_sdr.generator import DataViewSnapshot, SnapshotManager
 
         manager = SnapshotManager()
 
@@ -3169,7 +3122,7 @@ class TestGetMostRecentSnapshot:
                 data_view_name="Test View",
                 created_at="2024-01-01T10:00:00",
                 metrics=[],
-                dimensions=[]
+                dimensions=[],
             )
             old_path = os.path.join(tmpdir, "old_snapshot.json")
             manager.save_snapshot(old_snapshot, old_path)
@@ -3180,7 +3133,7 @@ class TestGetMostRecentSnapshot:
                 data_view_name="Test View",
                 created_at="2024-06-01T10:00:00",
                 metrics=[],
-                dimensions=[]
+                dimensions=[],
             )
             new_path = os.path.join(tmpdir, "new_snapshot.json")
             manager.save_snapshot(new_snapshot, new_path)
@@ -3191,7 +3144,7 @@ class TestGetMostRecentSnapshot:
 
     def test_get_most_recent_snapshot_filters_by_data_view(self):
         """Test that get_most_recent_snapshot only returns snapshots for specified data view"""
-        from cja_auto_sdr.generator import SnapshotManager, DataViewSnapshot
+        from cja_auto_sdr.generator import DataViewSnapshot, SnapshotManager
 
         manager = SnapshotManager()
 
@@ -3202,7 +3155,7 @@ class TestGetMostRecentSnapshot:
                 data_view_name="Other View",
                 created_at="2024-06-01T10:00:00",
                 metrics=[],
-                dimensions=[]
+                dimensions=[],
             )
             other_path = os.path.join(tmpdir, "other_snapshot.json")
             manager.save_snapshot(other_snapshot, other_path)
@@ -3213,7 +3166,7 @@ class TestGetMostRecentSnapshot:
                 data_view_name="Test View",
                 created_at="2024-01-01T10:00:00",
                 metrics=[],
-                dimensions=[]
+                dimensions=[],
             )
             test_path = os.path.join(tmpdir, "test_snapshot.json")
             manager.save_snapshot(test_snapshot, test_path)

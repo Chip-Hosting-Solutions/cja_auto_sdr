@@ -2,8 +2,9 @@
 
 import logging
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 import cjapy
 import pandas as pd
@@ -33,10 +34,16 @@ class ParallelAPIFetcher:
         circuit_breaker: Optional circuit breaker for failure protection
     """
 
-    def __init__(self, cja: cjapy.CJA, logger: logging.Logger, perf_tracker: PerformanceTracker,
-                 max_workers: int = 3, quiet: bool = False,
-                 tuning_config: Optional[APITuningConfig] = None,
-                 circuit_breaker: Optional[CircuitBreaker] = None):
+    def __init__(
+        self,
+        cja: cjapy.CJA,
+        logger: logging.Logger,
+        perf_tracker: PerformanceTracker,
+        max_workers: int = 3,
+        quiet: bool = False,
+        tuning_config: APITuningConfig | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
+    ):
         self.cja = cja
         self.logger = logger
         self.perf_tracker = perf_tracker
@@ -45,17 +52,13 @@ class ParallelAPIFetcher:
         self.circuit_breaker = circuit_breaker
 
         # Initialize API tuner if config provided
-        self.tuner: Optional[APIWorkerTuner] = None
+        self.tuner: APIWorkerTuner | None = None
         if tuning_config is not None:
-            self.tuner = APIWorkerTuner(
-                config=tuning_config,
-                initial_workers=max_workers,
-                logger=logger
-            )
+            self.tuner = APIWorkerTuner(config=tuning_config, initial_workers=max_workers, logger=logger)
             # Use tuner's worker count as effective max
             self.max_workers = self.tuner.current_workers
 
-    def fetch_all_data(self, data_view_id: str) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
+    def fetch_all_data(self, data_view_id: str) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         """
         Fetch metrics, dimensions, and data view info in parallel
 
@@ -65,28 +68,21 @@ class ParallelAPIFetcher:
         self.logger.info("Starting parallel data fetch operations...")
         self.perf_tracker.start("Parallel API Fetch")
 
-        results = {
-            'metrics': None,
-            'dimensions': None,
-            'dataview': None
-        }
+        results = {"metrics": None, "dimensions": None, "dataview": None}
 
         errors = {}
 
         # Define fetch tasks
         tasks = {
-            'metrics': lambda: self._fetch_metrics(data_view_id),
-            'dimensions': lambda: self._fetch_dimensions(data_view_id),
-            'dataview': lambda: self._fetch_dataview_info(data_view_id)
+            "metrics": lambda: self._fetch_metrics(data_view_id),
+            "dimensions": lambda: self._fetch_dimensions(data_view_id),
+            "dataview": lambda: self._fetch_dataview_info(data_view_id),
         }
 
         # Execute tasks in parallel using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all tasks
-            future_to_name = {
-                executor.submit(task): name
-                for name, task in tasks.items()
-            }
+            future_to_name = {executor.submit(task): name for name, task in tasks.items()}
 
             # Collect results as they complete with progress indicator
             with tqdm(
@@ -95,7 +91,7 @@ class ParallelAPIFetcher:
                 unit="item",
                 bar_format=TQDM_BAR_FORMAT,
                 leave=False,
-                disable=self.quiet
+                disable=self.quiet,
             ) as pbar:
                 for future in as_completed(future_to_name):
                     task_name = future_to_name[future]
@@ -119,9 +115,9 @@ class ParallelAPIFetcher:
             self.logger.warning(f"Errors encountered: {list(errors.keys())}")
 
         # Return results with proper None checking for DataFrames
-        metrics_result = results.get('metrics')
-        dimensions_result = results.get('dimensions')
-        dataview_result = results.get('dataview')
+        metrics_result = results.get("metrics")
+        dimensions_result = results.get("dimensions")
+        dataview_result = results.get("dataview")
 
         # Handle DataFrame None checks properly
         if metrics_result is None or (isinstance(metrics_result, pd.DataFrame) and metrics_result.empty):
@@ -149,7 +145,7 @@ class ParallelAPIFetcher:
             logger=self.logger,
             operation_name=operation_name,
             circuit_breaker=self.circuit_breaker,
-            **kwargs
+            **kwargs,
         )
         # Record response time only on success to avoid retry delays inflating metrics
         if self.tuner is not None:
@@ -166,11 +162,7 @@ class ParallelAPIFetcher:
 
             # Use retry for transient network errors with circuit breaker support
             metrics = self._timed_api_call(
-                self.cja.getMetrics,
-                data_view_id,
-                inclType=True,
-                full=True,
-                operation_name="getMetrics"
+                self.cja.getMetrics, data_view_id, inclType=True, full=True, operation_name="getMetrics"
             )
 
             if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
@@ -184,10 +176,10 @@ class ParallelAPIFetcher:
             self.logger.warning(f"Circuit breaker open for metrics fetch: {e.message}")
             return pd.DataFrame()
         except AttributeError as e:
-            self.logger.error(f"API method error - getMetrics may not be available: {str(e)}")
+            self.logger.error(f"API method error - getMetrics may not be available: {e!s}")
             return pd.DataFrame()
         except Exception as e:
-            self.logger.error(f"Failed to fetch metrics: {str(e)}")
+            self.logger.error(f"Failed to fetch metrics: {e!s}")
             return pd.DataFrame()
 
     def _fetch_dimensions(self, data_view_id: str) -> pd.DataFrame:
@@ -197,11 +189,7 @@ class ParallelAPIFetcher:
 
             # Use retry for transient network errors with circuit breaker support
             dimensions = self._timed_api_call(
-                self.cja.getDimensions,
-                data_view_id,
-                inclType=True,
-                full=True,
-                operation_name="getDimensions"
+                self.cja.getDimensions, data_view_id, inclType=True, full=True, operation_name="getDimensions"
             )
 
             if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):
@@ -215,10 +203,10 @@ class ParallelAPIFetcher:
             self.logger.warning(f"Circuit breaker open for dimensions fetch: {e.message}")
             return pd.DataFrame()
         except AttributeError as e:
-            self.logger.error(f"API method error - getDimensions may not be available: {str(e)}")
+            self.logger.error(f"API method error - getDimensions may not be available: {e!s}")
             return pd.DataFrame()
         except Exception as e:
-            self.logger.error(f"Failed to fetch dimensions: {str(e)}")
+            self.logger.error(f"Failed to fetch dimensions: {e!s}")
             return pd.DataFrame()
 
     def _fetch_dataview_info(self, data_view_id: str) -> dict:
@@ -227,11 +215,7 @@ class ParallelAPIFetcher:
             self.logger.debug(f"Fetching data view information for {data_view_id}")
 
             # Use retry for transient network errors with circuit breaker support
-            lookup_data = self._timed_api_call(
-                self.cja.getDataView,
-                data_view_id,
-                operation_name="getDataView"
-            )
+            lookup_data = self._timed_api_call(self.cja.getDataView, data_view_id, operation_name="getDataView")
 
             if not lookup_data:
                 self.logger.error("Data view information returned empty")
@@ -244,10 +228,10 @@ class ParallelAPIFetcher:
             self.logger.warning(f"Circuit breaker open for data view fetch: {e.message}")
             return {"name": "Unknown", "id": data_view_id, "circuit_breaker_open": True}
         except Exception as e:
-            self.logger.error(f"Failed to fetch data view information: {str(e)}")
+            self.logger.error(f"Failed to fetch data view information: {e!s}")
             return {"name": "Unknown", "id": data_view_id, "error": str(e)}
 
-    def get_tuner_statistics(self) -> Optional[Dict[str, Any]]:
+    def get_tuner_statistics(self) -> dict[str, Any] | None:
         """Get API tuner statistics if tuning is enabled."""
         if self.tuner is not None:
             return self.tuner.get_statistics()

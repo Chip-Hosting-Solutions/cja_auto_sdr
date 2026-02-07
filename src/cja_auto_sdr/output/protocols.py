@@ -1,3 +1,4 @@
+# ruff: noqa: F822
 """Output writer protocol (current implementation lives in generator for compatibility)."""
 
 __all__ = ["OutputWriter"]

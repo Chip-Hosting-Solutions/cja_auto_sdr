@@ -10,14 +10,13 @@ Validates that SharedValidationCache:
 7. Can be used across processes (multiprocessing.Manager)
 8. Properly shuts down Manager resources
 """
-import pytest
-import pandas as pd
-import logging
-import time
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
-import sys
+
 import os
+import sys
+import time
+
+import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import SharedValidationCache, ValidationCache
@@ -26,23 +25,27 @@ from cja_auto_sdr.generator import SharedValidationCache, ValidationCache
 @pytest.fixture
 def sample_metrics_df():
     """Sample metrics DataFrame for testing"""
-    return pd.DataFrame({
-        'id': ['metric1', 'metric2', 'metric3'],
-        'name': ['Metric One', 'Metric Two', 'Metric Three'],
-        'type': ['calculated', 'standard', 'calculated'],
-        'description': ['First metric', 'Second metric', 'Third metric']
-    })
+    return pd.DataFrame(
+        {
+            "id": ["metric1", "metric2", "metric3"],
+            "name": ["Metric One", "Metric Two", "Metric Three"],
+            "type": ["calculated", "standard", "calculated"],
+            "description": ["First metric", "Second metric", "Third metric"],
+        }
+    )
 
 
 @pytest.fixture
 def sample_dimensions_df():
     """Sample dimensions DataFrame for testing"""
-    return pd.DataFrame({
-        'id': ['dim1', 'dim2'],
-        'name': ['Dimension One', 'Dimension Two'],
-        'type': ['standard', 'standard'],
-        'description': ['First dimension', 'Second dimension']
-    })
+    return pd.DataFrame(
+        {
+            "id": ["dim1", "dim2"],
+            "name": ["Dimension One", "Dimension Two"],
+            "type": ["standard", "standard"],
+            "description": ["First dimension", "Second dimension"],
+        }
+    )
 
 
 class TestSharedValidationCacheBasics:
@@ -53,17 +56,14 @@ class TestSharedValidationCacheBasics:
         cache = SharedValidationCache(max_size=100, ttl_seconds=3600)
 
         result, cache_key = cache.get(
-            sample_metrics_df,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name', 'description']
+            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
         )
 
         assert result is None
         assert cache_key is not None
         stats = cache.get_statistics()
-        assert stats['misses'] == 1
-        assert stats['hits'] == 0
+        assert stats["misses"] == 1
+        assert stats["hits"] == 0
 
         cache.shutdown()
 
@@ -73,33 +73,28 @@ class TestSharedValidationCacheBasics:
 
         # First call - miss
         result, cache_key = cache.get(
-            sample_metrics_df,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name', 'description']
+            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
         )
         assert result is None
 
         # Store result
-        issues = [{'severity': 'LOW', 'message': 'Test issue'}]
-        cache.put(sample_metrics_df, 'Metrics', ['id', 'name', 'type'],
-                 ['id', 'name', 'description'], issues, cache_key)
+        issues = [{"severity": "LOW", "message": "Test issue"}]
+        cache.put(
+            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"], issues, cache_key
+        )
 
         # Second call - hit
-        result2, cache_key2 = cache.get(
-            sample_metrics_df,
-            'Metrics',
-            ['id', 'name', 'type'],
-            ['id', 'name', 'description']
+        result2, _cache_key2 = cache.get(
+            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
         )
 
         assert result2 is not None
         assert len(result2) == 1
-        assert result2[0]['severity'] == 'LOW'
+        assert result2[0]["severity"] == "LOW"
 
         stats = cache.get_statistics()
-        assert stats['hits'] == 1
-        assert stats['misses'] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
 
         cache.shutdown()
 
@@ -108,15 +103,15 @@ class TestSharedValidationCacheBasics:
         cache = SharedValidationCache(max_size=100, ttl_seconds=3600)
 
         # Cache metrics
-        _, key1 = cache.get(sample_metrics_df, 'Metrics', ['id'], ['name'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['name'], [], key1)
+        _, key1 = cache.get(sample_metrics_df, "Metrics", ["id"], ["name"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["name"], [], key1)
 
         # Lookup dimensions - should miss
-        result, _ = cache.get(sample_dimensions_df, 'Dimensions', ['id'], ['name'])
+        result, _ = cache.get(sample_dimensions_df, "Dimensions", ["id"], ["name"])
         assert result is None
 
         stats = cache.get_statistics()
-        assert stats['misses'] == 2
+        assert stats["misses"] == 2
 
         cache.shutdown()
 
@@ -130,18 +125,8 @@ class TestSharedValidationCacheAPICompatibility:
         regular = ValidationCache()
 
         # Both should accept same arguments
-        shared_result, shared_key = shared.get(
-            sample_metrics_df,
-            'Metrics',
-            ['id', 'name'],
-            ['id', 'description']
-        )
-        regular_result, regular_key = regular.get(
-            sample_metrics_df,
-            'Metrics',
-            ['id', 'name'],
-            ['id', 'description']
-        )
+        shared_result, shared_key = shared.get(sample_metrics_df, "Metrics", ["id", "name"], ["id", "description"])
+        regular_result, regular_key = regular.get(sample_metrics_df, "Metrics", ["id", "name"], ["id", "description"])
 
         # Both return same structure
         assert shared_result is None and regular_result is None
@@ -154,15 +139,15 @@ class TestSharedValidationCacheAPICompatibility:
         shared = SharedValidationCache()
         regular = ValidationCache()
 
-        issues = [{'severity': 'LOW', 'message': 'Test'}]
+        issues = [{"severity": "LOW", "message": "Test"}]
 
         # Both should accept same arguments
-        _, shared_key = shared.get(sample_metrics_df, 'Metrics', ['id'], ['name'])
-        _, regular_key = regular.get(sample_metrics_df, 'Metrics', ['id'], ['name'])
+        _, shared_key = shared.get(sample_metrics_df, "Metrics", ["id"], ["name"])
+        _, regular_key = regular.get(sample_metrics_df, "Metrics", ["id"], ["name"])
 
         # Should not raise
-        shared.put(sample_metrics_df, 'Metrics', ['id'], ['name'], issues, shared_key)
-        regular.put(sample_metrics_df, 'Metrics', ['id'], ['name'], issues, regular_key)
+        shared.put(sample_metrics_df, "Metrics", ["id"], ["name"], issues, shared_key)
+        regular.put(sample_metrics_df, "Metrics", ["id"], ["name"], issues, regular_key)
 
         shared.shutdown()
 
@@ -189,18 +174,18 @@ class TestSharedValidationCacheEviction:
 
         # Add 3 entries to cache with size 2
         dfs = [
-            pd.DataFrame({'id': ['item0']}),
-            pd.DataFrame({'id': ['item1']}),
-            pd.DataFrame({'id': ['item2']}),
+            pd.DataFrame({"id": ["item0"]}),
+            pd.DataFrame({"id": ["item1"]}),
+            pd.DataFrame({"id": ["item2"]}),
         ]
 
         for i, df in enumerate(dfs):
-            _, key = cache.get(df, 'Metrics', ['id'], ['id'])
-            cache.put(df, 'Metrics', ['id'], ['id'], [{'num': i}], key)
+            _, key = cache.get(df, "Metrics", ["id"], ["id"])
+            cache.put(df, "Metrics", ["id"], ["id"], [{"num": i}], key)
 
         stats = cache.get_statistics()
-        assert stats['size'] == 2
-        assert stats['evictions'] >= 1
+        assert stats["size"] == 2
+        assert stats["evictions"] >= 1
 
         cache.shutdown()
 
@@ -208,30 +193,30 @@ class TestSharedValidationCacheEviction:
         """Should evict least recently used entry"""
         cache = SharedValidationCache(max_size=2, ttl_seconds=3600)
 
-        df1 = pd.DataFrame({'id': ['a']})
-        df2 = pd.DataFrame({'id': ['b']})
-        df3 = pd.DataFrame({'id': ['c']})
+        df1 = pd.DataFrame({"id": ["a"]})
+        df2 = pd.DataFrame({"id": ["b"]})
+        df3 = pd.DataFrame({"id": ["c"]})
 
         # Add df1 and df2
-        _, key1 = cache.get(df1, 'Metrics', ['id'], ['id'])
-        cache.put(df1, 'Metrics', ['id'], ['id'], [{'v': 1}], key1)
+        _, key1 = cache.get(df1, "Metrics", ["id"], ["id"])
+        cache.put(df1, "Metrics", ["id"], ["id"], [{"v": 1}], key1)
 
-        _, key2 = cache.get(df2, 'Metrics', ['id'], ['id'])
-        cache.put(df2, 'Metrics', ['id'], ['id'], [{'v': 2}], key2)
+        _, key2 = cache.get(df2, "Metrics", ["id"], ["id"])
+        cache.put(df2, "Metrics", ["id"], ["id"], [{"v": 2}], key2)
 
         # Access df1 to make it more recent
-        cache.get(df1, 'Metrics', ['id'], ['id'])
+        cache.get(df1, "Metrics", ["id"], ["id"])
 
         # Add df3 - should evict df2 (least recently used)
-        _, key3 = cache.get(df3, 'Metrics', ['id'], ['id'])
-        cache.put(df3, 'Metrics', ['id'], ['id'], [{'v': 3}], key3)
+        _, key3 = cache.get(df3, "Metrics", ["id"], ["id"])
+        cache.put(df3, "Metrics", ["id"], ["id"], [{"v": 3}], key3)
 
         # df1 should still be in cache
-        result1, _ = cache.get(df1, 'Metrics', ['id'], ['id'])
+        result1, _ = cache.get(df1, "Metrics", ["id"], ["id"])
         assert result1 is not None
 
         # df2 should be evicted
-        result2, _ = cache.get(df2, 'Metrics', ['id'], ['id'])
+        result2, _ = cache.get(df2, "Metrics", ["id"], ["id"])
         assert result2 is None
 
         cache.shutdown()
@@ -245,18 +230,18 @@ class TestSharedValidationCacheTTL:
         cache = SharedValidationCache(max_size=100, ttl_seconds=0.1)
 
         # Add entry
-        _, key = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], [{'test': 1}], key)
+        _, key = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], [{"test": 1}], key)
 
         # Should hit immediately
-        result1, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
+        result1, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
         assert result1 is not None
 
         # Wait for TTL
         time.sleep(0.15)
 
         # Should miss after TTL
-        result2, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
+        result2, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
         assert result2 is None
 
         cache.shutdown()
@@ -270,17 +255,17 @@ class TestSharedValidationCacheStatistics:
         cache = SharedValidationCache()
 
         # Miss
-        _, key = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], [], key)
+        _, key = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], [], key)
 
         # Hit
-        cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
+        cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
 
         stats = cache.get_statistics()
-        assert stats['hits'] == 2
-        assert stats['misses'] == 1
-        assert stats['hit_rate'] == pytest.approx(66.67, rel=0.1)
+        assert stats["hits"] == 2
+        assert stats["misses"] == 1
+        assert stats["hit_rate"] == pytest.approx(66.67, rel=0.1)
 
         cache.shutdown()
 
@@ -288,14 +273,14 @@ class TestSharedValidationCacheStatistics:
         """Should track cache size"""
         cache = SharedValidationCache()
 
-        _, key1 = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], [], key1)
+        _, key1 = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], [], key1)
 
-        _, key2 = cache.get(sample_dimensions_df, 'Dims', ['id'], ['id'])
-        cache.put(sample_dimensions_df, 'Dims', ['id'], ['id'], [], key2)
+        _, key2 = cache.get(sample_dimensions_df, "Dims", ["id"], ["id"])
+        cache.put(sample_dimensions_df, "Dims", ["id"], ["id"], [], key2)
 
         stats = cache.get_statistics()
-        assert stats['size'] == 2
+        assert stats["size"] == 2
 
         cache.shutdown()
 
@@ -307,16 +292,16 @@ class TestSharedValidationCacheClear:
         """clear() should remove all entries"""
         cache = SharedValidationCache()
 
-        _, key = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], [], key)
+        _, key = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], [], key)
 
         cache.clear()
 
-        result, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
+        result, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
         assert result is None
 
         stats = cache.get_statistics()
-        assert stats['size'] == 0
+        assert stats["size"] == 0
 
         cache.shutdown()
 
@@ -329,9 +314,9 @@ class TestSharedValidationCacheShutdown:
         cache = SharedValidationCache()
 
         # Add some data
-        df = pd.DataFrame({'id': ['test']})
-        _, key = cache.get(df, 'Metrics', ['id'], ['id'])
-        cache.put(df, 'Metrics', ['id'], ['id'], [], key)
+        df = pd.DataFrame({"id": ["test"]})
+        _, key = cache.get(df, "Metrics", ["id"], ["id"])
+        cache.put(df, "Metrics", ["id"], ["id"], [], key)
 
         # Shutdown should not raise
         cache.shutdown()
@@ -344,11 +329,11 @@ class TestSharedValidationCacheShutdown:
         cache = SharedValidationCache()
         cache.shutdown()
 
-        df = pd.DataFrame({'id': ['test']})
+        df = pd.DataFrame({"id": ["test"]})
 
         # Operations may raise or return None/empty - just verify no crash
         try:
-            cache.get(df, 'Metrics', ['id'], ['id'])
+            cache.get(df, "Metrics", ["id"], ["id"])
         except Exception:
             pass  # Expected after shutdown
 
@@ -360,20 +345,20 @@ class TestSharedValidationCacheDataIntegrity:
         """Should return copy to prevent mutation of cached data"""
         cache = SharedValidationCache()
 
-        original_issues = [{'severity': 'LOW', 'message': 'Test'}]
+        original_issues = [{"severity": "LOW", "message": "Test"}]
 
-        _, key = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], original_issues, key)
+        _, key = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], original_issues, key)
 
         # Get cached data
-        result1, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
+        result1, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
 
         # Mutate returned data
-        result1[0]['message'] = 'Modified'
+        result1[0]["message"] = "Modified"
 
         # Get again - should have original value
-        result2, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        assert result2[0]['message'] == 'Test'
+        result2, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        assert result2[0]["message"] == "Test"
 
         cache.shutdown()
 
@@ -381,16 +366,16 @@ class TestSharedValidationCacheDataIntegrity:
         """Should store copy to prevent external mutation affecting cache"""
         cache = SharedValidationCache()
 
-        issues = [{'severity': 'LOW', 'message': 'Original'}]
+        issues = [{"severity": "LOW", "message": "Original"}]
 
-        _, key = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        cache.put(sample_metrics_df, 'Metrics', ['id'], ['id'], issues, key)
+        _, key = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        cache.put(sample_metrics_df, "Metrics", ["id"], ["id"], issues, key)
 
         # Mutate original data
-        issues[0]['message'] = 'Modified'
+        issues[0]["message"] = "Modified"
 
         # Get cached data - should have original value
-        result, _ = cache.get(sample_metrics_df, 'Metrics', ['id'], ['id'])
-        assert result[0]['message'] == 'Original'
+        result, _ = cache.get(sample_metrics_df, "Metrics", ["id"], ["id"])
+        assert result[0]["message"] == "Original"
 
         cache.shutdown()

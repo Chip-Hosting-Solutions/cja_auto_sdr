@@ -10,17 +10,17 @@ Validates that circuit breaker:
 7. Provides accurate statistics
 8. Works as a decorator
 """
-import pytest
-import time
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import sys
+
 import os
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import (
-    CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitBreakerOpen
-)
+from cja_auto_sdr.generator import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
 
 
 class TestCircuitBreakerBasics:
@@ -45,7 +45,7 @@ class TestCircuitBreakerBasics:
 
         # Record failures up to threshold
         for i in range(3):
-            breaker.record_failure(Exception(f"Failure {i+1}"))
+            breaker.record_failure(Exception(f"Failure {i + 1}"))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -56,7 +56,7 @@ class TestCircuitBreakerBasics:
 
         # Record failures below threshold
         for i in range(4):
-            breaker.record_failure(Exception(f"Failure {i+1}"))
+            breaker.record_failure(Exception(f"Failure {i + 1}"))
 
         assert breaker.state == CircuitState.CLOSED
 
@@ -110,11 +110,7 @@ class TestCircuitBreakerRecovery:
 
     def test_closes_after_success_threshold_in_half_open(self):
         """Circuit should close after success threshold in HALF_OPEN"""
-        config = CircuitBreakerConfig(
-            failure_threshold=1,
-            success_threshold=2,
-            timeout_seconds=0.1
-        )
+        config = CircuitBreakerConfig(failure_threshold=1, success_threshold=2, timeout_seconds=0.1)
         breaker = CircuitBreaker(config=config)
 
         # Open the circuit
@@ -132,11 +128,7 @@ class TestCircuitBreakerRecovery:
 
     def test_reopens_on_failure_in_half_open(self):
         """Circuit should immediately reopen on failure in HALF_OPEN"""
-        config = CircuitBreakerConfig(
-            failure_threshold=1,
-            success_threshold=3,
-            timeout_seconds=0.1
-        )
+        config = CircuitBreakerConfig(failure_threshold=1, success_threshold=3, timeout_seconds=0.1)
         breaker = CircuitBreaker(config=config)
 
         # Open the circuit
@@ -163,7 +155,7 @@ class TestCircuitBreakerStatistics:
             breaker.allow_request()
 
         stats = breaker.get_statistics()
-        assert stats['total_requests'] == 5
+        assert stats["total_requests"] == 5
 
     def test_tracks_total_failures(self):
         """Should track total failure count"""
@@ -174,7 +166,7 @@ class TestCircuitBreakerStatistics:
             breaker.record_failure(Exception(f"Failure {i}"))
 
         stats = breaker.get_statistics()
-        assert stats['total_failures'] == 3
+        assert stats["total_failures"] == 3
 
     def test_tracks_rejections(self):
         """Should track rejected requests"""
@@ -188,15 +180,11 @@ class TestCircuitBreakerStatistics:
             breaker.allow_request()
 
         stats = breaker.get_statistics()
-        assert stats['total_rejections'] == 3
+        assert stats["total_rejections"] == 3
 
     def test_tracks_trip_count(self):
         """Should track how many times circuit has opened"""
-        config = CircuitBreakerConfig(
-            failure_threshold=1,
-            success_threshold=1,
-            timeout_seconds=0.1
-        )
+        config = CircuitBreakerConfig(failure_threshold=1, success_threshold=1, timeout_seconds=0.1)
         breaker = CircuitBreaker(config=config)
 
         # Trip the circuit twice
@@ -212,7 +200,7 @@ class TestCircuitBreakerStatistics:
         assert breaker.state == CircuitState.OPEN
 
         stats = breaker.get_statistics()
-        assert stats['trips'] == 2
+        assert stats["trips"] == 2
 
     def test_tracks_time_until_retry(self):
         """Should track time remaining until retry"""
@@ -222,7 +210,7 @@ class TestCircuitBreakerStatistics:
         breaker.record_failure(Exception("Failure"))
 
         stats = breaker.get_statistics()
-        assert 0 < stats['time_until_retry_seconds'] <= 1.0
+        assert 0 < stats["time_until_retry_seconds"] <= 1.0
 
 
 class TestCircuitBreakerDecorator:
@@ -287,7 +275,7 @@ class TestCircuitBreakerThreadSafety:
         def make_requests():
             for _ in range(100):
                 if breaker.allow_request():
-                    if threading.current_thread().name.endswith('0'):
+                    if threading.current_thread().name.endswith("0"):
                         breaker.record_failure(Exception("Failure"))
                     else:
                         breaker.record_success()
@@ -298,15 +286,11 @@ class TestCircuitBreakerThreadSafety:
                 future.result()
 
         stats = breaker.get_statistics()
-        assert stats['total_requests'] == 1000
+        assert stats["total_requests"] == 1000
 
     def test_concurrent_state_transitions(self):
         """State transitions should be atomic under concurrent access"""
-        config = CircuitBreakerConfig(
-            failure_threshold=5,
-            success_threshold=3,
-            timeout_seconds=0.05
-        )
+        config = CircuitBreakerConfig(failure_threshold=5, success_threshold=3, timeout_seconds=0.05)
         breaker = CircuitBreaker(config=config)
 
         errors = []
@@ -347,8 +331,8 @@ class TestCircuitBreakerReset:
 
         assert breaker.state == CircuitState.CLOSED
         stats = breaker.get_statistics()
-        assert stats['failure_count'] == 0
-        assert stats['success_count'] == 0
+        assert stats["failure_count"] == 0
+        assert stats["success_count"] == 0
 
 
 class TestCircuitBreakerException:

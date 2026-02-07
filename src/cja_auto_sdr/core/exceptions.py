@@ -4,13 +4,11 @@ All exception classes are designed to provide clear, actionable error messages
 with context about what went wrong and how to fix it.
 """
 
-from typing import Optional
-
 
 class CJASDRError(Exception):
     """Base exception for all CJA SDR errors."""
 
-    def __init__(self, message: str, details: Optional[str] = None):
+    def __init__(self, message: str, details: str | None = None):
         self.message = message
         self.details = details
         super().__init__(self.message)
@@ -31,8 +29,9 @@ class ConfigurationError(CJASDRError):
         - Invalid credential format
     """
 
-    def __init__(self, message: str, config_file: Optional[str] = None,
-                 field: Optional[str] = None, details: Optional[str] = None):
+    def __init__(
+        self, message: str, config_file: str | None = None, field: str | None = None, details: str | None = None
+    ):
         self.config_file = config_file
         self.field = field
         super().__init__(message, details)
@@ -45,9 +44,14 @@ class APIError(CJASDRError):
     the operation that failed.
     """
 
-    def __init__(self, message: str, status_code: Optional[int] = None,
-                 operation: Optional[str] = None, details: Optional[str] = None,
-                 original_error: Optional[Exception] = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        operation: str | None = None,
+        details: str | None = None,
+        original_error: Exception | None = None,
+    ):
         self.status_code = status_code
         self.operation = operation
         self.original_error = original_error
@@ -71,8 +75,7 @@ class ValidationError(CJASDRError):
     further processing.
     """
 
-    def __init__(self, message: str, item_type: Optional[str] = None,
-                 issue_count: int = 0, details: Optional[str] = None):
+    def __init__(self, message: str, item_type: str | None = None, issue_count: int = 0, details: str | None = None):
         self.item_type = item_type
         self.issue_count = issue_count
         super().__init__(message, details)
@@ -88,9 +91,14 @@ class OutputError(CJASDRError):
         - Serialization error
     """
 
-    def __init__(self, message: str, output_path: Optional[str] = None,
-                 output_format: Optional[str] = None, details: Optional[str] = None,
-                 original_error: Optional[Exception] = None):
+    def __init__(
+        self,
+        message: str,
+        output_path: str | None = None,
+        output_format: str | None = None,
+        details: str | None = None,
+        original_error: Exception | None = None,
+    ):
         self.output_path = output_path
         self.output_format = output_format
         self.original_error = original_error
@@ -103,8 +111,7 @@ class ProfileError(CJASDRError):
     Used when operations involving credential profiles fail.
     """
 
-    def __init__(self, message: str, profile_name: Optional[str] = None,
-                 details: Optional[str] = None):
+    def __init__(self, message: str, profile_name: str | None = None, details: str | None = None):
         self.profile_name = profile_name
         super().__init__(message, details)
 
@@ -116,6 +123,7 @@ class ProfileNotFoundError(ProfileError):
         - Profile directory not found in ~/.cja/orgs/
         - Neither config.json nor .env exists in profile directory
     """
+
     pass
 
 
@@ -127,6 +135,7 @@ class ProfileConfigError(ProfileError):
         - Missing required credentials
         - Invalid profile name format
     """
+
     pass
 
 
@@ -141,8 +150,7 @@ class CredentialSourceError(CJASDRError):
         reason: Why the credential loading failed
     """
 
-    def __init__(self, message: str, source: str,
-                 reason: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, source: str, reason: str | None = None, details: str | None = None):
         self.source = source
         self.reason = reason
         super().__init__(message, details)
@@ -187,8 +195,8 @@ class ConcurrentOrgReportError(CJASDRError):
     def __init__(
         self,
         org_id: str,
-        lock_holder_pid: Optional[int] = None,
-        started_at: Optional[str] = None,
+        lock_holder_pid: int | None = None,
+        started_at: str | None = None,
     ):
         self.org_id = org_id
         self.lock_holder_pid = lock_holder_pid

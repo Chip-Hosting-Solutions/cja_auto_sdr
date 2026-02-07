@@ -12,9 +12,9 @@ from cja_auto_sdr.output.writers import (
 )
 
 __all__ = [
+    "WRITER_REGISTRY",
     "ExcelFormatCache",
     "OutputWriter",
-    "WRITER_REGISTRY",
     "apply_excel_formatting",
     "get_writer",
     "write_csv_output",
@@ -26,7 +26,9 @@ __all__ = [
 
 
 _ALLOWED_GENERATOR_IMPORTS = {
-    "format_output", "generate_output_files", "OUTPUT_FORMATS",
+    "format_output",
+    "generate_output_files",
+    "OUTPUT_FORMATS",
 }
 
 
@@ -37,5 +39,6 @@ def __getattr__(name):
     """
     if name in _ALLOWED_GENERATOR_IMPORTS:
         from cja_auto_sdr import generator
+
         return getattr(generator, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

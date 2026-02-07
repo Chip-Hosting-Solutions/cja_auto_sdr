@@ -1,47 +1,46 @@
+import argparse
+import atexit
+import contextlib
+import csv
+import functools
+import hashlib
+import html
+import io
+import json
+import logging
+import math
+import multiprocessing
+import os
+import platform
+import random
+import re
+import subprocess
+import sys
+import tempfile
+import textwrap
+import threading
+import time
+import uuid
+import webbrowser
+from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any, Callable, Dict, List, NoReturn, Optional, Protocol, Tuple, TypeVar, Union, runtime_checkable
+
 import cjapy
 import pandas as pd
-import json
-import re
-import html
-import math
-import contextlib
-from datetime import datetime, timedelta
-import hashlib
-import logging
-from logging.handlers import RotatingFileHandler
-import sys
-from typing import (
-    Dict, List, NoReturn, Tuple, Optional, Callable, Any, Union,
-    TypeVar, Protocol, runtime_checkable
-)
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from tqdm import tqdm
-import time
-import threading
-import multiprocessing
-import argparse
-import os
-import random
-import functools
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
-from enum import Enum
-import tempfile
-import atexit
-import uuid
-import textwrap
-import webbrowser
-import platform
-import subprocess
-import csv
-import io
 
 # Attempt to load python-dotenv if available (optional dependency)
 _DOTENV_AVAILABLE = False
 _DOTENV_LOADED = False
 try:
     from dotenv import load_dotenv
+
     _DOTENV_LOADED = load_dotenv()  # Returns True if .env file was found and loaded
     _DOTENV_AVAILABLE = True
 except ImportError:
@@ -51,6 +50,7 @@ except ImportError:
 _ARGCOMPLETE_AVAILABLE = False
 try:
     import argcomplete
+
     _ARGCOMPLETE_AVAILABLE = True
 except ImportError:
     pass  # argcomplete not installed
@@ -59,74 +59,76 @@ except ImportError:
 # These imports are from the new modular structure introduced in v3.2.0
 # They are re-exported here for backwards compatibility
 
-from cja_auto_sdr.core.version import __version__
-from cja_auto_sdr.core.exceptions import (
-    CJASDRError,
-    ConfigurationError,
-    APIError,
-    ValidationError,
-    OutputError,
-    ProfileError,
-    ProfileNotFoundError,
-    ProfileConfigError,
-    CredentialSourceError,
-    CircuitBreakerOpen,
-    RetryableHTTPError,
+from cja_auto_sdr.api.resilience import (
+    RETRYABLE_EXCEPTIONS,
+    CircuitBreaker,
+    ErrorMessageHelper,
+    make_api_call_with_retry,
+    retry_with_backoff,
+)
+from cja_auto_sdr.core.colors import (
+    ANSIColors,
+    ConsoleColors,
+    _format_error_msg,
+    format_file_size,
+    open_file_in_default_app,
 )
 from cja_auto_sdr.core.config import (
-    RetryConfig,
-    CacheConfig,
-    LogConfig,
-    WorkerConfig,
     APITuningConfig,
-    CircuitState,
+    CacheConfig,
     CircuitBreakerConfig,
+    CircuitState,
+    LogConfig,
+    RetryConfig,
     SDRConfig,
     WizardConfig,
+    WorkerConfig,
 )
 from cja_auto_sdr.core.constants import (
-    BANNER_WIDTH,
-    FORMAT_ALIASES,
-    EXTENSION_TO_FORMAT,
-    DEFAULT_API_FETCH_WORKERS,
-    DEFAULT_VALIDATION_WORKERS,
-    DEFAULT_BATCH_WORKERS,
-    MAX_BATCH_WORKERS,
     AUTO_WORKERS_SENTINEL,
+    BANNER_WIDTH,
+    CONFIG_SCHEMA,
+    CREDENTIAL_FIELDS,
+    DEFAULT_API_FETCH_WORKERS,
+    DEFAULT_BATCH_WORKERS,
+    DEFAULT_CACHE,
     DEFAULT_CACHE_SIZE,
     DEFAULT_CACHE_TTL,
-    LOG_FILE_MAX_BYTES,
-    LOG_FILE_BACKUP_COUNT,
-    DEFAULT_RETRY,
-    DEFAULT_CACHE,
     DEFAULT_LOG,
-    DEFAULT_WORKERS,
+    DEFAULT_RETRY,
     DEFAULT_RETRY_CONFIG,
-    VALIDATION_SCHEMA,
-    RETRYABLE_STATUS_CODES,
-    CONFIG_SCHEMA,
-    JWT_DEPRECATED_FIELDS,
+    DEFAULT_VALIDATION_WORKERS,
+    DEFAULT_WORKERS,
     ENV_VAR_MAPPING,
-    CREDENTIAL_FIELDS,
+    EXTENSION_TO_FORMAT,
+    FORMAT_ALIASES,
+    JWT_DEPRECATED_FIELDS,
+    LOG_FILE_BACKUP_COUNT,
+    LOG_FILE_MAX_BYTES,
+    MAX_BATCH_WORKERS,
+    RETRYABLE_STATUS_CODES,
+    VALIDATION_SCHEMA,
+    _get_credential_fields,
     auto_detect_workers,
     infer_format_from_path,
     should_generate_format,
-    _get_credential_fields,
 )
-from cja_auto_sdr.core.colors import (
-    ConsoleColors,
-    ANSIColors,
-    format_file_size,
-    open_file_in_default_app,
-    _format_error_msg,
+from cja_auto_sdr.core.exceptions import (
+    APIError,
+    CircuitBreakerOpen,
+    CJASDRError,
+    ConfigurationError,
+    CredentialSourceError,
+    OutputError,
+    ProfileConfigError,
+    ProfileError,
+    ProfileNotFoundError,
+    RetryableHTTPError,
+    ValidationError,
 )
-from cja_auto_sdr.api.resilience import (
-    ErrorMessageHelper,
-    CircuitBreaker,
-    RETRYABLE_EXCEPTIONS,
-    retry_with_backoff,
-    make_api_call_with_retry,
-)
+from cja_auto_sdr.core.version import __version__
+from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
+from cja_auto_sdr.org.cache import OrgReportCache
 
 # ==================== LEGACY DEFINITIONS REMOVED ====================
 # The following sections have been moved to cja_auto_sdr.core:
@@ -144,24 +146,19 @@ from cja_auto_sdr.api.resilience import (
 # - make_api_call_with_retry -> api/resilience.py
 #
 # They are imported above for backwards compatibility.
-
 # ==================== ORG-WIDE ANALYSIS IMPORTS ====================
 # These were moved to cja_auto_sdr.org in v3.2.0
 # They are re-exported here for backwards compatibility
-
 from cja_auto_sdr.org.models import (
-    OrgReportConfig,
-    ComponentInfo,
-    DataViewSummary,
-    SimilarityPair,
-    DataViewCluster,
     ComponentDistribution,
-    OrgReportResult,
+    ComponentInfo,
+    DataViewCluster,
+    DataViewSummary,
     OrgReportComparison,
+    OrgReportConfig,
+    OrgReportResult,
+    SimilarityPair,
 )
-from cja_auto_sdr.org.cache import OrgReportCache
-from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
-
 
 # ==================== LEGACY ORG-WIDE DEFINITIONS (REMOVED) ====================
 # The following classes have been moved to cja_auto_sdr.org:
@@ -209,7 +206,7 @@ class OutputWriter(Protocol):
         dimensions_df: pd.DataFrame,
         dataview_info: Dict[str, Any],
         output_path: Path,
-        quality_results: Optional[List[Dict[str, Any]]] = None
+        quality_results: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Write output in the implemented format.
 
@@ -233,7 +230,7 @@ class OutputWriter(Protocol):
 ValidationIssue = Dict[str, Any]
 
 # Type variable for generic return types
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
@@ -247,9 +244,11 @@ T = TypeVar('T')
 # cja_auto_sdr.api.resilience and imported above.
 # ==================== DATA STRUCTURES ====================
 
+
 @dataclass
 class ProcessingResult:
     """Result of processing a single data view"""
+
     data_view_id: str
     data_view_name: str
     success: bool
@@ -276,21 +275,22 @@ class ProcessingResult:
     @property
     def has_inventory(self) -> bool:
         """Check if any inventory data was collected."""
-        return (self.segments_count > 0 or
-                self.calculated_metrics_count > 0 or
-                self.derived_fields_count > 0)
+        return self.segments_count > 0 or self.calculated_metrics_count > 0 or self.derived_fields_count > 0
 
     @property
     def total_high_complexity(self) -> int:
         """Total count of high-complexity items across all inventories."""
-        return (self.segments_high_complexity +
-                self.calculated_metrics_high_complexity +
-                self.derived_fields_high_complexity)
+        return (
+            self.segments_high_complexity
+            + self.calculated_metrics_high_complexity
+            + self.derived_fields_high_complexity
+        )
 
 
 @dataclass
 class WorkerArgs:
     """Arguments for process_single_dataview_worker (replaces opaque tuple)."""
+
     data_view_id: str
     config_file: str = "config.json"
     output_dir: str = "."
@@ -326,6 +326,17 @@ def _exit_error(msg: str) -> NoReturn:
 
 # ==================== DIFF COMPARISON ====================
 
+from cja_auto_sdr.api.cache import SharedValidationCache, ValidationCache  # noqa: F811
+
+# ==================== API WORKER TUNER (moved to api/tuning.py) ====================
+from cja_auto_sdr.api.tuning import APIWorkerTuner  # noqa: F811
+
+# ==================== LOGGING SETUP ====================
+# ==================== LOGGING (moved to core/logging.py) ====================
+from cja_auto_sdr.core.logging import JSONFormatter, setup_logging  # noqa: F811
+
+# ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
+from cja_auto_sdr.core.perf import PerformanceTracker  # noqa: F811
 from cja_auto_sdr.diff.comparator import DataViewComparator
 from cja_auto_sdr.diff.git import (
     generate_git_commit_message,
@@ -346,22 +357,8 @@ from cja_auto_sdr.diff.models import (
 )
 from cja_auto_sdr.diff.snapshot import SnapshotManager, parse_retention_period
 
-
-# ==================== LOGGING SETUP ====================
-
-
-# ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, setup_logging  # noqa: F811
-
-# ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
-from cja_auto_sdr.core.perf import PerformanceTracker  # noqa: F811
-
-# ==================== API WORKER TUNER (moved to api/tuning.py) ====================
-from cja_auto_sdr.api.tuning import APIWorkerTuner  # noqa: F811
-
-from cja_auto_sdr.api.cache import ValidationCache, SharedValidationCache  # noqa: F811
-
 # ==================== PROFILE MANAGEMENT ====================
+
 
 def get_cja_home() -> Path:
     """Get CJA home directory (~/.cja or $CJA_HOME).
@@ -369,10 +366,10 @@ def get_cja_home() -> Path:
     Returns:
         Path to CJA home directory
     """
-    cja_home = os.environ.get('CJA_HOME')
+    cja_home = os.environ.get("CJA_HOME")
     if cja_home:
         return Path(cja_home).expanduser()
-    return Path.home() / '.cja'
+    return Path.home() / ".cja"
 
 
 def get_profiles_dir() -> Path:
@@ -381,7 +378,7 @@ def get_profiles_dir() -> Path:
     Returns:
         Path to profiles directory
     """
-    return get_cja_home() / 'orgs'
+    return get_cja_home() / "orgs"
 
 
 def get_profile_path(profile_name: str) -> Path:
@@ -408,7 +405,7 @@ def validate_profile_name(name: str) -> Tuple[bool, Optional[str]]:
     if not name:
         return False, "Profile name cannot be empty"
 
-    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', name):
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", name):
         return False, (
             f"Profile name '{name}' is invalid. "
             "Must start with alphanumeric and contain only letters, numbers, dashes, and underscores."
@@ -429,17 +426,17 @@ def load_profile_config_json(profile_path: Path) -> Optional[Dict[str, str]]:
     Returns:
         Dictionary with credentials if config.json exists and is valid, None otherwise
     """
-    config_file = profile_path / 'config.json'
+    config_file = profile_path / "config.json"
     if not config_file.exists():
         return None
 
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, "r") as f:
             config = json.load(f)
         if isinstance(config, dict):
             return {k: str(v).strip() for k, v in config.items() if v}
         return None
-    except (json.JSONDecodeError, IOError):
+    except json.JSONDecodeError, IOError:
         return None
 
 
@@ -452,26 +449,26 @@ def load_profile_dotenv(profile_path: Path) -> Optional[Dict[str, str]]:
     Returns:
         Dictionary with credentials if .env exists and is valid, None otherwise
     """
-    env_file = profile_path / '.env'
+    env_file = profile_path / ".env"
     if not env_file.exists():
         return None
 
     credentials = {}
     try:
-        with open(env_file, 'r') as f:
+        with open(env_file, "r") as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
-                if '=' in line:
-                    key, _, value = line.partition('=')
+                if "=" in line:
+                    key, _, value = line.partition("=")
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
                     if key and value:
                         # Map env var names to config field names
                         config_key = key.lower()
                         # Use CREDENTIAL_FIELDS for allowed fields (single source of truth)
-                        if config_key in CREDENTIAL_FIELDS['all']:
+                        if config_key in CREDENTIAL_FIELDS["all"]:
                             credentials[config_key] = value
     except IOError:
         return None
@@ -508,14 +505,12 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
         raise ProfileNotFoundError(
             f"Profile '{profile_name}' not found",
             profile_name=profile_name,
-            details=f"Expected directory: {profile_path}"
+            details=f"Expected directory: {profile_path}",
         )
 
     if not profile_path.is_dir():
         raise ProfileConfigError(
-            f"Profile path is not a directory",
-            profile_name=profile_name,
-            details=str(profile_path)
+            f"Profile path is not a directory", profile_name=profile_name, details=str(profile_path)
         )
 
     # Load config.json first
@@ -531,7 +526,7 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
         raise ProfileConfigError(
             f"Profile '{profile_name}' has no configuration",
             profile_name=profile_name,
-            details=f"Expected config.json or .env in {profile_path}"
+            details=f"Expected config.json or .env in {profile_path}",
         )
 
     if json_source and env_credentials:
@@ -555,10 +550,10 @@ def resolve_active_profile(cli_profile: Optional[str] = None) -> Optional[str]:
     """
     if cli_profile:
         return cli_profile
-    return os.environ.get('CJA_PROFILE')
+    return os.environ.get("CJA_PROFILE")
 
 
-def list_profiles(output_format: str = 'table') -> bool:
+def list_profiles(output_format: str = "table") -> bool:
     """List all profiles with status indicators.
 
     Args:
@@ -570,7 +565,7 @@ def list_profiles(output_format: str = 'table') -> bool:
     profiles_dir = get_profiles_dir()
 
     if not profiles_dir.exists():
-        if output_format == 'json':
+        if output_format == "json":
             print(json.dumps({"profiles": [], "count": 0}, indent=2))
         else:
             print()
@@ -583,37 +578,28 @@ def list_profiles(output_format: str = 'table') -> bool:
         return True
 
     profiles = []
-    active_profile = os.environ.get('CJA_PROFILE')
+    active_profile = os.environ.get("CJA_PROFILE")
 
     for item in sorted(profiles_dir.iterdir()):
         if not item.is_dir():
             continue
 
         profile_name = item.name
-        has_config_json = (item / 'config.json').exists()
-        has_env = (item / '.env').exists()
+        has_config_json = (item / "config.json").exists()
+        has_env = (item / ".env").exists()
         is_active = profile_name == active_profile
 
         if has_config_json or has_env:
             config_source = []
             if has_config_json:
-                config_source.append('config.json')
+                config_source.append("config.json")
             if has_env:
-                config_source.append('.env')
+                config_source.append(".env")
 
-            profiles.append({
-                'name': profile_name,
-                'active': is_active,
-                'sources': config_source,
-                'path': str(item)
-            })
+            profiles.append({"name": profile_name, "active": is_active, "sources": config_source, "path": str(item)})
 
-    if output_format == 'json':
-        print(json.dumps({
-            "profiles": profiles,
-            "count": len(profiles),
-            "active": active_profile
-        }, indent=2))
+    if output_format == "json":
+        print(json.dumps({"profiles": profiles, "count": len(profiles), "active": active_profile}, indent=2))
     else:
         print()
         print("=" * BANNER_WIDTH)
@@ -630,9 +616,9 @@ def list_profiles(output_format: str = 'table') -> bool:
             print(f"{'Profile':<25} {'Sources':<20} {'Status'}")
             print("-" * 60)
             for p in profiles:
-                status = "[active]" if p['active'] else ""
-                sources = ", ".join(p['sources'])
-                marker = "●" if p['active'] else " "
+                status = "[active]" if p["active"] else ""
+                sources = ", ".join(p["sources"])
+                marker = "●" if p["active"] else " "
                 print(f"{marker} {p['name']:<23} {sources:<20} {status}")
 
             print()
@@ -668,7 +654,7 @@ def add_profile_interactive(profile_name: str) -> bool:
         print(f"Profile '{profile_name}' already exists at: {profile_path}")
         print()
         response = input("Overwrite? [y/N]: ").strip().lower()
-        if response != 'y':
+        if response != "y":
             print("Aborted.")
             return False
 
@@ -702,6 +688,7 @@ def add_profile_interactive(profile_name: str) -> bool:
         # Use getpass for secret if available
         try:
             import getpass
+
             secret = getpass.getpass("Client Secret: ").strip()
         except Exception:
             secret = input("Client Secret: ").strip()
@@ -715,21 +702,16 @@ def add_profile_interactive(profile_name: str) -> bool:
             print("Error: OAuth Scopes are required")
             return False
 
-    except (KeyboardInterrupt, EOFError):
+    except KeyboardInterrupt, EOFError:
         print("\nAborted.")
         return False
 
     # Create config.json
-    config = {
-        "org_id": org_id,
-        "client_id": client_id,
-        "secret": secret,
-        "scopes": scopes
-    }
+    config = {"org_id": org_id, "client_id": client_id, "secret": secret, "scopes": scopes}
 
-    config_file = profile_path / 'config.json'
+    config_file = profile_path / "config.json"
     try:
-        with open(config_file, 'w') as f:
+        with open(config_file, "w") as f:
             json.dump(config, f, indent=2)
         # Set restrictive permissions
         config_file.chmod(0o600)
@@ -780,7 +762,7 @@ def show_profile(profile_name: str) -> bool:
         True if successful, False otherwise
     """
     try:
-        logger = logging.getLogger('profile_show')
+        logger = logging.getLogger("profile_show")
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
@@ -802,10 +784,10 @@ def show_profile(profile_name: str) -> bool:
 
     # Show sources
     sources = []
-    if (profile_path / 'config.json').exists():
-        sources.append('config.json')
-    if (profile_path / '.env').exists():
-        sources.append('.env')
+    if (profile_path / "config.json").exists():
+        sources.append("config.json")
+    if (profile_path / ".env").exists():
+        sources.append(".env")
     print(f"Sources: {', '.join(sources)}")
     print()
 
@@ -813,9 +795,9 @@ def show_profile(profile_name: str) -> bool:
     print("Credentials:")
     print("-" * 40)
 
-    sensitive_fields = {'secret', 'client_id'}
+    sensitive_fields = {"secret", "client_id"}
 
-    for key in ['org_id', 'client_id', 'secret', 'scopes', 'sandbox']:
+    for key in ["org_id", "client_id", "secret", "scopes", "sandbox"]:
         if key in credentials:
             value = credentials[key]
             if key in sensitive_fields:
@@ -845,7 +827,7 @@ def test_profile(profile_name: str) -> bool:
 
     # Load credentials
     try:
-        logger = logging.getLogger('profile_test')
+        logger = logging.getLogger("profile_test")
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
@@ -871,12 +853,7 @@ def test_profile(profile_name: str) -> bool:
 
     try:
         # Create temp config file
-        temp_config = tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.json',
-            delete=False,
-            prefix='cja_profile_test_'
-        )
+        temp_config = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="cja_profile_test_")
         json.dump(credentials, temp_config)
         temp_config.close()
 
@@ -886,7 +863,7 @@ def test_profile(profile_name: str) -> bool:
             dataviews = cja.getDataViews()
 
             if dataviews is not None:
-                count = len(dataviews) if hasattr(dataviews, '__len__') else 0
+                count = len(dataviews) if hasattr(dataviews, "__len__") else 0
                 print(f"   API connection: SUCCESS")
                 print(f"   Data views accessible: {count}")
                 print()
@@ -918,28 +895,31 @@ def test_profile(profile_name: str) -> bool:
 
 
 # ==================== CONFIG VALIDATION (moved to core/config_validation.py) ====================
-from cja_auto_sdr.core.config_validation import ConfigValidator, validate_credentials, validate_config_file  # noqa: F811,E402
+# ==================== CJA CLIENT (moved to api/client.py) ====================
+from cja_auto_sdr.api.client import _config_from_env, configure_cjapy, initialize_cja  # noqa: F811,E402
+from cja_auto_sdr.core.config_validation import (  # noqa: F811,E402
+    ConfigValidator,
+    validate_config_file,
+    validate_credentials,
+)
 
 # ==================== CREDENTIAL LOADING (moved to core/credentials.py) ====================
 from cja_auto_sdr.core.credentials import (  # noqa: F811,E402
-    CredentialLoader, JsonFileCredentialLoader, DotenvCredentialLoader,
-    EnvironmentCredentialLoader, CredentialResolver,
-    normalize_credential_value, filter_credentials,
-    load_credentials_from_env, validate_env_credentials,
+    CredentialLoader,
+    CredentialResolver,
+    DotenvCredentialLoader,
+    EnvironmentCredentialLoader,
+    JsonFileCredentialLoader,
+    filter_credentials,
+    load_credentials_from_env,
+    normalize_credential_value,
+    validate_env_credentials,
 )
-
-# ==================== CJA CLIENT (moved to api/client.py) ====================
-from cja_auto_sdr.api.client import configure_cjapy, initialize_cja, _config_from_env  # noqa: F811,E402
-
-
 
 # ==================== DATA VIEW VALIDATION ====================
 
-def validate_data_view(
-    cja: cjapy.CJA,
-    data_view_id: str,
-    logger: logging.Logger
-) -> bool:
+
+def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger) -> bool:
     """Validate that the data view exists and is accessible.
 
     Args:
@@ -955,17 +935,17 @@ def validate_data_view(
         logger.info("VALIDATING DATA VIEW")
         logger.info("=" * BANNER_WIDTH)
         logger.info(f"Data View ID: {data_view_id}")
-        
+
         # Basic format validation
         if not data_view_id or not isinstance(data_view_id, str):
             logger.error("Invalid data view ID format")
             logger.error("Data view ID must be a non-empty string")
             return False
-        
-        if not data_view_id.startswith('dv_'):
+
+        if not data_view_id.startswith("dv_"):
             logger.warning(f"Data view ID '{data_view_id}' does not follow standard format (dv_...)")
             logger.warning("This may still be valid, but unusual")
-        
+
         # Attempt to fetch data view info
         logger.info("Fetching data view information from API...")
         try:
@@ -986,7 +966,7 @@ def validate_data_view(
             logger.error("  3. Network connectivity issues")
             logger.error("  4. API authentication has expired")
             return False
-        
+
         # Validate response
         if not dv_info:
             # Try to list available data views to provide context
@@ -998,9 +978,9 @@ def validate_data_view(
                 if available_count > 0:
                     logger.info(f"You have access to {available_count} data view(s):")
                     for i, dv in enumerate(available_dvs[:10]):  # Show first 10
-                        dv_id = dv.get('id', 'unknown')
-                        dv_name = dv.get('name', 'unknown')
-                        logger.info(f"  {i+1}. {dv_name} (ID: {dv_id})")
+                        dv_id = dv.get("id", "unknown")
+                        dv_name = dv.get("name", "unknown")
+                        logger.info(f"  {i + 1}. {dv_name} (ID: {dv_id})")
                     if available_count > 10:
                         logger.info(f"  ... and {available_count - 10} more")
                     logger.info("")
@@ -1008,40 +988,37 @@ def validate_data_view(
                 logger.debug(f"Could not list available data views: {str(list_error)}")
 
             # Show enhanced error message
-            error_msg = ErrorMessageHelper.get_data_view_error_message(
-                data_view_id,
-                available_count=available_count
-            )
+            error_msg = ErrorMessageHelper.get_data_view_error_message(data_view_id, available_count=available_count)
             logger.error("\n" + error_msg)
             return False
-        
+
         # Extract and validate data view details
-        dv_name = dv_info.get('name', 'Unknown')
-        dv_description = dv_info.get('description', 'No description')
-        dv_owner = dv_info.get('owner', {}).get('name', 'Unknown')
-        
+        dv_name = dv_info.get("name", "Unknown")
+        dv_description = dv_info.get("description", "No description")
+        dv_owner = dv_info.get("owner", {}).get("name", "Unknown")
+
         logger.info("✓ Data view validated successfully!")
         logger.info(f"  Name: {dv_name}")
         logger.info(f"  ID: {data_view_id}")
         logger.info(f"  Owner: {dv_owner}")
-        if dv_description and dv_description != 'No description':
+        if dv_description and dv_description != "No description":
             logger.info(f"  Description: {dv_description[:100]}{'...' if len(dv_description) > 100 else ''}")
-        
+
         # Additional validation checks
         warnings = []
-        
-        if 'components' in dv_info:
-            components = dv_info.get('components', {})
-            if not components.get('dimensions') and not components.get('metrics'):
+
+        if "components" in dv_info:
+            components = dv_info.get("components", {})
+            if not components.get("dimensions") and not components.get("metrics"):
                 warnings.append("Data view appears to have no components defined")
-        
+
         if warnings:
             logger.warning("Data view validation warnings:")
             for warning in warnings:
                 logger.warning(f"  - {warning}")
-        
+
         return True
-        
+
     except Exception as e:
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
@@ -1055,6 +1032,7 @@ def validate_data_view(
         logger.error("  3. Your API credentials are valid")
         return False
 
+
 # ==================== OPTIMIZED API DATA FETCHING (moved to api/fetch.py) ====================
 from cja_auto_sdr.api.fetch import ParallelAPIFetcher  # noqa: F811
 
@@ -1062,6 +1040,7 @@ from cja_auto_sdr.api.fetch import ParallelAPIFetcher  # noqa: F811
 from cja_auto_sdr.api.quality import DataQualityChecker  # noqa: F811
 
 # ==================== EXCEL GENERATION ====================
+
 
 class ExcelFormatCache:
     """Cache for Excel format objects to avoid recreating identical formats.
@@ -1099,8 +1078,9 @@ class ExcelFormatCache:
         return self._cache[cache_key]
 
 
-def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
-                           format_cache: Optional[ExcelFormatCache] = None):
+def apply_excel_formatting(
+    writer, df, sheet_name, logger: logging.Logger, format_cache: Optional[ExcelFormatCache] = None
+):
     """Apply formatting to Excel sheets with error handling.
 
     Args:
@@ -1115,12 +1095,12 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
 
         # Calculate row offset for Data Quality sheet (summary section at top)
         summary_rows = 0
-        if sheet_name == 'Data Quality' and 'Severity' in df.columns:
+        if sheet_name == "Data Quality" and "Severity" in df.columns:
             summary_rows = 7  # Title + header + 5 severity levels + blank row
 
         # Reorder columns for component sheets (name first for readability)
-        if sheet_name in ('Metrics', 'Dimensions', 'Derived Fields', 'Calculated Metrics') and 'name' in df.columns:
-            preferred_order = ['name', 'type', 'id', 'description', 'title']
+        if sheet_name in ("Metrics", "Dimensions", "Derived Fields", "Calculated Metrics") and "name" in df.columns:
+            preferred_order = ["name", "type", "id", "description", "title"]
             existing_cols = [col for col in preferred_order if col in df.columns]
             other_cols = [col for col in df.columns if col not in preferred_order]
             df = df[existing_cols + other_cols]
@@ -1136,27 +1116,14 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
         cache = format_cache if format_cache else ExcelFormatCache(workbook)
 
         # Add summary section for Data Quality sheet
-        if sheet_name == 'Data Quality' and 'Severity' in df.columns:
+        if sheet_name == "Data Quality" and "Severity" in df.columns:
             # Calculate severity counts
-            severity_counts = df['Severity'].value_counts()
+            severity_counts = df["Severity"].value_counts()
 
             # Summary formats (using cache for reuse)
-            title_format = cache.get_format({
-                'bold': True,
-                'font_size': 14,
-                'font_color': '#366092',
-                'bottom': 2
-            })
-            summary_header = cache.get_format({
-                'bold': True,
-                'bg_color': '#D9E1F2',
-                'border': 1,
-                'align': 'center'
-            })
-            summary_cell = cache.get_format({
-                'border': 1,
-                'align': 'center'
-            })
+            title_format = cache.get_format({"bold": True, "font_size": 14, "font_color": "#366092", "bottom": 2})
+            summary_header = cache.get_format({"bold": True, "bg_color": "#D9E1F2", "border": 1, "align": "center"})
+            summary_cell = cache.get_format({"border": 1, "align": "center"})
 
             # Write summary title
             worksheet.write(0, 0, "Issue Summary", title_format)
@@ -1171,7 +1138,7 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
             total_count = 0
             for sev in DataQualityChecker.SEVERITY_ORDER:
                 count = severity_counts.get(sev, 0)
-                if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:  # Always show main levels
+                if count > 0 or sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:  # Always show main levels
                     worksheet.write(row, 0, sev, summary_cell)
                     worksheet.write(row, 1, int(count), summary_cell)
                     total_count += count
@@ -1182,176 +1149,180 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
             worksheet.set_column(1, 1, 8)
 
         # Common format definitions (cached for reuse across sheets)
-        header_format = cache.get_format({
-            'bold': True,
-            'bg_color': '#366092',
-            'font_color': 'white',
-            'border': 1,
-            'align': 'center',
-            'text_wrap': True
-        })
+        header_format = cache.get_format(
+            {
+                "bold": True,
+                "bg_color": "#366092",
+                "font_color": "white",
+                "border": 1,
+                "align": "center",
+                "text_wrap": True,
+            }
+        )
 
-        grey_format = cache.get_format({
-            'bg_color': '#F2F2F2',
-            'border': 1,
-            'text_wrap': True,
-            'align': 'top',
-            'valign': 'top'
-        })
+        grey_format = cache.get_format(
+            {"bg_color": "#F2F2F2", "border": 1, "text_wrap": True, "align": "top", "valign": "top"}
+        )
 
-        white_format = cache.get_format({
-            'bg_color': '#FFFFFF',
-            'border': 1,
-            'text_wrap': True,
-            'align': 'top',
-            'valign': 'top'
-        })
+        white_format = cache.get_format(
+            {"bg_color": "#FFFFFF", "border": 1, "text_wrap": True, "align": "top", "valign": "top"}
+        )
 
         # Bold formats for Name column in Metrics/Dimensions sheets
-        name_bold_grey = cache.get_format({
-            'bg_color': '#F2F2F2',
-            'border': 1,
-            'text_wrap': True,
-            'align': 'top',
-            'valign': 'top',
-            'bold': True
-        })
+        name_bold_grey = cache.get_format(
+            {"bg_color": "#F2F2F2", "border": 1, "text_wrap": True, "align": "top", "valign": "top", "bold": True}
+        )
 
-        name_bold_white = cache.get_format({
-            'bg_color': '#FFFFFF',
-            'border': 1,
-            'text_wrap': True,
-            'align': 'top',
-            'valign': 'top',
-            'bold': True
-        })
+        name_bold_white = cache.get_format(
+            {"bg_color": "#FFFFFF", "border": 1, "text_wrap": True, "align": "top", "valign": "top", "bold": True}
+        )
 
         # Special formats for Data Quality sheet
-        if sheet_name == 'Data Quality':
+        if sheet_name == "Data Quality":
             # Severity icons for visual indicators (Excel only)
             severity_icons = {
-                'CRITICAL': '\u25cf',  # ● filled circle
-                'HIGH': '\u25b2',      # ▲ triangle up
-                'MEDIUM': '\u25a0',    # ■ filled square
-                'LOW': '\u25cb',       # ○ empty circle
-                'INFO': '\u2139'       # ℹ info symbol
+                "CRITICAL": "\u25cf",  # ● filled circle
+                "HIGH": "\u25b2",  # ▲ triangle up
+                "MEDIUM": "\u25a0",  # ■ filled square
+                "LOW": "\u25cb",  # ○ empty circle
+                "INFO": "\u2139",  # ℹ info symbol
             }
 
             # Row formats (for non-severity columns) - using cache
-            critical_format = cache.get_format({
-                'bg_color': '#FFC7CE',
-                'font_color': '#9C0006',
-                'border': 1,
-                'text_wrap': True,
-                'align': 'top',
-                'valign': 'top'
-            })
+            critical_format = cache.get_format(
+                {
+                    "bg_color": "#FFC7CE",
+                    "font_color": "#9C0006",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "top",
+                    "valign": "top",
+                }
+            )
 
-            high_format = cache.get_format({
-                'bg_color': '#FFEB9C',
-                'font_color': '#9C6500',
-                'border': 1,
-                'text_wrap': True,
-                'align': 'top',
-                'valign': 'top'
-            })
+            high_format = cache.get_format(
+                {
+                    "bg_color": "#FFEB9C",
+                    "font_color": "#9C6500",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "top",
+                    "valign": "top",
+                }
+            )
 
-            medium_format = cache.get_format({
-                'bg_color': '#C6EFCE',
-                'font_color': '#006100',
-                'border': 1,
-                'text_wrap': True,
-                'align': 'top',
-                'valign': 'top'
-            })
+            medium_format = cache.get_format(
+                {
+                    "bg_color": "#C6EFCE",
+                    "font_color": "#006100",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "top",
+                    "valign": "top",
+                }
+            )
 
-            low_format = cache.get_format({
-                'bg_color': '#DDEBF7',
-                'font_color': '#1F4E78',
-                'border': 1,
-                'text_wrap': True,
-                'align': 'top',
-                'valign': 'top'
-            })
+            low_format = cache.get_format(
+                {
+                    "bg_color": "#DDEBF7",
+                    "font_color": "#1F4E78",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "top",
+                    "valign": "top",
+                }
+            )
 
-            info_format = cache.get_format({
-                'bg_color': '#E2EFDA',
-                'font_color': '#375623',
-                'border': 1,
-                'text_wrap': True,
-                'align': 'top',
-                'valign': 'top'
-            })
+            info_format = cache.get_format(
+                {
+                    "bg_color": "#E2EFDA",
+                    "font_color": "#375623",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "top",
+                    "valign": "top",
+                }
+            )
 
             # Bold formats for Severity column (emphasize priority) - using cache
-            critical_bold = cache.get_format({
-                'bg_color': '#FFC7CE',
-                'font_color': '#9C0006',
-                'bold': True,
-                'border': 1,
-                'align': 'center',
-                'valign': 'vcenter'
-            })
+            critical_bold = cache.get_format(
+                {
+                    "bg_color": "#FFC7CE",
+                    "font_color": "#9C0006",
+                    "bold": True,
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
 
-            high_bold = cache.get_format({
-                'bg_color': '#FFEB9C',
-                'font_color': '#9C6500',
-                'bold': True,
-                'border': 1,
-                'align': 'center',
-                'valign': 'vcenter'
-            })
+            high_bold = cache.get_format(
+                {
+                    "bg_color": "#FFEB9C",
+                    "font_color": "#9C6500",
+                    "bold": True,
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
 
-            medium_bold = cache.get_format({
-                'bg_color': '#C6EFCE',
-                'font_color': '#006100',
-                'bold': True,
-                'border': 1,
-                'align': 'center',
-                'valign': 'vcenter'
-            })
+            medium_bold = cache.get_format(
+                {
+                    "bg_color": "#C6EFCE",
+                    "font_color": "#006100",
+                    "bold": True,
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
 
-            low_bold = cache.get_format({
-                'bg_color': '#DDEBF7',
-                'font_color': '#1F4E78',
-                'bold': True,
-                'border': 1,
-                'align': 'center',
-                'valign': 'vcenter'
-            })
+            low_bold = cache.get_format(
+                {
+                    "bg_color": "#DDEBF7",
+                    "font_color": "#1F4E78",
+                    "bold": True,
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
 
-            info_bold = cache.get_format({
-                'bg_color': '#E2EFDA',
-                'font_color': '#375623',
-                'bold': True,
-                'border': 1,
-                'align': 'center',
-                'valign': 'vcenter'
-            })
+            info_bold = cache.get_format(
+                {
+                    "bg_color": "#E2EFDA",
+                    "font_color": "#375623",
+                    "bold": True,
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
 
             # Map severity to formats
             severity_formats = {
-                'CRITICAL': (critical_format, critical_bold),
-                'HIGH': (high_format, high_bold),
-                'MEDIUM': (medium_format, medium_bold),
-                'LOW': (low_format, low_bold),
-                'INFO': (info_format, info_bold)
+                "CRITICAL": (critical_format, critical_bold),
+                "HIGH": (high_format, high_bold),
+                "MEDIUM": (medium_format, medium_bold),
+                "LOW": (low_format, low_bold),
+                "INFO": (info_format, info_bold),
             }
-        
+
         # Format header row (offset by summary rows if present)
         header_row = summary_rows
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(header_row, col_num, value, header_format)
-        
+
         # Column width caps - tighter limits for Metrics/Dimensions sheets
-        if sheet_name in ('Metrics', 'Dimensions'):
+        if sheet_name in ("Metrics", "Dimensions"):
             # Specific column width limits for better readability
             column_width_caps = {
-                'name': 40,
-                'type': 20,
-                'id': 35,
-                'title': 40,
-                'description': 55,  # Narrower than default, relies on text wrap
+                "name": 40,
+                "type": 20,
+                "id": 35,
+                "title": 40,
+                "description": 55,  # Narrower than default, relies on text wrap
             }
             default_cap = 50  # Narrower default for other columns
         else:
@@ -1365,39 +1336,37 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
             max_cap = column_width_caps.get(col_lower, default_cap)
             max_len = min(
                 max(
-                    max(len(str(val).split('\n')[0]) for val in series) if len(series) > 0 else 0,
-                    len(str(series.name))
-                ) + 2,
-                max_cap
+                    max(len(str(val).split("\n")[0]) for val in series) if len(series) > 0 else 0, len(str(series.name))
+                )
+                + 2,
+                max_cap,
             )
             worksheet.set_column(idx, idx, max_len)
-        
+
         # Apply row formatting (offset by summary rows)
         data_start_row = summary_rows + 1  # +1 for header row
 
         # Cache column indices outside the loop for performance (avoids repeated hash lookups)
-        severity_col_idx = df.columns.get_loc('Severity') if 'Severity' in df.columns else -1
-        name_col_idx = df.columns.get_loc('name') if 'name' in df.columns else -1
-        is_data_quality_sheet = sheet_name == 'Data Quality' and severity_col_idx >= 0
-        is_component_sheet = sheet_name in ('Metrics', 'Dimensions') and name_col_idx >= 0
+        severity_col_idx = df.columns.get_loc("Severity") if "Severity" in df.columns else -1
+        name_col_idx = df.columns.get_loc("name") if "name" in df.columns else -1
+        is_data_quality_sheet = sheet_name == "Data Quality" and severity_col_idx >= 0
+        is_component_sheet = sheet_name in ("Metrics", "Dimensions") and name_col_idx >= 0
 
         for idx in range(len(df)):
-            max_lines = max((str(val).count('\n') for val in df.iloc[idx]), default=0) + 1
+            max_lines = max((str(val).count("\n") for val in df.iloc[idx]), default=0) + 1
             row_height = min(max_lines * 15, 400)
             excel_row = data_start_row + idx
 
             # Apply severity-based formatting for Data Quality sheet
             if is_data_quality_sheet:
-                severity = str(df.iloc[idx]['Severity'])
-                row_format, bold_format = severity_formats.get(
-                    severity, (low_format, low_bold)
-                )
+                severity = str(df.iloc[idx]["Severity"])
+                row_format, bold_format = severity_formats.get(severity, (low_format, low_bold))
 
                 # Set row height and default format
                 worksheet.set_row(excel_row, row_height, row_format)
 
                 # Write Severity column with icon and bold format
-                icon = severity_icons.get(severity, '')
+                icon = severity_icons.get(severity, "")
                 worksheet.write(excel_row, severity_col_idx, f"{icon} {severity}", bold_format)
             else:
                 row_format = grey_format if idx % 2 == 0 else white_format
@@ -1406,27 +1375,26 @@ def apply_excel_formatting(writer, df, sheet_name, logger: logging.Logger,
                 # Apply bold Name column for Metrics/Dimensions sheets
                 if is_component_sheet:
                     name_format = name_bold_grey if idx % 2 == 0 else name_bold_white
-                    worksheet.write(excel_row, name_col_idx, df.iloc[idx]['name'], name_format)
+                    worksheet.write(excel_row, name_col_idx, df.iloc[idx]["name"], name_format)
 
         # Add autofilter to data table (offset by summary rows)
         worksheet.autofilter(summary_rows, 0, summary_rows + len(df), len(df.columns) - 1)
 
         # Freeze header row (summary + data header visible when scrolling)
         worksheet.freeze_panes(summary_rows + 1, 0)
-        
+
         logger.info(f"Successfully formatted sheet: {sheet_name}")
-        
+
     except Exception as e:
         logger.error(_format_error_msg(f"formatting sheet {sheet_name}", error=e))
         raise
 
+
 # ==================== OUTPUT FORMAT WRITERS ====================
 
+
 def write_excel_output(
-    data_dict: Dict[str, pd.DataFrame],
-    base_filename: str,
-    output_dir: Union[str, Path],
-    logger: logging.Logger
+    data_dict: Dict[str, pd.DataFrame], base_filename: str, output_dir: Union[str, Path], logger: logging.Logger
 ) -> str:
     """
     Write data to a formatted Excel workbook.
@@ -1444,16 +1412,12 @@ def write_excel_output(
         logger.info("Generating Excel output...")
 
         excel_file = os.path.join(output_dir, f"{base_filename}.xlsx")
-        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+        with pd.ExcelWriter(excel_file, engine="xlsxwriter") as writer:
             format_cache = ExcelFormatCache(writer.book)
             for sheet_name, df in data_dict.items():
                 if df.empty:
-                    placeholder_df = pd.DataFrame(
-                        {'Note': [f'No data available for {sheet_name}']}
-                    )
-                    apply_excel_formatting(
-                        writer, placeholder_df, sheet_name, logger, format_cache
-                    )
+                    placeholder_df = pd.DataFrame({"Note": [f"No data available for {sheet_name}"]})
+                    apply_excel_formatting(writer, placeholder_df, sheet_name, logger, format_cache)
                 else:
                     apply_excel_formatting(writer, df, sheet_name, logger, format_cache)
 
@@ -1472,11 +1436,9 @@ def write_excel_output(
         logger.error(_format_error_msg("creating Excel file", error=e))
         raise
 
+
 def write_csv_output(
-    data_dict: Dict[str, pd.DataFrame],
-    base_filename: str,
-    output_dir: Union[str, Path],
-    logger: logging.Logger
+    data_dict: Dict[str, pd.DataFrame], base_filename: str, output_dir: Union[str, Path], logger: logging.Logger
 ) -> str:
     """
     Write data to CSV files (one per sheet)
@@ -1500,7 +1462,7 @@ def write_csv_output(
         # Write each DataFrame to a separate CSV file
         for sheet_name, df in data_dict.items():
             csv_file = os.path.join(csv_dir, f"{sheet_name.replace(' ', '_').lower()}.csv")
-            df.to_csv(csv_file, index=False, encoding='utf-8')
+            df.to_csv(csv_file, index=False, encoding="utf-8")
             logger.info(f"  ✓ Created CSV: {os.path.basename(csv_file)}")
 
         logger.info(f"CSV files created in: {csv_dir}")
@@ -1525,7 +1487,7 @@ def write_json_output(
     base_filename: str,
     output_dir: Union[str, Path],
     logger: logging.Logger,
-    inventory_objects: Optional[Dict[str, Any]] = None
+    inventory_objects: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Write data to JSON format with hierarchical structure
@@ -1554,7 +1516,7 @@ def write_json_output(
             "data_quality": [],
             "derived_fields": {},
             "calculated_metrics": {},
-            "segments": {}
+            "segments": {},
         }
 
         inventory_objects = inventory_objects or {}
@@ -1562,7 +1524,7 @@ def write_json_output(
         # Convert DataFrames to JSON-serializable format
         for sheet_name, df in data_dict.items():
             # Convert DataFrame to list of dictionaries
-            records = df.to_dict(orient='records')
+            records = df.to_dict(orient="records")
 
             # Map to appropriate section
             if sheet_name == "Data Quality":
@@ -1576,26 +1538,26 @@ def write_json_output(
                 json_data["data_view"] = records[0] if records else {}
             elif sheet_name == "Derived Fields":
                 # Use inventory object's to_json() for detailed output if available
-                if 'derived' in inventory_objects and inventory_objects['derived']:
-                    json_data["derived_fields"] = inventory_objects['derived'].to_json()
+                if "derived" in inventory_objects and inventory_objects["derived"]:
+                    json_data["derived_fields"] = inventory_objects["derived"].to_json()
                 else:
                     json_data["derived_fields"] = {"fields": records}
             elif sheet_name == "Calculated Metrics":
                 # Use inventory object's to_json() for detailed output if available
-                if 'calculated' in inventory_objects and inventory_objects['calculated']:
-                    json_data["calculated_metrics"] = inventory_objects['calculated'].to_json()
+                if "calculated" in inventory_objects and inventory_objects["calculated"]:
+                    json_data["calculated_metrics"] = inventory_objects["calculated"].to_json()
                 else:
                     json_data["calculated_metrics"] = {"metrics": records}
             elif sheet_name == "Segments":
                 # Use inventory object's to_json() for detailed output if available
-                if 'segments' in inventory_objects and inventory_objects['segments']:
-                    json_data["segments"] = inventory_objects['segments'].to_json()
+                if "segments" in inventory_objects and inventory_objects["segments"]:
+                    json_data["segments"] = inventory_objects["segments"].to_json()
                 else:
                     json_data["segments"] = {"segments": records}
 
         # Write JSON file
         json_file = os.path.join(output_dir, f"{base_filename}.json")
-        with open(json_file, 'w', encoding='utf-8') as f:
+        with open(json_file, "w", encoding="utf-8") as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"✓ JSON file created: {json_file}")
@@ -1623,7 +1585,7 @@ def write_html_output(
     metadata_dict: Dict[str, Any],
     base_filename: str,
     output_dir: Union[str, Path],
-    logger: logging.Logger
+    logger: logging.Logger,
 ) -> str:
     """
     Write data to HTML format with professional styling
@@ -1645,7 +1607,7 @@ def write_html_output(
         html_parts = []
 
         # HTML header with CSS
-        html_parts.append('''
+        html_parts.append("""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1773,20 +1735,20 @@ def write_html_output(
 <body>
     <div class="container">
         <h1>📊 CJA Solution Design Reference</h1>
-        ''')
+        """)
 
         # Metadata section
         html_parts.append('<div class="metadata">')
-        html_parts.append('<h2>📋 Metadata</h2>')
+        html_parts.append("<h2>📋 Metadata</h2>")
         for key, value in metadata_dict.items():
-            safe_value = str(value).replace('<', '&lt;').replace('>', '&gt;')
-            html_parts.append(f'''
+            safe_value = str(value).replace("<", "&lt;").replace(">", "&gt;")
+            html_parts.append(f"""
             <div class="metadata-item">
                 <span class="metadata-label">{key}:</span>
                 <span class="metadata-value">{safe_value}</span>
             </div>
-            ''')
-        html_parts.append('</div>')
+            """)
+        html_parts.append("</div>")
 
         # Data sections
         section_icons = {
@@ -1796,7 +1758,7 @@ def write_html_output(
             "Dimensions": "📐",
             "Derived Fields": "🔧",
             "Calculated Metrics": "🧮",
-            "Segments": "🎯"
+            "Segments": "🎯",
         }
 
         for sheet_name, df in data_dict.items():
@@ -1805,32 +1767,32 @@ def write_html_output(
 
             icon = section_icons.get(sheet_name, "📄")
             html_parts.append(f'<div class="section">')
-            html_parts.append(f'<h2>{icon} {sheet_name}</h2>')
+            html_parts.append(f"<h2>{icon} {sheet_name}</h2>")
 
             # Convert DataFrame to HTML with custom styling
-            df_html = df.to_html(index=False, escape=False, classes='data-table')
+            df_html = df.to_html(index=False, escape=False, classes="data-table")
 
             # Add severity-based row classes for Data Quality sheet
-            if sheet_name == "Data Quality" and 'Severity' in df.columns:
-                rows = df_html.split('<tr>')
+            if sheet_name == "Data Quality" and "Severity" in df.columns:
+                rows = df_html.split("<tr>")
                 styled_rows = [rows[0]]  # Keep header
 
                 for i, row in enumerate(rows[1:], 1):
                     if i <= len(df):
-                        severity = df.iloc[i-1]['Severity'] if i-1 < len(df) else ''
-                        if severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
-                            row = f'<tr class="severity-{severity}">' + row.split('>', 1)[1]
+                        severity = df.iloc[i - 1]["Severity"] if i - 1 < len(df) else ""
+                        if severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
+                            row = f'<tr class="severity-{severity}">' + row.split(">", 1)[1]
                         else:
-                            row = '<tr>' + row
+                            row = "<tr>" + row
                         styled_rows.append(row)
 
-                df_html = ''.join(styled_rows)
+                df_html = "".join(styled_rows)
 
             html_parts.append(df_html)
-            html_parts.append('</div>')
+            html_parts.append("</div>")
 
         # Footer
-        html_parts.append(f'''
+        html_parts.append(f"""
         <div class="footer">
             <p>Generated by CJA SDR Generator v{__version__}</p>
             <p>Generated at {metadata_dict.get("Generated At", "N/A")}</p>
@@ -1838,12 +1800,12 @@ def write_html_output(
     </div>
 </body>
 </html>
-        ''')
+        """)
 
         # Write HTML file
         html_file = os.path.join(output_dir, f"{base_filename}.html")
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(html_parts))
+        with open(html_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(html_parts))
 
         logger.info(f"✓ HTML file created: {html_file}")
         return html_file
@@ -1866,7 +1828,7 @@ def write_markdown_output(
     metadata_dict: Dict[str, Any],
     base_filename: str,
     output_dir: Union[str, Path],
-    logger: logging.Logger
+    logger: logging.Logger,
 ) -> str:
     """
     Write data to Markdown format for GitHub, Confluence, and other platforms
@@ -1897,12 +1859,12 @@ def write_markdown_output(
                 return ""
             text = str(text)
             # Escape pipe characters that would break tables
-            text = text.replace('|', '\\|')
+            text = text.replace("|", "\\|")
             # Escape backticks
-            text = text.replace('`', '\\`')
+            text = text.replace("`", "\\`")
             # Replace newlines with spaces in table cells
-            text = text.replace('\n', ' ')
-            text = text.replace('\r', ' ')
+            text = text.replace("\n", " ")
+            text = text.replace("\r", " ")
             return text.strip()
 
         def df_to_markdown_table(df: pd.DataFrame, sheet_name: str) -> str:
@@ -1916,20 +1878,20 @@ def write_markdown_output(
 
             # Header row
             headers = [escape_markdown(col) for col in df.columns]
-            header_row = '| ' + ' | '.join(headers) + ' |'
+            header_row = "| " + " | ".join(headers) + " |"
 
             # Separator row with left alignment
-            separator_row = '| ' + ' | '.join(['---'] * len(headers)) + ' |'
+            separator_row = "| " + " | ".join(["---"] * len(headers)) + " |"
 
             # Data rows - vectorized approach using apply() instead of iterrows()
             # This avoids the overhead of creating Series objects for each row
             def format_row(row: pd.Series) -> str:
                 cells = [escape_markdown(row[col]) for col in df.columns]
-                return '| ' + ' | '.join(cells) + ' |'
+                return "| " + " | ".join(cells) + " |"
 
             data_rows = df.apply(format_row, axis=1).tolist()
 
-            return '\n'.join([header_row, separator_row] + data_rows)
+            return "\n".join([header_row, separator_row] + data_rows)
 
         md_parts = []
 
@@ -1948,9 +1910,9 @@ def write_markdown_output(
         toc_items = []
         for sheet_name in data_dict.keys():
             # Create anchor-safe links
-            anchor = sheet_name.lower().replace(' ', '-').replace('_', '-')
+            anchor = sheet_name.lower().replace(" ", "-").replace("_", "-")
             toc_items.append(f"- [{sheet_name}](#{anchor})")
-        md_parts.append('\n'.join(toc_items))
+        md_parts.append("\n".join(toc_items))
         md_parts.append("\n---\n")
 
         # Process each sheet
@@ -1958,18 +1920,18 @@ def write_markdown_output(
             md_parts.append(f"## {sheet_name}\n")
 
             # Add special handling for Data Quality sheet
-            if sheet_name == 'Data Quality' and not df.empty and 'Severity' in df.columns:
+            if sheet_name == "Data Quality" and not df.empty and "Severity" in df.columns:
                 # Add issue summary
-                severity_counts = df['Severity'].value_counts()
+                severity_counts = df["Severity"].value_counts()
                 md_parts.append("### Issue Summary\n")
                 md_parts.append("| Severity | Count |")
                 md_parts.append("| --- | --- |")
 
-                severity_emojis = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '⚪', 'INFO': '🔵'}
+                severity_emojis = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "⚪", "INFO": "🔵"}
                 for sev in DataQualityChecker.SEVERITY_ORDER:
                     count = severity_counts.get(sev, 0)
-                    if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
-                        emoji = severity_emojis.get(sev, '')
+                    if count > 0 or sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                        emoji = severity_emojis.get(sev, "")
                         md_parts.append(f"| {emoji} {sev} | {count} |")
                 md_parts.append("")
 
@@ -1994,8 +1956,8 @@ def write_markdown_output(
 
         # Write to file
         markdown_file = os.path.join(output_dir, f"{base_filename}.md")
-        with open(markdown_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(md_parts))
+        with open(markdown_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(md_parts))
 
         logger.info(f"✓ Markdown file created: {markdown_file}")
         return markdown_file
@@ -2015,6 +1977,7 @@ def write_markdown_output(
 
 # ==================== DIFF COMPARISON OUTPUT WRITERS ====================
 
+
 # ANSIColors is an alias for diff output compatibility
 # It delegates to ConsoleColors but accepts an 'enabled' parameter for explicit control
 class ANSIColors:
@@ -2024,6 +1987,7 @@ class ANSIColors:
     explicit 'enabled' parameter for cases where color control is needed
     independent of TTY detection.
     """
+
     # Re-export constants from ConsoleColors
     GREEN = ConsoleColors.GREEN
     RED = ConsoleColors.RED
@@ -2059,9 +2023,13 @@ class ANSIColors:
     ljust = ConsoleColors.ljust
 
 
-def write_diff_console_output(diff_result: DiffResult, changes_only: bool = False,
-                               summary_only: bool = False, side_by_side: bool = False,
-                               use_color: bool = True) -> str:
+def write_diff_console_output(
+    diff_result: DiffResult,
+    changes_only: bool = False,
+    summary_only: bool = False,
+    side_by_side: bool = False,
+    use_color: bool = True,
+) -> str:
     """
     Write diff comparison to console with color-coded output.
 
@@ -2102,45 +2070,101 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
     tgt_width = max(8, len(tgt_header))
     total_width = 20 + src_width + tgt_width + 10 + 10 + 10 + 12 + 12 + 7  # +7 for spacing
 
-    lines.append(f"{'':20s} {src_header:>{src_width}s} {tgt_header:>{tgt_width}s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Unchanged':>12s} {'Changed':>12s}")
+    lines.append(
+        f"{'':20s} {src_header:>{src_width}s} {tgt_header:>{tgt_width}s} {'Added':>10s} {'Removed':>10s} {'Modified':>10s} {'Unchanged':>12s} {'Changed':>12s}"
+    )
     lines.append("-" * total_width)
 
     # Metrics row with percentage (using ANSI-aware padding for colored strings)
     metrics_pct = f"({summary.metrics_change_percent:.1f}%)"
-    added_str = ANSIColors.green(f"+{summary.metrics_added}", c) if summary.metrics_added else f"+{summary.metrics_added}"
-    removed_str = ANSIColors.red(f"-{summary.metrics_removed}", c) if summary.metrics_removed else f"-{summary.metrics_removed}"
-    modified_str = ANSIColors.yellow(f"~{summary.metrics_modified}", c) if summary.metrics_modified else f"~{summary.metrics_modified}"
-    lines.append(f"{'Metrics':20s} {summary.source_metrics_count:{src_width}d} {summary.target_metrics_count:{tgt_width}d} "
-                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.metrics_unchanged:>12d} {metrics_pct:>12s}")
+    added_str = (
+        ANSIColors.green(f"+{summary.metrics_added}", c) if summary.metrics_added else f"+{summary.metrics_added}"
+    )
+    removed_str = (
+        ANSIColors.red(f"-{summary.metrics_removed}", c) if summary.metrics_removed else f"-{summary.metrics_removed}"
+    )
+    modified_str = (
+        ANSIColors.yellow(f"~{summary.metrics_modified}", c)
+        if summary.metrics_modified
+        else f"~{summary.metrics_modified}"
+    )
+    lines.append(
+        f"{'Metrics':20s} {summary.source_metrics_count:{src_width}d} {summary.target_metrics_count:{tgt_width}d} "
+        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.metrics_unchanged:>12d} {metrics_pct:>12s}"
+    )
 
     # Dimensions row with percentage (using ANSI-aware padding for colored strings)
     dims_pct = f"({summary.dimensions_change_percent:.1f}%)"
-    added_str = ANSIColors.green(f"+{summary.dimensions_added}", c) if summary.dimensions_added else f"+{summary.dimensions_added}"
-    removed_str = ANSIColors.red(f"-{summary.dimensions_removed}", c) if summary.dimensions_removed else f"-{summary.dimensions_removed}"
-    modified_str = ANSIColors.yellow(f"~{summary.dimensions_modified}", c) if summary.dimensions_modified else f"~{summary.dimensions_modified}"
-    lines.append(f"{'Dimensions':20s} {summary.source_dimensions_count:{src_width}d} {summary.target_dimensions_count:{tgt_width}d} "
-                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.dimensions_unchanged:>12d} {dims_pct:>12s}")
+    added_str = (
+        ANSIColors.green(f"+{summary.dimensions_added}", c)
+        if summary.dimensions_added
+        else f"+{summary.dimensions_added}"
+    )
+    removed_str = (
+        ANSIColors.red(f"-{summary.dimensions_removed}", c)
+        if summary.dimensions_removed
+        else f"-{summary.dimensions_removed}"
+    )
+    modified_str = (
+        ANSIColors.yellow(f"~{summary.dimensions_modified}", c)
+        if summary.dimensions_modified
+        else f"~{summary.dimensions_modified}"
+    )
+    lines.append(
+        f"{'Dimensions':20s} {summary.source_dimensions_count:{src_width}d} {summary.target_dimensions_count:{tgt_width}d} "
+        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.dimensions_unchanged:>12d} {dims_pct:>12s}"
+    )
 
     # Inventory rows (if present)
-    if summary.has_inventory_changes or (summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0):
+    if summary.has_inventory_changes or (
+        summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0
+    ):
         lines.append("-" * total_width)
         lines.append(ANSIColors.bold("INVENTORY", c))
 
         # Calculated metrics row
         if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
-            added_str = ANSIColors.green(f"+{summary.calc_metrics_added}", c) if summary.calc_metrics_added else f"+{summary.calc_metrics_added}"
-            removed_str = ANSIColors.red(f"-{summary.calc_metrics_removed}", c) if summary.calc_metrics_removed else f"-{summary.calc_metrics_removed}"
-            modified_str = ANSIColors.yellow(f"~{summary.calc_metrics_modified}", c) if summary.calc_metrics_modified else f"~{summary.calc_metrics_modified}"
-            lines.append(f"{'Calc Metrics':20s} {summary.source_calc_metrics_count:{src_width}d} {summary.target_calc_metrics_count:{tgt_width}d} "
-                        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.calc_metrics_unchanged:>12d} {'':>12s}")
+            added_str = (
+                ANSIColors.green(f"+{summary.calc_metrics_added}", c)
+                if summary.calc_metrics_added
+                else f"+{summary.calc_metrics_added}"
+            )
+            removed_str = (
+                ANSIColors.red(f"-{summary.calc_metrics_removed}", c)
+                if summary.calc_metrics_removed
+                else f"-{summary.calc_metrics_removed}"
+            )
+            modified_str = (
+                ANSIColors.yellow(f"~{summary.calc_metrics_modified}", c)
+                if summary.calc_metrics_modified
+                else f"~{summary.calc_metrics_modified}"
+            )
+            lines.append(
+                f"{'Calc Metrics':20s} {summary.source_calc_metrics_count:{src_width}d} {summary.target_calc_metrics_count:{tgt_width}d} "
+                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.calc_metrics_unchanged:>12d} {'':>12s}"
+            )
 
         # Segments row
         if summary.source_segments_count > 0 or summary.target_segments_count > 0:
-            added_str = ANSIColors.green(f"+{summary.segments_added}", c) if summary.segments_added else f"+{summary.segments_added}"
-            removed_str = ANSIColors.red(f"-{summary.segments_removed}", c) if summary.segments_removed else f"-{summary.segments_removed}"
-            modified_str = ANSIColors.yellow(f"~{summary.segments_modified}", c) if summary.segments_modified else f"~{summary.segments_modified}"
-            lines.append(f"{'Segments':20s} {summary.source_segments_count:{src_width}d} {summary.target_segments_count:{tgt_width}d} "
-                        f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.segments_unchanged:>12d} {'':>12s}")
+            added_str = (
+                ANSIColors.green(f"+{summary.segments_added}", c)
+                if summary.segments_added
+                else f"+{summary.segments_added}"
+            )
+            removed_str = (
+                ANSIColors.red(f"-{summary.segments_removed}", c)
+                if summary.segments_removed
+                else f"-{summary.segments_removed}"
+            )
+            modified_str = (
+                ANSIColors.yellow(f"~{summary.segments_modified}", c)
+                if summary.segments_modified
+                else f"~{summary.segments_modified}"
+            )
+            lines.append(
+                f"{'Segments':20s} {summary.source_segments_count:{src_width}d} {summary.target_segments_count:{tgt_width}d} "
+                f"{ANSIColors.rjust(added_str, 10)} {ANSIColors.rjust(removed_str, 10)} {ANSIColors.rjust(modified_str, 10)} {summary.segments_unchanged:>12d} {'':>12s}"
+            )
 
     lines.append("-" * total_width)
 
@@ -2171,12 +2195,10 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             for diff in metric_changes:
                 symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
-                lines.append(f"  [{colored_symbol}] {diff.id:{global_max_id_len}s} \"{diff.name}\"")
+                lines.append(f'  [{colored_symbol}] {diff.id:{global_max_id_len}s} "{diff.name}"')
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
                     # Side-by-side view for modified items
-                    sbs_lines = _format_side_by_side(
-                        diff, diff_result.source_label, diff_result.target_label
-                    )
+                    sbs_lines = _format_side_by_side(diff, diff_result.source_label, diff_result.target_label)
                     lines.extend(sbs_lines)
                 else:
                     detail = _get_change_detail(diff)
@@ -2194,12 +2216,10 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             for diff in dim_changes:
                 symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
-                lines.append(f"  [{colored_symbol}] {diff.id:{global_max_id_len}s} \"{diff.name}\"")
+                lines.append(f'  [{colored_symbol}] {diff.id:{global_max_id_len}s} "{diff.name}"')
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
                     # Side-by-side view for modified items
-                    sbs_lines = _format_side_by_side(
-                        diff, diff_result.source_label, diff_result.target_label
-                    )
+                    sbs_lines = _format_side_by_side(diff, diff_result.source_label, diff_result.target_label)
                     lines.extend(sbs_lines)
                 else:
                     detail = _get_change_detail(diff)
@@ -2223,7 +2243,7 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             if calc_changes:
                 for diff in calc_changes:
                     colored_symbol = _get_colored_symbol(diff.change_type, c)
-                    lines.append(f"  [{colored_symbol}] {diff.id} \"{diff.name}\"")
+                    lines.append(f'  [{colored_symbol}] {diff.id} "{diff.name}"')
                     if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
                         detail = _get_inventory_change_detail(diff)
                         if detail:
@@ -2239,7 +2259,7 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             if seg_changes:
                 for diff in seg_changes:
                     colored_symbol = _get_colored_symbol(diff.change_type, c)
-                    lines.append(f"  [{colored_symbol}] {diff.id} \"{diff.name}\"")
+                    lines.append(f'  [{colored_symbol}] {diff.id} "{diff.name}"')
                     if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
                         detail = _get_inventory_change_detail(diff)
                         if detail:
@@ -2261,14 +2281,22 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
             total_parts.append(ANSIColors.yellow(f"{summary.total_modified} modified", c))
         total_line = ", ".join(total_parts)
         lines.append(ANSIColors.bold(f"Total: {total_line}", c))
-        lines.append(f"  Metrics: {summary.metrics_added} added, {summary.metrics_removed} removed, {summary.metrics_modified} modified")
-        lines.append(f"  Dimensions: {summary.dimensions_added} added, {summary.dimensions_removed} removed, {summary.dimensions_modified} modified")
+        lines.append(
+            f"  Metrics: {summary.metrics_added} added, {summary.metrics_removed} removed, {summary.metrics_modified} modified"
+        )
+        lines.append(
+            f"  Dimensions: {summary.dimensions_added} added, {summary.dimensions_removed} removed, {summary.dimensions_modified} modified"
+        )
         # Add inventory summary lines if present
         if summary.has_inventory_changes:
             if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
-                lines.append(f"  Calc Metrics: {summary.calc_metrics_added} added, {summary.calc_metrics_removed} removed, {summary.calc_metrics_modified} modified")
+                lines.append(
+                    f"  Calc Metrics: {summary.calc_metrics_added} added, {summary.calc_metrics_removed} removed, {summary.calc_metrics_modified} modified"
+                )
             if summary.source_segments_count > 0 or summary.target_segments_count > 0:
-                lines.append(f"  Segments: {summary.segments_added} added, {summary.segments_removed} removed, {summary.segments_modified} modified")
+                lines.append(
+                    f"  Segments: {summary.segments_added} added, {summary.segments_removed} removed, {summary.segments_modified} modified"
+                )
     else:
         lines.append(ANSIColors.green("✓ No differences found", c))
     lines.append("=" * 80)
@@ -2278,12 +2306,7 @@ def write_diff_console_output(diff_result: DiffResult, changes_only: bool = Fals
 
 def _get_change_symbol(change_type: ChangeType) -> str:
     """Get symbol for change type"""
-    symbols = {
-        ChangeType.ADDED: "+",
-        ChangeType.REMOVED: "-",
-        ChangeType.MODIFIED: "~",
-        ChangeType.UNCHANGED: " "
-    }
+    symbols = {ChangeType.ADDED: "+", ChangeType.REMOVED: "-", ChangeType.MODIFIED: "~", ChangeType.UNCHANGED: " "}
     return symbols.get(change_type, "?")
 
 
@@ -2308,7 +2331,7 @@ def _format_diff_value(val: Any, truncate: bool = True, max_len: int = 30) -> st
     try:
         if pd.isna(val):
             return "(empty)"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
     result = str(val)
     if truncate and len(result) > max_len:
@@ -2341,11 +2364,7 @@ def _get_inventory_change_detail(diff: InventoryItemDiff, truncate: bool = True)
 
 
 def _format_side_by_side(
-    diff: ComponentDiff,
-    source_label: str,
-    target_label: str,
-    col_width: int = 35,
-    max_col_width: int = 60
+    diff: ComponentDiff, source_label: str, target_label: str, col_width: int = 35, max_col_width: int = 60
 ) -> List[str]:
     """
     Format a component diff as a side-by-side comparison table.
@@ -2387,13 +2406,13 @@ def _format_side_by_side(
     # Changed fields with text wrapping
     for old_display, new_display in field_displays:
         # Wrap each side independently
-        old_wrapped = textwrap.wrap(old_display, width=col_width) or ['']
-        new_wrapped = textwrap.wrap(new_display, width=col_width) or ['']
+        old_wrapped = textwrap.wrap(old_display, width=col_width) or [""]
+        new_wrapped = textwrap.wrap(new_display, width=col_width) or [""]
 
         # Pad to same number of lines
         max_lines = max(len(old_wrapped), len(new_wrapped))
-        old_wrapped.extend([''] * (max_lines - len(old_wrapped)))
-        new_wrapped.extend([''] * (max_lines - len(new_wrapped)))
+        old_wrapped.extend([""] * (max_lines - len(old_wrapped)))
+        new_wrapped.extend([""] * (max_lines - len(new_wrapped)))
 
         # Output each line
         for old_line, new_line in zip(old_wrapped, new_wrapped):
@@ -2445,7 +2464,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
                 field_changes[field].append((diff.id, diff.name, old_val, new_val))
 
                 # Track breaking changes
-                if field in ('type', 'schemaPath'):
+                if field in ("type", "schemaPath"):
                     breaking_changes.append((diff.id, diff.name, field, old_val, new_val))
 
     # Summary
@@ -2464,7 +2483,9 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
         lines.append("-" * 40)
         for comp_id, comp_name, field, old_val, new_val in breaking_changes:
             lines.append(f"  {comp_id}: {field} changed")
-            lines.append(f"    '{_format_diff_value(old_val, truncate=False)}' → '{_format_diff_value(new_val, truncate=False)}'")
+            lines.append(
+                f"    '{_format_diff_value(old_val, truncate=False)}' → '{_format_diff_value(new_val, truncate=False)}'"
+            )
 
     # Group by field
     lines.append("")
@@ -2539,12 +2560,16 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
     # Summary table
     lines.append("| Component | Source | Target | Added | Removed | Modified | Unchanged | Changed |")
     lines.append("|-----------|-------:|-------:|------:|--------:|---------:|----------:|--------:|")
-    lines.append(f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
-                f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} | "
-                f"{summary.metrics_unchanged} | {summary.metrics_change_percent:.1f}% |")
-    lines.append(f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
-                f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
-                f"{summary.dimensions_unchanged} | {summary.dimensions_change_percent:.1f}% |")
+    lines.append(
+        f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
+        f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} | "
+        f"{summary.metrics_unchanged} | {summary.metrics_change_percent:.1f}% |"
+    )
+    lines.append(
+        f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
+        f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
+        f"{summary.dimensions_unchanged} | {summary.dimensions_change_percent:.1f}% |"
+    )
     lines.append("")
 
     # Breaking changes warning
@@ -2553,7 +2578,7 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
     for diff in all_diffs:
         if diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
             for field in diff.changed_fields:
-                if field in ('type', 'schemaPath'):
+                if field in ("type", "schemaPath"):
                     old_val, new_val = diff.changed_fields[field]
                     breaking_changes.append((diff.id, field, old_val, new_val))
 
@@ -2563,7 +2588,9 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
         lines.append("| Component | Field | Before | After |")
         lines.append("|-----------|-------|--------|-------|")
         for comp_id, field, old_val, new_val in breaking_changes[:10]:
-            lines.append(f"| `{comp_id}` | {field} | `{_format_diff_value(old_val, truncate=False)}` | `{_format_diff_value(new_val, truncate=False)}` |")
+            lines.append(
+                f"| `{comp_id}` | {field} | `{_format_diff_value(old_val, truncate=False)}` | `{_format_diff_value(new_val, truncate=False)}` |"
+            )
         if len(breaking_changes) > 10:
             lines.append(f"| ... | | | +{len(breaking_changes) - 10} more |")
         lines.append("")
@@ -2583,7 +2610,9 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
         lines.append("| Change | ID | Name |")
         lines.append("|--------|----|----- |")
         for diff in metric_changes[:25]:
-            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(diff.change_type, "")
+            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(
+                diff.change_type, ""
+            )
             lines.append(f"| {symbol} | `{diff.id}` | {diff.name} |")
         if len(metric_changes) > 25:
             lines.append(f"| ... | | +{len(metric_changes) - 25} more |")
@@ -2598,7 +2627,9 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
         lines.append("| Change | ID | Name |")
         lines.append("|--------|----|----- |")
         for diff in dim_changes[:25]:
-            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(diff.change_type, "")
+            symbol = {ChangeType.ADDED: "➕", ChangeType.REMOVED: "➖", ChangeType.MODIFIED: "✏️"}.get(
+                diff.change_type, ""
+            )
             lines.append(f"| {symbol} | `{diff.id}` | {diff.name} |")
         if len(dim_changes) > 25:
             lines.append(f"| ... | | +{len(dim_changes) - 25} more |")
@@ -2635,39 +2666,45 @@ def detect_breaking_changes(diff_result: DiffResult) -> List[Dict[str, Any]]:
     for diff in all_diffs:
         # Removed components are breaking
         if diff.change_type == ChangeType.REMOVED:
-            breaking_changes.append({
-                'component_id': diff.id,
-                'component_name': diff.name,
-                'change_type': 'removed',
-                'severity': 'high',
-                'description': f"Component '{diff.name}' was removed"
-            })
+            breaking_changes.append(
+                {
+                    "component_id": diff.id,
+                    "component_name": diff.name,
+                    "change_type": "removed",
+                    "severity": "high",
+                    "description": f"Component '{diff.name}' was removed",
+                }
+            )
 
         # Check for type or schema changes
         elif diff.change_type == ChangeType.MODIFIED and diff.changed_fields:
             for field, (old_val, new_val) in diff.changed_fields.items():
-                if field == 'type':
-                    breaking_changes.append({
-                        'component_id': diff.id,
-                        'component_name': diff.name,
-                        'change_type': 'type_changed',
-                        'field': field,
-                        'old_value': old_val,
-                        'new_value': new_val,
-                        'severity': 'high',
-                        'description': f"Data type changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'"
-                    })
-                elif field == 'schemaPath':
-                    breaking_changes.append({
-                        'component_id': diff.id,
-                        'component_name': diff.name,
-                        'change_type': 'schema_changed',
-                        'field': field,
-                        'old_value': old_val,
-                        'new_value': new_val,
-                        'severity': 'medium',
-                        'description': f"Schema path changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'"
-                    })
+                if field == "type":
+                    breaking_changes.append(
+                        {
+                            "component_id": diff.id,
+                            "component_name": diff.name,
+                            "change_type": "type_changed",
+                            "field": field,
+                            "old_value": old_val,
+                            "new_value": new_val,
+                            "severity": "high",
+                            "description": f"Data type changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'",
+                        }
+                    )
+                elif field == "schemaPath":
+                    breaking_changes.append(
+                        {
+                            "component_id": diff.id,
+                            "component_name": diff.name,
+                            "change_type": "schema_changed",
+                            "field": field,
+                            "old_value": old_val,
+                            "new_value": new_val,
+                            "severity": "medium",
+                            "description": f"Schema path changed from '{_format_diff_value(old_val, truncate=False)}' to '{_format_diff_value(new_val, truncate=False)}'",
+                        }
+                    )
 
     return breaking_changes
 
@@ -2677,7 +2714,7 @@ def write_diff_json_output(
     base_filename: str,
     output_dir: Union[str, Path],
     logger: logging.Logger,
-    changes_only: bool = False
+    changes_only: bool = False,
 ) -> str:
     """
     Write diff comparison to JSON format.
@@ -2703,10 +2740,9 @@ def write_diff_json_output(
                 "id": d.id,
                 "name": d.name,
                 "change_type": d.change_type.value,
-                "changed_fields": {k: {"source": v[0], "target": v[1]}
-                                   for k, v in (d.changed_fields or {}).items()},
+                "changed_fields": {k: {"source": v[0], "target": v[1]} for k, v in (d.changed_fields or {}).items()},
                 "source_data": d.source_data,
-                "target_data": d.target_data
+                "target_data": d.target_data,
             }
 
         def serialize_inventory_diff(d: InventoryItemDiff) -> Dict:
@@ -2715,10 +2751,9 @@ def write_diff_json_output(
                 "name": d.name,
                 "change_type": d.change_type.value,
                 "inventory_type": d.inventory_type,
-                "changed_fields": {k: {"source": v[0], "target": v[1]}
-                                   for k, v in (d.changed_fields or {}).items()},
+                "changed_fields": {k: {"source": v[0], "target": v[1]} for k, v in (d.changed_fields or {}).items()},
                 "source_data": d.source_data,
-                "target_data": d.target_data
+                "target_data": d.target_data,
             }
 
         # Filter diffs if changes_only
@@ -2733,19 +2768,19 @@ def write_diff_json_output(
                 "generated_at": diff_result.generated_at,
                 "tool_version": diff_result.tool_version,
                 "source_label": diff_result.source_label,
-                "target_label": diff_result.target_label
+                "target_label": diff_result.target_label,
             },
             "source": {
                 "id": meta.source_id,
                 "name": meta.source_name,
                 "owner": meta.source_owner,
-                "description": meta.source_description
+                "description": meta.source_description,
             },
             "target": {
                 "id": meta.target_id,
                 "name": meta.target_name,
                 "owner": meta.target_owner,
-                "description": meta.target_description
+                "description": meta.target_description,
             },
             "summary": {
                 "source_metrics_count": summary.source_metrics_count,
@@ -2767,10 +2802,10 @@ def write_diff_json_output(
                 "total_added": summary.total_added,
                 "total_removed": summary.total_removed,
                 "total_modified": summary.total_modified,
-                "total_summary": summary.total_summary
+                "total_summary": summary.total_summary,
             },
             "metric_diffs": [serialize_component_diff(d) for d in metric_diffs],
-            "dimension_diffs": [serialize_component_diff(d) for d in dimension_diffs]
+            "dimension_diffs": [serialize_component_diff(d) for d in dimension_diffs],
         }
 
         # Add inventory diffs if present
@@ -2783,7 +2818,7 @@ def write_diff_json_output(
                     "added": summary.calc_metrics_added,
                     "removed": summary.calc_metrics_removed,
                     "modified": summary.calc_metrics_modified,
-                    "unchanged": summary.calc_metrics_unchanged
+                    "unchanged": summary.calc_metrics_unchanged,
                 }
             if summary.source_segments_count > 0 or summary.target_segments_count > 0:
                 inventory_summary["segments"] = {
@@ -2792,7 +2827,7 @@ def write_diff_json_output(
                     "added": summary.segments_added,
                     "removed": summary.segments_removed,
                     "modified": summary.segments_modified,
-                    "unchanged": summary.segments_unchanged
+                    "unchanged": summary.segments_unchanged,
                 }
             json_data["inventory_summary"] = inventory_summary
 
@@ -2809,7 +2844,7 @@ def write_diff_json_output(
                 json_data["segments_diffs"] = [serialize_inventory_diff(d) for d in seg_diffs]
 
         json_file = os.path.join(output_dir, f"{base_filename}.json")
-        with open(json_file, 'w', encoding='utf-8') as f:
+        with open(json_file, "w", encoding="utf-8") as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Diff JSON file created: {json_file}")
@@ -2826,7 +2861,7 @@ def write_diff_markdown_output(
     output_dir: Union[str, Path],
     logger: logging.Logger,
     changes_only: bool = False,
-    side_by_side: bool = False
+    side_by_side: bool = False,
 ) -> str:
     """
     Write diff comparison to Markdown format.
@@ -2861,25 +2896,35 @@ def write_diff_markdown_output(
 
         # Summary table
         md_parts.append("## Summary\n")
-        md_parts.append(f"| Component | {diff_result.source_label} | {diff_result.target_label} | Added | Removed | Modified | Unchanged | Changed |")
+        md_parts.append(
+            f"| Component | {diff_result.source_label} | {diff_result.target_label} | Added | Removed | Modified | Unchanged | Changed |"
+        )
         md_parts.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
-        md_parts.append(f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
-                       f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} | "
-                       f"{summary.metrics_unchanged} | {summary.metrics_change_percent:.1f}% |")
-        md_parts.append(f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
-                       f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
-                       f"{summary.dimensions_unchanged} | {summary.dimensions_change_percent:.1f}% |")
+        md_parts.append(
+            f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
+            f"+{summary.metrics_added} | -{summary.metrics_removed} | ~{summary.metrics_modified} | "
+            f"{summary.metrics_unchanged} | {summary.metrics_change_percent:.1f}% |"
+        )
+        md_parts.append(
+            f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
+            f"+{summary.dimensions_added} | -{summary.dimensions_removed} | ~{summary.dimensions_modified} | "
+            f"{summary.dimensions_unchanged} | {summary.dimensions_change_percent:.1f}% |"
+        )
 
         # Add inventory rows to summary if present
         if diff_result.has_inventory_diffs:
             if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
-                md_parts.append(f"| **Calc Metrics** | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
-                               f"+{summary.calc_metrics_added} | -{summary.calc_metrics_removed} | ~{summary.calc_metrics_modified} | "
-                               f"{summary.calc_metrics_unchanged} | - |")
+                md_parts.append(
+                    f"| **Calc Metrics** | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
+                    f"+{summary.calc_metrics_added} | -{summary.calc_metrics_removed} | ~{summary.calc_metrics_modified} | "
+                    f"{summary.calc_metrics_unchanged} | - |"
+                )
             if summary.source_segments_count > 0 or summary.target_segments_count > 0:
-                md_parts.append(f"| **Segments** | {summary.source_segments_count} | {summary.target_segments_count} | "
-                               f"+{summary.segments_added} | -{summary.segments_removed} | ~{summary.segments_modified} | "
-                               f"{summary.segments_unchanged} | - |")
+                md_parts.append(
+                    f"| **Segments** | {summary.source_segments_count} | {summary.target_segments_count} | "
+                    f"+{summary.segments_added} | -{summary.segments_removed} | ~{summary.segments_modified} | "
+                    f"{summary.segments_unchanged} | - |"
+                )
         md_parts.append("")
 
         if not summary.has_changes:
@@ -2905,9 +2950,9 @@ def write_diff_markdown_output(
                     if modified:
                         md_parts.append("\n### Modified Metrics - Side by Side\n")
                         for diff in modified:
-                            md_parts.extend(_format_markdown_side_by_side(
-                                diff, diff_result.source_label, diff_result.target_label
-                            ))
+                            md_parts.extend(
+                                _format_markdown_side_by_side(diff, diff_result.source_label, diff_result.target_label)
+                            )
             else:
                 md_parts.append("*No changes*")
             md_parts.append("")
@@ -2930,9 +2975,9 @@ def write_diff_markdown_output(
                     if modified:
                         md_parts.append("\n### Modified Dimensions - Side by Side\n")
                         for diff in modified:
-                            md_parts.extend(_format_markdown_side_by_side(
-                                diff, diff_result.source_label, diff_result.target_label
-                            ))
+                            md_parts.extend(
+                                _format_markdown_side_by_side(diff, diff_result.source_label, diff_result.target_label)
+                            )
             else:
                 md_parts.append("*No changes*")
             md_parts.append("")
@@ -2976,8 +3021,8 @@ def write_diff_markdown_output(
         md_parts.append("*Generated by CJA Auto SDR Generator*")
 
         markdown_file = os.path.join(output_dir, f"{base_filename}.md")
-        with open(markdown_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(md_parts))
+        with open(markdown_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(md_parts))
 
         logger.info(f"Diff Markdown file created: {markdown_file}")
         return markdown_file
@@ -2989,20 +3034,11 @@ def write_diff_markdown_output(
 
 def _get_change_emoji(change_type: ChangeType) -> str:
     """Get emoji for change type"""
-    emojis = {
-        ChangeType.ADDED: "+",
-        ChangeType.REMOVED: "-",
-        ChangeType.MODIFIED: "~",
-        ChangeType.UNCHANGED: ""
-    }
+    emojis = {ChangeType.ADDED: "+", ChangeType.REMOVED: "-", ChangeType.MODIFIED: "~", ChangeType.UNCHANGED: ""}
     return emojis.get(change_type, "")
 
 
-def _format_markdown_side_by_side(
-    diff: ComponentDiff,
-    source_label: str,
-    target_label: str
-) -> List[str]:
+def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target_label: str) -> List[str]:
     """
     Format a component diff as a side-by-side markdown table.
 
@@ -3049,7 +3085,7 @@ def write_diff_html_output(
     base_filename: str,
     output_dir: Union[str, Path],
     logger: logging.Logger,
-    changes_only: bool = False
+    changes_only: bool = False,
 ) -> str:
     """
     Write diff comparison to HTML format with professional styling.
@@ -3072,7 +3108,7 @@ def write_diff_html_output(
         html_parts = []
 
         # HTML header with CSS
-        html_parts.append('''
+        html_parts.append("""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3192,19 +3228,19 @@ def write_diff_html_output(
 <body>
     <div class="container">
         <h1>Data View Comparison Report</h1>
-''')
+""")
 
         # Metadata section
-        html_parts.append(f'''
+        html_parts.append(f"""
         <div class="metadata">
             <p><strong>{diff_result.source_label}:</strong> {meta.source_name} (<code>{meta.source_id}</code>)</p>
             <p><strong>{diff_result.target_label}:</strong> {meta.target_name} (<code>{meta.target_id}</code>)</p>
             <p><strong>Generated:</strong> {diff_result.generated_at}</p>
         </div>
-''')
+""")
 
         # Summary table
-        html_parts.append(f'''
+        html_parts.append(f"""
         <h2>Summary</h2>
         <table class="summary-table">
             <tr>
@@ -3238,13 +3274,13 @@ def write_diff_html_output(
                 <td>{summary.dimensions_change_percent:.1f}%</td>
             </tr>
         </table>
-''')
+""")
 
         # Add inventory rows to summary if present
         if diff_result.has_inventory_diffs:
             inv_rows = []
             if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
-                inv_rows.append(f'''
+                inv_rows.append(f"""
             <tr>
                 <td><strong>Calc Metrics</strong></td>
                 <td>{summary.source_calc_metrics_count}</td>
@@ -3254,9 +3290,9 @@ def write_diff_html_output(
                 <td><span class="badge badge-modified">~{summary.calc_metrics_modified}</span></td>
                 <td>{summary.calc_metrics_unchanged}</td>
                 <td>-</td>
-            </tr>''')
+            </tr>""")
             if summary.source_segments_count > 0 or summary.target_segments_count > 0:
-                inv_rows.append(f'''
+                inv_rows.append(f"""
             <tr>
                 <td><strong>Segments</strong></td>
                 <td>{summary.source_segments_count}</td>
@@ -3266,10 +3302,10 @@ def write_diff_html_output(
                 <td><span class="badge badge-modified">~{summary.segments_modified}</span></td>
                 <td>{summary.segments_unchanged}</td>
                 <td>-</td>
-            </tr>''')
+            </tr>""")
             if inv_rows:
                 # Insert inventory rows before the closing </table> tag
-                html_parts[-1] = html_parts[-1].replace('</table>', ''.join(inv_rows) + '\n        </table>')
+                html_parts[-1] = html_parts[-1].replace("</table>", "".join(inv_rows) + "\n        </table>")
 
         if not summary.has_changes:
             html_parts.append('<p class="no-changes">No differences found.</p>')
@@ -3287,20 +3323,20 @@ def write_diff_html_output(
                 html += "<p><em>No changes</em></p>\n"
                 return html
 
-            html += '''<table class="diff-table">
+            html += """<table class="diff-table">
                 <tr>
                     <th>Status</th>
                     <th>ID</th>
                     <th>Name</th>
                     <th>Details</th>
-                </tr>'''
+                </tr>"""
 
             for diff in changes:
                 row_class = f"row-{diff.change_type.value}"
                 badge_class = f"badge-{diff.change_type.value}"
                 badge_text = diff.change_type.value.upper()
                 detail = _get_change_detail(diff)
-                detail_escaped = detail.replace('<', '&lt;').replace('>', '&gt;')
+                detail_escaped = detail.replace("<", "&lt;").replace(">", "&gt;")
 
                 html += f'''
                 <tr class="{row_class}">
@@ -3318,6 +3354,7 @@ def write_diff_html_output(
 
         # Inventory diff sections (if present)
         if diff_result.has_inventory_diffs:
+
             def generate_inventory_diff_table(diffs: Optional[List[InventoryItemDiff]], title: str):
                 if diffs is None:
                     return ""
@@ -3330,20 +3367,20 @@ def write_diff_html_output(
                     html += "<p><em>No changes</em></p>\n"
                     return html
 
-                html += '''<table class="diff-table">
+                html += """<table class="diff-table">
                     <tr>
                         <th>Status</th>
                         <th>ID</th>
                         <th>Name</th>
                         <th>Details</th>
-                    </tr>'''
+                    </tr>"""
 
                 for diff in changes:
                     row_class = f"row-{diff.change_type.value}"
                     badge_class = f"badge-{diff.change_type.value}"
                     badge_text = diff.change_type.value.upper()
                     detail = _get_inventory_change_detail(diff)
-                    detail_escaped = detail.replace('<', '&lt;').replace('>', '&gt;')
+                    detail_escaped = detail.replace("<", "&lt;").replace(">", "&gt;")
 
                     html += f'''
                     <tr class="{row_class}">
@@ -3356,23 +3393,27 @@ def write_diff_html_output(
                 html += "</table>\n"
                 return html
 
-            html_parts.append("<h2 style='border-top: 2px solid #3498db; padding-top: 20px; margin-top: 30px;'>Inventory Changes</h2>")
-            html_parts.append(generate_inventory_diff_table(diff_result.calc_metrics_diffs, "Calculated Metrics Changes"))
+            html_parts.append(
+                "<h2 style='border-top: 2px solid #3498db; padding-top: 20px; margin-top: 30px;'>Inventory Changes</h2>"
+            )
+            html_parts.append(
+                generate_inventory_diff_table(diff_result.calc_metrics_diffs, "Calculated Metrics Changes")
+            )
             html_parts.append(generate_inventory_diff_table(diff_result.segments_diffs, "Segments Changes"))
 
         # Footer
-        html_parts.append(f'''
+        html_parts.append(f"""
         <div class="footer">
             <p>Generated by CJA SDR Generator v{diff_result.tool_version}</p>
         </div>
     </div>
 </body>
 </html>
-''')
+""")
 
         html_file = os.path.join(output_dir, f"{base_filename}.html")
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(html_parts))
+        with open(html_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(html_parts))
 
         logger.info(f"Diff HTML file created: {html_file}")
         return html_file
@@ -3387,7 +3428,7 @@ def write_diff_excel_output(
     base_filename: str,
     output_dir: Union[str, Path],
     logger: logging.Logger,
-    changes_only: bool = False
+    changes_only: bool = False,
 ) -> str:
     """
     Write diff comparison to Excel format with color-coded rows.
@@ -3409,79 +3450,96 @@ def write_diff_excel_output(
         meta = diff_result.metadata_diff
         excel_file = os.path.join(output_dir, f"{base_filename}.xlsx")
 
-        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+        with pd.ExcelWriter(excel_file, engine="xlsxwriter") as writer:
             workbook = writer.book
 
             # Define formats
-            header_format = workbook.add_format({
-                'bold': True, 'bg_color': '#3498db', 'font_color': 'white',
-                'border': 1, 'align': 'center'
-            })
-            added_format = workbook.add_format({'bg_color': '#d4edda', 'border': 1})
-            removed_format = workbook.add_format({'bg_color': '#f8d7da', 'border': 1})
-            modified_format = workbook.add_format({'bg_color': '#fff3cd', 'border': 1})
-            normal_format = workbook.add_format({'border': 1})
+            header_format = workbook.add_format(
+                {"bold": True, "bg_color": "#3498db", "font_color": "white", "border": 1, "align": "center"}
+            )
+            added_format = workbook.add_format({"bg_color": "#d4edda", "border": 1})
+            removed_format = workbook.add_format({"bg_color": "#f8d7da", "border": 1})
+            modified_format = workbook.add_format({"bg_color": "#fff3cd", "border": 1})
+            normal_format = workbook.add_format({"border": 1})
 
             # Summary sheet - build rows dynamically
             summary_rows = [
                 {
-                    'Component': 'Metrics',
+                    "Component": "Metrics",
                     diff_result.source_label: summary.source_metrics_count,
                     diff_result.target_label: summary.target_metrics_count,
-                    'Added': summary.metrics_added,
-                    'Removed': summary.metrics_removed,
-                    'Modified': summary.metrics_modified,
-                    'Unchanged': summary.metrics_unchanged,
-                    'Changed %': f"{summary.metrics_change_percent:.1f}%"
+                    "Added": summary.metrics_added,
+                    "Removed": summary.metrics_removed,
+                    "Modified": summary.metrics_modified,
+                    "Unchanged": summary.metrics_unchanged,
+                    "Changed %": f"{summary.metrics_change_percent:.1f}%",
                 },
                 {
-                    'Component': 'Dimensions',
+                    "Component": "Dimensions",
                     diff_result.source_label: summary.source_dimensions_count,
                     diff_result.target_label: summary.target_dimensions_count,
-                    'Added': summary.dimensions_added,
-                    'Removed': summary.dimensions_removed,
-                    'Modified': summary.dimensions_modified,
-                    'Unchanged': summary.dimensions_unchanged,
-                    'Changed %': f"{summary.dimensions_change_percent:.1f}%"
-                }
+                    "Added": summary.dimensions_added,
+                    "Removed": summary.dimensions_removed,
+                    "Modified": summary.dimensions_modified,
+                    "Unchanged": summary.dimensions_unchanged,
+                    "Changed %": f"{summary.dimensions_change_percent:.1f}%",
+                },
             ]
 
             # Add inventory rows if present (check for actual inventory diffs)
             if diff_result.calc_metrics_diffs is not None:
-                summary_rows.append({
-                    'Component': 'Calc Metrics',
-                    diff_result.source_label: summary.source_calc_metrics_count,
-                    diff_result.target_label: summary.target_calc_metrics_count,
-                    'Added': summary.calc_metrics_added,
-                    'Removed': summary.calc_metrics_removed,
-                    'Modified': summary.calc_metrics_modified,
-                    'Unchanged': summary.calc_metrics_unchanged,
-                    'Changed %': f"{summary.calc_metrics_change_percent:.1f}%"
-                })
+                summary_rows.append(
+                    {
+                        "Component": "Calc Metrics",
+                        diff_result.source_label: summary.source_calc_metrics_count,
+                        diff_result.target_label: summary.target_calc_metrics_count,
+                        "Added": summary.calc_metrics_added,
+                        "Removed": summary.calc_metrics_removed,
+                        "Modified": summary.calc_metrics_modified,
+                        "Unchanged": summary.calc_metrics_unchanged,
+                        "Changed %": f"{summary.calc_metrics_change_percent:.1f}%",
+                    }
+                )
             if diff_result.segments_diffs is not None:
-                summary_rows.append({
-                    'Component': 'Segments',
-                    diff_result.source_label: summary.source_segments_count,
-                    diff_result.target_label: summary.target_segments_count,
-                    'Added': summary.segments_added,
-                    'Removed': summary.segments_removed,
-                    'Modified': summary.segments_modified,
-                    'Unchanged': summary.segments_unchanged,
-                    'Changed %': f"{summary.segments_change_percent:.1f}%"
-                })
+                summary_rows.append(
+                    {
+                        "Component": "Segments",
+                        diff_result.source_label: summary.source_segments_count,
+                        diff_result.target_label: summary.target_segments_count,
+                        "Added": summary.segments_added,
+                        "Removed": summary.segments_removed,
+                        "Modified": summary.segments_modified,
+                        "Unchanged": summary.segments_unchanged,
+                        "Changed %": f"{summary.segments_change_percent:.1f}%",
+                    }
+                )
 
             summary_df = pd.DataFrame(summary_rows)
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
             # Metadata sheet
             metadata_data = {
-                'Property': ['Source ID', 'Source Name', 'Target ID', 'Target Name',
-                           'Generated At', 'Has Changes', 'Total Changes'],
-                'Value': [meta.source_id, meta.source_name, meta.target_id, meta.target_name,
-                         diff_result.generated_at, str(summary.has_changes), summary.total_changes]
+                "Property": [
+                    "Source ID",
+                    "Source Name",
+                    "Target ID",
+                    "Target Name",
+                    "Generated At",
+                    "Has Changes",
+                    "Total Changes",
+                ],
+                "Value": [
+                    meta.source_id,
+                    meta.source_name,
+                    meta.target_id,
+                    meta.target_name,
+                    diff_result.generated_at,
+                    str(summary.has_changes),
+                    summary.total_changes,
+                ],
             }
             metadata_df = pd.DataFrame(metadata_data)
-            metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
+            metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
 
             # Helper function to write diff sheet
             def write_diff_sheet(diffs: List[ComponentDiff], sheet_name: str):
@@ -3489,18 +3547,20 @@ def write_diff_excel_output(
                     diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
                 if not diffs:
-                    df = pd.DataFrame({'Message': ['No changes']})
+                    df = pd.DataFrame({"Message": ["No changes"]})
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
                     return
 
                 rows = []
                 for diff in diffs:
-                    rows.append({
-                        'Status': diff.change_type.value.upper(),
-                        'ID': diff.id,
-                        'Name': diff.name,
-                        'Details': _get_change_detail(diff)
-                    })
+                    rows.append(
+                        {
+                            "Status": diff.change_type.value.upper(),
+                            "ID": diff.id,
+                            "Name": diff.name,
+                            "Details": _get_change_detail(diff),
+                        }
+                    )
 
                 df = pd.DataFrame(rows)
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -3518,10 +3578,10 @@ def write_diff_excel_output(
                         fmt = normal_format
 
                     for col_idx in range(len(df.columns)):
-                        worksheet.write(row_idx, col_idx, df.iloc[row_idx-1, col_idx], fmt)
+                        worksheet.write(row_idx, col_idx, df.iloc[row_idx - 1, col_idx], fmt)
 
-            write_diff_sheet(diff_result.metric_diffs, 'Metrics Diff')
-            write_diff_sheet(diff_result.dimension_diffs, 'Dimensions Diff')
+            write_diff_sheet(diff_result.metric_diffs, "Metrics Diff")
+            write_diff_sheet(diff_result.dimension_diffs, "Dimensions Diff")
 
             # Helper function to write inventory diff sheet
             def write_inventory_diff_sheet(diffs: Optional[List[InventoryItemDiff]], sheet_name: str):
@@ -3532,18 +3592,20 @@ def write_diff_excel_output(
                     diffs = [d for d in diffs if d.change_type != ChangeType.UNCHANGED]
 
                 if not diffs:
-                    df = pd.DataFrame({'Message': ['No changes']})
+                    df = pd.DataFrame({"Message": ["No changes"]})
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
                     return
 
                 rows = []
                 for diff in diffs:
-                    rows.append({
-                        'Status': diff.change_type.value.upper(),
-                        'ID': diff.id,
-                        'Name': diff.name,
-                        'Details': _get_inventory_change_detail(diff)
-                    })
+                    rows.append(
+                        {
+                            "Status": diff.change_type.value.upper(),
+                            "ID": diff.id,
+                            "Name": diff.name,
+                            "Details": _get_inventory_change_detail(diff),
+                        }
+                    )
 
                 df = pd.DataFrame(rows)
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -3561,13 +3623,13 @@ def write_diff_excel_output(
                         fmt = normal_format
 
                     for col_idx in range(len(df.columns)):
-                        worksheet.write(row_idx, col_idx, df.iloc[row_idx-1, col_idx], fmt)
+                        worksheet.write(row_idx, col_idx, df.iloc[row_idx - 1, col_idx], fmt)
 
             # Write inventory diff sheets if present
             if diff_result.calc_metrics_diffs is not None:
-                write_inventory_diff_sheet(diff_result.calc_metrics_diffs, 'Calc Metrics Diff')
+                write_inventory_diff_sheet(diff_result.calc_metrics_diffs, "Calc Metrics Diff")
             if diff_result.segments_diffs is not None:
-                write_inventory_diff_sheet(diff_result.segments_diffs, 'Segments Diff')
+                write_inventory_diff_sheet(diff_result.segments_diffs, "Segments Diff")
 
         logger.info(f"Diff Excel file created: {excel_file}")
         return excel_file
@@ -3582,7 +3644,7 @@ def write_diff_csv_output(
     base_filename: str,
     output_dir: Union[str, Path],
     logger: logging.Logger,
-    changes_only: bool = False
+    changes_only: bool = False,
 ) -> str:
     """
     Write diff comparison to CSV files.
@@ -3610,66 +3672,80 @@ def write_diff_csv_output(
         # Summary CSV - build rows dynamically
         summary_rows = [
             {
-                'Component': 'Metrics',
-                'Source_Count': summary.source_metrics_count,
-                'Target_Count': summary.target_metrics_count,
-                'Added': summary.metrics_added,
-                'Removed': summary.metrics_removed,
-                'Modified': summary.metrics_modified,
-                'Unchanged': summary.metrics_unchanged,
-                'Changed_Percent': summary.metrics_change_percent
+                "Component": "Metrics",
+                "Source_Count": summary.source_metrics_count,
+                "Target_Count": summary.target_metrics_count,
+                "Added": summary.metrics_added,
+                "Removed": summary.metrics_removed,
+                "Modified": summary.metrics_modified,
+                "Unchanged": summary.metrics_unchanged,
+                "Changed_Percent": summary.metrics_change_percent,
             },
             {
-                'Component': 'Dimensions',
-                'Source_Count': summary.source_dimensions_count,
-                'Target_Count': summary.target_dimensions_count,
-                'Added': summary.dimensions_added,
-                'Removed': summary.dimensions_removed,
-                'Modified': summary.dimensions_modified,
-                'Unchanged': summary.dimensions_unchanged,
-                'Changed_Percent': summary.dimensions_change_percent
-            }
+                "Component": "Dimensions",
+                "Source_Count": summary.source_dimensions_count,
+                "Target_Count": summary.target_dimensions_count,
+                "Added": summary.dimensions_added,
+                "Removed": summary.dimensions_removed,
+                "Modified": summary.dimensions_modified,
+                "Unchanged": summary.dimensions_unchanged,
+                "Changed_Percent": summary.dimensions_change_percent,
+            },
         ]
 
         # Add inventory rows if present (check for actual inventory diffs)
         if diff_result.calc_metrics_diffs is not None:
-            summary_rows.append({
-                'Component': 'Calc_Metrics',
-                'Source_Count': summary.source_calc_metrics_count,
-                'Target_Count': summary.target_calc_metrics_count,
-                'Added': summary.calc_metrics_added,
-                'Removed': summary.calc_metrics_removed,
-                'Modified': summary.calc_metrics_modified,
-                'Unchanged': summary.calc_metrics_unchanged,
-                'Changed_Percent': summary.calc_metrics_change_percent
-            })
+            summary_rows.append(
+                {
+                    "Component": "Calc_Metrics",
+                    "Source_Count": summary.source_calc_metrics_count,
+                    "Target_Count": summary.target_calc_metrics_count,
+                    "Added": summary.calc_metrics_added,
+                    "Removed": summary.calc_metrics_removed,
+                    "Modified": summary.calc_metrics_modified,
+                    "Unchanged": summary.calc_metrics_unchanged,
+                    "Changed_Percent": summary.calc_metrics_change_percent,
+                }
+            )
         if diff_result.segments_diffs is not None:
-            summary_rows.append({
-                'Component': 'Segments',
-                'Source_Count': summary.source_segments_count,
-                'Target_Count': summary.target_segments_count,
-                'Added': summary.segments_added,
-                'Removed': summary.segments_removed,
-                'Modified': summary.segments_modified,
-                'Unchanged': summary.segments_unchanged,
-                'Changed_Percent': summary.segments_change_percent
-            })
+            summary_rows.append(
+                {
+                    "Component": "Segments",
+                    "Source_Count": summary.source_segments_count,
+                    "Target_Count": summary.target_segments_count,
+                    "Added": summary.segments_added,
+                    "Removed": summary.segments_removed,
+                    "Modified": summary.segments_modified,
+                    "Unchanged": summary.segments_unchanged,
+                    "Changed_Percent": summary.segments_change_percent,
+                }
+            )
 
-        pd.DataFrame(summary_rows).to_csv(
-            os.path.join(csv_dir, 'summary.csv'), index=False
-        )
+        pd.DataFrame(summary_rows).to_csv(os.path.join(csv_dir, "summary.csv"), index=False)
         logger.info("  Created: summary.csv")
 
         # Metadata CSV
         metadata_data = {
-            'Property': ['source_id', 'source_name', 'target_id', 'target_name',
-                        'generated_at', 'has_changes', 'total_changes'],
-            'Value': [meta.source_id, meta.source_name, meta.target_id, meta.target_name,
-                     diff_result.generated_at, str(summary.has_changes), summary.total_changes]
+            "Property": [
+                "source_id",
+                "source_name",
+                "target_id",
+                "target_name",
+                "generated_at",
+                "has_changes",
+                "total_changes",
+            ],
+            "Value": [
+                meta.source_id,
+                meta.source_name,
+                meta.target_id,
+                meta.target_name,
+                diff_result.generated_at,
+                str(summary.has_changes),
+                summary.total_changes,
+            ],
         }
-        pd.DataFrame(metadata_data).to_csv(
-            os.path.join(csv_dir, 'metadata.csv'), index=False
-        )
+        pd.DataFrame(metadata_data).to_csv(os.path.join(csv_dir, "metadata.csv"), index=False)
         logger.info("  Created: metadata.csv")
 
         # Helper function to write diff CSV
@@ -3679,20 +3755,20 @@ def write_diff_csv_output(
 
             rows = []
             for diff in diffs:
-                rows.append({
-                    'status': diff.change_type.value,
-                    'id': diff.id,
-                    'name': diff.name,
-                    'details': _get_change_detail(diff)
-                })
+                rows.append(
+                    {
+                        "status": diff.change_type.value,
+                        "id": diff.id,
+                        "name": diff.name,
+                        "details": _get_change_detail(diff),
+                    }
+                )
 
-            pd.DataFrame(rows).to_csv(
-                os.path.join(csv_dir, filename), index=False
-            )
+            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
             logger.info(f"  Created: {filename}")
 
-        write_diff_csv(diff_result.metric_diffs, 'metrics_diff.csv')
-        write_diff_csv(diff_result.dimension_diffs, 'dimensions_diff.csv')
+        write_diff_csv(diff_result.metric_diffs, "metrics_diff.csv")
+        write_diff_csv(diff_result.dimension_diffs, "dimensions_diff.csv")
 
         # Helper function to write inventory diff CSV
         def write_inventory_diff_csv(diffs: Optional[List[InventoryItemDiff]], filename: str):
@@ -3704,23 +3780,23 @@ def write_diff_csv_output(
 
             rows = []
             for diff in diffs:
-                rows.append({
-                    'status': diff.change_type.value,
-                    'id': diff.id,
-                    'name': diff.name,
-                    'details': _get_inventory_change_detail(diff)
-                })
+                rows.append(
+                    {
+                        "status": diff.change_type.value,
+                        "id": diff.id,
+                        "name": diff.name,
+                        "details": _get_inventory_change_detail(diff),
+                    }
+                )
 
-            pd.DataFrame(rows).to_csv(
-                os.path.join(csv_dir, filename), index=False
-            )
+            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
             logger.info(f"  Created: {filename}")
 
         # Write inventory diff CSVs if present
         if diff_result.calc_metrics_diffs is not None:
-            write_inventory_diff_csv(diff_result.calc_metrics_diffs, 'calc_metrics_diff.csv')
+            write_inventory_diff_csv(diff_result.calc_metrics_diffs, "calc_metrics_diff.csv")
         if diff_result.segments_diffs is not None:
-            write_inventory_diff_csv(diff_result.segments_diffs, 'segments_diff.csv')
+            write_inventory_diff_csv(diff_result.segments_diffs, "segments_diff.csv")
 
         logger.info(f"Diff CSV files created in: {csv_dir}")
         return csv_dir
@@ -3741,7 +3817,7 @@ def write_diff_output(
     side_by_side: bool = False,
     use_color: bool = True,
     group_by_field: bool = False,
-    group_by_field_limit: int = 10
+    group_by_field_limit: int = 10,
 ) -> Optional[str]:
     """
     Write diff comparison output in specified format(s).
@@ -3767,49 +3843,41 @@ def write_diff_output(
     console_output = None
 
     # Handle group-by-field output mode
-    if group_by_field and should_generate_format(output_format, 'console'):
+    if group_by_field and should_generate_format(output_format, "console"):
         console_output = write_diff_grouped_by_field_output(diff_result, use_color, group_by_field_limit)
         print(console_output)
-        if output_format == 'console':
+        if output_format == "console":
             return console_output
 
     # Handle PR comment format
-    if output_format == 'pr-comment':
+    if output_format == "pr-comment":
         console_output = write_diff_pr_comment_output(diff_result, changes_only)
         print(console_output)
         return console_output
 
-    if should_generate_format(output_format, 'console') and not group_by_field:
+    if should_generate_format(output_format, "console") and not group_by_field:
         console_output = write_diff_console_output(diff_result, changes_only, summary_only, side_by_side, use_color)
         print(console_output)
 
-    if output_format == 'console':
+    if output_format == "console":
         return console_output
 
-    if should_generate_format(output_format, 'json'):
-        output_files.append(write_diff_json_output(
-            diff_result, base_filename, output_dir, logger, changes_only
-        ))
+    if should_generate_format(output_format, "json"):
+        output_files.append(write_diff_json_output(diff_result, base_filename, output_dir, logger, changes_only))
 
-    if should_generate_format(output_format, 'markdown'):
-        output_files.append(write_diff_markdown_output(
-            diff_result, base_filename, output_dir, logger, changes_only, side_by_side
-        ))
+    if should_generate_format(output_format, "markdown"):
+        output_files.append(
+            write_diff_markdown_output(diff_result, base_filename, output_dir, logger, changes_only, side_by_side)
+        )
 
-    if should_generate_format(output_format, 'html'):
-        output_files.append(write_diff_html_output(
-            diff_result, base_filename, output_dir, logger, changes_only
-        ))
+    if should_generate_format(output_format, "html"):
+        output_files.append(write_diff_html_output(diff_result, base_filename, output_dir, logger, changes_only))
 
-    if should_generate_format(output_format, 'excel'):
-        output_files.append(write_diff_excel_output(
-            diff_result, base_filename, output_dir, logger, changes_only
-        ))
+    if should_generate_format(output_format, "excel"):
+        output_files.append(write_diff_excel_output(diff_result, base_filename, output_dir, logger, changes_only))
 
-    if should_generate_format(output_format, 'csv'):
-        output_files.append(write_diff_csv_output(
-            diff_result, base_filename, output_dir, logger, changes_only
-        ))
+    if should_generate_format(output_format, "csv"):
+        output_files.append(write_diff_csv_output(diff_result, base_filename, output_dir, logger, changes_only))
 
     return console_output
 
@@ -3862,12 +3930,16 @@ def display_inventory_summary(
         # Collect high-complexity items (>=70)
         for field in derived_inventory.fields:
             if field.complexity_score >= 70:
-                high_complexity_items.append({
-                    "type": "Derived Field",
-                    "name": field.component_name,
-                    "complexity": field.complexity_score,
-                    "summary": field.logic_summary[:60] + "..." if len(field.logic_summary) > 60 else field.logic_summary,
-                })
+                high_complexity_items.append(
+                    {
+                        "type": "Derived Field",
+                        "name": field.component_name,
+                        "complexity": field.complexity_score,
+                        "summary": field.logic_summary[:60] + "..."
+                        if len(field.logic_summary) > 60
+                        else field.logic_summary,
+                    }
+                )
 
     # Process calculated metrics inventory
     if calculated_inventory:
@@ -3877,12 +3949,16 @@ def display_inventory_summary(
         # Collect high-complexity items (>=70)
         for metric in calculated_inventory.metrics:
             if metric.complexity_score >= 70:
-                high_complexity_items.append({
-                    "type": "Calculated Metric",
-                    "name": metric.metric_name,
-                    "complexity": metric.complexity_score,
-                    "summary": metric.formula_summary[:60] + "..." if len(metric.formula_summary) > 60 else metric.formula_summary,
-                })
+                high_complexity_items.append(
+                    {
+                        "type": "Calculated Metric",
+                        "name": metric.metric_name,
+                        "complexity": metric.complexity_score,
+                        "summary": metric.formula_summary[:60] + "..."
+                        if len(metric.formula_summary) > 60
+                        else metric.formula_summary,
+                    }
+                )
 
     # Process segments inventory
     if segments_inventory:
@@ -3892,12 +3968,16 @@ def display_inventory_summary(
         # Collect high-complexity items (>=70)
         for segment in segments_inventory.segments:
             if segment.complexity_score >= 70:
-                high_complexity_items.append({
-                    "type": "Segment",
-                    "name": segment.segment_name,
-                    "complexity": segment.complexity_score,
-                    "summary": segment.definition_summary[:60] + "..." if len(segment.definition_summary) > 60 else segment.definition_summary,
-                })
+                high_complexity_items.append(
+                    {
+                        "type": "Segment",
+                        "name": segment.segment_name,
+                        "complexity": segment.complexity_score,
+                        "summary": segment.definition_summary[:60] + "..."
+                        if len(segment.definition_summary) > 60
+                        else segment.definition_summary,
+                    }
+                )
 
     # Sort high-complexity items by score descending
     high_complexity_items.sort(key=lambda x: x["complexity"], reverse=True)
@@ -3911,7 +3991,7 @@ def display_inventory_summary(
         print()
 
         # Determine display order (default: segments, calculated, derived)
-        display_order = inventory_order if inventory_order else ['segments', 'calculated', 'derived']
+        display_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
 
         # Helper functions for displaying each inventory type
         def display_segments():
@@ -3920,19 +4000,19 @@ def display_inventory_summary(
             ss = summary["inventories"]["segments"]
             print(ConsoleColors.cyan("Segments"))
             print(f"  Total:       {ss['total_segments']}")
-            gov = ss.get('governance', {})
+            gov = ss.get("governance", {})
             if gov:
                 print(f"  Approved:    {gov.get('approved_count', 0)}")
                 print(f"  Shared:      {gov.get('shared_count', 0)}")
                 print(f"  Tagged:      {gov.get('tagged_count', 0)}")
-            containers = ss.get('container_types', {})
+            containers = ss.get("container_types", {})
             if containers:
                 container_str = ", ".join(f"{k}: {v}" for k, v in containers.items())
                 print(f"  Containers:  {container_str}")
             print(f"  Complexity:  avg={ss['complexity']['average']:.1f}, max={ss['complexity']['max']:.1f}")
-            if ss['complexity']['high_complexity_count'] > 0:
+            if ss["complexity"]["high_complexity_count"] > 0:
                 print(ConsoleColors.warning(f"  High (>=75): {ss['complexity']['high_complexity_count']}"))
-            if ss['complexity']['elevated_complexity_count'] > 0:
+            if ss["complexity"]["elevated_complexity_count"] > 0:
                 print(ConsoleColors.dim(f"  Elevated (50-74): {ss['complexity']['elevated_complexity_count']}"))
             print()
 
@@ -3942,15 +4022,15 @@ def display_inventory_summary(
             cs = summary["inventories"]["calculated_metrics"]
             print(ConsoleColors.cyan("Calculated Metrics"))
             print(f"  Total:       {cs['total_calculated_metrics']}")
-            gov = cs.get('governance', {})
+            gov = cs.get("governance", {})
             if gov:
                 print(f"  Approved:    {gov.get('approved_count', 0)}")
                 print(f"  Shared:      {gov.get('shared_count', 0)}")
                 print(f"  Tagged:      {gov.get('tagged_count', 0)}")
             print(f"  Complexity:  avg={cs['complexity']['average']:.1f}, max={cs['complexity']['max']:.1f}")
-            if cs['complexity']['high_complexity_count'] > 0:
+            if cs["complexity"]["high_complexity_count"] > 0:
                 print(ConsoleColors.warning(f"  High (>=75): {cs['complexity']['high_complexity_count']}"))
-            if cs['complexity']['elevated_complexity_count'] > 0:
+            if cs["complexity"]["elevated_complexity_count"] > 0:
                 print(ConsoleColors.dim(f"  Elevated (50-74): {cs['complexity']['elevated_complexity_count']}"))
             print()
 
@@ -3963,17 +4043,17 @@ def display_inventory_summary(
             print(f"  Metrics:     {ds['metrics_count']}")
             print(f"  Dimensions:  {ds['dimensions_count']}")
             print(f"  Complexity:  avg={ds['complexity']['average']:.1f}, max={ds['complexity']['max']:.1f}")
-            if ds['complexity']['high_complexity_count'] > 0:
+            if ds["complexity"]["high_complexity_count"] > 0:
                 print(ConsoleColors.warning(f"  High (>=75): {ds['complexity']['high_complexity_count']}"))
-            if ds['complexity']['elevated_complexity_count'] > 0:
+            if ds["complexity"]["elevated_complexity_count"] > 0:
                 print(ConsoleColors.dim(f"  Elevated (50-74): {ds['complexity']['elevated_complexity_count']}"))
             print()
 
         # Display in specified order
         display_funcs = {
-            'segments': display_segments,
-            'calculated': display_calculated,
-            'derived': display_derived,
+            "segments": display_segments,
+            "calculated": display_calculated,
+            "derived": display_derived,
         }
         for inv_type in display_order:
             if inv_type in display_funcs:
@@ -3985,7 +4065,7 @@ def display_inventory_summary(
             for item in high_complexity_items[:10]:  # Show top 10
                 complexity = item["complexity"]
                 print(f"  {ConsoleColors.bold(f'{complexity:3}')} {item['type']:18} {item['name']}")
-                if item['summary']:
+                if item["summary"]:
                     print(f"       {ConsoleColors.dim(item['summary'])}")
             if len(high_complexity_items) > 10:
                 print(ConsoleColors.dim(f"  ... and {len(high_complexity_items) - 10} more"))
@@ -3994,9 +4074,9 @@ def display_inventory_summary(
     # JSON output
     if output_format in ("json", "all"):
         os.makedirs(output_dir, exist_ok=True)
-        safe_name = re.sub(r'[^\w\-]', '_', data_view_name)[:50]
+        safe_name = re.sub(r"[^\w\-]", "_", data_view_name)[:50]
         json_path = Path(output_dir) / f"{safe_name}_inventory_summary.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, default=str)
         if not quiet:
             print(f"Summary saved to: {json_path}")
@@ -4118,6 +4198,7 @@ def process_inventory_summary(
 
 # ==================== REFACTORED SINGLE DATAVIEW PROCESSING ====================
 
+
 def process_single_dataview(
     data_view_id: str,
     config_file: str = "config.json",
@@ -4188,7 +4269,7 @@ def process_single_dataview(
                 data_view_name="Unknown",
                 success=False,
                 duration=time.time() - start_time,
-                error_message="CJA initialization failed"
+                error_message="CJA initialization failed",
             )
 
         logger.info("✓ CJA connection established successfully")
@@ -4200,7 +4281,7 @@ def process_single_dataview(
                 data_view_name="Unknown",
                 success=False,
                 duration=time.time() - start_time,
-                error_message="Data view validation failed"
+                error_message="Data view validation failed",
             )
 
         logger.info("✓ Data view validation complete - proceeding with data fetch")
@@ -4217,23 +4298,29 @@ def process_single_dataview(
             logger.info(f"Circuit breaker enabled (failure_threshold={circuit_breaker_config.failure_threshold})")
 
         fetcher = ParallelAPIFetcher(
-            cja, logger, perf_tracker,
+            cja,
+            logger,
+            perf_tracker,
             max_workers=DEFAULT_API_FETCH_WORKERS,
             quiet=quiet,
             tuning_config=api_tuning_config,
-            circuit_breaker=circuit_breaker
+            circuit_breaker=circuit_breaker,
         )
         if api_tuning_config is not None:
-            logger.info(f"API auto-tuning enabled (min={api_tuning_config.min_workers}, max={api_tuning_config.max_workers})")
+            logger.info(
+                f"API auto-tuning enabled (min={api_tuning_config.min_workers}, max={api_tuning_config.max_workers})"
+            )
 
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
         # Log tuner statistics if tuning was enabled
         tuner_stats = fetcher.get_tuner_statistics()
         if tuner_stats is not None and isinstance(tuner_stats, dict):
-            logger.info(f"API tuner stats: {tuner_stats['scale_ups']} scale-ups, "
-                       f"{tuner_stats['scale_downs']} scale-downs, "
-                       f"avg response: {tuner_stats['average_response_ms']:.0f}ms")
+            logger.info(
+                f"API tuner stats: {tuner_stats['scale_ups']} scale-ups, "
+                f"{tuner_stats['scale_downs']} scale-downs, "
+                f"avg response: {tuner_stats['average_response_ms']:.0f}ms"
+            )
 
         # Check if we have any data to process
         if metrics.empty and dimensions.empty:
@@ -4264,7 +4351,7 @@ def process_single_dataview(
                 data_view_name=dv_name,
                 success=False,
                 duration=time.time() - start_time,
-                error_message="No metrics or dimensions found - data view may be empty or inaccessible"
+                error_message="No metrics or dimensions found - data view may be empty or inaccessible",
             )
 
         logger.info("Data fetch operations completed successfully")
@@ -4274,7 +4361,7 @@ def process_single_dataview(
             logger.info("=" * BANNER_WIDTH)
             logger.info("Skipping data quality validation (--skip-validation)")
             logger.info("=" * BANNER_WIDTH)
-            data_quality_df = pd.DataFrame(columns=['Severity', 'Category', 'Type', 'Item Name', 'Issue', 'Details'])
+            data_quality_df = pd.DataFrame(columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"])
         else:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Starting data quality validation (optimized)")
@@ -4290,11 +4377,7 @@ def process_single_dataview(
                 validation_cache = shared_cache
                 logger.info("Using shared validation cache from batch processor")
             elif enable_cache:
-                validation_cache = ValidationCache(
-                    max_size=cache_size,
-                    ttl_seconds=cache_ttl,
-                    logger=logger
-                )
+                validation_cache = ValidationCache(max_size=cache_size, ttl_seconds=cache_ttl, logger=logger)
                 if clear_cache:
                     validation_cache.clear()
                     logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
@@ -4311,10 +4394,10 @@ def process_single_dataview(
                 dq_checker.check_all_parallel(
                     metrics_df=metrics,
                     dimensions_df=dimensions,
-                    metrics_required_fields=VALIDATION_SCHEMA['required_metric_fields'],
-                    dimensions_required_fields=VALIDATION_SCHEMA['required_dimension_fields'],
-                    critical_fields=VALIDATION_SCHEMA['critical_fields'],
-                    max_workers=DEFAULT_VALIDATION_WORKERS
+                    metrics_required_fields=VALIDATION_SCHEMA["required_metric_fields"],
+                    dimensions_required_fields=VALIDATION_SCHEMA["required_dimension_fields"],
+                    critical_fields=VALIDATION_SCHEMA["critical_fields"],
+                    max_workers=DEFAULT_VALIDATION_WORKERS,
                 )
 
                 # Log aggregated summary instead of individual issue count
@@ -4353,8 +4436,10 @@ def process_single_dataview(
                 derived_inventory_df = derived_inventory_obj.get_dataframe()
 
                 inv_summary = derived_inventory_obj.get_summary()
-                logger.info(f"Derived field inventory: {inv_summary.get('total_derived_fields', 0)} fields "
-                           f"({inv_summary.get('metrics_count', 0)} metrics, {inv_summary.get('dimensions_count', 0)} dimensions)")
+                logger.info(
+                    f"Derived field inventory: {inv_summary.get('total_derived_fields', 0)} fields "
+                    f"({inv_summary.get('metrics_count', 0)} metrics, {inv_summary.get('dimensions_count', 0)} dimensions)"
+                )
 
             except ImportError as e:
                 logger.warning(f"Could not import derived field inventory: {e}")
@@ -4432,134 +4517,135 @@ def process_single_dataview(
             logger.info(f"Processed lookup data with {len(lookup_df)} rows")
         except Exception as e:
             logger.error(_format_error_msg("processing lookup data", error=e))
-            lookup_df = pd.DataFrame({'Error': ['Failed to process data view information']})
+            lookup_df = pd.DataFrame({"Error": ["Failed to process data view information"]})
 
         try:
             # Enhanced metadata creation
             logger.info("Creating metadata summary...")
-            metric_types = metrics['type'].value_counts().to_dict() if not metrics.empty and 'type' in metrics.columns else {}
+            metric_types = (
+                metrics["type"].value_counts().to_dict() if not metrics.empty and "type" in metrics.columns else {}
+            )
             metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
 
-            dimension_types = dimensions['type'].value_counts().to_dict() if not dimensions.empty and 'type' in dimensions.columns else {}
+            dimension_types = (
+                dimensions["type"].value_counts().to_dict()
+                if not dimensions.empty and "type" in dimensions.columns
+                else {}
+            )
             dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
 
             # Get current timezone and formatted timestamp
             local_tz = datetime.now().astimezone().tzinfo
             current_time = datetime.now(local_tz)
-            formatted_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S %Z')
+            formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
             # Count data quality issues by severity
-            severity_counts = data_quality_df['Severity'].value_counts().to_dict()
+            severity_counts = data_quality_df["Severity"].value_counts().to_dict()
             dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
 
             # Build base metadata properties
             metadata_properties = [
-                'Generated Date & timestamp and timezone',
-                'Data View ID',
-                'Data View Name',
-                'Total Metrics',
-                'Metrics Breakdown',
-                'Total Dimensions',
-                'Dimensions Breakdown',
-                'Data Quality Issues',
-                'Data Quality Summary'
+                "Generated Date & timestamp and timezone",
+                "Data View ID",
+                "Data View Name",
+                "Total Metrics",
+                "Metrics Breakdown",
+                "Total Dimensions",
+                "Dimensions Breakdown",
+                "Data Quality Issues",
+                "Data Quality Summary",
             ]
             metadata_values = [
                 formatted_timestamp,
                 data_view_id,
                 lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
                 len(metrics),
-                '\n'.join(metric_summary) if metric_summary else 'No metrics found',
+                "\n".join(metric_summary) if metric_summary else "No metrics found",
                 len(dimensions),
-                '\n'.join(dimension_summary) if dimension_summary else 'No dimensions found',
+                "\n".join(dimension_summary) if dimension_summary else "No dimensions found",
                 len(dq_checker.issues),
-                '\n'.join(dq_summary) if dq_summary else 'No issues'
+                "\n".join(dq_summary) if dq_summary else "No issues",
             ]
 
             # Add inventory statistics if any inventory was generated
             if segments_inventory_obj or calculated_inventory_obj or derived_inventory_obj:
-                metadata_properties.append('--- Inventory Statistics ---')
-                metadata_values.append('')
+                metadata_properties.append("--- Inventory Statistics ---")
+                metadata_values.append("")
 
             if segments_inventory_obj:
                 seg_summary = segments_inventory_obj.get_summary()
-                seg_count = seg_summary.get('total_segments', 0)
-                seg_complexity = seg_summary.get('complexity', {})
-                seg_high = seg_complexity.get('high_complexity_count', 0)
-                seg_elevated = seg_complexity.get('elevated_complexity_count', 0)
-                seg_avg = seg_complexity.get('average', 0)
-                seg_max = seg_complexity.get('max', 0)
+                seg_count = seg_summary.get("total_segments", 0)
+                seg_complexity = seg_summary.get("complexity", {})
+                seg_high = seg_complexity.get("high_complexity_count", 0)
+                seg_elevated = seg_complexity.get("elevated_complexity_count", 0)
+                seg_avg = seg_complexity.get("average", 0)
+                seg_max = seg_complexity.get("max", 0)
 
-                metadata_properties.extend([
-                    'Segments Count',
-                    'Segments Complexity (Avg / Max)',
-                    'Segments High Complexity (≥75)',
-                    'Segments Elevated Complexity (50-74)'
-                ])
-                metadata_values.extend([
-                    seg_count,
-                    f"{seg_avg:.1f} / {seg_max:.1f}",
-                    seg_high,
-                    seg_elevated
-                ])
+                metadata_properties.extend(
+                    [
+                        "Segments Count",
+                        "Segments Complexity (Avg / Max)",
+                        "Segments High Complexity (≥75)",
+                        "Segments Elevated Complexity (50-74)",
+                    ]
+                )
+                metadata_values.extend([seg_count, f"{seg_avg:.1f} / {seg_max:.1f}", seg_high, seg_elevated])
 
             if calculated_inventory_obj:
                 calc_summary = calculated_inventory_obj.get_summary()
-                calc_count = calc_summary.get('total_calculated_metrics', 0)
-                calc_complexity = calc_summary.get('complexity', {})
-                calc_high = calc_complexity.get('high_complexity_count', 0)
-                calc_elevated = calc_complexity.get('elevated_complexity_count', 0)
-                calc_avg = calc_complexity.get('average', 0)
-                calc_max = calc_complexity.get('max', 0)
+                calc_count = calc_summary.get("total_calculated_metrics", 0)
+                calc_complexity = calc_summary.get("complexity", {})
+                calc_high = calc_complexity.get("high_complexity_count", 0)
+                calc_elevated = calc_complexity.get("elevated_complexity_count", 0)
+                calc_avg = calc_complexity.get("average", 0)
+                calc_max = calc_complexity.get("max", 0)
 
-                metadata_properties.extend([
-                    'Calculated Metrics Count',
-                    'Calculated Metrics Complexity (Avg / Max)',
-                    'Calculated Metrics High Complexity (≥75)',
-                    'Calculated Metrics Elevated Complexity (50-74)'
-                ])
-                metadata_values.extend([
-                    calc_count,
-                    f"{calc_avg:.1f} / {calc_max:.1f}",
-                    calc_high,
-                    calc_elevated
-                ])
+                metadata_properties.extend(
+                    [
+                        "Calculated Metrics Count",
+                        "Calculated Metrics Complexity (Avg / Max)",
+                        "Calculated Metrics High Complexity (≥75)",
+                        "Calculated Metrics Elevated Complexity (50-74)",
+                    ]
+                )
+                metadata_values.extend([calc_count, f"{calc_avg:.1f} / {calc_max:.1f}", calc_high, calc_elevated])
 
             if derived_inventory_obj:
                 derived_summary = derived_inventory_obj.get_summary()
-                derived_count = derived_summary.get('total_derived_fields', 0)
-                derived_metrics = derived_summary.get('metrics_count', 0)
-                derived_dimensions = derived_summary.get('dimensions_count', 0)
-                derived_complexity = derived_summary.get('complexity', {})
-                derived_high = derived_complexity.get('high_complexity_count', 0)
-                derived_elevated = derived_complexity.get('elevated_complexity_count', 0)
-                derived_avg = derived_complexity.get('average', 0)
-                derived_max = derived_complexity.get('max', 0)
+                derived_count = derived_summary.get("total_derived_fields", 0)
+                derived_metrics = derived_summary.get("metrics_count", 0)
+                derived_dimensions = derived_summary.get("dimensions_count", 0)
+                derived_complexity = derived_summary.get("complexity", {})
+                derived_high = derived_complexity.get("high_complexity_count", 0)
+                derived_elevated = derived_complexity.get("elevated_complexity_count", 0)
+                derived_avg = derived_complexity.get("average", 0)
+                derived_max = derived_complexity.get("max", 0)
 
-                metadata_properties.extend([
-                    'Derived Fields Count',
-                    'Derived Fields Breakdown',
-                    'Derived Fields Complexity (Avg / Max)',
-                    'Derived Fields High Complexity (≥75)',
-                    'Derived Fields Elevated Complexity (50-74)'
-                ])
-                metadata_values.extend([
-                    derived_count,
-                    f"Metrics: {derived_metrics}, Dimensions: {derived_dimensions}",
-                    f"{derived_avg:.1f} / {derived_max:.1f}",
-                    derived_high,
-                    derived_elevated
-                ])
+                metadata_properties.extend(
+                    [
+                        "Derived Fields Count",
+                        "Derived Fields Breakdown",
+                        "Derived Fields Complexity (Avg / Max)",
+                        "Derived Fields High Complexity (≥75)",
+                        "Derived Fields Elevated Complexity (50-74)",
+                    ]
+                )
+                metadata_values.extend(
+                    [
+                        derived_count,
+                        f"Metrics: {derived_metrics}, Dimensions: {derived_dimensions}",
+                        f"{derived_avg:.1f} / {derived_max:.1f}",
+                        derived_high,
+                        derived_elevated,
+                    ]
+                )
 
             # Create enhanced metadata DataFrame
-            metadata_df = pd.DataFrame({
-                'Property': metadata_properties,
-                'Value': metadata_values
-            })
+            metadata_df = pd.DataFrame({"Property": metadata_properties, "Value": metadata_values})
             logger.info("Metadata created successfully")
         except Exception as e:
             logger.error(_format_error_msg("creating metadata", error=e))
-            metadata_df = pd.DataFrame({'Error': ['Failed to create metadata']})
+            metadata_df = pd.DataFrame({"Error": ["Failed to create metadata"]})
 
         # Function to format JSON cells
         def format_json_cell(value):
@@ -4595,15 +4681,15 @@ def process_single_dataview(
         try:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
             # Sanitize filename
-            dv_name = "".join(c for c in dv_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            excel_file_name = f'CJA_DataView_{dv_name}_{data_view_id}_SDR.xlsx'
+            dv_name = "".join(c for c in dv_name if c.isalnum() or c in (" ", "-", "_")).rstrip()
+            excel_file_name = f"CJA_DataView_{dv_name}_{data_view_id}_SDR.xlsx"
 
             # Add output directory path
             output_path = Path(output_dir) / excel_file_name
             logger.info(f"Excel file will be saved as: {output_path}")
         except Exception as e:
             logger.error(_format_error_msg("creating filename", error=e))
-            excel_file_name = f'CJA_DataView_{data_view_id}_SDR.xlsx'
+            excel_file_name = f"CJA_DataView_{data_view_id}_SDR.xlsx"
             output_path = Path(output_dir) / excel_file_name
 
         # Prepare data for output generation
@@ -4617,52 +4703,62 @@ def process_single_dataview(
             data_dict = {}
         else:
             data_dict = {
-                'Metadata': metadata_df,
-                'Data Quality': data_quality_df,
-                'DataView Details': lookup_df,
-                'Metrics': metrics,
-                'Dimensions': dimensions
+                "Metadata": metadata_df,
+                "Data Quality": data_quality_df,
+                "DataView Details": lookup_df,
+                "Metrics": metrics,
+                "Dimensions": dimensions,
             }
 
         # Add derived field inventory if available or placeholder if flag was used
         if not derived_inventory_df.empty:
-            data_dict['Derived Fields'] = derived_inventory_df
+            data_dict["Derived Fields"] = derived_inventory_df
         elif include_derived_inventory:
-            data_dict['Derived Fields'] = pd.DataFrame({
-                'Status': ['No derived fields found for this data view'],
-                'Data View ID': [data_view_id],
-                'Note': ['This data view has no derived fields configured']
-            })
+            data_dict["Derived Fields"] = pd.DataFrame(
+                {
+                    "Status": ["No derived fields found for this data view"],
+                    "Data View ID": [data_view_id],
+                    "Note": ["This data view has no derived fields configured"],
+                }
+            )
 
         # Add calculated metrics inventory if available or placeholder if flag was used
         if not calculated_metrics_df.empty:
-            data_dict['Calculated Metrics'] = calculated_metrics_df
+            data_dict["Calculated Metrics"] = calculated_metrics_df
         elif include_calculated_metrics:
-            data_dict['Calculated Metrics'] = pd.DataFrame({
-                'Status': ['No calculated metrics found for this data view'],
-                'Data View ID': [data_view_id],
-                'Note': ['This data view has no associated calculated metrics']
-            })
+            data_dict["Calculated Metrics"] = pd.DataFrame(
+                {
+                    "Status": ["No calculated metrics found for this data view"],
+                    "Data View ID": [data_view_id],
+                    "Note": ["This data view has no associated calculated metrics"],
+                }
+            )
 
         # Add segments inventory if available or placeholder if flag was used
         if not segments_inventory_df.empty:
-            data_dict['Segments'] = segments_inventory_df
+            data_dict["Segments"] = segments_inventory_df
         elif include_segments_inventory:
-            data_dict['Segments'] = pd.DataFrame({
-                'Status': ['No segments found for this data view'],
-                'Data View ID': [data_view_id],
-                'Note': ['This data view has no associated segments']
-            })
+            data_dict["Segments"] = pd.DataFrame(
+                {
+                    "Status": ["No segments found for this data view"],
+                    "Data View ID": [data_view_id],
+                    "Note": ["This data view has no associated segments"],
+                }
+            )
 
         # Prepare metadata dictionary for JSON/HTML
-        metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict() if not metadata_df.empty else {}
+        metadata_dict = (
+            metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
+            if not metadata_df.empty
+            else {}
+        )
 
         # Base filename without extension
         base_filename = output_path.stem if isinstance(output_path, Path) else Path(output_path).stem
 
         # Determine which formats to generate
-        if output_format == 'all':
-            formats_to_generate = ['excel', 'csv', 'json', 'html', 'markdown']
+        if output_format == "all":
+            formats_to_generate = ["excel", "csv", "json", "html", "markdown"]
         elif output_format in FORMAT_ALIASES:
             formats_to_generate = FORMAT_ALIASES[output_format]
         else:
@@ -4672,9 +4768,9 @@ def process_single_dataview(
 
         try:
             for fmt in formats_to_generate:
-                if fmt == 'excel':
+                if fmt == "excel":
                     logger.info("Generating Excel file...")
-                    with pd.ExcelWriter(str(output_path), engine='xlsxwriter') as writer:
+                    with pd.ExcelWriter(str(output_path), engine="xlsxwriter") as writer:
                         # Create format cache once for the entire workbook
                         # This improves performance by 15-25% by reusing format objects
                         format_cache = ExcelFormatCache(writer.book)
@@ -4684,23 +4780,25 @@ def process_single_dataview(
 
                         # Skip standard sheets in inventory-only mode
                         if not inventory_only:
-                            sheets_to_write.extend([
-                                (metadata_df, 'Metadata'),
-                                (data_quality_df, 'Data Quality'),
-                            ])
-                            sheets_to_write.append((lookup_df, 'DataView'))
+                            sheets_to_write.extend(
+                                [
+                                    (metadata_df, "Metadata"),
+                                    (data_quality_df, "Data Quality"),
+                                ]
+                            )
+                            sheets_to_write.append((lookup_df, "DataView"))
                             # Add component sheets based on filters
                             if not dimensions_only:
-                                sheets_to_write.append((metrics, 'Metrics'))
+                                sheets_to_write.append((metrics, "Metrics"))
                             if not metrics_only:
-                                sheets_to_write.append((dimensions, 'Dimensions'))
+                                sheets_to_write.append((dimensions, "Dimensions"))
 
                         # Add inventory sheets at the end, ordered by CLI argument order
-                        inv_order = inventory_order if inventory_order else ['derived', 'calculated', 'segments']
+                        inv_order = inventory_order if inventory_order else ["derived", "calculated", "segments"]
                         inventory_sheets = {
-                            'derived': (derived_inventory_df, 'Derived Fields', include_derived_inventory),
-                            'calculated': (calculated_metrics_df, 'Calculated Metrics', include_calculated_metrics),
-                            'segments': (segments_inventory_df, 'Segments', include_segments_inventory),
+                            "derived": (derived_inventory_df, "Derived Fields", include_derived_inventory),
+                            "calculated": (calculated_metrics_df, "Calculated Metrics", include_calculated_metrics),
+                            "segments": (segments_inventory_df, "Segments", include_segments_inventory),
                         }
                         for inv_type in inv_order:
                             if inv_type in inventory_sheets:
@@ -4709,18 +4807,22 @@ def process_single_dataview(
                                     sheets_to_write.append((df, name))
                                 elif flag_enabled:
                                     # Add placeholder when flag was used but no data found
-                                    placeholder_df = pd.DataFrame({
-                                        'Status': [f'No {name.lower()} found for this data view'],
-                                        'Data View ID': [data_view_id],
-                                        'Note': ['This data view has no associated ' + name.lower().replace(' ', ' ')]
-                                    })
+                                    placeholder_df = pd.DataFrame(
+                                        {
+                                            "Status": [f"No {name.lower()} found for this data view"],
+                                            "Data View ID": [data_view_id],
+                                            "Note": [
+                                                "This data view has no associated " + name.lower().replace(" ", " ")
+                                            ],
+                                        }
+                                    )
                                     sheets_to_write.append((placeholder_df, name))
 
                         for sheet_data, sheet_name in sheets_to_write:
                             try:
                                 if sheet_data.empty:
                                     logger.warning(f"Sheet {sheet_name} is empty, creating placeholder")
-                                    placeholder_df = pd.DataFrame({'Note': [f'No data available for {sheet_name}']})
+                                    placeholder_df = pd.DataFrame({"Note": [f"No data available for {sheet_name}"]})
                                     apply_excel_formatting(writer, placeholder_df, sheet_name, logger, format_cache)
                                 else:
                                     apply_excel_formatting(writer, sheet_data, sheet_name, logger, format_cache)
@@ -4731,24 +4833,26 @@ def process_single_dataview(
                     logger.info(f"✓ Excel file created: {output_path}")
                     output_files.append(str(output_path))
 
-                elif fmt == 'csv':
+                elif fmt == "csv":
                     csv_output = write_csv_output(data_dict, base_filename, output_dir, logger)
                     output_files.append(csv_output)
 
-                elif fmt == 'json':
+                elif fmt == "json":
                     inventory_objects = {
-                        'derived': derived_inventory_obj,
-                        'calculated': calculated_inventory_obj,
-                        'segments': segments_inventory_obj
+                        "derived": derived_inventory_obj,
+                        "calculated": calculated_inventory_obj,
+                        "segments": segments_inventory_obj,
                     }
-                    json_output = write_json_output(data_dict, metadata_dict, base_filename, output_dir, logger, inventory_objects)
+                    json_output = write_json_output(
+                        data_dict, metadata_dict, base_filename, output_dir, logger, inventory_objects
+                    )
                     output_files.append(json_output)
 
-                elif fmt == 'html':
+                elif fmt == "html":
                     html_output = write_html_output(data_dict, metadata_dict, base_filename, output_dir, logger)
                     output_files.append(html_output)
 
-                elif fmt == 'markdown':
+                elif fmt == "markdown":
                     markdown_output = write_markdown_output(data_dict, metadata_dict, base_filename, output_dir, logger)
                     output_files.append(markdown_output)
 
@@ -4809,18 +4913,18 @@ def process_single_dataview(
 
             if segments_inventory_obj:
                 seg_summary = segments_inventory_obj.get_summary()
-                segments_count = seg_summary.get('total_segments', 0)
-                segments_high_complexity = seg_summary.get('complexity', {}).get('high_complexity_count', 0)
+                segments_count = seg_summary.get("total_segments", 0)
+                segments_high_complexity = seg_summary.get("complexity", {}).get("high_complexity_count", 0)
 
             if calculated_inventory_obj:
                 calc_summary = calculated_inventory_obj.get_summary()
-                calculated_metrics_count = calc_summary.get('total_calculated_metrics', 0)
-                calculated_metrics_high_complexity = calc_summary.get('complexity', {}).get('high_complexity_count', 0)
+                calculated_metrics_count = calc_summary.get("total_calculated_metrics", 0)
+                calculated_metrics_high_complexity = calc_summary.get("complexity", {}).get("high_complexity_count", 0)
 
             if derived_inventory_obj:
                 derived_summary = derived_inventory_obj.get_summary()
-                derived_fields_count = derived_summary.get('total_derived_fields', 0)
-                derived_fields_high_complexity = derived_summary.get('complexity', {}).get('high_complexity_count', 0)
+                derived_fields_count = derived_summary.get("total_derived_fields", 0)
+                derived_fields_high_complexity = derived_summary.get("complexity", {}).get("high_complexity_count", 0)
 
             return ProcessingResult(
                 data_view_id=data_view_id,
@@ -4837,7 +4941,7 @@ def process_single_dataview(
                 calculated_metrics_count=calculated_metrics_count,
                 calculated_metrics_high_complexity=calculated_metrics_high_complexity,
                 derived_fields_count=derived_fields_count,
-                derived_fields_high_complexity=derived_fields_high_complexity
+                derived_fields_high_complexity=derived_fields_high_complexity,
             )
 
         except PermissionError as e:
@@ -4857,7 +4961,7 @@ def process_single_dataview(
                 data_view_name=dv_name,
                 success=False,
                 duration=time.time() - start_time,
-                error_message=f"Permission denied: {str(e)}"
+                error_message=f"Permission denied: {str(e)}",
             )
         except Exception as e:
             logger.critical(f"Failed to generate Excel file: {str(e)}")
@@ -4876,7 +4980,7 @@ def process_single_dataview(
                 data_view_name=dv_name,
                 success=False,
                 duration=time.time() - start_time,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     except Exception as e:
@@ -4896,10 +5000,12 @@ def process_single_dataview(
             data_view_name="Unknown",
             success=False,
             duration=time.time() - start_time,
-            error_message=str(e)
+            error_message=str(e),
         )
 
+
 # ==================== WORKER FUNCTION FOR MULTIPROCESSING ====================
+
 
 def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
     """Worker function for multiprocessing.
@@ -4911,21 +5017,32 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
         ProcessingResult
     """
     # Propagate retry config from parent process via env vars (for spawned workers)
-    if 'MAX_RETRIES' in os.environ:
-        DEFAULT_RETRY_CONFIG['max_retries'] = int(os.environ['MAX_RETRIES'])
-    if 'RETRY_BASE_DELAY' in os.environ:
-        DEFAULT_RETRY_CONFIG['base_delay'] = float(os.environ['RETRY_BASE_DELAY'])
-    if 'RETRY_MAX_DELAY' in os.environ:
-        DEFAULT_RETRY_CONFIG['max_delay'] = float(os.environ['RETRY_MAX_DELAY'])
+    if "MAX_RETRIES" in os.environ:
+        DEFAULT_RETRY_CONFIG["max_retries"] = int(os.environ["MAX_RETRIES"])
+    if "RETRY_BASE_DELAY" in os.environ:
+        DEFAULT_RETRY_CONFIG["base_delay"] = float(os.environ["RETRY_BASE_DELAY"])
+    if "RETRY_MAX_DELAY" in os.environ:
+        DEFAULT_RETRY_CONFIG["max_delay"] = float(os.environ["RETRY_MAX_DELAY"])
 
     return process_single_dataview(
-        args.data_view_id, args.config_file, args.output_dir,
-        args.log_level, args.log_format, args.output_format,
-        args.enable_cache, args.cache_size, args.cache_ttl,
-        args.quiet, args.skip_validation, args.max_issues,
-        args.clear_cache, args.show_timings, args.metrics_only,
+        args.data_view_id,
+        args.config_file,
+        args.output_dir,
+        args.log_level,
+        args.log_format,
+        args.output_format,
+        args.enable_cache,
+        args.cache_size,
+        args.cache_ttl,
+        args.quiet,
+        args.skip_validation,
+        args.max_issues,
+        args.clear_cache,
+        args.show_timings,
+        args.metrics_only,
         args.dimensions_only,
-        profile=args.profile, shared_cache=args.shared_cache,
+        profile=args.profile,
+        shared_cache=args.shared_cache,
         api_tuning_config=args.api_tuning_config,
         circuit_breaker_config=args.circuit_breaker_config,
         include_derived_inventory=args.include_derived_inventory,
@@ -4935,7 +5052,9 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
         inventory_order=args.inventory_order,
     )
 
+
 # ==================== BATCH PROCESSOR CLASS ====================
+
 
 class BatchProcessor:
     """
@@ -4968,20 +5087,35 @@ class BatchProcessor:
         circuit_breaker_config: Circuit breaker configuration (default: None)
     """
 
-    def __init__(self, config_file: str = "config.json", output_dir: str = ".",
-                 workers: int = 4, continue_on_error: bool = False, log_level: str = "INFO",
-                 log_format: str = "text", output_format: str = "excel", enable_cache: bool = False,
-                 cache_size: int = 1000, cache_ttl: int = 3600, quiet: bool = False,
-                 skip_validation: bool = False, max_issues: int = 0, clear_cache: bool = False,
-                 show_timings: bool = False, metrics_only: bool = False, dimensions_only: bool = False,
-                 profile: Optional[str] = None, shared_cache: bool = False,
-                 api_tuning_config: Optional[APITuningConfig] = None,
-                 circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
-                 include_derived_inventory: bool = False,
-                 include_calculated_metrics: bool = False,
-                 include_segments_inventory: bool = False,
-                 inventory_only: bool = False,
-                 inventory_order: Optional[List[str]] = None):
+    def __init__(
+        self,
+        config_file: str = "config.json",
+        output_dir: str = ".",
+        workers: int = 4,
+        continue_on_error: bool = False,
+        log_level: str = "INFO",
+        log_format: str = "text",
+        output_format: str = "excel",
+        enable_cache: bool = False,
+        cache_size: int = 1000,
+        cache_ttl: int = 3600,
+        quiet: bool = False,
+        skip_validation: bool = False,
+        max_issues: int = 0,
+        clear_cache: bool = False,
+        show_timings: bool = False,
+        metrics_only: bool = False,
+        dimensions_only: bool = False,
+        profile: Optional[str] = None,
+        shared_cache: bool = False,
+        api_tuning_config: Optional[APITuningConfig] = None,
+        circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+        include_derived_inventory: bool = False,
+        include_calculated_metrics: bool = False,
+        include_segments_inventory: bool = False,
+        inventory_only: bool = False,
+        inventory_order: Optional[List[str]] = None,
+    ):
         self.config_file = config_file
         self.output_dir = output_dir
         self.clear_cache = clear_cache
@@ -5054,25 +5188,29 @@ class BatchProcessor:
 
         batch_start_time = time.time()
 
-        results = {
-            'successful': [],
-            'failed': [],
-            'total': len(data_view_ids),
-            'total_duration': 0
-        }
+        results = {"successful": [], "failed": [], "total": len(data_view_ids), "total_duration": 0}
 
         # Prepare arguments for each worker
         worker_args = [
             WorkerArgs(
-                data_view_id=dv_id, config_file=self.config_file,
-                output_dir=self.output_dir, log_level=self.log_level,
-                log_format=self.log_format, output_format=self.output_format,
-                enable_cache=self.enable_cache, cache_size=self.cache_size,
-                cache_ttl=self.cache_ttl, quiet=self.quiet,
-                skip_validation=self.skip_validation, max_issues=self.max_issues,
-                clear_cache=self.clear_cache, show_timings=self.show_timings,
-                metrics_only=self.metrics_only, dimensions_only=self.dimensions_only,
-                profile=self.profile, shared_cache=self._shared_cache,
+                data_view_id=dv_id,
+                config_file=self.config_file,
+                output_dir=self.output_dir,
+                log_level=self.log_level,
+                log_format=self.log_format,
+                output_format=self.output_format,
+                enable_cache=self.enable_cache,
+                cache_size=self.cache_size,
+                cache_ttl=self.cache_ttl,
+                quiet=self.quiet,
+                skip_validation=self.skip_validation,
+                max_issues=self.max_issues,
+                clear_cache=self.clear_cache,
+                show_timings=self.show_timings,
+                metrics_only=self.metrics_only,
+                dimensions_only=self.dimensions_only,
+                profile=self.profile,
+                shared_cache=self._shared_cache,
                 api_tuning_config=self.api_tuning_config,
                 circuit_breaker_config=self.circuit_breaker_config,
                 include_derived_inventory=self.include_derived_inventory,
@@ -5087,10 +5225,7 @@ class BatchProcessor:
         # Process with ProcessPoolExecutor for true parallelism
         with ProcessPoolExecutor(max_workers=self.workers) as executor:
             # Submit all tasks
-            future_to_dv = {
-                executor.submit(process_single_dataview_worker, wa): wa.data_view_id
-                for wa in worker_args
-            }
+            future_to_dv = {executor.submit(process_single_dataview_worker, wa): wa.data_view_id for wa in worker_args}
 
             # Collect results as they complete with progress bar
             with tqdm(
@@ -5098,7 +5233,7 @@ class BatchProcessor:
                 desc="Processing data views",
                 unit="view",
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-                disable=self.quiet
+                disable=self.quiet,
             ) as pbar:
                 for future in as_completed(future_to_dv):
                     dv_id = future_to_dv[future]
@@ -5106,22 +5241,24 @@ class BatchProcessor:
                         result = future.result()
 
                         if result.success:
-                            results['successful'].append(result)
+                            results["successful"].append(result)
                             pbar.set_postfix_str(f"✓ {dv_id[:20]}", refresh=True)
                             self.logger.info(f"[{self.batch_id}] ✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
                         else:
-                            results['failed'].append(result)
+                            results["failed"].append(result)
                             pbar.set_postfix_str(f"✗ {dv_id[:20]}", refresh=True)
                             self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: FAILED - {result.error_message}")
 
                             if not self.continue_on_error:
-                                self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error (use --continue-on-error to continue)")
+                                self.logger.warning(
+                                    f"[{self.batch_id}] Stopping batch processing due to error (use --continue-on-error to continue)"
+                                )
                                 # Cancel remaining tasks
                                 for f in future_to_dv:
                                     f.cancel()
                                 break
 
-                    except (KeyboardInterrupt, SystemExit):
+                    except KeyboardInterrupt, SystemExit:
                         # Allow graceful shutdown on Ctrl+C
                         self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
                         for f in future_to_dv:
@@ -5129,13 +5266,15 @@ class BatchProcessor:
                         raise
                     except Exception as e:
                         self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {str(e)}")
-                        results['failed'].append(ProcessingResult(
-                            data_view_id=dv_id,
-                            data_view_name="Unknown",
-                            success=False,
-                            duration=0,
-                            error_message=str(e)
-                        ))
+                        results["failed"].append(
+                            ProcessingResult(
+                                data_view_id=dv_id,
+                                data_view_name="Unknown",
+                                success=False,
+                                duration=0,
+                                error_message=str(e),
+                            )
+                        )
 
                         if not self.continue_on_error:
                             self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
@@ -5143,13 +5282,15 @@ class BatchProcessor:
 
                     pbar.update(1)
 
-        results['total_duration'] = time.time() - batch_start_time
+        results["total_duration"] = time.time() - batch_start_time
 
         # Log shared cache statistics if enabled
         if self._shared_cache is not None:
             cache_stats = self._shared_cache.get_statistics()
-            self.logger.info(f"[{self.batch_id}] Shared cache stats: {cache_stats['hits']} hits, "
-                           f"{cache_stats['misses']} misses ({cache_stats['hit_rate']:.1f}% hit rate)")
+            self.logger.info(
+                f"[{self.batch_id}] Shared cache stats: {cache_stats['hits']} hits, "
+                f"{cache_stats['misses']} misses ({cache_stats['hit_rate']:.1f}% hit rate)"
+            )
             # Cleanup shared cache resources
             self._shared_cache.shutdown()
             self._shared_cache = None
@@ -5161,15 +5302,15 @@ class BatchProcessor:
 
     def print_summary(self, results: Dict):
         """Print detailed batch processing summary with color-coded output"""
-        total = results['total']
-        successful_count = len(results['successful'])
-        failed_count = len(results['failed'])
+        total = results["total"]
+        successful_count = len(results["successful"])
+        failed_count = len(results["failed"])
         success_rate = (successful_count / total * 100) if total > 0 else 0
-        total_duration = results['total_duration']
+        total_duration = results["total_duration"]
         avg_duration = (total_duration / total) if total > 0 else 0
 
         # Calculate total output size
-        total_file_size = sum(r.file_size_bytes for r in results['successful'])
+        total_file_size = sum(r.file_size_bytes for r in results["successful"])
         total_size_formatted = format_file_size(total_file_size)
 
         # Log to file
@@ -5209,22 +5350,24 @@ class BatchProcessor:
             print(f"Throughput: {throughput:.2f} views/second")
         print()
 
-        if results['successful']:
+        if results["successful"]:
             print(ConsoleColors.success("Successful Data Views:"))
             self.logger.info("")
             self.logger.info("Successful Data Views:")
-            for result in results['successful']:
+            for result in results["successful"]:
                 size_str = result.file_size_formatted
                 line = f"  {result.data_view_id:20s}  {result.data_view_name:30s}  {size_str:>10s}  {result.duration:5.1f}s"
                 print(ConsoleColors.success("  ✓") + line[3:])
-                self.logger.info(f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {size_str:>10s}  {result.duration:5.1f}s")
+                self.logger.info(
+                    f"  ✓ {result.data_view_id:20s}  {result.data_view_name:30s}  {size_str:>10s}  {result.duration:5.1f}s"
+                )
             print()
             self.logger.info("")
 
-        if results['failed']:
+        if results["failed"]:
             print(ConsoleColors.error("Failed Data Views:"))
             self.logger.info("Failed Data Views:")
-            for result in results['failed']:
+            for result in results["failed"]:
                 line = f"  {result.data_view_id:20s}  {result.error_message}"
                 print(ConsoleColors.error("  ✗") + line[3:])
                 self.logger.info(f"  ✗ {result.data_view_id:20s}  {result.error_message}")
@@ -5241,10 +5384,11 @@ class BatchProcessor:
             self.logger.info(f"Throughput: {throughput:.1f} data views per minute")
             self.logger.info("=" * BANNER_WIDTH)
 
+
 # ==================== DRY-RUN MODE ====================
 
-def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
-                profile: Optional[str] = None) -> bool:
+
+def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger, profile: Optional[str] = None) -> bool:
     """
     Validate configuration and connectivity without generating reports.
 
@@ -5318,18 +5462,16 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
         # Test API with getDataViews call (with retry for transient errors)
         available_dvs = make_api_call_with_retry(
-            cja.getDataViews,
-            logger=logger,
-            operation_name="getDataViews (dry-run)"
+            cja.getDataViews, logger=logger, operation_name="getDataViews (dry-run)"
         )
         if available_dvs is not None:
-            dv_count = len(available_dvs) if hasattr(available_dvs, '__len__') else 0
+            dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
             print(f"  ✓ API connection successful")
             print(f"  ✓ Found {dv_count} accessible data view(s)")
         else:
             print("  ⚠ API connection returned None - may be unstable")
             available_dvs = []
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
@@ -5348,10 +5490,15 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
     # Build set of available data view IDs for quick lookup
     available_ids = set()
-    if available_dvs is not None and (isinstance(available_dvs, pd.DataFrame) and not available_dvs.empty or not isinstance(available_dvs, pd.DataFrame) and available_dvs):
+    if available_dvs is not None and (
+        isinstance(available_dvs, pd.DataFrame)
+        and not available_dvs.empty
+        or not isinstance(available_dvs, pd.DataFrame)
+        and available_dvs
+    ):
         for dv in available_dvs:
             if isinstance(dv, dict):
-                available_ids.add(dv.get('id', ''))
+                available_ids.add(dv.get("id", ""))
 
     valid_count = 0
     invalid_count = 0
@@ -5363,49 +5510,37 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         # Try to get data view info (with retry for transient errors)
         try:
             dv_info = make_api_call_with_retry(
-                cja.getDataView,
-                dv_id,
-                logger=logger,
-                operation_name=f"getDataView({dv_id})"
+                cja.getDataView, dv_id, logger=logger, operation_name=f"getDataView({dv_id})"
             )
             if dv_info:
-                dv_name = dv_info.get('name', 'Unknown')
+                dv_name = dv_info.get("name", "Unknown")
 
                 # Fetch component counts for predictions
                 metrics_count = 0
                 dimensions_count = 0
                 try:
                     metrics = make_api_call_with_retry(
-                        cja.getMetrics,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getMetrics({dv_id})"
+                        cja.getMetrics, dv_id, logger=logger, operation_name=f"getMetrics({dv_id})"
                     )
                     if metrics is not None:
-                        metrics_count = len(metrics) if hasattr(metrics, '__len__') else 0
+                        metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
                 except Exception:
                     pass  # Count will be 0 if fetch fails
 
                 try:
                     dimensions = make_api_call_with_retry(
-                        cja.getDimensions,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getDimensions({dv_id})"
+                        cja.getDimensions, dv_id, logger=logger, operation_name=f"getDimensions({dv_id})"
                     )
                     if dimensions is not None:
-                        dimensions_count = len(dimensions) if hasattr(dimensions, '__len__') else 0
+                        dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
                 except Exception:
                     pass  # Count will be 0 if fetch fails
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
-                dv_details.append({
-                    'id': dv_id,
-                    'name': dv_name,
-                    'metrics': metrics_count,
-                    'dimensions': dimensions_count
-                })
+                dv_details.append(
+                    {"id": dv_id, "name": dv_name, "metrics": metrics_count, "dimensions": dimensions_count}
+                )
 
                 print(f"  ✓ {dv_id}: {dv_name}")
                 print(f"      Components: {metrics_count} metrics, {dimensions_count} dimensions")
@@ -5414,7 +5549,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
                 print(f"  ✗ {dv_id}: Not found or no access")
                 invalid_count += 1
                 all_passed = False
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt, SystemExit:
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
@@ -5458,15 +5593,19 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
 
     return all_passed
 
+
 # ==================== COMMAND-LINE INTERFACE ====================
+
 
 def _bounded_float(min_val: float, max_val: float):
     """Argparse type factory for a float bounded to [min_val, max_val]."""
+
     def _type(value: str) -> float:
         f = float(value)
         if f < min_val or f > max_val:
             raise argparse.ArgumentTypeError(f"must be between {min_val} and {max_val}, got {f}")
         return f
+
     _type.__name__ = f"float[{min_val}-{max_val}]"
     return _type
 
@@ -5474,9 +5613,9 @@ def _bounded_float(min_val: float, max_val: float):
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
-        description='CJA SDR Generator - Generate System Design Records for CJA Data Views',
+        description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
+        epilog="""
 Examples:
   # Single data view
   cja_auto_sdr dv_12345
@@ -5628,979 +5767,894 @@ Exit Codes:
 
 Requirements:
   Python 3.14 or higher required. Verify with: python3 --version
-        '''
+        """,
     )
 
     parser.add_argument(
-        '--version',
-        action='version',
-        version=f'%(prog)s {__version__}',
-        help='Show program version and exit'
+        "--version", action="version", version=f"%(prog)s {__version__}", help="Show program version and exit"
     )
 
-    parser.add_argument(
-        '--exit-codes',
-        action='store_true',
-        help='Display exit code reference and exit'
-    )
+    parser.add_argument("--exit-codes", action="store_true", help="Display exit code reference and exit")
 
     parser.add_argument(
-        'data_views',
-        nargs='*',
-        metavar='DATA_VIEW_ID_OR_NAME',
-        help='Data view IDs (e.g., dv_12345) or exact names (use quotes for names with spaces). '
-             'If a name matches multiple data views, all will be processed. '
-             'At least one required unless using --version, --list-dataviews, etc.'
+        "data_views",
+        nargs="*",
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="Data view IDs (e.g., dv_12345) or exact names (use quotes for names with spaces). "
+        "If a name matches multiple data views, all will be processed. "
+        "At least one required unless using --version, --list-dataviews, etc.",
     )
 
-    parser.add_argument(
-        '--batch',
-        action='store_true',
-        help='Enable batch processing mode (parallel execution)'
-    )
+    parser.add_argument("--batch", action="store_true", help="Enable batch processing mode (parallel execution)")
 
     parser.add_argument(
-        '--workers',
+        "--workers",
         type=str,
-        default='auto',
-        help=f'Number of parallel workers for batch mode (1-{MAX_BATCH_WORKERS}). '
-             f'Use "auto" (default) for intelligent detection based on CPU cores, '
-             f'data view count, and component complexity. Auto-reduces workers for '
-             f'large data views (>5K components) to prevent memory exhaustion'
+        default="auto",
+        help=f"Number of parallel workers for batch mode (1-{MAX_BATCH_WORKERS}). "
+        f'Use "auto" (default) for intelligent detection based on CPU cores, '
+        f"data view count, and component complexity. Auto-reduces workers for "
+        f"large data views (>5K components) to prevent memory exhaustion",
     )
 
     parser.add_argument(
-        '--output-dir',
+        "--output-dir",
         type=str,
-        default=os.environ.get('OUTPUT_DIR', '.'),
-        help='Output directory for generated files (default: current directory, or OUTPUT_DIR env var)'
+        default=os.environ.get("OUTPUT_DIR", "."),
+        help="Output directory for generated files (default: current directory, or OUTPUT_DIR env var)",
     )
 
     parser.add_argument(
-        '--config-file',
+        "--config-file", type=str, default="config.json", help="Path to CJA configuration file (default: config.json)"
+    )
+
+    parser.add_argument(
+        "--continue-on-error", action="store_true", help="Continue processing remaining data views if one fails"
+    )
+
+    parser.add_argument(
+        "--log-level",
         type=str,
-        default='config.json',
-        help='Path to CJA configuration file (default: config.json)'
+        default=os.environ.get("LOG_LEVEL", "INFO"),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level (default: INFO, or LOG_LEVEL environment variable)",
     )
 
     parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue processing remaining data views if one fails'
-    )
-
-    parser.add_argument(
-        '--log-level',
+        "--log-format",
         type=str,
-        default=os.environ.get('LOG_LEVEL', 'INFO'),
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help='Logging level (default: INFO, or LOG_LEVEL environment variable)'
-    )
-
-    parser.add_argument(
-        '--log-format',
-        type=str,
-        default='text',
-        choices=['text', 'json'],
+        default="text",
+        choices=["text", "json"],
         help='Log output format: "text" (default) for human-readable, '
-             '"json" for structured logging (Splunk, ELK, CloudWatch compatible)'
+        '"json" for structured logging (Splunk, ELK, CloudWatch compatible)',
     )
 
     parser.add_argument(
-        '--production',
-        action='store_true',
-        help='Enable production mode (minimal logging for maximum performance)'
+        "--production", action="store_true", help="Enable production mode (minimal logging for maximum performance)"
     )
 
     parser.add_argument(
-        '--enable-cache',
-        action='store_true',
-        help='Enable validation result caching (50-90%% faster on repeated validations)'
+        "--enable-cache",
+        action="store_true",
+        help="Enable validation result caching (50-90%% faster on repeated validations)",
     )
 
     parser.add_argument(
-        '--clear-cache',
-        action='store_true',
-        help='Clear validation cache before processing (use with --enable-cache for fresh validation)'
+        "--clear-cache",
+        action="store_true",
+        help="Clear validation cache before processing (use with --enable-cache for fresh validation)",
     )
 
     parser.add_argument(
-        '--cache-size',
+        "--cache-size",
         type=int,
         default=DEFAULT_CACHE_SIZE,
-        help=f'Maximum number of cached validation results (default: {DEFAULT_CACHE_SIZE})'
+        help=f"Maximum number of cached validation results (default: {DEFAULT_CACHE_SIZE})",
     )
 
     parser.add_argument(
-        '--cache-ttl',
+        "--cache-ttl",
         type=int,
         default=DEFAULT_CACHE_TTL,
-        help=f'Cache time-to-live in seconds (default: {DEFAULT_CACHE_TTL} = 1 hour)'
+        help=f"Cache time-to-live in seconds (default: {DEFAULT_CACHE_TTL} = 1 hour)",
     )
 
     parser.add_argument(
-        '--max-retries',
+        "--max-retries",
         type=int,
-        default=int(os.environ.get('MAX_RETRIES', DEFAULT_RETRY_CONFIG['max_retries'])),
-        help=f'Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG["max_retries"]}, or MAX_RETRIES env var)'
+        default=int(os.environ.get("MAX_RETRIES", DEFAULT_RETRY_CONFIG["max_retries"])),
+        help=f"Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG['max_retries']}, or MAX_RETRIES env var)",
     )
 
     parser.add_argument(
-        '--retry-base-delay',
+        "--retry-base-delay",
         type=float,
-        default=float(os.environ.get('RETRY_BASE_DELAY', DEFAULT_RETRY_CONFIG['base_delay'])),
-        help=f'Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["base_delay"]}, or RETRY_BASE_DELAY env var)'
+        default=float(os.environ.get("RETRY_BASE_DELAY", DEFAULT_RETRY_CONFIG["base_delay"])),
+        help=f"Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['base_delay']}, or RETRY_BASE_DELAY env var)",
     )
 
     parser.add_argument(
-        '--retry-max-delay',
+        "--retry-max-delay",
         type=float,
-        default=float(os.environ.get('RETRY_MAX_DELAY', DEFAULT_RETRY_CONFIG['max_delay'])),
-        help=f'Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG["max_delay"]}, or RETRY_MAX_DELAY env var)'
+        default=float(os.environ.get("RETRY_MAX_DELAY", DEFAULT_RETRY_CONFIG["max_delay"])),
+        help=f"Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['max_delay']}, or RETRY_MAX_DELAY env var)",
     )
 
     # ==================== RELIABILITY/PERFORMANCE ARGUMENTS ====================
 
     reliability_group = parser.add_argument_group(
-        'Reliability & Performance',
-        'Options for API resilience and performance tuning'
+        "Reliability & Performance", "Options for API resilience and performance tuning"
     )
 
     reliability_group.add_argument(
-        '--api-auto-tune',
-        action='store_true',
-        help='Enable automatic API worker tuning based on response times. '
-             'Scales workers up when responses are fast, down when slow'
+        "--api-auto-tune",
+        action="store_true",
+        help="Enable automatic API worker tuning based on response times. "
+        "Scales workers up when responses are fast, down when slow",
     )
 
     reliability_group.add_argument(
-        '--api-min-workers',
+        "--api-min-workers",
         type=int,
         default=1,
-        metavar='N',
-        help='Minimum workers for auto-tuning (default: 1, requires --api-auto-tune)'
+        metavar="N",
+        help="Minimum workers for auto-tuning (default: 1, requires --api-auto-tune)",
     )
 
     reliability_group.add_argument(
-        '--api-max-workers',
+        "--api-max-workers",
         type=int,
         default=10,
-        metavar='N',
-        help='Maximum workers for auto-tuning (default: 10, requires --api-auto-tune)'
+        metavar="N",
+        help="Maximum workers for auto-tuning (default: 10, requires --api-auto-tune)",
     )
 
     reliability_group.add_argument(
-        '--circuit-breaker',
-        action='store_true',
-        help='Enable circuit breaker pattern for API calls. '
-             'Prevents cascading failures by stopping requests after repeated failures'
+        "--circuit-breaker",
+        action="store_true",
+        help="Enable circuit breaker pattern for API calls. "
+        "Prevents cascading failures by stopping requests after repeated failures",
     )
 
     reliability_group.add_argument(
-        '--circuit-failure-threshold',
+        "--circuit-failure-threshold",
         type=int,
         default=5,
-        metavar='N',
-        help='Consecutive failures before opening circuit (default: 5, requires --circuit-breaker)'
+        metavar="N",
+        help="Consecutive failures before opening circuit (default: 5, requires --circuit-breaker)",
     )
 
     reliability_group.add_argument(
-        '--circuit-timeout',
+        "--circuit-timeout",
         type=float,
         default=30.0,
-        metavar='SECONDS',
-        help='Seconds before attempting recovery from open circuit (default: 30, requires --circuit-breaker)'
+        metavar="SECONDS",
+        help="Seconds before attempting recovery from open circuit (default: 30, requires --circuit-breaker)",
     )
 
     reliability_group.add_argument(
-        '--shared-cache',
-        action='store_true',
-        help='Share validation cache across batch workers (requires --batch and --enable-cache). '
-             'Enables cache reuse across data views for common validation patterns'
+        "--shared-cache",
+        action="store_true",
+        help="Share validation cache across batch workers (requires --batch and --enable-cache). "
+        "Enables cache reuse across data views for common validation patterns",
     )
 
     parser.add_argument(
-        '--format',
+        "--format",
         type=str,
         default=None,
-        choices=['console', 'excel', 'csv', 'json', 'html', 'markdown', 'all', 'reports', 'data', 'ci'],
-        help='Output format: excel, csv, json, html, markdown, all, or aliases (reports=excel+markdown, data=csv+json, ci=json+markdown). Default: excel for SDR, console for diff'
+        choices=["console", "excel", "csv", "json", "html", "markdown", "all", "reports", "data", "ci"],
+        help="Output format: excel, csv, json, html, markdown, all, or aliases (reports=excel+markdown, data=csv+json, ci=json+markdown). Default: excel for SDR, console for diff",
     )
 
     parser.add_argument(
-        '--dry-run', '--validate-only',
-        action='store_true',
-        dest='dry_run',
-        help='Validate configuration and connectivity without generating reports'
+        "--dry-run",
+        "--validate-only",
+        action="store_true",
+        dest="dry_run",
+        help="Validate configuration and connectivity without generating reports",
     )
 
     parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Quiet mode - suppress all output except errors and final summary'
+        "--quiet", "-q", action="store_true", help="Quiet mode - suppress all output except errors and final summary"
     )
 
     discovery_group = parser.add_argument_group(
-        'Discovery',
-        'Commands to explore available CJA resources (mutually exclusive)'
+        "Discovery", "Commands to explore available CJA resources (mutually exclusive)"
     )
     discovery_mx = discovery_group.add_mutually_exclusive_group()
 
     discovery_mx.add_argument(
-        '--list-dataviews',
-        action='store_true',
-        help='List all accessible data views and exit (no data view ID required)'
+        "--list-dataviews",
+        action="store_true",
+        help="List all accessible data views and exit (no data view ID required)",
     )
 
     discovery_mx.add_argument(
-        '--list-connections',
-        action='store_true',
-        help='List all accessible connections with their datasets and exit'
+        "--list-connections", action="store_true", help="List all accessible connections with their datasets and exit"
     )
 
     discovery_mx.add_argument(
-        '--list-datasets',
-        action='store_true',
-        help='List all data views with their backing connections and datasets, then exit'
+        "--list-datasets",
+        action="store_true",
+        help="List all data views with their backing connections and datasets, then exit",
     )
 
     parser.add_argument(
-        '--skip-validation',
-        action='store_true',
-        help='Skip data quality validation for faster processing (20-30%% faster)'
+        "--skip-validation",
+        action="store_true",
+        help="Skip data quality validation for faster processing (20-30%% faster)",
+    )
+
+    parser.add_argument("--sample-config", action="store_true", help="Generate a sample configuration file and exit")
+
+    parser.add_argument(
+        "--validate-config",
+        action="store_true",
+        help="Validate configuration and API connectivity without processing any data views",
     )
 
     parser.add_argument(
-        '--sample-config',
-        action='store_true',
-        help='Generate a sample configuration file and exit'
+        "--config-status",
+        action="store_true",
+        help="Show configuration status (source, fields, masked credentials) without API call. "
+        "Faster than --validate-config for quick troubleshooting",
     )
 
     parser.add_argument(
-        '--validate-config',
-        action='store_true',
-        help='Validate configuration and API connectivity without processing any data views'
+        "--config-json",
+        action="store_true",
+        help="Output --config-status as machine-readable JSON (for scripting and CI/CD)",
     )
 
     parser.add_argument(
-        '--config-status',
-        action='store_true',
-        help='Show configuration status (source, fields, masked credentials) without API call. '
-             'Faster than --validate-config for quick troubleshooting'
+        "--yes",
+        "-y",
+        action="store_true",
+        dest="assume_yes",
+        help="Skip confirmation prompts (e.g., for large batch operations)",
     )
 
     parser.add_argument(
-        '--config-json',
-        action='store_true',
-        help='Output --config-status as machine-readable JSON (for scripting and CI/CD)'
-    )
-
-    parser.add_argument(
-        '--yes', '-y',
-        action='store_true',
-        dest='assume_yes',
-        help='Skip confirmation prompts (e.g., for large batch operations)'
-    )
-
-    parser.add_argument(
-        '--max-issues',
+        "--max-issues",
         type=int,
         default=0,
-        metavar='N',
-        help='Limit data quality issues to top N by severity (0 = show all, default: 0)'
+        metavar="N",
+        help="Limit data quality issues to top N by severity (0 = show all, default: 0)",
     )
 
     # ==================== UX ENHANCEMENT ARGUMENTS ====================
 
     parser.add_argument(
-        '--show-timings',
-        action='store_true',
-        help='Display performance timing breakdown after processing (API calls, validation, output generation)'
+        "--show-timings",
+        action="store_true",
+        help="Display performance timing breakdown after processing (API calls, validation, output generation)",
     )
 
     parser.add_argument(
-        '--open',
-        action='store_true',
-        help='Open the generated file(s) in the default application after creation'
+        "--open", action="store_true", help="Open the generated file(s) in the default application after creation"
     )
 
     parser.add_argument(
-        '--stats',
-        action='store_true',
-        help='Show quick statistics about data view(s) without generating full reports. '
-             'Displays counts of metrics, dimensions, and basic info'
+        "--stats",
+        action="store_true",
+        help="Show quick statistics about data view(s) without generating full reports. "
+        "Displays counts of metrics, dimensions, and basic info",
     )
 
     parser.add_argument(
-        '--interactive', '-i',
-        action='store_true',
-        help='Launch interactive mode for guided SDR generation. '
-             'Walks through: (1) data view selection, (2) output format, '
-             '(3) inventory options (segments, calculated metrics, derived fields). '
-             'Ideal for new users or one-off generation tasks'
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Launch interactive mode for guided SDR generation. "
+        "Walks through: (1) data view selection, (2) output format, "
+        "(3) inventory options (segments, calculated metrics, derived fields). "
+        "Ideal for new users or one-off generation tasks",
     )
 
     parser.add_argument(
-        '--output',
+        "--output",
         type=str,
-        metavar='PATH',
+        metavar="PATH",
         help='Output file path. Use "-" or "stdout" to write to standard output (JSON/CSV only). '
-             'For stdout, implies --quiet to suppress other output'
+        "For stdout, implies --quiet to suppress other output",
     )
 
     # ==================== DIFF COMPARISON ARGUMENTS ====================
 
-    diff_group = parser.add_argument_group('Diff Comparison', 'Options for comparing data views')
+    diff_group = parser.add_argument_group("Diff Comparison", "Options for comparing data views")
 
     diff_group.add_argument(
-        '--diff',
-        action='store_true',
-        help='Compare two data views. Provide exactly 2 data view IDs/names as positional arguments'
+        "--diff",
+        action="store_true",
+        help="Compare two data views. Provide exactly 2 data view IDs/names as positional arguments",
     )
 
     diff_group.add_argument(
-        '--snapshot',
+        "--snapshot",
         type=str,
-        metavar='FILE',
-        help='Save a snapshot of the data view to a JSON file (use with single data view)'
+        metavar="FILE",
+        help="Save a snapshot of the data view to a JSON file (use with single data view)",
     )
 
     diff_group.add_argument(
-        '--diff-snapshot',
-        type=str,
-        metavar='FILE',
-        help='Compare data view against a saved snapshot file'
+        "--diff-snapshot", type=str, metavar="FILE", help="Compare data view against a saved snapshot file"
     )
 
     diff_group.add_argument(
-        '--compare-with-prev',
-        action='store_true',
-        help='Compare data view against its most recent snapshot in --snapshot-dir (default: ./snapshots)'
+        "--compare-with-prev",
+        action="store_true",
+        help="Compare data view against its most recent snapshot in --snapshot-dir (default: ./snapshots)",
     )
 
     diff_group.add_argument(
-        '--compare-snapshots',
+        "--compare-snapshots",
         nargs=2,
-        metavar=('SOURCE', 'TARGET'),
-        help='Compare two snapshot files directly (no API calls required). '
-             'Example: --compare-snapshots baseline.json current.json'
+        metavar=("SOURCE", "TARGET"),
+        help="Compare two snapshot files directly (no API calls required). "
+        "Example: --compare-snapshots baseline.json current.json",
     )
 
     diff_group.add_argument(
-        '--changes-only',
-        action='store_true',
-        help='Only show changed items in diff output (hide unchanged)'
+        "--changes-only", action="store_true", help="Only show changed items in diff output (hide unchanged)"
     )
 
-    diff_group.add_argument(
-        '--summary',
-        action='store_true',
-        help='Show summary statistics only (no detailed changes)'
-    )
+    diff_group.add_argument("--summary", action="store_true", help="Show summary statistics only (no detailed changes)")
 
     diff_group.add_argument(
-        '--ignore-fields',
+        "--ignore-fields",
         type=str,
-        metavar='FIELDS',
-        help='Comma-separated list of fields to ignore during comparison (e.g., "description,title")'
+        metavar="FIELDS",
+        help='Comma-separated list of fields to ignore during comparison (e.g., "description,title")',
     )
 
     diff_group.add_argument(
-        '--diff-labels',
+        "--diff-labels",
         nargs=2,
-        metavar=('SOURCE', 'TARGET'),
-        help='Custom labels for the two sides of the comparison (default: Source, Target)'
+        metavar=("SOURCE", "TARGET"),
+        help="Custom labels for the two sides of the comparison (default: Source, Target)",
     )
 
     diff_group.add_argument(
-        '--show-only',
+        "--show-only",
         type=str,
-        metavar='TYPES',
-        help='Filter diff output to show only specific change types. '
-             'Comma-separated list: added,removed,modified,unchanged (e.g., "added,modified")'
+        metavar="TYPES",
+        help="Filter diff output to show only specific change types. "
+        'Comma-separated list: added,removed,modified,unchanged (e.g., "added,modified")',
     )
 
     diff_group.add_argument(
-        '--metrics-only',
-        action='store_true',
-        help='Only include metrics (exclude dimensions). Works for both SDR generation and diff comparison'
+        "--metrics-only",
+        action="store_true",
+        help="Only include metrics (exclude dimensions). Works for both SDR generation and diff comparison",
     )
 
     diff_group.add_argument(
-        '--dimensions-only',
-        action='store_true',
-        help='Only include dimensions (exclude metrics). Works for both SDR generation and diff comparison'
+        "--dimensions-only",
+        action="store_true",
+        help="Only include dimensions (exclude metrics). Works for both SDR generation and diff comparison",
     )
 
     diff_group.add_argument(
-        '--extended-fields',
-        action='store_true',
-        help='Use extended field comparison including attribution, format, bucketing, '
-             'persistence settings (default: basic fields only)'
+        "--extended-fields",
+        action="store_true",
+        help="Use extended field comparison including attribution, format, bucketing, "
+        "persistence settings (default: basic fields only)",
     )
 
     diff_group.add_argument(
-        '--side-by-side',
-        action='store_true',
-        help='Show side-by-side comparison view for modified items (console and markdown)'
+        "--side-by-side",
+        action="store_true",
+        help="Show side-by-side comparison view for modified items (console and markdown)",
     )
 
-    diff_group.add_argument(
-        '--no-color',
-        action='store_true',
-        help='Disable ANSI color codes in console output'
-    )
+    diff_group.add_argument("--no-color", action="store_true", help="Disable ANSI color codes in console output")
 
     diff_group.add_argument(
-        '--color-theme',
+        "--color-theme",
         type=str,
-        choices=['default', 'accessible'],
-        default='default',
-        help='Color theme for diff output: "default" (green/red) or "accessible" (blue/orange for accessibility)'
+        choices=["default", "accessible"],
+        default="default",
+        help='Color theme for diff output: "default" (green/red) or "accessible" (blue/orange for accessibility)',
     )
 
     diff_group.add_argument(
-        '--quiet-diff',
-        action='store_true',
-        help='Suppress diff output, only return exit code (0=no changes, 2=changes found)'
+        "--quiet-diff",
+        action="store_true",
+        help="Suppress diff output, only return exit code (0=no changes, 2=changes found)",
     )
 
     diff_group.add_argument(
-        '--reverse-diff',
-        action='store_true',
-        help='Reverse the comparison direction (swap source and target)'
+        "--reverse-diff", action="store_true", help="Reverse the comparison direction (swap source and target)"
     )
 
     diff_group.add_argument(
-        '--warn-threshold',
+        "--warn-threshold",
         type=float,
-        metavar='PERCENT',
-        help='Exit with code 3 if change percentage exceeds threshold (e.g., --warn-threshold 10)'
+        metavar="PERCENT",
+        help="Exit with code 3 if change percentage exceeds threshold (e.g., --warn-threshold 10)",
     )
 
     diff_group.add_argument(
-        '--group-by-field',
-        action='store_true',
-        help='Group changes by field name instead of by component'
+        "--group-by-field", action="store_true", help="Group changes by field name instead of by component"
     )
 
     diff_group.add_argument(
-        '--group-by-field-limit',
+        "--group-by-field-limit",
         type=int,
         default=10,
-        metavar='N',
-        help='Max items per section in --group-by-field output (default: 10, 0 = unlimited)'
+        metavar="N",
+        help="Max items per section in --group-by-field output (default: 10, 0 = unlimited)",
     )
 
     diff_group.add_argument(
-        '--diff-output',
+        "--diff-output", type=str, metavar="FILE", help="Write diff output directly to file instead of stdout"
+    )
+
+    diff_group.add_argument(
+        "--format-pr-comment",
+        action="store_true",
+        help="Output in GitHub/GitLab PR comment format (markdown with collapsible details)",
+    )
+
+    diff_group.add_argument(
+        "--auto-snapshot",
+        action="store_true",
+        help="Automatically save snapshots of data views during diff comparison. "
+        "Creates timestamped snapshots in --snapshot-dir for audit trail",
+    )
+
+    diff_group.add_argument(
+        "--snapshot-dir",
         type=str,
-        metavar='FILE',
-        help='Write diff output directly to file instead of stdout'
+        default="./snapshots",
+        metavar="DIR",
+        help="Directory for auto-saved snapshots (default: ./snapshots). Used with --auto-snapshot",
     )
 
     diff_group.add_argument(
-        '--format-pr-comment',
-        action='store_true',
-        help='Output in GitHub/GitLab PR comment format (markdown with collapsible details)'
-    )
-
-    diff_group.add_argument(
-        '--auto-snapshot',
-        action='store_true',
-        help='Automatically save snapshots of data views during diff comparison. '
-             'Creates timestamped snapshots in --snapshot-dir for audit trail'
-    )
-
-    diff_group.add_argument(
-        '--snapshot-dir',
-        type=str,
-        default='./snapshots',
-        metavar='DIR',
-        help='Directory for auto-saved snapshots (default: ./snapshots). Used with --auto-snapshot'
-    )
-
-    diff_group.add_argument(
-        '--keep-last',
+        "--keep-last",
         type=int,
         default=0,
-        metavar='N',
-        help='Retention policy: keep only the last N snapshots per data view (0 = keep all). '
-             'Used with --auto-snapshot'
+        metavar="N",
+        help="Retention policy: keep only the last N snapshots per data view (0 = keep all). Used with --auto-snapshot",
     )
 
     diff_group.add_argument(
-        '--keep-since',
+        "--keep-since",
         type=str,
         default=None,
-        metavar='PERIOD',
-        help='Date-based retention: delete snapshots older than PERIOD. '
-             'Formats: 7d (7 days), 2w (2 weeks), 1m (1 month), 30 (30 days). '
-             'Used with --auto-snapshot. Can be combined with --keep-last.'
+        metavar="PERIOD",
+        help="Date-based retention: delete snapshots older than PERIOD. "
+        "Formats: 7d (7 days), 2w (2 weeks), 1m (1 month), 30 (30 days). "
+        "Used with --auto-snapshot. Can be combined with --keep-last.",
     )
 
     # ==================== PROFILE MANAGEMENT ARGUMENTS ====================
 
     profile_group = parser.add_argument_group(
-        'Profile Management',
-        'Manage organization/credential profiles stored in ~/.cja/orgs/'
+        "Profile Management", "Manage organization/credential profiles stored in ~/.cja/orgs/"
     )
 
     profile_group.add_argument(
-        '--profile', '-p',
+        "--profile",
+        "-p",
         type=str,
-        metavar='NAME',
-        default=os.environ.get('CJA_PROFILE'),
-        help='Use named profile from ~/.cja/orgs/<NAME>/. '
-             'Can also be set via CJA_PROFILE environment variable'
+        metavar="NAME",
+        default=os.environ.get("CJA_PROFILE"),
+        help="Use named profile from ~/.cja/orgs/<NAME>/. Can also be set via CJA_PROFILE environment variable",
+    )
+
+    profile_group.add_argument("--profile-list", action="store_true", help="List all available profiles and exit")
+
+    profile_group.add_argument("--profile-add", type=str, metavar="NAME", help="Create a new profile interactively")
+
+    profile_group.add_argument(
+        "--profile-test", type=str, metavar="NAME", help="Test profile credentials and API connectivity"
     )
 
     profile_group.add_argument(
-        '--profile-list',
-        action='store_true',
-        help='List all available profiles and exit'
-    )
-
-    profile_group.add_argument(
-        '--profile-add',
-        type=str,
-        metavar='NAME',
-        help='Create a new profile interactively'
-    )
-
-    profile_group.add_argument(
-        '--profile-test',
-        type=str,
-        metavar='NAME',
-        help='Test profile credentials and API connectivity'
-    )
-
-    profile_group.add_argument(
-        '--profile-show',
-        type=str,
-        metavar='NAME',
-        help='Show profile configuration (with masked secrets)'
+        "--profile-show", type=str, metavar="NAME", help="Show profile configuration (with masked secrets)"
     )
 
     # ==================== GIT INTEGRATION ARGUMENTS ====================
 
-    git_group = parser.add_argument_group('Git Integration', 'Options for version-controlled snapshots')
+    git_group = parser.add_argument_group("Git Integration", "Options for version-controlled snapshots")
 
     git_group.add_argument(
-        '--git-commit',
-        action='store_true',
-        help='Save snapshot in Git-friendly format and commit to Git repository. '
-             'Creates separate JSON files (metrics.json, dimensions.json, metadata.json) '
-             'for easy diffing in Git'
+        "--git-commit",
+        action="store_true",
+        help="Save snapshot in Git-friendly format and commit to Git repository. "
+        "Creates separate JSON files (metrics.json, dimensions.json, metadata.json) "
+        "for easy diffing in Git",
     )
 
     git_group.add_argument(
-        '--git-push',
-        action='store_true',
-        help='Push to remote after committing (requires --git-commit)'
+        "--git-push", action="store_true", help="Push to remote after committing (requires --git-commit)"
     )
 
     git_group.add_argument(
-        '--git-message',
+        "--git-message", type=str, metavar="MESSAGE", help="Custom message for Git commit (used with --git-commit)"
+    )
+
+    git_group.add_argument(
+        "--git-dir",
         type=str,
-        metavar='MESSAGE',
-        help='Custom message for Git commit (used with --git-commit)'
+        default="./sdr-snapshots",
+        metavar="DIR",
+        help="Directory for Git-tracked snapshots (default: ./sdr-snapshots). "
+        "Will be initialized as Git repo if not already",
     )
 
     git_group.add_argument(
-        '--git-dir',
-        type=str,
-        default='./sdr-snapshots',
-        metavar='DIR',
-        help='Directory for Git-tracked snapshots (default: ./sdr-snapshots). '
-             'Will be initialized as Git repo if not already'
-    )
-
-    git_group.add_argument(
-        '--git-init',
-        action='store_true',
-        help='Initialize a new Git repository for snapshots at --git-dir location'
+        "--git-init", action="store_true", help="Initialize a new Git repository for snapshots at --git-dir location"
     )
 
     # ==================== DERIVED FIELD INVENTORY ARGUMENTS ====================
 
     derived_group = parser.add_argument_group(
-        'Derived Field Inventory',
-        'Include summary inventory of derived fields in SDR output'
+        "Derived Field Inventory", "Include summary inventory of derived fields in SDR output"
     )
 
     derived_group.add_argument(
-        '--include-derived',
-        action='store_true',
-        dest='include_derived_inventory',
+        "--include-derived",
+        action="store_true",
+        dest="include_derived_inventory",
         help='Include derived field inventory in SDR output. Adds a "Derived Fields" sheet/section '
-             'with complexity scores, functions used, and logic summaries. '
-             'Note: For SDR generation only; not used in snapshot diff comparisons since derived '
-             'fields are already captured in standard metrics/dimensions output.'
+        "with complexity scores, functions used, and logic summaries. "
+        "Note: For SDR generation only; not used in snapshot diff comparisons since derived "
+        "fields are already captured in standard metrics/dimensions output.",
     )
 
     # ==================== CALCULATED METRICS INVENTORY ARGUMENTS ====================
 
     calc_metrics_group = parser.add_argument_group(
-        'Calculated Metrics Inventory',
-        'Include summary inventory of calculated metrics in SDR output'
+        "Calculated Metrics Inventory", "Include summary inventory of calculated metrics in SDR output"
     )
 
     calc_metrics_group.add_argument(
-        '--include-calculated',
-        action='store_true',
-        dest='include_calculated_metrics',
+        "--include-calculated",
+        action="store_true",
+        dest="include_calculated_metrics",
         help='Include calculated metrics inventory in SDR output. Adds a "Calculated Metrics" sheet/section '
-             'with complexity scores, formula summaries, and metric references'
+        "with complexity scores, formula summaries, and metric references",
     )
 
     # ==================== SEGMENTS INVENTORY ARGUMENTS ====================
 
     segments_group = parser.add_argument_group(
-        'Segments Inventory',
-        'Include summary inventory of segments (filters) in SDR output'
+        "Segments Inventory", "Include summary inventory of segments (filters) in SDR output"
     )
 
     segments_group.add_argument(
-        '--include-segments',
-        action='store_true',
-        dest='include_segments_inventory',
+        "--include-segments",
+        action="store_true",
+        dest="include_segments_inventory",
         help='Include segments inventory in SDR output. Adds a "Segments" sheet/section '
-             'with complexity scores, definition summaries, and dimension/metric references'
+        "with complexity scores, definition summaries, and dimension/metric references",
     )
 
     # ==================== INVENTORY-ONLY MODE ====================
 
     inventory_only_group = parser.add_argument_group(
-        'Inventory-Only Mode',
-        'Generate output with only inventory sheets (no standard SDR content)'
+        "Inventory-Only Mode", "Generate output with only inventory sheets (no standard SDR content)"
     )
 
     inventory_only_group.add_argument(
-        '--inventory-only',
-        action='store_true',
-        dest='inventory_only',
-        help='Output only inventory sheets (Calculated Metrics, Segments, Derived Fields). '
-             'Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). '
-             'Requires at least one --include-* flag.'
+        "--inventory-only",
+        action="store_true",
+        dest="inventory_only",
+        help="Output only inventory sheets (Calculated Metrics, Segments, Derived Fields). "
+        "Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). "
+        "Requires at least one --include-* flag.",
     )
 
     inventory_only_group.add_argument(
-        '--inventory-summary',
-        action='store_true',
-        dest='inventory_summary',
-        help='Display quick inventory statistics without generating full output files. '
-             'Shows counts, complexity distribution, and high-complexity warnings. '
-             'Requires at least one --include-* flag. Cannot be used with --inventory-only.'
+        "--inventory-summary",
+        action="store_true",
+        dest="inventory_summary",
+        help="Display quick inventory statistics without generating full output files. "
+        "Shows counts, complexity distribution, and high-complexity warnings. "
+        "Requires at least one --include-* flag. Cannot be used with --inventory-only.",
     )
 
     inventory_only_group.add_argument(
-        '--include-all-inventory',
-        action='store_true',
-        dest='include_all_inventory',
-        help='Enable all inventory options. In SDR mode, enables --include-segments, '
-             '--include-calculated, and --include-derived. With --snapshot or --git-commit, '
-             'enables only --include-segments and --include-calculated (derived fields are '
-             'not supported in snapshots).'
+        "--include-all-inventory",
+        action="store_true",
+        dest="include_all_inventory",
+        help="Enable all inventory options. In SDR mode, enables --include-segments, "
+        "--include-calculated, and --include-derived. With --snapshot or --git-commit, "
+        "enables only --include-segments and --include-calculated (derived fields are "
+        "not supported in snapshots).",
     )
 
     # ==================== ORG-WIDE ANALYSIS ARGUMENTS ====================
 
     org_group = parser.add_argument_group(
-        'Org-Wide Analysis',
-        'Analyze component distribution across all data views in the organization'
+        "Org-Wide Analysis", "Analyze component distribution across all data views in the organization"
     )
 
     org_group.add_argument(
-        '--org-report',
-        action='store_true',
-        help='Generate org-wide component analysis report. Analyzes all accessible '
-             'data views to show component distribution, similarity matrix, and '
-             'governance recommendations. No data view arguments required.'
+        "--org-report",
+        action="store_true",
+        help="Generate org-wide component analysis report. Analyzes all accessible "
+        "data views to show component distribution, similarity matrix, and "
+        "governance recommendations. No data view arguments required.",
     )
 
     org_group.add_argument(
-        '--filter',
+        "--filter",
         type=str,
-        metavar='PATTERN',
-        dest='org_filter',
-        help='Include only data views whose name matches this regex pattern '
-             '(e.g., "Prod.*" or "prod|production"). Avoid complex nested quantifiers'
+        metavar="PATTERN",
+        dest="org_filter",
+        help="Include only data views whose name matches this regex pattern "
+        '(e.g., "Prod.*" or "prod|production"). Avoid complex nested quantifiers',
     )
 
     org_group.add_argument(
-        '--exclude',
+        "--exclude",
         type=str,
-        metavar='PATTERN',
-        dest='org_exclude',
-        help='Exclude data views whose name matches this regex pattern '
-             '(e.g., "Test.*|Dev.*|sandbox"). Avoid complex nested quantifiers'
+        metavar="PATTERN",
+        dest="org_exclude",
+        help="Exclude data views whose name matches this regex pattern "
+        '(e.g., "Test.*|Dev.*|sandbox"). Avoid complex nested quantifiers',
     )
 
     org_group.add_argument(
-        '--limit',
+        "--limit",
         type=int,
-        metavar='N',
-        dest='org_limit',
-        help='Limit the number of data views to analyze (useful for testing or large orgs)'
+        metavar="N",
+        dest="org_limit",
+        help="Limit the number of data views to analyze (useful for testing or large orgs)",
     )
 
     org_group.add_argument(
-        '--core-threshold',
+        "--core-threshold",
         type=float,
         default=0.5,
-        metavar='PERCENT',
+        metavar="PERCENT",
         help='Threshold for "core" components as fraction of data views '
-             '(default: 0.5 = components in >= 50%% of DVs are core)'
+        "(default: 0.5 = components in >= 50%% of DVs are core)",
     )
 
     org_group.add_argument(
-        '--core-min-count',
+        "--core-min-count",
         type=int,
-        metavar='N',
+        metavar="N",
         help='Minimum absolute count for "core" components (overrides --core-threshold). '
-             'E.g., --core-min-count 5 means components in >= 5 DVs are core'
+        "E.g., --core-min-count 5 means components in >= 5 DVs are core",
     )
 
     org_group.add_argument(
-        '--overlap-threshold',
+        "--overlap-threshold",
         type=_bounded_float(0.0, 1.0),
         default=0.8,
-        metavar='PERCENT',
+        metavar="PERCENT",
         help='Threshold for "high overlap" pairs in similarity analysis '
-             '(default: 0.8). Note: For governance checks (--fail-on-threshold), '
-             'values above 0.9 are capped at 90%% to ensure duplicate detection'
+        "(default: 0.8). Note: For governance checks (--fail-on-threshold), "
+        "values above 0.9 are capped at 90%% to ensure duplicate detection",
     )
 
     org_group.add_argument(
-        '--skip-similarity',
-        action='store_true',
-        help='Skip the O(n^2) pairwise similarity matrix calculation. '
-             'Useful for very large orgs with many data views'
+        "--skip-similarity",
+        action="store_true",
+        help="Skip the O(n^2) pairwise similarity matrix calculation. Useful for very large orgs with many data views",
     )
 
     org_group.add_argument(
-        '--similarity-max-dvs',
+        "--similarity-max-dvs",
         type=int,
-        metavar='N',
-        dest='org_similarity_max_dvs',
+        metavar="N",
+        dest="org_similarity_max_dvs",
         default=250,
-        help='Guardrail to skip similarity when data views exceed N (default: 250). '
-             'Use --force-similarity to override.'
+        help="Guardrail to skip similarity when data views exceed N (default: 250). "
+        "Use --force-similarity to override.",
     )
 
     org_group.add_argument(
-        '--force-similarity',
-        action='store_true',
-        dest='org_force_similarity',
-        help='Force similarity matrix even if guardrails would skip it'
+        "--force-similarity",
+        action="store_true",
+        dest="org_force_similarity",
+        help="Force similarity matrix even if guardrails would skip it",
     )
 
     org_group.add_argument(
-        '--include-names',
-        action='store_true',
-        dest='org_include_names',
-        help='Include component names in the report (slower - requires fetching full component details)'
+        "--include-names",
+        action="store_true",
+        dest="org_include_names",
+        help="Include component names in the report (slower - requires fetching full component details)",
     )
 
     org_group.add_argument(
-        '--org-summary',
-        action='store_true',
-        help='Show only summary statistics, suppress detailed component lists'
+        "--org-summary", action="store_true", help="Show only summary statistics, suppress detailed component lists"
     )
 
     org_group.add_argument(
-        '--org-verbose',
-        action='store_true',
-        help='Include full component lists and detailed breakdowns in output'
+        "--org-verbose", action="store_true", help="Include full component lists and detailed breakdowns in output"
     )
 
     # Component type breakdown (enabled by default)
     org_group.add_argument(
-        '--no-component-types',
-        action='store_true',
-        dest='no_component_types',
-        help='Disable component type breakdown (standard vs derived metrics/dimensions)'
+        "--no-component-types",
+        action="store_true",
+        dest="no_component_types",
+        help="Disable component type breakdown (standard vs derived metrics/dimensions)",
     )
 
     # Metadata
     org_group.add_argument(
-        '--include-metadata',
-        action='store_true',
-        dest='org_include_metadata',
-        help='Include data view metadata (owner, creation/modification dates, descriptions)'
+        "--include-metadata",
+        action="store_true",
+        dest="org_include_metadata",
+        help="Include data view metadata (owner, creation/modification dates, descriptions)",
     )
 
     # Drift detection
     org_group.add_argument(
-        '--include-drift',
-        action='store_true',
-        dest='org_include_drift',
-        help='Include component drift details showing exact differences between similar DV pairs'
+        "--include-drift",
+        action="store_true",
+        dest="org_include_drift",
+        help="Include component drift details showing exact differences between similar DV pairs",
     )
 
     org_group.add_argument(
-        '--org-shared-client',
-        action='store_true',
-        dest='org_shared_client',
-        help='Use a single shared cjapy client across threads. WARNING: This is experimental '
-             'and may cause race conditions if cjapy is not thread-safe. Use only if you have '
-             'tested with your cjapy version. Default creates one client per thread (safer)'
+        "--org-shared-client",
+        action="store_true",
+        dest="org_shared_client",
+        help="Use a single shared cjapy client across threads. WARNING: This is experimental "
+        "and may cause race conditions if cjapy is not thread-safe. Use only if you have "
+        "tested with your cjapy version. Default creates one client per thread (safer)",
     )
 
     # Sampling options
     org_group.add_argument(
-        '--sample',
+        "--sample",
         type=int,
-        metavar='N',
-        dest='org_sample_size',
-        help='Randomly sample N data views (useful for very large orgs)'
+        metavar="N",
+        dest="org_sample_size",
+        help="Randomly sample N data views (useful for very large orgs)",
     )
 
     org_group.add_argument(
-        '--sample-seed',
-        type=int,
-        metavar='SEED',
-        dest='org_sample_seed',
-        help='Random seed for reproducible sampling'
+        "--sample-seed", type=int, metavar="SEED", dest="org_sample_seed", help="Random seed for reproducible sampling"
     )
 
     org_group.add_argument(
-        '--sample-stratified',
-        action='store_true',
-        dest='org_sample_stratified',
-        help='Stratify sample by data view name prefix'
+        "--sample-stratified",
+        action="store_true",
+        dest="org_sample_stratified",
+        help="Stratify sample by data view name prefix",
     )
 
     # Caching options
     org_group.add_argument(
-        '--use-cache',
-        action='store_true',
-        dest='org_use_cache',
-        help='Enable caching of data view components for faster repeat runs'
+        "--use-cache",
+        action="store_true",
+        dest="org_use_cache",
+        help="Enable caching of data view components for faster repeat runs",
     )
 
     org_group.add_argument(
-        '--cache-max-age',
+        "--cache-max-age",
         type=int,
-        metavar='HOURS',
+        metavar="HOURS",
         default=24,
-        dest='org_cache_max_age',
-        help='Maximum cache age in hours (default: 24)'
+        dest="org_cache_max_age",
+        help="Maximum cache age in hours (default: 24)",
     )
 
     org_group.add_argument(
-        '--refresh-cache',
-        action='store_true',
-        dest='org_clear_cache',
-        help='Clear the org-report cache and fetch fresh data'
+        "--refresh-cache",
+        action="store_true",
+        dest="org_clear_cache",
+        help="Clear the org-report cache and fetch fresh data",
     )
 
     org_group.add_argument(
-        '--validate-cache',
-        action='store_true',
-        dest='org_validate_cache',
-        help='Validate cached entries against data view modification timestamps before using'
+        "--validate-cache",
+        action="store_true",
+        dest="org_validate_cache",
+        help="Validate cached entries against data view modification timestamps before using",
     )
 
     org_group.add_argument(
-        '--memory-warning',
+        "--memory-warning",
         type=int,
-        metavar='MB',
+        metavar="MB",
         default=100,
-        dest='org_memory_warning',
-        help='Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)'
+        dest="org_memory_warning",
+        help="Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)",
     )
 
     org_group.add_argument(
-        '--memory-limit',
+        "--memory-limit",
         type=int,
-        metavar='MB',
+        metavar="MB",
         default=None,
-        dest='org_memory_limit',
-        help='Abort if component index exceeds this size in MB. Protects against OOM for very large orgs (default: no limit)'
+        dest="org_memory_limit",
+        help="Abort if component index exceeds this size in MB. Protects against OOM for very large orgs (default: no limit)",
     )
 
     # Clustering options
     org_group.add_argument(
-        '--cluster',
-        action='store_true',
-        dest='org_cluster',
-        help="Enable hierarchical clustering to group related data views (requires 'clustering' extra: uv pip install 'cja-auto-sdr[clustering]')"
+        "--cluster",
+        action="store_true",
+        dest="org_cluster",
+        help="Enable hierarchical clustering to group related data views (requires 'clustering' extra: uv pip install 'cja-auto-sdr[clustering]')",
     )
 
     org_group.add_argument(
-        '--cluster-method',
+        "--cluster-method",
         type=str,
-        choices=['average', 'complete'],
-        default='average',
-        dest='org_cluster_method',
-        help='Clustering linkage method: average (recommended) or complete. Both work correctly with Jaccard distances'
+        choices=["average", "complete"],
+        default="average",
+        dest="org_cluster_method",
+        help="Clustering linkage method: average (recommended) or complete. Both work correctly with Jaccard distances",
     )
 
     # Feature 1: Governance exit codes
     org_group.add_argument(
-        '--duplicate-threshold',
+        "--duplicate-threshold",
         type=int,
-        metavar='N',
-        dest='org_duplicate_threshold',
-        help='Maximum allowed high-similarity pairs (>=90%%). Exit with code 2 if exceeded when --fail-on-threshold is set'
+        metavar="N",
+        dest="org_duplicate_threshold",
+        help="Maximum allowed high-similarity pairs (>=90%%). Exit with code 2 if exceeded when --fail-on-threshold is set",
     )
 
     org_group.add_argument(
-        '--isolated-threshold',
+        "--isolated-threshold",
         type=_bounded_float(0.0, 1.0),
-        metavar='PERCENT',
-        dest='org_isolated_threshold',
-        help='Maximum isolated component percentage (0.0-1.0). Exit with code 2 if exceeded when --fail-on-threshold is set'
+        metavar="PERCENT",
+        dest="org_isolated_threshold",
+        help="Maximum isolated component percentage (0.0-1.0). Exit with code 2 if exceeded when --fail-on-threshold is set",
     )
 
     org_group.add_argument(
-        '--fail-on-threshold',
-        action='store_true',
-        dest='org_fail_on_threshold',
-        help='Enable exit code 2 when governance thresholds are exceeded (for CI/CD integration)'
+        "--fail-on-threshold",
+        action="store_true",
+        dest="org_fail_on_threshold",
+        help="Enable exit code 2 when governance thresholds are exceeded (for CI/CD integration)",
     )
 
     # Feature 2: Org summary stats mode
     org_group.add_argument(
-        '--org-stats',
-        action='store_true',
-        dest='org_stats_only',
-        help='Quick summary stats only - skips similarity matrix and clustering for faster results'
+        "--org-stats",
+        action="store_true",
+        dest="org_stats_only",
+        help="Quick summary stats only - skips similarity matrix and clustering for faster results",
     )
 
     # Feature 3: Naming convention audit
     org_group.add_argument(
-        '--audit-naming',
-        action='store_true',
-        dest='org_audit_naming',
-        help='Detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes, etc.)'
+        "--audit-naming",
+        action="store_true",
+        dest="org_audit_naming",
+        help="Detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes, etc.)",
     )
 
     # Feature 4: Trending/drift report
     org_group.add_argument(
-        '--compare-org-report',
+        "--compare-org-report",
         type=str,
-        metavar='PREV.json',
-        dest='org_compare_report',
-        help='Compare current org-report to a previous JSON report for trending/drift analysis'
+        metavar="PREV.json",
+        dest="org_compare_report",
+        help="Compare current org-report to a previous JSON report for trending/drift analysis",
     )
 
     # Feature 5: Owner/team summary
     org_group.add_argument(
-        '--owner-summary',
-        action='store_true',
-        dest='org_owner_summary',
-        help='Group statistics by data view owner (requires --include-metadata)'
+        "--owner-summary",
+        action="store_true",
+        dest="org_owner_summary",
+        help="Group statistics by data view owner (requires --include-metadata)",
     )
 
     # Feature 6: Stale component heuristics
     org_group.add_argument(
-        '--flag-stale',
-        action='store_true',
-        dest='org_flag_stale',
-        help='Flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns)'
+        "--flag-stale",
+        action="store_true",
+        dest="org_flag_stale",
+        help="Flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns)",
     )
 
     # Enable shell tab-completion if argcomplete is installed
@@ -6609,7 +6663,9 @@ Requirements:
 
     return parser.parse_args()
 
+
 # ==================== DATA VIEW NAME RESOLUTION ====================
+
 
 def is_data_view_id(identifier: str) -> bool:
     """
@@ -6621,7 +6677,7 @@ def is_data_view_id(identifier: str) -> bool:
     Returns:
         True if identifier is a data view ID, False if it's a name
     """
-    return identifier.startswith('dv_')
+    return identifier.startswith("dv_")
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -6657,8 +6713,9 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
-def find_similar_names(target: str, available_names: List[str], max_suggestions: int = 3,
-                       max_distance: int = None) -> List[Tuple[str, int]]:
+def find_similar_names(
+    target: str, available_names: List[str], max_suggestions: int = 3, max_distance: int = None
+) -> List[Tuple[str, int]]:
     """
     Find names similar to the target using Levenshtein distance.
 
@@ -6695,6 +6752,7 @@ def find_similar_names(target: str, available_names: List[str], max_suggestions:
 
 
 # ==================== DATA VIEW CACHE ====================
+
 
 class DataViewCache:
     """
@@ -6794,7 +6852,7 @@ def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> List
 
     # Convert to list if DataFrame
     if isinstance(available_dvs, pd.DataFrame):
-        available_dvs = available_dvs.to_dict('records')
+        available_dvs = available_dvs.to_dict("records")
 
     # Cache the result
     _data_view_cache.set(config_file, available_dvs)
@@ -6831,7 +6889,7 @@ def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Op
     while True:
         try:
             choice = input("Enter selection (number): ").strip()
-            if choice == '0' or choice.lower() in ('q', 'quit', 'cancel'):
+            if choice == "0" or choice.lower() in ("q", "quit", "cancel"):
                 return None
 
             idx = int(choice)
@@ -6841,15 +6899,18 @@ def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Op
             print(f"Invalid selection. Enter 1-{len(options)} or 0 to cancel.")
         except ValueError:
             print("Please enter a number.")
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print("\nCancelled.")
             return None
 
 
-def resolve_data_view_names(identifiers: List[str], config_file: str = "config.json",
-                            logger: logging.Logger = None,
-                            suggest_similar: bool = True,
-                            profile: Optional[str] = None) -> Tuple[List[str], Dict[str, List[str]]]:
+def resolve_data_view_names(
+    identifiers: List[str],
+    config_file: str = "config.json",
+    logger: logging.Logger = None,
+    suggest_similar: bool = True,
+    profile: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, List[str]]]:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
     If it's a name, look up all data views with that exact name.
@@ -6899,8 +6960,8 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
 
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get('id')
-                dv_name = dv.get('name')
+                dv_id = dv.get("id")
+                dv_name = dv.get("name")
 
                 if dv_id and dv_name:
                     id_to_name_lookup[dv_id] = dv_name
@@ -6964,6 +7025,7 @@ def resolve_data_view_names(identifiers: List[str], config_file: str = "config.j
 
 # ==================== DATASET INFO HELPER ====================
 
+
 def _extract_dataset_info(dataset: Any) -> dict:
     """
     Resilient parser for dataset objects from connection API responses.
@@ -6978,27 +7040,28 @@ def _extract_dataset_info(dataset: Any) -> dict:
         Dict with 'id' and 'name' keys (values may be 'N/A' if not found)
     """
     if not isinstance(dataset, dict):
-        return {'id': str(dataset) if dataset else 'N/A', 'name': 'N/A'}
+        return {"id": str(dataset) if dataset else "N/A", "name": "N/A"}
 
     # Try common ID field names (prefer canonical/camelCase, keep snake_case for compatibility)
-    ds_id = (dataset.get('id')
-             or dataset.get('datasetId')
-             or dataset.get('dataSetId')
-             or dataset.get('dataset_id')
-             or 'N/A')
+    ds_id = (
+        dataset.get("id") or dataset.get("datasetId") or dataset.get("dataSetId") or dataset.get("dataset_id") or "N/A"
+    )
 
     # Try common name field names
-    ds_name = (dataset.get('name')
-               or dataset.get('datasetName')
-               or dataset.get('dataSetName')
-               or dataset.get('dataset_name')
-               or dataset.get('title')
-               or 'N/A')
+    ds_name = (
+        dataset.get("name")
+        or dataset.get("datasetName")
+        or dataset.get("dataSetName")
+        or dataset.get("dataset_name")
+        or dataset.get("title")
+        or "N/A"
+    )
 
-    return {'id': str(ds_id), 'name': str(ds_name)}
+    return {"id": str(ds_id), "name": str(ds_name)}
 
 
 # ==================== LIST HELPERS ====================
+
 
 def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None:
     """Emit output data to a file, stdout pipe, or the console.
@@ -7012,28 +7075,28 @@ def _emit_output(data: str, output_file: Optional[str], is_stdout: bool) -> None
         parent = os.path.dirname(output_file)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             f.write(data)
     else:
-        text = data.rstrip('\n')
+        text = data.rstrip("\n")
         # Use a pager when output is longer than the terminal and stdout
         # is an interactive TTY (not a pipe / redirect).
         if not is_stdout and sys.stdout.isatty():
-            line_count = text.count('\n') + 1
+            line_count = text.count("\n") + 1
             try:
                 term_height = os.get_terminal_size().lines
             except OSError:
                 term_height = 0
             if term_height and line_count > term_height:
-                pager = os.environ.get('PAGER', 'less')
+                pager = os.environ.get("PAGER", "less")
                 try:
                     proc = subprocess.Popen(
-                        [pager, '-R'] if pager == 'less' else [pager],
+                        [pager, "-R"] if pager == "less" else [pager],
                         stdin=subprocess.PIPE,
                     )
                     proc.communicate(text.encode())
                     return
-                except (OSError, FileNotFoundError):
+                except OSError, FileNotFoundError:
                     pass  # pager unavailable — fall through to plain print
         print(text)
 
@@ -7048,11 +7111,11 @@ def _format_as_json(payload: dict) -> str:
 
 def _format_as_csv(columns: list[str], rows: list[dict]) -> str:
     """Format discovery rows as CSV with the given column headers."""
-    buf = io.StringIO(newline='')
-    writer = csv.writer(buf, lineterminator='\n')
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(columns)
     for row in rows:
-        writer.writerow([row.get(col, '') for col in columns])
+        writer.writerow([row.get(col, "") for col in columns])
     return buf.getvalue()
 
 
@@ -7073,18 +7136,18 @@ def _format_as_table(
     Returns:
         Formatted table string with leading/trailing blank lines.
     """
-    labels = col_labels or [c.replace('_', ' ').title() for c in columns]
+    labels = col_labels or [c.replace("_", " ").title() for c in columns]
     widths = [
-        max(len(lbl), max((len(str(item.get(col, ''))) for item in items), default=0)) + 2
+        max(len(lbl), max((len(str(item.get(col, ""))) for item in items), default=0)) + 2
         for col, lbl in zip(columns, labels)
     ]
-    lines: list[str] = ['', header_line, '']
-    lines.append(''.join(f'{lbl:<{w}}' for lbl, w in zip(labels, widths)))
-    lines.append('-' * sum(widths))
+    lines: list[str] = ["", header_line, ""]
+    lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths)))
+    lines.append("-" * sum(widths))
     for item in items:
-        lines.append(''.join(f'{str(item.get(col, "")):<{w}}' for col, w in zip(columns, widths)))
-    lines.append('')
-    return '\n'.join(lines)
+        lines.append("".join(f"{str(item.get(col, '')):<{w}}" for col, w in zip(columns, widths)))
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _extract_owner_name(owner_data: Any) -> str:
@@ -7096,22 +7159,22 @@ def _extract_owner_name(owner_data: Any) -> str:
     - Some endpoints return ``None`` or a bare string.
     """
     if owner_data is None:
-        return 'N/A'
+        return "N/A"
     if isinstance(owner_data, str):
-        return owner_data or 'N/A'
+        return owner_data or "N/A"
     if isinstance(owner_data, dict):
-        for key in ('name', 'login', 'email', 'imsUserId', 'id'):
+        for key in ("name", "login", "email", "imsUserId", "id"):
             val = owner_data.get(key)
             if val:
                 return str(val)
-        return 'N/A'
-    return str(owner_data) or 'N/A'
+        return "N/A"
+    return str(owner_data) or "N/A"
 
 
 def _extract_connections_list(raw_connections: Any) -> list:
     """Extract the connection list from a raw getConnections API response."""
     if isinstance(raw_connections, dict):
-        connections = raw_connections.get('content', raw_connections.get('result', []))
+        connections = raw_connections.get("content", raw_connections.get("result", []))
         if not isinstance(connections, list):
             # content/result was an unexpected type (e.g. a string); wrap the
             # whole dict so downstream isinstance(conn, dict) checks can decide
@@ -7158,8 +7221,8 @@ def _run_list_command(
     Returns:
         True if successful, False otherwise.
     """
-    is_stdout = output_file in ('-', 'stdout')
-    is_machine_readable = output_format in ('json', 'csv') or is_stdout
+    is_stdout = output_file in ("-", "stdout")
+    is_machine_readable = output_format in ("json", "csv") or is_stdout
 
     active_profile = resolve_active_profile(profile)
 
@@ -7178,11 +7241,7 @@ def _run_list_command(
     try:
         logger = logging.getLogger(command_name)
         logger.setLevel(logging.WARNING)
-        success, source, _ = configure_cjapy(
-            profile=active_profile,
-            config_file=config_file,
-            logger=logger
-        )
+        success, source, _ = configure_cjapy(profile=active_profile, config_file=config_file, logger=logger)
         if not success:
             if is_machine_readable:
                 print(json.dumps({"error": f"Configuration error: {source}"}), file=sys.stderr)
@@ -7210,7 +7269,7 @@ def _run_list_command(
             print("  cja_auto_sdr --sample-config")
         return False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -7226,46 +7285,47 @@ def _run_list_command(
 
 # ==================== LIST DATA VIEWS ====================
 
+
 def _fetch_dataviews(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_dataviews."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
         available_dvs = cja.getDataViews()
 
-        if available_dvs is None or (hasattr(available_dvs, '__len__') and len(available_dvs) == 0):
+        if available_dvs is None or (hasattr(available_dvs, "__len__") and len(available_dvs) == 0):
             if is_machine_readable:
-                if output_format == 'json':
+                if output_format == "json":
                     return json.dumps({"dataViews": [], "count": 0}, indent=2)
                 return "id,name,owner\n"
             return "\nNo data views found or no access to any data views.\n"
 
         if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict('records')
+            available_dvs = available_dvs.to_dict("records")
 
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get('id', 'N/A')
-                dv_name = dv.get('name', 'N/A')
-                owner_name = _extract_owner_name(dv.get('owner'))
-                display_data.append({'id': dv_id, 'name': dv_name, 'owner': owner_name})
+                dv_id = dv.get("id", "N/A")
+                dv_name = dv.get("name", "N/A")
+                owner_name = _extract_owner_name(dv.get("owner"))
+                display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
-        if output_format == 'json':
+        if output_format == "json":
             return _format_as_json({"dataViews": display_data, "count": len(display_data)})
-        elif output_format == 'csv':
-            return _format_as_csv(['id', 'name', 'owner'], display_data)
+        elif output_format == "csv":
+            return _format_as_csv(["id", "name", "owner"], display_data)
         else:
             table = _format_as_table(
                 f"Found {len(display_data)} accessible data view(s):",
                 display_data,
-                columns=['id', 'name', 'owner'],
-                col_labels=['ID', 'Name', 'Owner'],
+                columns=["id", "name", "owner"],
+                col_labels=["ID", "Name", "Owner"],
             )
             # Compute total width to match table separator for usage footer
-            labels = ['ID', 'Name', 'Owner']
-            cols = ['id', 'name', 'owner']
+            labels = ["ID", "Name", "Owner"]
+            cols = ["id", "name", "owner"]
             widths = [
-                max(len(lbl), max((len(str(item.get(col, ''))) for item in display_data), default=0)) + 2
+                max(len(lbl), max((len(str(item.get(col, ""))) for item in display_data), default=0)) + 2
                 for col, lbl in zip(cols, labels)
             ]
             total_width = sum(widths)
@@ -7273,18 +7333,22 @@ def _fetch_dataviews(output_format: str) -> Callable:
                 "=" * total_width,
                 "Usage:",
                 "  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly",
-                "  cja_auto_sdr \"<DATA_VIEW_NAME>\"   # Use exact name (quotes recommended)",
+                '  cja_auto_sdr "<DATA_VIEW_NAME>"   # Use exact name (quotes recommended)',
                 "",
                 "Note: If multiple data views share the same name, all will be processed.",
                 "=" * total_width,
             ]
-            return table + '\n'.join(footer_lines)
+            return table + "\n".join(footer_lines)
 
     return _inner
 
 
-def list_dataviews(config_file: str = "config.json", output_format: str = "table",
-                   output_file: Optional[str] = None, profile: Optional[str] = None) -> bool:
+def list_dataviews(
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: Optional[str] = None,
+    profile: Optional[str] = None,
+) -> bool:
     """List all accessible data views and exit."""
     return _run_list_command(
         banner_text="LISTING ACCESSIBLE DATA VIEWS",
@@ -7299,12 +7363,12 @@ def list_dataviews(config_file: str = "config.json", output_format: str = "table
 
 # ==================== LIST CONNECTIONS ====================
 
+
 def _fetch_connections(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_connections."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
-        raw_connections = cja.getConnections(
-            output='raw', expansion='name,ownerFullName,dataSets')
+        raw_connections = cja.getConnections(output="raw", expansion="name,ownerFullName,dataSets")
         connections = _extract_connections_list(raw_connections)
 
         if not connections:
@@ -7312,13 +7376,13 @@ def _fetch_connections(output_format: str) -> Callable:
             # (the GET /connections API requires product-admin privileges).
             available_dvs = cja.getDataViews()
             if isinstance(available_dvs, pd.DataFrame):
-                available_dvs = available_dvs.to_dict('records')
+                available_dvs = available_dvs.to_dict("records")
 
             conn_ids_from_dvs: dict[str, int] = {}  # conn_id -> count of data views
-            for dv in (available_dvs or []):
+            for dv in available_dvs or []:
                 if not isinstance(dv, dict):
                     continue
-                pid = dv.get('parentDataGroupId')
+                pid = dv.get("parentDataGroupId")
                 if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
                     conn_ids_from_dvs[pid] = conn_ids_from_dvs.get(pid, 0) + 1
 
@@ -7329,23 +7393,35 @@ def _fetch_connections(output_format: str) -> Callable:
                     "Connection details are unavailable. Showing connection IDs derived\n"
                     "from data views instead."
                 )
-                derived = [{'id': cid, 'name': None, 'owner': None,
-                            'datasets': [], 'dataview_count': cnt}
-                           for cid, cnt in sorted(conn_ids_from_dvs.items())]
+                derived = [
+                    {"id": cid, "name": None, "owner": None, "datasets": [], "dataview_count": cnt}
+                    for cid, cnt in sorted(conn_ids_from_dvs.items())
+                ]
 
-                if output_format == 'json':
-                    return _format_as_json({
-                        "connections": derived,
-                        "count": len(derived),
-                        "warning": _PERM_WARNING.replace('\n', ' '),
-                    })
-                elif output_format == 'csv':
-                    flat = [{'connection_id': d['id'], 'connection_name': '',
-                             'owner': '', 'dataset_id': '', 'dataset_name': '',
-                             'dataview_count': d['dataview_count']} for d in derived]
+                if output_format == "json":
+                    return _format_as_json(
+                        {
+                            "connections": derived,
+                            "count": len(derived),
+                            "warning": _PERM_WARNING.replace("\n", " "),
+                        }
+                    )
+                elif output_format == "csv":
+                    flat = [
+                        {
+                            "connection_id": d["id"],
+                            "connection_name": "",
+                            "owner": "",
+                            "dataset_id": "",
+                            "dataset_name": "",
+                            "dataview_count": d["dataview_count"],
+                        }
+                        for d in derived
+                    ]
                     return _format_as_csv(
-                        ['connection_id', 'connection_name', 'owner',
-                         'dataset_id', 'dataset_name', 'dataview_count'], flat)
+                        ["connection_id", "connection_name", "owner", "dataset_id", "dataset_name", "dataview_count"],
+                        flat,
+                    )
                 else:
                     lines: list[str] = []
                     lines.append("")
@@ -7356,11 +7432,11 @@ def _fetch_connections(output_format: str) -> Callable:
                     for d in derived:
                         lines.append(f"  {d['id']}  ({d['dataview_count']} data view(s))")
                     lines.append("")
-                    return '\n'.join(lines)
+                    return "\n".join(lines)
 
             # Genuinely no connections
             if is_machine_readable:
-                if output_format == 'json':
+                if output_format == "json":
                     return _format_as_json({"connections": [], "count": 0})
                 return "connection_id,connection_name,owner,dataset_id,dataset_name\n"
             return "\nNo connections found or no access to any connections.\n"
@@ -7369,43 +7445,54 @@ def _fetch_connections(output_format: str) -> Callable:
         for conn in connections:
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get('id', 'N/A')
-            conn_name = conn.get('name', 'N/A')
-            owner_name = _extract_owner_name(conn.get('ownerFullName') or conn.get('owner'))
+            conn_id = conn.get("id", "N/A")
+            conn_name = conn.get("name", "N/A")
+            owner_name = _extract_owner_name(conn.get("ownerFullName") or conn.get("owner"))
 
-            raw_datasets = conn.get('dataSets', conn.get('datasets', []))
+            raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
                 raw_datasets = []
             datasets = [_extract_dataset_info(ds) for ds in raw_datasets]
 
-            display_data.append({
-                'id': conn_id,
-                'name': conn_name,
-                'owner': owner_name,
-                'datasets': datasets,
-            })
+            display_data.append(
+                {
+                    "id": conn_id,
+                    "name": conn_name,
+                    "owner": owner_name,
+                    "datasets": datasets,
+                }
+            )
 
-        if output_format == 'json':
+        if output_format == "json":
             return _format_as_json({"connections": display_data, "count": len(display_data)})
-        elif output_format == 'csv':
+        elif output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset
             flat_rows: list[dict] = []
             for conn in display_data:
-                if conn['datasets']:
-                    for ds in conn['datasets']:
-                        flat_rows.append({
-                            'connection_id': conn['id'], 'connection_name': conn['name'],
-                            'owner': conn['owner'], 'dataset_id': ds['id'],
-                            'dataset_name': ds['name'],
-                        })
+                if conn["datasets"]:
+                    for ds in conn["datasets"]:
+                        flat_rows.append(
+                            {
+                                "connection_id": conn["id"],
+                                "connection_name": conn["name"],
+                                "owner": conn["owner"],
+                                "dataset_id": ds["id"],
+                                "dataset_name": ds["name"],
+                            }
+                        )
                 else:
-                    flat_rows.append({
-                        'connection_id': conn['id'], 'connection_name': conn['name'],
-                        'owner': conn['owner'], 'dataset_id': '', 'dataset_name': '',
-                    })
+                    flat_rows.append(
+                        {
+                            "connection_id": conn["id"],
+                            "connection_name": conn["name"],
+                            "owner": conn["owner"],
+                            "dataset_id": "",
+                            "dataset_name": "",
+                        }
+                    )
             return _format_as_csv(
-                ['connection_id', 'connection_name', 'owner', 'dataset_id', 'dataset_name'],
-                flat_rows)
+                ["connection_id", "connection_name", "owner", "dataset_id", "dataset_name"], flat_rows
+            )
         else:
             lines: list[str] = []
             lines.append("")
@@ -7414,20 +7501,24 @@ def _fetch_connections(output_format: str) -> Callable:
             for conn in display_data:
                 lines.append(f"Connection: {conn['name']} ({conn['id']})")
                 lines.append(f"Owner: {conn['owner']}")
-                if conn['datasets']:
+                if conn["datasets"]:
                     lines.append(f"Datasets ({len(conn['datasets'])}):")
-                    for ds in conn['datasets']:
+                    for ds in conn["datasets"]:
                         lines.append(f"  {ds['id']}  {ds['name']}")
                 else:
                     lines.append("Datasets: (none)")
                 lines.append("")
-            return '\n'.join(lines)
+            return "\n".join(lines)
 
     return _inner
 
 
-def list_connections(config_file: str = "config.json", output_format: str = "table",
-                     output_file: Optional[str] = None, profile: Optional[str] = None) -> bool:
+def list_connections(
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: Optional[str] = None,
+    profile: Optional[str] = None,
+) -> bool:
     """List all accessible connections with their datasets and exit."""
     return _run_list_command(
         banner_text="LISTING ACCESSIBLE CONNECTIONS",
@@ -7442,35 +7533,35 @@ def list_connections(config_file: str = "config.json", output_format: str = "tab
 
 # ==================== LIST DATASETS ====================
 
+
 def _fetch_datasets(output_format: str) -> Callable:
     """Return a fetch_and_format callback for list_datasets."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> Optional[str]:
         # Step 1: Fetch all connections and build lookup map
-        raw_connections = cja.getConnections(
-            output='raw', expansion='name,ownerFullName,dataSets')
+        raw_connections = cja.getConnections(output="raw", expansion="name,ownerFullName,dataSets")
         conn_map: dict = {}  # connection_id -> {name, datasets}
         for conn in _extract_connections_list(raw_connections):
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get('id', '')
-            conn_name = conn.get('name', 'N/A')
-            raw_datasets = conn.get('dataSets', conn.get('datasets', []))
+            conn_id = conn.get("id", "")
+            conn_name = conn.get("name", "N/A")
+            raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
                 raw_datasets = []
             conn_map[conn_id] = {
-                'name': conn_name,
-                'datasets': [_extract_dataset_info(ds) for ds in raw_datasets],
+                "name": conn_name,
+                "datasets": [_extract_dataset_info(ds) for ds in raw_datasets],
             }
 
         # Step 2: Fetch all data views
         available_dvs = cja.getDataViews()
         if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict('records')
+            available_dvs = available_dvs.to_dict("records")
 
         if not available_dvs:
             if is_machine_readable:
-                if output_format == 'json':
+                if output_format == "json":
                     return _format_as_json({"dataViews": [], "count": 0})
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
             return "\nNo data views found or no access to any data views.\n"
@@ -7478,10 +7569,10 @@ def _fetch_datasets(output_format: str) -> Callable:
         # Detect permissions gap: conn_map is empty but data views have connections
         _no_conn_details = False
         if not conn_map:
-            for dv in (available_dvs or []):
+            for dv in available_dvs or []:
                 if not isinstance(dv, dict):
                     continue
-                pid = dv.get('parentDataGroupId')
+                pid = dv.get("parentDataGroupId")
                 if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
                     _no_conn_details = True
                     break
@@ -7493,32 +7584,34 @@ def _fetch_datasets(output_format: str) -> Callable:
         for i, dv in enumerate(available_dvs):
             if not isinstance(dv, dict):
                 continue
-            dv_id = dv.get('id', 'N/A')
-            dv_name = dv.get('name', 'N/A')
+            dv_id = dv.get("id", "N/A")
+            dv_name = dv.get("name", "N/A")
 
             if not is_machine_readable:
-                print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end='\r')
+                print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end="\r")
 
-            parent_conn_id = dv.get('parentDataGroupId')
+            parent_conn_id = dv.get("parentDataGroupId")
             # DataFrame-backed records can carry missing values as NaN/NA.
             # Normalize to None so machine-readable output emits "N/A", not NaN.
             if parent_conn_id is not None and pd.isna(parent_conn_id):
                 parent_conn_id = None
 
             conn_info = conn_map.get(parent_conn_id) if parent_conn_id else None
-            conn_name = conn_info.get('name', 'N/A') if conn_info else None
-            datasets = conn_info.get('datasets', []) if conn_info else []
+            conn_name = conn_info.get("name", "N/A") if conn_info else None
+            datasets = conn_info.get("datasets", []) if conn_info else []
 
-            display_data.append({
-                'id': dv_id,
-                'name': dv_name,
-                'connection': {'id': parent_conn_id or 'N/A', 'name': conn_name},
-                'datasets': datasets,
-            })
+            display_data.append(
+                {
+                    "id": dv_id,
+                    "name": dv_name,
+                    "connection": {"id": parent_conn_id or "N/A", "name": conn_name},
+                    "datasets": datasets,
+                }
+            )
 
         if not is_machine_readable:
             # Clear progress line with ANSI erase-line escape
-            print("\033[2K", end='\r')
+            print("\033[2K", end="\r")
 
         _CONN_PERM_WARNING = (
             "Note: Connection details are unavailable (the GET /connections API\n"
@@ -7527,32 +7620,43 @@ def _fetch_datasets(output_format: str) -> Callable:
 
         result_payload: dict = {"dataViews": display_data, "count": len(display_data)}
         if _no_conn_details:
-            result_payload["warning"] = _CONN_PERM_WARNING.replace('\n', ' ')
+            result_payload["warning"] = _CONN_PERM_WARNING.replace("\n", " ")
 
-        if output_format == 'json':
+        if output_format == "json":
             return _format_as_json(result_payload)
-        elif output_format == 'csv':
+        elif output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset per data view
             flat_rows: list[dict] = []
             for entry in display_data:
-                conn_id = entry['connection']['id']
-                conn_name_val = entry['connection']['name'] or ''
-                if entry['datasets']:
-                    for ds in entry['datasets']:
-                        flat_rows.append({
-                            'dataview_id': entry['id'], 'dataview_name': entry['name'],
-                            'connection_id': conn_id, 'connection_name': conn_name_val,
-                            'dataset_id': ds['id'], 'dataset_name': ds['name'],
-                        })
+                conn_id = entry["connection"]["id"]
+                conn_name_val = entry["connection"]["name"] or ""
+                if entry["datasets"]:
+                    for ds in entry["datasets"]:
+                        flat_rows.append(
+                            {
+                                "dataview_id": entry["id"],
+                                "dataview_name": entry["name"],
+                                "connection_id": conn_id,
+                                "connection_name": conn_name_val,
+                                "dataset_id": ds["id"],
+                                "dataset_name": ds["name"],
+                            }
+                        )
                 else:
-                    flat_rows.append({
-                        'dataview_id': entry['id'], 'dataview_name': entry['name'],
-                        'connection_id': conn_id, 'connection_name': conn_name_val,
-                        'dataset_id': '', 'dataset_name': '',
-                    })
+                    flat_rows.append(
+                        {
+                            "dataview_id": entry["id"],
+                            "dataview_name": entry["name"],
+                            "connection_id": conn_id,
+                            "connection_name": conn_name_val,
+                            "dataset_id": "",
+                            "dataset_name": "",
+                        }
+                    )
             return _format_as_csv(
-                ['dataview_id', 'dataview_name', 'connection_id', 'connection_name',
-                 'dataset_id', 'dataset_name'], flat_rows)
+                ["dataview_id", "dataview_name", "connection_id", "connection_name", "dataset_id", "dataset_name"],
+                flat_rows,
+            )
         else:
             lines: list[str] = []
             lines.append("")
@@ -7563,26 +7667,30 @@ def _fetch_datasets(output_format: str) -> Callable:
             lines.append("")
             for entry in display_data:
                 lines.append(f"Data View: {entry['name']} ({entry['id']})")
-                c_name = entry['connection']['name']
-                c_id = entry['connection']['id']
+                c_name = entry["connection"]["name"]
+                c_id = entry["connection"]["id"]
                 if c_name:
                     lines.append(f"Connection: {c_name} ({c_id})")
                 else:
                     lines.append(f"Connection: {c_id}")
-                if entry['datasets']:
+                if entry["datasets"]:
                     lines.append(f"Datasets ({len(entry['datasets'])}):")
-                    for ds in entry['datasets']:
+                    for ds in entry["datasets"]:
                         lines.append(f"  {ds['id']}  {ds['name']}")
                 elif not _no_conn_details:
                     lines.append("Datasets: (none)")
                 lines.append("")
-            return '\n'.join(lines)
+            return "\n".join(lines)
 
     return _inner
 
 
-def list_datasets(config_file: str = "config.json", output_format: str = "table",
-                  output_file: Optional[str] = None, profile: Optional[str] = None) -> bool:
+def list_datasets(
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: Optional[str] = None,
+    profile: Optional[str] = None,
+) -> bool:
     """List all data views with their backing connections and underlying datasets."""
     return _run_list_command(
         banner_text="LISTING DATA VIEWS WITH DATASETS",
@@ -7597,8 +7705,8 @@ def list_datasets(config_file: str = "config.json", output_format: str = "table"
 
 # ==================== INTERACTIVE DATA VIEW SELECTION ====================
 
-def interactive_select_dataviews(config_file: str = "config.json",
-                                  profile: Optional[str] = None) -> List[str]:
+
+def interactive_select_dataviews(config_file: str = "config.json", profile: Optional[str] = None) -> List[str]:
     """
     Interactively select data views from a numbered list.
 
@@ -7637,27 +7745,23 @@ def interactive_select_dataviews(config_file: str = "config.json",
         print("Fetching available data views...")
         available_dvs = cja.getDataViews()
 
-        if available_dvs is None or (hasattr(available_dvs, '__len__') and len(available_dvs) == 0):
+        if available_dvs is None or (hasattr(available_dvs, "__len__") and len(available_dvs) == 0):
             print()
             print(ConsoleColors.warning("No data views found or no access to any data views."))
             return []
 
         # Convert to list if DataFrame
         if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict('records')
+            available_dvs = available_dvs.to_dict("records")
 
         # Build display data
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get('id', 'N/A')
-                dv_name = dv.get('name', 'N/A')
-                owner_name = _extract_owner_name(dv.get('owner'))
-                display_data.append({
-                    'id': dv_id,
-                    'name': dv_name,
-                    'owner': owner_name
-                })
+                dv_id = dv.get("id", "N/A")
+                dv_name = dv.get("name", "N/A")
+                owner_name = _extract_owner_name(dv.get("owner"))
+                display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
         if not display_data:
             print(ConsoleColors.warning("No data views available."))
@@ -7665,9 +7769,9 @@ def interactive_select_dataviews(config_file: str = "config.json",
 
         # Calculate column widths
         num_width = len(str(len(display_data))) + 2
-        max_id_width = max(len('ID'), max(len(item['id']) for item in display_data)) + 2
-        max_name_width = max(len('Name'), max(len(item['name']) for item in display_data)) + 2
-        max_owner_width = max(len('Owner'), max(len(item['owner']) for item in display_data)) + 2
+        max_id_width = max(len("ID"), max(len(item["id"]) for item in display_data)) + 2
+        max_name_width = max(len("Name"), max(len(item["name"]) for item in display_data)) + 2
+        max_owner_width = max(len("Owner"), max(len(item["owner"]) for item in display_data)) + 2
 
         total_width = num_width + max_id_width + max_name_width + max_owner_width
 
@@ -7678,7 +7782,9 @@ def interactive_select_dataviews(config_file: str = "config.json",
         print("-" * total_width)
 
         for idx, item in enumerate(display_data, 1):
-            print(f"{idx:<{num_width}} {item['id']:<{max_id_width}} {item['name']:<{max_name_width}} {item['owner']:<{max_owner_width}}")
+            print(
+                f"{idx:<{num_width}} {item['id']:<{max_id_width}} {item['name']:<{max_name_width}} {item['owner']:<{max_owner_width}}"
+            )
 
         print()
         print("-" * total_width)
@@ -7703,26 +7809,26 @@ def interactive_select_dataviews(config_file: str = "config.json",
                 print("Please enter a selection.")
                 continue
 
-            if selection in ('q', 'quit', 'exit', 'cancel'):
+            if selection in ("q", "quit", "exit", "cancel"):
                 print(ConsoleColors.warning("Selection cancelled."))
                 return []
 
             # Parse selection
             selected_indices = set()
 
-            if selection in ('all', 'a', '*'):
+            if selection in ("all", "a", "*"):
                 selected_indices = set(range(1, len(display_data) + 1))
             else:
                 # Parse comma-separated parts
-                parts = selection.replace(' ', '').split(',')
+                parts = selection.replace(" ", "").split(",")
                 valid = True
                 for part in parts:
                     if not part:
                         continue
-                    if '-' in part:
+                    if "-" in part:
                         # Range like "1-5"
                         try:
-                            range_parts = part.split('-')
+                            range_parts = part.split("-")
                             if len(range_parts) != 2:
                                 raise ValueError("Invalid range format")
                             start = int(range_parts[0])
@@ -7751,7 +7857,9 @@ def interactive_select_dataviews(config_file: str = "config.json",
             # Validate indices
             invalid_indices = [i for i in selected_indices if i < 1 or i > len(display_data)]
             if invalid_indices:
-                print(ConsoleColors.error(f"Invalid selection(s): {invalid_indices}. Valid range: 1-{len(display_data)}"))
+                print(
+                    ConsoleColors.error(f"Invalid selection(s): {invalid_indices}. Valid range: 1-{len(display_data)}")
+                )
                 continue
 
             if not selected_indices:
@@ -7759,7 +7867,7 @@ def interactive_select_dataviews(config_file: str = "config.json",
                 continue
 
             # Convert indices to IDs
-            selected_ids = [display_data[i - 1]['id'] for i in sorted(selected_indices)]
+            selected_ids = [display_data[i - 1]["id"] for i in sorted(selected_indices)]
 
             print()
             print(f"Selected {len(selected_ids)} data view(s):")
@@ -7776,7 +7884,7 @@ def interactive_select_dataviews(config_file: str = "config.json",
         print("  cja_auto_sdr --sample-config")
         return []
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Operation cancelled."))
         return []
@@ -7788,9 +7896,11 @@ def interactive_select_dataviews(config_file: str = "config.json",
 
 # ==================== INTERACTIVE MODE ====================
 
+
 @dataclass
 class WizardConfig:
     """Configuration collected from interactive mode"""
+
     data_view_ids: List[str]
     output_format: str = "excel"
     output_dir: Optional[str] = None
@@ -7800,8 +7910,7 @@ class WizardConfig:
     inventory_only: bool = False
 
 
-def interactive_wizard(config_file: str = "config.json",
-                       profile: Optional[str] = None) -> Optional[WizardConfig]:
+def interactive_wizard(config_file: str = "config.json", profile: Optional[str] = None) -> Optional[WizardConfig]:
     """
     Interactive wizard for guided SDR generation.
 
@@ -7819,8 +7928,7 @@ def interactive_wizard(config_file: str = "config.json",
         WizardConfig with user selections, or None if cancelled
     """
 
-    def prompt_choice(prompt: str, options: List[Tuple[str, str]],
-                      default: Optional[str] = None) -> Optional[str]:
+    def prompt_choice(prompt: str, options: List[Tuple[str, str]], default: Optional[str] = None) -> Optional[str]:
         """Prompt user to select from numbered options."""
         print()
         print(prompt)
@@ -7836,11 +7944,11 @@ def interactive_wizard(config_file: str = "config.json",
             try:
                 default_hint = f" [{options[[k for k, _ in options].index(default)][1]}]" if default else ""
                 choice = input(f"Enter choice (1-{len(options)}){default_hint}: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 print()
                 return None
 
-            if choice in ('q', 'quit', 'exit', 'cancel'):
+            if choice in ("q", "quit", "exit", "cancel"):
                 return None
 
             if not choice and default:
@@ -7860,15 +7968,15 @@ def interactive_wizard(config_file: str = "config.json",
             prompt_hint = "[Y/n] (Enter=yes)"
         else:
             prompt_hint = "[y/N] (Enter=no)"
-        valid_yes = ('y', 'yes', '1', 'true')
-        valid_no = ('n', 'no', '0', 'false')
-        valid_quit = ('q', 'quit', 'exit', 'cancel')
+        valid_yes = ("y", "yes", "1", "true")
+        valid_no = ("n", "no", "0", "false")
+        valid_quit = ("q", "quit", "exit", "cancel")
 
         while True:
             print()
             try:
                 answer = input(f"{prompt} {prompt_hint}: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 print()
                 return None
 
@@ -7914,22 +8022,22 @@ def interactive_wizard(config_file: str = "config.json",
         print("Fetching available data views...")
         available_dvs = cja.getDataViews()
 
-        if available_dvs is None or (hasattr(available_dvs, '__len__') and len(available_dvs) == 0):
+        if available_dvs is None or (hasattr(available_dvs, "__len__") and len(available_dvs) == 0):
             print()
             print(ConsoleColors.warning("No data views found or no access to any data views."))
             return None
 
         # Convert to list if DataFrame
         if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict('records')
+            available_dvs = available_dvs.to_dict("records")
 
         # Build display data
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get('id', 'N/A')
-                dv_name = dv.get('name', 'N/A')
-                display_data.append({'id': dv_id, 'name': dv_name})
+                dv_id = dv.get("id", "N/A")
+                dv_name = dv.get("name", "N/A")
+                display_data.append({"id": dv_id, "name": dv_name})
 
         if not display_data:
             print(ConsoleColors.warning("No data views available."))
@@ -7950,11 +8058,11 @@ def interactive_wizard(config_file: str = "config.json",
         while True:
             try:
                 selection = input("Select data view(s): ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 print()
                 return None
 
-            if selection in ('q', 'quit', 'exit', 'cancel'):
+            if selection in ("q", "quit", "exit", "cancel"):
                 print(ConsoleColors.warning("Cancelled."))
                 return None
 
@@ -7966,16 +8074,16 @@ def interactive_wizard(config_file: str = "config.json",
             selected_indices = set()
             valid = True
 
-            if selection in ('all', 'a', '*'):
+            if selection in ("all", "a", "*"):
                 selected_indices = set(range(1, len(display_data) + 1))
             else:
-                parts = selection.replace(' ', '').split(',')
+                parts = selection.replace(" ", "").split(",")
                 for part in parts:
                     if not part:
                         continue
-                    if '-' in part:
+                    if "-" in part:
                         try:
-                            range_parts = part.split('-')
+                            range_parts = part.split("-")
                             if len(range_parts) != 2:
                                 raise ValueError()
                             start, end = int(range_parts[0]), int(range_parts[1])
@@ -8007,8 +8115,8 @@ def interactive_wizard(config_file: str = "config.json",
             if not selected_indices:
                 continue
 
-            selected_ids = [display_data[i - 1]['id'] for i in sorted(selected_indices)]
-            selected_names = [display_data[i - 1]['name'] for i in sorted(selected_indices)]
+            selected_ids = [display_data[i - 1]["id"] for i in sorted(selected_indices)]
+            selected_names = [display_data[i - 1]["name"] for i in sorted(selected_indices)]
 
             print()
             print(f"Selected: {', '.join(selected_names)}")
@@ -8097,6 +8205,7 @@ def interactive_wizard(config_file: str = "config.json",
 
 # ==================== SAMPLE CONFIG GENERATOR ====================
 
+
 def generate_sample_config(output_path: str = "config.sample.json") -> bool:
     """
     Generate a sample configuration file
@@ -8111,7 +8220,7 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
         "org_id": "YOUR_ORG_ID@AdobeOrg",
         "client_id": "your_client_id_here",
         "secret": "your_client_secret_here",
-        "scopes": "your_scopes_from_developer_console"
+        "scopes": "your_scopes_from_developer_console",
     }
 
     print()
@@ -8121,7 +8230,7 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
     print()
 
     try:
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(sample_config, f, indent=2)
 
         print(f"✓ Sample configuration file created: {output_path}")
@@ -8146,9 +8255,10 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 
 # ==================== CONFIG STATUS ====================
 
-def show_config_status(config_file: str = "config.json",
-                       profile: Optional[str] = None,
-                       output_json: bool = False) -> bool:
+
+def show_config_status(
+    config_file: str = "config.json", profile: Optional[str] = None, output_json: bool = False
+) -> bool:
     """
     Show configuration status without connecting to API.
 
@@ -8208,7 +8318,7 @@ def show_config_status(config_file: str = "config.json",
         config_path = Path(config_file)
         if config_path.exists():
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file, "r") as f:
                     config_data = json.load(f)
                 config_source = f"Config file: {config_path.resolve()}"
                 config_source_type = "file"
@@ -8244,11 +8354,11 @@ def show_config_status(config_file: str = "config.json",
 
     # Define field display order and metadata
     fields = [
-        ('org_id', 'ORG_ID', True, False),      # (key, display_name, required, sensitive)
-        ('client_id', 'CLIENT_ID', True, True),
-        ('secret', 'SECRET', True, True),
-        ('scopes', 'SCOPES', False, False),
-        ('sandbox', 'SANDBOX', False, False),
+        ("org_id", "ORG_ID", True, False),  # (key, display_name, required, sensitive)
+        ("client_id", "CLIENT_ID", True, True),
+        ("secret", "SECRET", True, True),
+        ("scopes", "SCOPES", False, False),
+        ("sandbox", "SANDBOX", False, False),
     ]
 
     # Build credentials info with masked values
@@ -8256,28 +8366,20 @@ def show_config_status(config_file: str = "config.json",
     credentials_info = {}
 
     for key, display_name, required, sensitive in fields:
-        value = config_data.get(key, '')
+        value = config_data.get(key, "")
         if value:
             if sensitive:
                 # Mask sensitive values
                 if isinstance(value, str) and len(value) > 8:
-                    masked = value[:4] + '*' * (len(value) - 8) + value[-4:]
+                    masked = value[:4] + "*" * (len(value) - 8) + value[-4:]
                 else:
-                    masked = '****'
+                    masked = "****"
                 display_value = masked
             else:
                 display_value = value
-            credentials_info[key] = {
-                "value": display_value,
-                "set": True,
-                "required": required
-            }
+            credentials_info[key] = {"value": display_value, "set": True, "required": required}
         else:
-            credentials_info[key] = {
-                "value": None,
-                "set": False,
-                "required": required
-            }
+            credentials_info[key] = {"value": None, "set": False, "required": required}
             if required:
                 all_required_set = False
 
@@ -8289,7 +8391,7 @@ def show_config_status(config_file: str = "config.json",
             "profile": profile,
             "config_file": str(Path(config_file).resolve()) if config_source_type == "file" else None,
             "credentials": credentials_info,
-            "valid": all_required_set
+            "valid": all_required_set,
         }
         print(json.dumps(result, indent=2))
     else:
@@ -8328,8 +8430,8 @@ def show_config_status(config_file: str = "config.json",
 
 # ==================== VALIDATE CONFIG ====================
 
-def validate_config_only(config_file: str = "config.json",
-                         profile: Optional[str] = None) -> bool:
+
+def validate_config_only(config_file: str = "config.json", profile: Optional[str] = None) -> bool:
     """
     Validate configuration and API connectivity without processing data views.
 
@@ -8358,8 +8460,8 @@ def validate_config_only(config_file: str = "config.json",
 
     # Helper to display credentials
     def display_credentials(creds: Dict[str, str], source_name: str):
-        required_fields = ['org_id', 'client_id', 'secret']
-        optional_fields = ['scopes', 'sandbox']
+        required_fields = ["org_id", "client_id", "secret"]
+        optional_fields = ["scopes", "sandbox"]
         missing = []
 
         print()
@@ -8367,8 +8469,8 @@ def validate_config_only(config_file: str = "config.json",
         for field in required_fields:
             if field in creds and creds[field]:
                 value = creds[field]
-                if field in ['secret', 'client_id']:
-                    masked = value[:4] + '****' + value[-4:] if len(value) > 8 else '****'
+                if field in ["secret", "client_id"]:
+                    masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
                 print(f"    ✓ {field}: {masked}")
@@ -8403,7 +8505,7 @@ def validate_config_only(config_file: str = "config.json",
                 print(f"  ✓ Profile '{profile}' found")
                 if display_credentials(profile_creds, f"Profile: {profile}"):
                     active_credentials = profile_creds
-                    credential_source = 'profile'
+                    credential_source = "profile"
                 else:
                     all_passed = False
         except ProfileNotFoundError:
@@ -8424,7 +8526,7 @@ def validate_config_only(config_file: str = "config.json",
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
-                    credential_source = 'env'
+                    credential_source = "env"
             else:
                 print(f"  ⚠ Environment credentials incomplete, checking config file...")
         else:
@@ -8440,12 +8542,12 @@ def validate_config_only(config_file: str = "config.json",
             abs_path = config_path.resolve()
             print(f"  ✓ Config file found: {abs_path}")
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file, "r") as f:
                     config = json.load(f)
                 print(f"  ✓ Config file is valid JSON")
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
-                    credential_source = 'file'
+                    credential_source = "file"
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
@@ -8465,7 +8567,7 @@ def validate_config_only(config_file: str = "config.json",
             print("  Or create a profile:")
             print("    cja_auto_sdr --profile-add <name>")
             all_passed = False
-    elif active_credentials and credential_source in ('profile', 'env'):
+    elif active_credentials and credential_source in ("profile", "env"):
         print()
         print(f"[2/3] Skipping config file check (using {credential_source} credentials)")
 
@@ -8481,7 +8583,7 @@ def validate_config_only(config_file: str = "config.json",
     print("[3/3] Testing API connection...")
     try:
         # Configure cjapy with the active credentials
-        if credential_source in ('profile', 'env'):
+        if credential_source in ("profile", "env"):
             _config_from_env(active_credentials, logger)
         else:
             cjapy.importConfigFile(config_file)
@@ -8492,13 +8594,13 @@ def validate_config_only(config_file: str = "config.json",
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
-            dv_count = len(available_dvs) if hasattr(available_dvs, '__len__') else 0
+            dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
             print(f"  ✓ API connection successful")
             print(f"  ✓ Found {dv_count} accessible data view(s)")
         else:
             print(f"  ⚠ API returned empty response - connection may be unstable")
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
@@ -8520,9 +8622,15 @@ def validate_config_only(config_file: str = "config.json",
 
 # ==================== STATS COMMAND ====================
 
-def show_stats(data_views: List[str], config_file: str = "config.json",
-               output_format: str = "table", output_file: Optional[str] = None,
-               quiet: bool = False, profile: Optional[str] = None) -> bool:
+
+def show_stats(
+    data_views: List[str],
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: Optional[str] = None,
+    quiet: bool = False,
+    profile: Optional[str] = None,
+) -> bool:
     """
     Show quick statistics about data view(s) without generating full reports.
 
@@ -8537,8 +8645,8 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
     Returns:
         True if successful, False otherwise
     """
-    is_stdout = output_file in ('-', 'stdout')
-    is_machine_readable = output_format in ('json', 'csv') or is_stdout
+    is_stdout = output_file in ("-", "stdout")
+    is_machine_readable = output_format in ("json", "csv") or is_stdout
 
     if not is_machine_readable and not quiet:
         print()
@@ -8562,7 +8670,7 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
             try:
                 # Get data view info
                 dv_info = cja.getDataView(dv_id)
-                dv_name = dv_info.get('name', 'Unknown') if isinstance(dv_info, dict) else 'Unknown'
+                dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
 
                 # Get metrics and dimensions
                 metrics_df = cja.getMetrics(dv_id)
@@ -8572,62 +8680,71 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
                 dimensions_count = len(dimensions_df) if dimensions_df is not None and not dimensions_df.empty else 0
 
                 # Get owner info
-                owner_info = dv_info.get('owner', {}) if isinstance(dv_info, dict) else {}
-                owner_name = owner_info.get('name', 'N/A') if isinstance(owner_info, dict) else 'N/A'
+                owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
+                owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
 
                 # Get description
-                description = dv_info.get('description', '') if isinstance(dv_info, dict) else ''
+                description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
 
-                stats_data.append({
-                    'id': dv_id,
-                    'name': dv_name,
-                    'owner': owner_name,
-                    'metrics': metrics_count,
-                    'dimensions': dimensions_count,
-                    'total_components': metrics_count + dimensions_count,
-                    'description': description[:100] + '...' if len(description) > 100 else description
-                })
+                stats_data.append(
+                    {
+                        "id": dv_id,
+                        "name": dv_name,
+                        "owner": owner_name,
+                        "metrics": metrics_count,
+                        "dimensions": dimensions_count,
+                        "total_components": metrics_count + dimensions_count,
+                        "description": description[:100] + "..." if len(description) > 100 else description,
+                    }
+                )
 
             except Exception as e:
-                stats_data.append({
-                    'id': dv_id,
-                    'name': 'ERROR',
-                    'owner': 'N/A',
-                    'metrics': 0,
-                    'dimensions': 0,
-                    'total_components': 0,
-                    'description': f'Error: {str(e)}'
-                })
+                stats_data.append(
+                    {
+                        "id": dv_id,
+                        "name": "ERROR",
+                        "owner": "N/A",
+                        "metrics": 0,
+                        "dimensions": 0,
+                        "total_components": 0,
+                        "description": f"Error: {str(e)}",
+                    }
+                )
 
         # Output based on format
-        if output_format == 'json' or (is_stdout and output_format != 'csv'):
-            output_data = json.dumps({
-                "stats": stats_data,
-                "count": len(stats_data),
-                "totals": {
-                    "metrics": sum(s['metrics'] for s in stats_data),
-                    "dimensions": sum(s['dimensions'] for s in stats_data),
-                    "components": sum(s['total_components'] for s in stats_data)
-                }
-            }, indent=2)
+        if output_format == "json" or (is_stdout and output_format != "csv"):
+            output_data = json.dumps(
+                {
+                    "stats": stats_data,
+                    "count": len(stats_data),
+                    "totals": {
+                        "metrics": sum(s["metrics"] for s in stats_data),
+                        "dimensions": sum(s["dimensions"] for s in stats_data),
+                        "components": sum(s["total_components"] for s in stats_data),
+                    },
+                },
+                indent=2,
+            )
             if is_stdout:
                 print(output_data)
             elif output_file:
-                with open(output_file, 'w') as f:
+                with open(output_file, "w") as f:
                     f.write(output_data)
             else:
                 print(output_data)
-        elif output_format == 'csv':
+        elif output_format == "csv":
             lines = ["id,name,owner,metrics,dimensions,total_components"]
             for item in stats_data:
-                name = item['name'].replace('"', '""')
-                owner = item['owner'].replace('"', '""')
-                lines.append(f'{item["id"]},"{name}","{owner}",{item["metrics"]},{item["dimensions"]},{item["total_components"]}')
-            output_data = '\n'.join(lines)
+                name = item["name"].replace('"', '""')
+                owner = item["owner"].replace('"', '""')
+                lines.append(
+                    f'{item["id"]},"{name}","{owner}",{item["metrics"]},{item["dimensions"]},{item["total_components"]}'
+                )
+            output_data = "\n".join(lines)
             if is_stdout:
                 print(output_data)
             elif output_file:
-                with open(output_file, 'w') as f:
+                with open(output_file, "w") as f:
                     f.write(output_data)
             else:
                 print(output_data)
@@ -8635,25 +8752,35 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
             # Table format
             if stats_data:
                 # Calculate column widths
-                max_id_width = max(len('ID'), max(len(s['id']) for s in stats_data)) + 2
-                max_name_width = min(40, max(len('Name'), max(len(s['name']) for s in stats_data)) + 2)
+                max_id_width = max(len("ID"), max(len(s["id"]) for s in stats_data)) + 2
+                max_name_width = min(40, max(len("Name"), max(len(s["name"]) for s in stats_data)) + 2)
 
                 # Print header
-                header = f"{'ID':<{max_id_width}} {'Name':<{max_name_width}} {'Metrics':>8} {'Dimensions':>10} {'Total':>8}"
+                header = (
+                    f"{'ID':<{max_id_width}} {'Name':<{max_name_width}} {'Metrics':>8} {'Dimensions':>10} {'Total':>8}"
+                )
                 print(header)
                 print("-" * len(header))
 
                 # Print data
                 for item in stats_data:
-                    name = item['name'][:max_name_width-2] + '..' if len(item['name']) > max_name_width-2 else item['name']
-                    print(f"{item['id']:<{max_id_width}} {name:<{max_name_width}} {item['metrics']:>8} {item['dimensions']:>10} {item['total_components']:>8}")
+                    name = (
+                        item["name"][: max_name_width - 2] + ".."
+                        if len(item["name"]) > max_name_width - 2
+                        else item["name"]
+                    )
+                    print(
+                        f"{item['id']:<{max_id_width}} {name:<{max_name_width}} {item['metrics']:>8} {item['dimensions']:>10} {item['total_components']:>8}"
+                    )
 
                 # Print totals
                 print("-" * len(header))
-                total_metrics = sum(s['metrics'] for s in stats_data)
-                total_dims = sum(s['dimensions'] for s in stats_data)
-                total_all = sum(s['total_components'] for s in stats_data)
-                print(f"{'TOTAL':<{max_id_width}} {'':<{max_name_width}} {total_metrics:>8} {total_dims:>10} {total_all:>8}")
+                total_metrics = sum(s["metrics"] for s in stats_data)
+                total_dims = sum(s["dimensions"] for s in stats_data)
+                total_all = sum(s["total_components"] for s in stats_data)
+                print(
+                    f"{'TOTAL':<{max_id_width}} {'':<{max_name_width}} {total_metrics:>8} {total_dims:>10} {total_all:>8}"
+                )
 
             print()
             print("=" * BANNER_WIDTH)
@@ -8668,7 +8795,7 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -8683,7 +8810,6 @@ def show_stats(data_views: List[str], config_file: str = "config.json",
         return False
 
 
-
 def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgReportComparison:
     """Compare current org-report to a previous report for trending analysis (Feature 4).
 
@@ -8695,7 +8821,7 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         OrgReportComparison with delta information
     """
     # Load previous report
-    with open(previous_path, 'r', encoding='utf-8') as f:
+    with open(previous_path, "r", encoding="utf-8") as f:
         prev_data = json.load(f)
 
     # Extract data view IDs from both
@@ -8704,11 +8830,11 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
 
     prev_dv_ids = set()
     prev_dv_names = {}
-    for dv in prev_data.get('data_views', []):
-        dv_id = dv.get('data_view_id', dv.get('id', ''))
+    for dv in prev_data.get("data_views", []):
+        dv_id = dv.get("data_view_id", dv.get("id", ""))
         if dv_id:
             prev_dv_ids.add(dv_id)
-            prev_dv_names[dv_id] = dv.get('data_view_name', dv.get('name', 'Unknown'))
+            prev_dv_names[dv_id] = dv.get("data_view_name", dv.get("name", "Unknown"))
 
     # Compute deltas
     added_ids = list(current_dv_ids - prev_dv_ids)
@@ -8716,25 +8842,23 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
 
     # Component counts
     current_components = len(current.component_index)
-    prev_components = prev_data.get('summary', {}).get('total_unique_components', 0)
+    prev_components = prev_data.get("summary", {}).get("total_unique_components", 0)
 
     # Distribution deltas
     current_core = current.distribution.total_core
     current_isolated = current.distribution.total_isolated
-    prev_dist = prev_data.get('distribution', {})
-    prev_core = prev_dist.get('core', {}).get('total')
-    prev_isolated = prev_dist.get('isolated', {}).get('total')
+    prev_dist = prev_data.get("distribution", {})
+    prev_core = prev_dist.get("core", {}).get("total")
+    prev_isolated = prev_dist.get("isolated", {}).get("total")
 
     # Backward/forward compatible totals from metrics/dimensions counts
     if prev_core is None:
-        prev_core = (
-            prev_dist.get('core', {}).get('metrics_count', 0) +
-            prev_dist.get('core', {}).get('dimensions_count', 0)
+        prev_core = prev_dist.get("core", {}).get("metrics_count", 0) + prev_dist.get("core", {}).get(
+            "dimensions_count", 0
         )
     if prev_isolated is None:
-        prev_isolated = (
-            prev_dist.get('isolated', {}).get('metrics_count', 0) +
-            prev_dist.get('isolated', {}).get('dimensions_count', 0)
+        prev_isolated = prev_dist.get("isolated", {}).get("metrics_count", 0) + prev_dist.get("isolated", {}).get(
+            "dimensions_count", 0
         )
 
     # High-similarity pairs comparison (normalize order for stability)
@@ -8748,14 +8872,14 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
                 current_high_sim.add(_pair_key(p.dv1_id, p.dv2_id))
 
     prev_high_sim = set()
-    for p in prev_data.get('similarity_pairs', []):
-        if p.get('jaccard_similarity', 0) >= 0.9:
-            if 'dv1_id' in p or 'dv2_id' in p:
-                dv1 = p.get('dv1_id', '')
-                dv2 = p.get('dv2_id', '')
+    for p in prev_data.get("similarity_pairs", []):
+        if p.get("jaccard_similarity", 0) >= 0.9:
+            if "dv1_id" in p or "dv2_id" in p:
+                dv1 = p.get("dv1_id", "")
+                dv2 = p.get("dv2_id", "")
             else:
-                dv1 = p.get('data_view_1', {}).get('id', '')
-                dv2 = p.get('data_view_2', {}).get('id', '')
+                dv1 = p.get("data_view_1", {}).get("id", "")
+                dv2 = p.get("data_view_2", {}).get("id", "")
             if dv1 and dv2:
                 prev_high_sim.add(_pair_key(dv1, dv2))
 
@@ -8764,25 +8888,25 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
 
     return OrgReportComparison(
         current_timestamp=current.timestamp,
-        previous_timestamp=prev_data.get('generated_at', prev_data.get('timestamp', 'unknown')),
+        previous_timestamp=prev_data.get("generated_at", prev_data.get("timestamp", "unknown")),
         data_views_added=added_ids,
         data_views_removed=removed_ids,
-        data_views_added_names=[current_dv_names.get(dv_id, 'Unknown') for dv_id in added_ids],
-        data_views_removed_names=[prev_dv_names.get(dv_id, 'Unknown') for dv_id in removed_ids],
+        data_views_added_names=[current_dv_names.get(dv_id, "Unknown") for dv_id in added_ids],
+        data_views_removed_names=[prev_dv_names.get(dv_id, "Unknown") for dv_id in removed_ids],
         components_added=max(0, current_components - prev_components),
         components_removed=max(0, prev_components - current_components),
         core_delta=current_core - prev_core,
         isolated_delta=current_isolated - prev_isolated,
-        new_high_similarity_pairs=[{'dv1_id': p[0], 'dv2_id': p[1]} for p in new_pairs],
-        resolved_pairs=[{'dv1_id': p[0], 'dv2_id': p[1]} for p in resolved_pairs],
+        new_high_similarity_pairs=[{"dv1_id": p[0], "dv2_id": p[1]} for p in new_pairs],
+        resolved_pairs=[{"dv1_id": p[0], "dv2_id": p[1]} for p in resolved_pairs],
         summary={
-            'data_views_delta': len(current_dv_ids) - len(prev_dv_ids),
-            'components_delta': current_components - prev_components,
-            'core_delta': current_core - prev_core,
-            'isolated_delta': current_isolated - prev_isolated,
-            'new_duplicates': len(new_pairs),
-            'resolved_duplicates': len(resolved_pairs),
-        }
+            "data_views_delta": len(current_dv_ids) - len(prev_dv_ids),
+            "components_delta": current_components - prev_components,
+            "core_delta": current_core - prev_core,
+            "isolated_delta": current_isolated - prev_isolated,
+            "new_duplicates": len(new_pairs),
+            "resolved_duplicates": len(resolved_pairs),
+        },
     )
 
 
@@ -8803,7 +8927,7 @@ def _render_distribution_bar(count: int, total: int, width: int = 30) -> str:
     pct = count / total
     filled = int(pct * width)
     bar = "█" * filled + "░" * (width - filled)
-    return f"{bar} {pct*100:>3.0f}%"
+    return f"{bar} {pct * 100:>3.0f}%"
 
 
 def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, quiet: bool = False) -> None:
@@ -8827,7 +8951,9 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
     print("=" * 110)
     print(f"Generated: {result.timestamp}")
     if result.is_sampled:
-        print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views} (sampled from {result.total_available_data_views})")
+        print(
+            f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views} (sampled from {result.total_available_data_views})"
+        )
     else:
         print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views}")
     print(f"Analysis Duration: {result.duration:.2f}s")
@@ -8875,14 +9001,26 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
 
     print(f"{'':30} {'Metrics':>12} {'Dimensions':>12} {'Total':>10}")
     print(f"{'Total unique components':<30} {total_metrics:>12} {total_dims:>12} {total_all:>10}")
-    print(f"{'Total (non-unique)':<30} {total_metrics_aggregate:>12} {total_dimensions_aggregate:>12} {total_components_aggregate:>10}")
-    print(f"{'Derived fields (non-unique)':<30} {total_derived_metrics:>12} {total_derived_dimensions:>12} {total_derived_fields:>10}")
+    print(
+        f"{'Total (non-unique)':<30} {total_metrics_aggregate:>12} {total_dimensions_aggregate:>12} {total_components_aggregate:>10}"
+    )
+    print(
+        f"{'Derived fields (non-unique)':<30} {total_derived_metrics:>12} {total_derived_dimensions:>12} {total_derived_fields:>10}"
+    )
     # Add "+" suffix only for percentage labels; absolute labels already have ">="
     core_label_suffix = " DVs" if config.core_min_count is not None else "+ DVs"
-    print(f"{'Core (in ' + core_threshold_label + core_label_suffix + ')':<30} {len(dist.core_metrics):>12} {len(dist.core_dimensions):>12} {dist.total_core:>10}")
-    print(f"{'Common (in 25-49% DVs)':<30} {len(dist.common_metrics):>12} {len(dist.common_dimensions):>12} {dist.total_common:>10}")
-    print(f"{'Limited (in 2+ DVs)':<30} {len(dist.limited_metrics):>12} {len(dist.limited_dimensions):>12} {dist.total_limited:>10}")
-    print(f"{'Isolated (in 1 DV only)':<30} {len(dist.isolated_metrics):>12} {len(dist.isolated_dimensions):>12} {dist.total_isolated:>10}")
+    print(
+        f"{'Core (in ' + core_threshold_label + core_label_suffix + ')':<30} {len(dist.core_metrics):>12} {len(dist.core_dimensions):>12} {dist.total_core:>10}"
+    )
+    print(
+        f"{'Common (in 25-49% DVs)':<30} {len(dist.common_metrics):>12} {len(dist.common_dimensions):>12} {dist.total_common:>10}"
+    )
+    print(
+        f"{'Limited (in 2+ DVs)':<30} {len(dist.limited_metrics):>12} {len(dist.limited_dimensions):>12} {dist.total_limited:>10}"
+    )
+    print(
+        f"{'Isolated (in 1 DV only)':<30} {len(dist.isolated_metrics):>12} {len(dist.isolated_dimensions):>12} {dist.total_isolated:>10}"
+    )
     print()
 
     # Distribution Visualization
@@ -8892,16 +9030,30 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
 
     print("Metrics by data view coverage:")
     print(f"  Core:     {_render_distribution_bar(len(dist.core_metrics), total_metrics)} ({len(dist.core_metrics)})")
-    print(f"  Common:   {_render_distribution_bar(len(dist.common_metrics), total_metrics)} ({len(dist.common_metrics)})")
-    print(f"  Limited:  {_render_distribution_bar(len(dist.limited_metrics), total_metrics)} ({len(dist.limited_metrics)})")
-    print(f"  Isolated: {_render_distribution_bar(len(dist.isolated_metrics), total_metrics)} ({len(dist.isolated_metrics)})")
+    print(
+        f"  Common:   {_render_distribution_bar(len(dist.common_metrics), total_metrics)} ({len(dist.common_metrics)})"
+    )
+    print(
+        f"  Limited:  {_render_distribution_bar(len(dist.limited_metrics), total_metrics)} ({len(dist.limited_metrics)})"
+    )
+    print(
+        f"  Isolated: {_render_distribution_bar(len(dist.isolated_metrics), total_metrics)} ({len(dist.isolated_metrics)})"
+    )
     print()
 
     print("Dimensions by data view coverage:")
-    print(f"  Core:     {_render_distribution_bar(len(dist.core_dimensions), total_dims)} ({len(dist.core_dimensions)})")
-    print(f"  Common:   {_render_distribution_bar(len(dist.common_dimensions), total_dims)} ({len(dist.common_dimensions)})")
-    print(f"  Limited:  {_render_distribution_bar(len(dist.limited_dimensions), total_dims)} ({len(dist.limited_dimensions)})")
-    print(f"  Isolated: {_render_distribution_bar(len(dist.isolated_dimensions), total_dims)} ({len(dist.isolated_dimensions)})")
+    print(
+        f"  Core:     {_render_distribution_bar(len(dist.core_dimensions), total_dims)} ({len(dist.core_dimensions)})"
+    )
+    print(
+        f"  Common:   {_render_distribution_bar(len(dist.common_dimensions), total_dims)} ({len(dist.common_dimensions)})"
+    )
+    print(
+        f"  Limited:  {_render_distribution_bar(len(dist.limited_dimensions), total_dims)} ({len(dist.limited_dimensions)})"
+    )
+    print(
+        f"  Isolated: {_render_distribution_bar(len(dist.isolated_dimensions), total_dims)} ({len(dist.isolated_dimensions)})"
+    )
     print()
 
     # Core Components (if not summary only)
@@ -8947,14 +9099,14 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         effective_threshold = min(config.overlap_threshold, 0.9)
         threshold_note = ""
         if config.overlap_threshold > 0.9:
-            threshold_note = f" (configured {config.overlap_threshold*100:.0f}%, capped at 90% for governance checks)"
-        print(f"Pairs with >= {effective_threshold*100:.0f}% Jaccard similarity{threshold_note}:")
+            threshold_note = f" (configured {config.overlap_threshold * 100:.0f}%, capped at 90% for governance checks)"
+        print(f"Pairs with >= {effective_threshold * 100:.0f}% Jaccard similarity{threshold_note}:")
         print()
 
         for pair in result.similarity_pairs[:10]:  # Limit to top 10
             name1 = pair.dv1_name[:25] + ".." if len(pair.dv1_name) > 27 else pair.dv1_name
             name2 = pair.dv2_name[:25] + ".." if len(pair.dv2_name) > 27 else pair.dv2_name
-            print(f"  {name1:<27} <-> {name2:<27} {pair.jaccard_similarity*100:>5.1f}%")
+            print(f"  {name1:<27} <-> {name2:<27} {pair.jaccard_similarity * 100:>5.1f}%")
             print(f"  {'':27}     {'':27} ({pair.shared_count} shared)")
 
         if len(result.similarity_pairs) > 10:
@@ -8972,7 +9124,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
                         if pair.only_in_dv1:
                             print(f"    Only in {pair.dv1_name[:20]}: {len(pair.only_in_dv1)} components")
                             for comp_id in pair.only_in_dv1[:3]:
-                                name = pair.only_in_dv1_names.get(comp_id, '') if pair.only_in_dv1_names else ''
+                                name = pair.only_in_dv1_names.get(comp_id, "") if pair.only_in_dv1_names else ""
                                 display = f"{name} ({comp_id})" if name else comp_id
                                 print(f"      - {display[:50]}")
                             if len(pair.only_in_dv1) > 3:
@@ -8980,7 +9132,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
                         if pair.only_in_dv2:
                             print(f"    Only in {pair.dv2_name[:20]}: {len(pair.only_in_dv2)} components")
                             for comp_id in pair.only_in_dv2[:3]:
-                                name = pair.only_in_dv2_names.get(comp_id, '') if pair.only_in_dv2_names else ''
+                                name = pair.only_in_dv2_names.get(comp_id, "") if pair.only_in_dv2_names else ""
                                 display = f"{name} ({comp_id})" if name else comp_id
                                 print(f"      - {display[:50]}")
                             if len(pair.only_in_dv2) > 3:
@@ -9007,8 +9159,12 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
             std_dim_pct = (total_standard_dims / total_dims * 100) if total_dims > 0 else 0
             der_dim_pct = (total_derived_dims / total_dims * 100) if total_dims > 0 else 0
             print(f"{'':18} {'Total':>10} {'Standard':>12} {'% Total':>8} {'Derived':>10} {'% Total':>8}")
-            print(f"{'Metrics':<18} {total_metrics:>10} {total_standard_metrics:>12} {std_metric_pct:>7.1f}% {total_derived_metrics:>10} {der_metric_pct:>7.1f}%")
-            print(f"{'Dimensions':<18} {total_dims:>10} {total_standard_dims:>12} {std_dim_pct:>7.1f}% {total_derived_dims:>10} {der_dim_pct:>7.1f}%")
+            print(
+                f"{'Metrics':<18} {total_metrics:>10} {total_standard_metrics:>12} {std_metric_pct:>7.1f}% {total_derived_metrics:>10} {der_metric_pct:>7.1f}%"
+            )
+            print(
+                f"{'Dimensions':<18} {total_dims:>10} {total_standard_dims:>12} {std_dim_pct:>7.1f}% {total_derived_dims:>10} {der_dim_pct:>7.1f}%"
+            )
             print()
 
     # Clusters (if enabled)
@@ -9044,15 +9200,17 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print("-" * 110)
         print("OWNER SUMMARY")
         print("-" * 110)
-        owner_data = result.owner_summary.get('by_owner', {})
-        sorted_owners = result.owner_summary.get('owners_sorted_by_dv_count', [])
+        owner_data = result.owner_summary.get("by_owner", {})
+        sorted_owners = result.owner_summary.get("owners_sorted_by_dv_count", [])
         print(f"{'Owner':<30} {'DVs':>6} {'Metrics':>10} {'Dimensions':>12} {'Avg/DV':>8}")
         print("-" * 110)
         for owner in sorted_owners[:15]:
             stats = owner_data.get(owner, {})
-            print(f"{owner[:30]:<30} {stats.get('data_view_count', 0):>6} "
-                  f"{stats.get('total_metrics', 0):>10} {stats.get('total_dimensions', 0):>12} "
-                  f"{stats.get('avg_components_per_dv', 0):>8.1f}")
+            print(
+                f"{owner[:30]:<30} {stats.get('data_view_count', 0):>6} "
+                f"{stats.get('total_metrics', 0):>10} {stats.get('total_dimensions', 0):>12} "
+                f"{stats.get('avg_components_per_dv', 0):>8.1f}"
+            )
         if len(sorted_owners) > 15:
             print(f"  ... and {len(sorted_owners) - 15} more owners")
         print()
@@ -9063,14 +9221,14 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print("NAMING AUDIT")
         print("-" * 110)
         audit = result.naming_audit
-        styles = audit.get('case_styles', {})
+        styles = audit.get("case_styles", {})
         print("Case styles distribution:")
         for style, count in sorted(styles.items(), key=lambda x: -x[1]):
-            pct = count / audit.get('total_components', 1) * 100
+            pct = count / audit.get("total_components", 1) * 100
             print(f"  {style:<15} {count:>6} ({pct:>5.1f}%)")
-        if audit.get('recommendations'):
+        if audit.get("recommendations"):
             print("\nNaming Recommendations:")
-            for rec in audit['recommendations']:
+            for rec in audit["recommendations"]:
                 print(f"  [{rec.get('severity', 'info')}] {rec.get('message', '')}")
         print()
 
@@ -9084,14 +9242,14 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         # Group by pattern type
         by_pattern: Dict[str, List] = {}
         for comp in result.stale_components:
-            pattern = comp.get('pattern', 'unknown')
+            pattern = comp.get("pattern", "unknown")
             if pattern not in by_pattern:
                 by_pattern[pattern] = []
             by_pattern[pattern].append(comp)
         for pattern, comps in by_pattern.items():
             print(f"  {pattern} ({len(comps)} components):")
             for comp in comps[:5]:
-                name = comp.get('name', comp.get('component_id', ''))[:50]
+                name = comp.get("name", comp.get("component_id", ""))[:50]
                 print(f"    - {name}")
             if len(comps) > 5:
                 print(f"    ... and {len(comps) - 5} more")
@@ -9104,12 +9262,12 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         print("-" * 110)
 
         for i, rec in enumerate(result.recommendations, 1):
-            severity_icon = {"high": "!", "medium": "?", "low": "i"}.get(rec.get('severity', 'low'), "·")
+            severity_icon = {"high": "!", "medium": "?", "low": "i"}.get(rec.get("severity", "low"), "·")
             print(f"\n[{severity_icon}] {rec.get('reason', 'No details')}")
 
-            if rec.get('data_view'):
+            if rec.get("data_view"):
                 print(f"    Data View: {rec.get('data_view_name', '')} ({rec.get('data_view')})")
-            if rec.get('data_view_1'):
+            if rec.get("data_view_1"):
                 print(f"    Pair: {rec.get('data_view_1_name', '')} <-> {rec.get('data_view_2_name', '')}")
 
         print()
@@ -9136,10 +9294,10 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
     print(f"Distribution:")
     dist = result.distribution
     total = result.total_unique_components or 1
-    print(f"  Core:     {dist.total_core:>6} ({dist.total_core/total*100:>5.1f}%)")
-    print(f"  Common:   {dist.total_common:>6} ({dist.total_common/total*100:>5.1f}%)")
-    print(f"  Limited:  {dist.total_limited:>6} ({dist.total_limited/total*100:>5.1f}%)")
-    print(f"  Isolated: {dist.total_isolated:>6} ({dist.total_isolated/total*100:>5.1f}%)")
+    print(f"  Core:     {dist.total_core:>6} ({dist.total_core / total * 100:>5.1f}%)")
+    print(f"  Common:   {dist.total_common:>6} ({dist.total_common / total * 100:>5.1f}%)")
+    print(f"  Limited:  {dist.total_limited:>6} ({dist.total_limited / total * 100:>5.1f}%)")
+    print(f"  Isolated: {dist.total_isolated:>6} ({dist.total_isolated / total * 100:>5.1f}%)")
     print(f"Duration: {result.duration:.2f}s")
     print("=" * BANNER_WIDTH)
     print()
@@ -9217,7 +9375,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
         "version": "1.0",
         "generated_at": result.timestamp,
         "org_id": result.org_id,
-
         "parameters": {
             "filter_pattern": result.parameters.filter_pattern,
             "exclude_pattern": result.parameters.exclude_pattern,
@@ -9233,7 +9390,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             "sample_seed": result.parameters.sample_seed,
             "enable_clustering": result.parameters.enable_clustering,
         },
-
         "summary": {
             "data_views_total": result.total_data_views,
             "data_views_analyzed": result.successful_data_views,
@@ -9244,13 +9400,22 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             "total_unique_components": result.total_unique_components,
             "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if not dv.error),
             "total_dimensions_non_unique": sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error),
-            "total_components_non_unique": sum(dv.total_components for dv in result.data_view_summaries if not dv.error),
-            "derived_metrics_non_unique": sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error),
-            "derived_dimensions_non_unique": sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error),
-            "total_derived_fields_non_unique": sum(dv.derived_metric_count + dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error),
+            "total_components_non_unique": sum(
+                dv.total_components for dv in result.data_view_summaries if not dv.error
+            ),
+            "derived_metrics_non_unique": sum(
+                dv.derived_metric_count for dv in result.data_view_summaries if not dv.error
+            ),
+            "derived_dimensions_non_unique": sum(
+                dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error
+            ),
+            "total_derived_fields_non_unique": sum(
+                dv.derived_metric_count + dv.derived_dimension_count
+                for dv in result.data_view_summaries
+                if not dv.error
+            ),
             "analysis_duration_seconds": round(result.duration, 2),
         },
-
         "distribution": {
             "core": {
                 "metrics_count": len(result.distribution.core_metrics),
@@ -9277,7 +9442,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
                 "dimensions": result.distribution.isolated_dimensions,
             },
         },
-
         "data_views": [
             {
                 "id": dv.data_view_id,
@@ -9302,7 +9466,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             }
             for dv in result.data_view_summaries
         ],
-
         "component_index": {
             comp_id: {
                 "type": info.component_type,
@@ -9312,7 +9475,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             }
             for comp_id, info in result.component_index.items()
         },
-
         "similarity_pairs": [
             {
                 "data_view_1": {"id": pair.dv1_id, "name": pair.dv1_name},
@@ -9328,7 +9490,6 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
             }
             for pair in (result.similarity_pairs or [])
         ],
-
         "clusters": [
             {
                 "cluster_id": cluster.cluster_id,
@@ -9339,10 +9500,10 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
                 "cohesion_score": cluster.cohesion_score,
             }
             for cluster in (result.clusters or [])
-        ] if result.clusters else None,
-
+        ]
+        if result.clusters
+        else None,
         "recommendations": result.recommendations,
-
         # New features
         "governance_violations": result.governance_violations,
         "thresholds_exceeded": result.thresholds_exceeded,
@@ -9352,8 +9513,9 @@ def build_org_report_json_data(result: OrgReportResult) -> Dict[str, Any]:
     }
 
 
-def write_org_report_json(result: OrgReportResult, output_path: Optional[Path],
-                          output_dir: str, logger: logging.Logger) -> str:
+def write_org_report_json(
+    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+) -> str:
     """Write org report as structured JSON.
 
     Args:
@@ -9366,7 +9528,7 @@ def write_org_report_json(result: OrgReportResult, output_path: Optional[Path],
         Path to created JSON file
     """
     if output_path:
-        file_path = output_path if str(output_path).endswith('.json') else Path(f"{output_path}.json")
+        file_path = output_path if str(output_path).endswith(".json") else Path(f"{output_path}.json")
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.json"
@@ -9375,15 +9537,16 @@ def write_org_report_json(result: OrgReportResult, output_path: Optional[Path],
 
     # Write JSON
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, indent=2, ensure_ascii=False)
 
     logger.info(f"JSON report written to {file_path}")
     return str(file_path)
 
 
-def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
-                           output_dir: str, logger: logging.Logger) -> str:
+def write_org_report_excel(
+    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+) -> str:
     """Write org report as multi-sheet Excel workbook.
 
     Sheets:
@@ -9404,25 +9567,20 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
         Path to created Excel file
     """
     if output_path:
-        file_path = output_path if str(output_path).endswith('.xlsx') else Path(f"{output_path}.xlsx")
+        file_path = output_path if str(output_path).endswith(".xlsx") else Path(f"{output_path}.xlsx")
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.xlsx"
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         workbook = writer.book
 
         # Define formats
-        header_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#366092',
-            'font_color': 'white',
-            'border': 1
-        })
-        number_format = workbook.add_format({'num_format': '#,##0'})
-        percent_format = workbook.add_format({'num_format': '0.0%'})
+        header_format = workbook.add_format({"bold": True, "bg_color": "#366092", "font_color": "white", "border": 1})
+        number_format = workbook.add_format({"num_format": "#,##0"})
+        percent_format = workbook.add_format({"num_format": "0.0%"})
 
         # Sheet 1: Summary
         # Calculate total aggregates (non-unique counts across all data views)
@@ -9435,26 +9593,26 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
         effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
         metrics = [
-            'Organization ID',
-            'Report Generated',
-            'Data Views Total',
-            'Data Views Analyzed',
-            'Total Unique Metrics',
-            'Total Unique Dimensions',
-            'Total Unique Components',
-            'Total Metrics (Non-Unique)',
-            'Total Dimensions (Non-Unique)',
-            'Total Components (Non-Unique)',
-            'Derived Metrics (Non-Unique)',
-            'Derived Dimensions (Non-Unique)',
-            'Total Derived Fields (Non-Unique)',
-            'Core Components',
-            'Common Components',
-            'Limited Components',
-            'Isolated Components',
-            'Overlap Threshold (Configured)',
-            'Overlap Threshold (Effective)',
-            'Analysis Duration (seconds)',
+            "Organization ID",
+            "Report Generated",
+            "Data Views Total",
+            "Data Views Analyzed",
+            "Total Unique Metrics",
+            "Total Unique Dimensions",
+            "Total Unique Components",
+            "Total Metrics (Non-Unique)",
+            "Total Dimensions (Non-Unique)",
+            "Total Components (Non-Unique)",
+            "Derived Metrics (Non-Unique)",
+            "Derived Dimensions (Non-Unique)",
+            "Total Derived Fields (Non-Unique)",
+            "Core Components",
+            "Common Components",
+            "Limited Components",
+            "Isolated Components",
+            "Overlap Threshold (Configured)",
+            "Overlap Threshold (Effective)",
+            "Analysis Duration (seconds)",
         ]
         values = [
             result.org_id,
@@ -9480,88 +9638,96 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
         ]
         # Add sampling info
         if result.is_sampled:
-            metrics.extend(['Is Sampled', 'Total Available DVs', 'Sample Seed'])
-            values.extend(['Yes', result.total_available_data_views, result.parameters.sample_seed])
+            metrics.extend(["Is Sampled", "Total Available DVs", "Sample Seed"])
+            values.extend(["Yes", result.total_available_data_views, result.parameters.sample_seed])
         # Add clustering info
         if result.clusters:
-            metrics.append('Cluster Count')
+            metrics.append("Cluster Count")
             values.append(len(result.clusters))
-        summary_data = {'Metric': metrics, 'Value': values}
+        summary_data = {"Metric": metrics, "Value": values}
         summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-        worksheet = writer.sheets['Summary']
-        worksheet.set_column('A:A', 30)
-        worksheet.set_column('B:B', 25)
+        worksheet = writer.sheets["Summary"]
+        worksheet.set_column("A:A", 30)
+        worksheet.set_column("B:B", 25)
 
         # Sheet 2: Data Views
         dv_data = []
         for dv in result.data_view_summaries:
             row = {
-                'ID': dv.data_view_id,
-                'Name': dv.data_view_name,
-                'Metrics': dv.metric_count,
-                'Dimensions': dv.dimension_count,
-                'Total': dv.total_components,
-                'Status': dv.status,
-                'Error': dv.error or '',
+                "ID": dv.data_view_id,
+                "Name": dv.data_view_name,
+                "Metrics": dv.metric_count,
+                "Dimensions": dv.dimension_count,
+                "Total": dv.total_components,
+                "Status": dv.status,
+                "Error": dv.error or "",
             }
             # Add component type columns if enabled
             if result.parameters.include_component_types:
-                row['Standard Metrics'] = dv.standard_metric_count
-                row['Derived Metrics'] = dv.derived_metric_count
-                row['Standard Dimensions'] = dv.standard_dimension_count
-                row['Derived Dimensions'] = dv.derived_dimension_count
+                row["Standard Metrics"] = dv.standard_metric_count
+                row["Derived Metrics"] = dv.derived_metric_count
+                row["Standard Dimensions"] = dv.standard_dimension_count
+                row["Derived Dimensions"] = dv.derived_dimension_count
             # Add metadata columns if enabled
             if result.parameters.include_metadata:
-                row['Owner'] = dv.owner or ''
-                row['Created'] = dv.created or ''
-                row['Modified'] = dv.modified or ''
-                row['Has Description'] = 'Yes' if dv.has_description else 'No'
+                row["Owner"] = dv.owner or ""
+                row["Created"] = dv.created or ""
+                row["Modified"] = dv.modified or ""
+                row["Has Description"] = "Yes" if dv.has_description else "No"
             dv_data.append(row)
         dv_df = pd.DataFrame(dv_data)
-        dv_df.to_excel(writer, sheet_name='Data Views', index=False)
+        dv_df.to_excel(writer, sheet_name="Data Views", index=False)
 
-        worksheet = writer.sheets['Data Views']
-        worksheet.set_column('A:A', 20)
-        worksheet.set_column('B:B', 40)
-        worksheet.set_column('C:G', 12)
+        worksheet = writer.sheets["Data Views"]
+        worksheet.set_column("A:A", 20)
+        worksheet.set_column("B:B", 40)
+        worksheet.set_column("C:G", 12)
         if result.parameters.include_component_types:
-            worksheet.set_column('H:K', 18)  # 4 columns: Standard/Derived Metrics/Dimensions
+            worksheet.set_column("H:K", 18)  # 4 columns: Standard/Derived Metrics/Dimensions
         if result.parameters.include_metadata:
-            worksheet.set_column('L:O', 18)
+            worksheet.set_column("L:O", 18)
 
         # Sheet 3: Core Components
         core_data = []
         for comp_id in result.distribution.core_metrics:
             info = result.component_index.get(comp_id)
             if info:
-                core_data.append({
-                    'Component ID': comp_id,
-                    'Type': 'Metric',
-                    'Name': info.name or '',
-                    'Data View Count': info.presence_count,
-                    'Coverage %': info.presence_count / result.successful_data_views if result.successful_data_views > 0 else 0,
-                })
+                core_data.append(
+                    {
+                        "Component ID": comp_id,
+                        "Type": "Metric",
+                        "Name": info.name or "",
+                        "Data View Count": info.presence_count,
+                        "Coverage %": info.presence_count / result.successful_data_views
+                        if result.successful_data_views > 0
+                        else 0,
+                    }
+                )
         for comp_id in result.distribution.core_dimensions:
             info = result.component_index.get(comp_id)
             if info:
-                core_data.append({
-                    'Component ID': comp_id,
-                    'Type': 'Dimension',
-                    'Name': info.name or '',
-                    'Data View Count': info.presence_count,
-                    'Coverage %': info.presence_count / result.successful_data_views if result.successful_data_views > 0 else 0,
-                })
+                core_data.append(
+                    {
+                        "Component ID": comp_id,
+                        "Type": "Dimension",
+                        "Name": info.name or "",
+                        "Data View Count": info.presence_count,
+                        "Coverage %": info.presence_count / result.successful_data_views
+                        if result.successful_data_views > 0
+                        else 0,
+                    }
+                )
 
         if core_data:
             core_df = pd.DataFrame(core_data)
-            core_df.to_excel(writer, sheet_name='Core Components', index=False)
-            worksheet = writer.sheets['Core Components']
-            worksheet.set_column('A:A', 40)
-            worksheet.set_column('B:B', 12)
-            worksheet.set_column('C:C', 30)
-            worksheet.set_column('D:E', 15)
+            core_df.to_excel(writer, sheet_name="Core Components", index=False)
+            worksheet = writer.sheets["Core Components"]
+            worksheet.set_column("A:A", 40)
+            worksheet.set_column("B:B", 12)
+            worksheet.set_column("C:C", 30)
+            worksheet.set_column("D:E", 15)
 
         # Sheet 4: Isolated by Data View
         isolated_data = []
@@ -9569,57 +9735,61 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
             if dv.error:
                 continue
             isolated_metrics = [
-                c for c in result.distribution.isolated_metrics
-                if dv.data_view_id in result.component_index.get(c, ComponentInfo('', '')).data_views
+                c
+                for c in result.distribution.isolated_metrics
+                if dv.data_view_id in result.component_index.get(c, ComponentInfo("", "")).data_views
             ]
             isolated_dims = [
-                c for c in result.distribution.isolated_dimensions
-                if dv.data_view_id in result.component_index.get(c, ComponentInfo('', '')).data_views
+                c
+                for c in result.distribution.isolated_dimensions
+                if dv.data_view_id in result.component_index.get(c, ComponentInfo("", "")).data_views
             ]
             if isolated_metrics or isolated_dims:
-                isolated_data.append({
-                    'Data View ID': dv.data_view_id,
-                    'Data View Name': dv.data_view_name,
-                    'Isolated Metrics': len(isolated_metrics),
-                    'Isolated Dimensions': len(isolated_dims),
-                    'Total Isolated': len(isolated_metrics) + len(isolated_dims),
-                })
+                isolated_data.append(
+                    {
+                        "Data View ID": dv.data_view_id,
+                        "Data View Name": dv.data_view_name,
+                        "Isolated Metrics": len(isolated_metrics),
+                        "Isolated Dimensions": len(isolated_dims),
+                        "Total Isolated": len(isolated_metrics) + len(isolated_dims),
+                    }
+                )
 
         if isolated_data:
             isolated_df = pd.DataFrame(isolated_data)
-            isolated_df = isolated_df.sort_values('Total Isolated', ascending=False)
-            isolated_df.to_excel(writer, sheet_name='Isolated by DV', index=False)
-            worksheet = writer.sheets['Isolated by DV']
-            worksheet.set_column('A:A', 20)
-            worksheet.set_column('B:B', 40)
-            worksheet.set_column('C:E', 18)
+            isolated_df = isolated_df.sort_values("Total Isolated", ascending=False)
+            isolated_df.to_excel(writer, sheet_name="Isolated by DV", index=False)
+            worksheet = writer.sheets["Isolated by DV"]
+            worksheet.set_column("A:A", 20)
+            worksheet.set_column("B:B", 40)
+            worksheet.set_column("C:E", 18)
 
         # Sheet 5: Similarity Matrix
         if result.similarity_pairs:
             sim_data = []
             for pair in result.similarity_pairs:
                 row = {
-                    'Data View 1 ID': pair.dv1_id,
-                    'Data View 1 Name': pair.dv1_name,
-                    'Data View 2 ID': pair.dv2_id,
-                    'Data View 2 Name': pair.dv2_name,
-                    'Similarity %': pair.jaccard_similarity,
-                    'Shared Components': pair.shared_count,
-                    'Union Size': pair.union_count,
+                    "Data View 1 ID": pair.dv1_id,
+                    "Data View 1 Name": pair.dv1_name,
+                    "Data View 2 ID": pair.dv2_id,
+                    "Data View 2 Name": pair.dv2_name,
+                    "Similarity %": pair.jaccard_similarity,
+                    "Shared Components": pair.shared_count,
+                    "Union Size": pair.union_count,
                 }
                 if result.parameters.include_drift:
-                    row['Only in DV1'] = len(pair.only_in_dv1)
-                    row['Only in DV2'] = len(pair.only_in_dv2)
-                    row['Drift Total'] = len(pair.only_in_dv1) + len(pair.only_in_dv2)
+                    row["Only in DV1"] = len(pair.only_in_dv1)
+                    row["Only in DV2"] = len(pair.only_in_dv2)
+                    row["Drift Total"] = len(pair.only_in_dv1) + len(pair.only_in_dv2)
                 sim_data.append(row)
             sim_df = pd.DataFrame(sim_data)
-            sim_df.to_excel(writer, sheet_name='Similarity', index=False)
-            worksheet = writer.sheets['Similarity']
-            worksheet.set_column('A:A', 20)
-            worksheet.set_column('B:B', 35)
-            worksheet.set_column('C:C', 20)
-            worksheet.set_column('D:D', 35)
-            worksheet.set_column('E:J', 15)
+            sim_df.to_excel(writer, sheet_name="Similarity", index=False)
+            worksheet = writer.sheets["Similarity"]
+            worksheet.set_column("A:A", 20)
+            worksheet.set_column("B:B", 35)
+            worksheet.set_column("C:C", 20)
+            worksheet.set_column("D:D", 35)
+            worksheet.set_column("E:J", 15)
 
         # Sheet 5b: Drift Details (if enabled)
         if result.parameters.include_drift and result.similarity_pairs:
@@ -9627,88 +9797,102 @@ def write_org_report_excel(result: OrgReportResult, output_path: Optional[Path],
             for pair in result.similarity_pairs:
                 if pair.only_in_dv1 or pair.only_in_dv2:
                     for comp_id in pair.only_in_dv1:
-                        name = pair.only_in_dv1_names.get(comp_id, '') if pair.only_in_dv1_names else ''
-                        drift_data.append({
-                            'DV1 ID': pair.dv1_id,
-                            'DV1 Name': pair.dv1_name,
-                            'DV2 ID': pair.dv2_id,
-                            'DV2 Name': pair.dv2_name,
-                            'Component ID': comp_id,
-                            'Component Name': name,
-                            'Location': f'Only in {pair.dv1_name}',
-                        })
+                        name = pair.only_in_dv1_names.get(comp_id, "") if pair.only_in_dv1_names else ""
+                        drift_data.append(
+                            {
+                                "DV1 ID": pair.dv1_id,
+                                "DV1 Name": pair.dv1_name,
+                                "DV2 ID": pair.dv2_id,
+                                "DV2 Name": pair.dv2_name,
+                                "Component ID": comp_id,
+                                "Component Name": name,
+                                "Location": f"Only in {pair.dv1_name}",
+                            }
+                        )
                     for comp_id in pair.only_in_dv2:
-                        name = pair.only_in_dv2_names.get(comp_id, '') if pair.only_in_dv2_names else ''
-                        drift_data.append({
-                            'DV1 ID': pair.dv1_id,
-                            'DV1 Name': pair.dv1_name,
-                            'DV2 ID': pair.dv2_id,
-                            'DV2 Name': pair.dv2_name,
-                            'Component ID': comp_id,
-                            'Component Name': name,
-                            'Location': f'Only in {pair.dv2_name}',
-                        })
+                        name = pair.only_in_dv2_names.get(comp_id, "") if pair.only_in_dv2_names else ""
+                        drift_data.append(
+                            {
+                                "DV1 ID": pair.dv1_id,
+                                "DV1 Name": pair.dv1_name,
+                                "DV2 ID": pair.dv2_id,
+                                "DV2 Name": pair.dv2_name,
+                                "Component ID": comp_id,
+                                "Component Name": name,
+                                "Location": f"Only in {pair.dv2_name}",
+                            }
+                        )
             if drift_data:
                 drift_df = pd.DataFrame(drift_data)
-                drift_df.to_excel(writer, sheet_name='Drift Details', index=False)
-                worksheet = writer.sheets['Drift Details']
-                worksheet.set_column('A:A', 20)
-                worksheet.set_column('B:B', 30)
-                worksheet.set_column('C:C', 20)
-                worksheet.set_column('D:D', 30)
-                worksheet.set_column('E:E', 40)
-                worksheet.set_column('F:F', 30)
-                worksheet.set_column('G:G', 25)
+                drift_df.to_excel(writer, sheet_name="Drift Details", index=False)
+                worksheet = writer.sheets["Drift Details"]
+                worksheet.set_column("A:A", 20)
+                worksheet.set_column("B:B", 30)
+                worksheet.set_column("C:C", 20)
+                worksheet.set_column("D:D", 30)
+                worksheet.set_column("E:E", 40)
+                worksheet.set_column("F:F", 30)
+                worksheet.set_column("G:G", 25)
 
         # Sheet 5c: Clusters (if enabled)
         if result.clusters:
             cluster_data = []
             for cluster in result.clusters:
                 for dv_id, dv_name in zip(cluster.data_view_ids, cluster.data_view_names):
-                    cluster_data.append({
-                        'Cluster ID': cluster.cluster_id,
-                        'Cluster Name': cluster.cluster_name or f'Cluster {cluster.cluster_id}',
-                        'Cluster Size': cluster.size,
-                        'Cohesion': cluster.cohesion_score,
-                        'Data View ID': dv_id,
-                        'Data View Name': dv_name,
-                    })
+                    cluster_data.append(
+                        {
+                            "Cluster ID": cluster.cluster_id,
+                            "Cluster Name": cluster.cluster_name or f"Cluster {cluster.cluster_id}",
+                            "Cluster Size": cluster.size,
+                            "Cohesion": cluster.cohesion_score,
+                            "Data View ID": dv_id,
+                            "Data View Name": dv_name,
+                        }
+                    )
             if cluster_data:
                 cluster_df = pd.DataFrame(cluster_data)
-                cluster_df.to_excel(writer, sheet_name='Clusters', index=False)
-                worksheet = writer.sheets['Clusters']
-                worksheet.set_column('A:A', 12)
-                worksheet.set_column('B:B', 25)
-                worksheet.set_column('C:C', 12)
-                worksheet.set_column('D:D', 12)
-                worksheet.set_column('E:E', 20)
-                worksheet.set_column('F:F', 40)
+                cluster_df.to_excel(writer, sheet_name="Clusters", index=False)
+                worksheet = writer.sheets["Clusters"]
+                worksheet.set_column("A:A", 12)
+                worksheet.set_column("B:B", 25)
+                worksheet.set_column("C:C", 12)
+                worksheet.set_column("D:D", 12)
+                worksheet.set_column("E:E", 20)
+                worksheet.set_column("F:F", 40)
 
         # Sheet 6: Recommendations
         if result.recommendations:
             rec_data = []
             for rec in result.recommendations:
-                rec_data.append({
-                    'Type': rec.get('type', ''),
-                    'Severity': rec.get('severity', ''),
-                    'Description': rec.get('reason', ''),
-                    'Data View': rec.get('data_view', rec.get('data_view_1', '')),
-                    'Details': json.dumps({k: v for k, v in rec.items()
-                                          if k not in ['type', 'severity', 'reason', 'data_view', 'data_view_1']})
-                })
+                rec_data.append(
+                    {
+                        "Type": rec.get("type", ""),
+                        "Severity": rec.get("severity", ""),
+                        "Description": rec.get("reason", ""),
+                        "Data View": rec.get("data_view", rec.get("data_view_1", "")),
+                        "Details": json.dumps(
+                            {
+                                k: v
+                                for k, v in rec.items()
+                                if k not in ["type", "severity", "reason", "data_view", "data_view_1"]
+                            }
+                        ),
+                    }
+                )
             rec_df = pd.DataFrame(rec_data)
-            rec_df.to_excel(writer, sheet_name='Recommendations', index=False)
-            worksheet = writer.sheets['Recommendations']
-            worksheet.set_column('A:B', 20)
-            worksheet.set_column('C:C', 60)
-            worksheet.set_column('D:E', 25)
+            rec_df.to_excel(writer, sheet_name="Recommendations", index=False)
+            worksheet = writer.sheets["Recommendations"]
+            worksheet.set_column("A:B", 20)
+            worksheet.set_column("C:C", 60)
+            worksheet.set_column("D:E", 25)
 
     logger.info(f"Excel report written to {file_path}")
     return str(file_path)
 
 
-def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Path],
-                              output_dir: str, logger: logging.Logger) -> str:
+def write_org_report_markdown(
+    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+) -> str:
     """Write org report as GitHub-flavored markdown.
 
     Args:
@@ -9721,7 +9905,7 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
         Path to created Markdown file
     """
     if output_path:
-        file_path = output_path if str(output_path).endswith('.md') else Path(f"{output_path}.md")
+        file_path = output_path if str(output_path).endswith(".md") else Path(f"{output_path}.md")
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.md"
@@ -9772,16 +9956,24 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
     dist = result.distribution
     # Build correct label for core threshold
     if result.parameters.core_min_count is None:
-        core_label = f"{int(result.parameters.core_threshold*100)}%+"
-        core_desc = f"{int(result.parameters.core_threshold*100)}% or more of"
+        core_label = f"{int(result.parameters.core_threshold * 100)}%+"
+        core_desc = f"{int(result.parameters.core_threshold * 100)}% or more of"
     else:
         core_label = f">={result.parameters.core_min_count}"
         core_desc = f"{result.parameters.core_min_count} or more"
 
-    lines.append(f"| Core ({core_label} DVs) | {len(dist.core_metrics)} | {len(dist.core_dimensions)} | {dist.total_core} |")
-    lines.append(f"| Common (25-49% DVs) | {len(dist.common_metrics)} | {len(dist.common_dimensions)} | {dist.total_common} |")
-    lines.append(f"| Limited (2+ DVs) | {len(dist.limited_metrics)} | {len(dist.limited_dimensions)} | {dist.total_limited} |")
-    lines.append(f"| Isolated (1 DV only) | {len(dist.isolated_metrics)} | {len(dist.isolated_dimensions)} | {dist.total_isolated} |")
+    lines.append(
+        f"| Core ({core_label} DVs) | {len(dist.core_metrics)} | {len(dist.core_dimensions)} | {dist.total_core} |"
+    )
+    lines.append(
+        f"| Common (25-49% DVs) | {len(dist.common_metrics)} | {len(dist.common_dimensions)} | {dist.total_common} |"
+    )
+    lines.append(
+        f"| Limited (2+ DVs) | {len(dist.limited_metrics)} | {len(dist.limited_dimensions)} | {dist.total_limited} |"
+    )
+    lines.append(
+        f"| Isolated (1 DV only) | {len(dist.isolated_metrics)} | {len(dist.isolated_dimensions)} | {dist.total_isolated} |"
+    )
     lines.append("")
 
     # Data Views Table
@@ -9791,7 +9983,7 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
     lines.append("|------|----|---------:|----------:|--------|")
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
-        name = dv.data_view_name.replace('|', '\\|')
+        name = dv.data_view_name.replace("|", "\\|")
         if dv.error:
             lines.append(f"| {name} | `{dv.data_view_id}` | ERROR | - | {dv.status} |")
         else:
@@ -9821,7 +10013,7 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
                 info = result.component_index.get(comp_id)
                 if info:
                     if has_names:
-                        name = (info.name or '-').replace('|', '\\|')
+                        name = (info.name or "-").replace("|", "\\|")
                         lines.append(f"| `{comp_id}` | {name} | {info.presence_count} |")
                     else:
                         lines.append(f"| `{comp_id}` | {info.presence_count} |")
@@ -9845,7 +10037,7 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
                 info = result.component_index.get(comp_id)
                 if info:
                     if has_names:
-                        name = (info.name or '-').replace('|', '\\|')
+                        name = (info.name or "-").replace("|", "\\|")
                         lines.append(f"| `{comp_id}` | {name} | {info.presence_count} |")
                     else:
                         lines.append(f"| `{comp_id}` | {info.presence_count} |")
@@ -9863,18 +10055,18 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
         effective_threshold = min(result.parameters.overlap_threshold, 0.9)
         threshold_note = ""
         if result.parameters.overlap_threshold > 0.9:
-            threshold_note = f" (configured {int(result.parameters.overlap_threshold*100)}%, capped at 90% for governance checks)"
-        lines.append(
-            f"Data view pairs with >= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}."
-        )
+            threshold_note = (
+                f" (configured {int(result.parameters.overlap_threshold * 100)}%, capped at 90% for governance checks)"
+            )
+        lines.append(f"Data view pairs with >= {int(effective_threshold * 100)}% Jaccard similarity{threshold_note}.")
         lines.append("")
         lines.append("| Data View 1 | Data View 2 | Similarity | Shared |")
         lines.append("|-------------|-------------|------------|-------:|")
 
         for pair in result.similarity_pairs[:15]:
-            name1 = pair.dv1_name.replace('|', '\\|')
-            name2 = pair.dv2_name.replace('|', '\\|')
-            lines.append(f"| {name1} | {name2} | {pair.jaccard_similarity*100:.1f}% | {pair.shared_count} |")
+            name1 = pair.dv1_name.replace("|", "\\|")
+            name2 = pair.dv2_name.replace("|", "\\|")
+            lines.append(f"| {name1} | {name2} | {pair.jaccard_similarity * 100:.1f}% | {pair.shared_count} |")
 
         if len(result.similarity_pairs) > 15:
             lines.append(f"| *... {len(result.similarity_pairs) - 15} more pairs* | | | |")
@@ -9886,16 +10078,16 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
         lines.append("")
 
         for i, rec in enumerate(result.recommendations, 1):
-            severity = rec.get('severity', 'low')
+            severity = rec.get("severity", "low")
             severity_badge = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(severity, "⚪")
             lines.append(f"### {i}. {severity_badge} {rec.get('type', 'Unknown').replace('_', ' ').title()}")
             lines.append("")
-            lines.append(rec.get('reason', 'No details provided.'))
+            lines.append(rec.get("reason", "No details provided."))
             lines.append("")
 
-            if rec.get('data_view'):
+            if rec.get("data_view"):
                 lines.append(f"- **Data View:** {rec.get('data_view_name', '')} (`{rec.get('data_view')}`)")
-            if rec.get('data_view_1'):
+            if rec.get("data_view_1"):
                 lines.append(f"- **Pair:** {rec.get('data_view_1_name', '')} ↔ {rec.get('data_view_2_name', '')}")
             lines.append("")
 
@@ -9905,15 +10097,16 @@ def write_org_report_markdown(result: OrgReportResult, output_path: Optional[Pat
     lines.append(f"*Report generated by CJA SDR Generator v{__version__}*")
 
     # Write file
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
     logger.info(f"Markdown report written to {file_path}")
     return str(file_path)
 
 
-def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
-                          output_dir: str, logger: logging.Logger) -> str:
+def write_org_report_html(
+    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+) -> str:
     """Write org report as styled HTML.
 
     Args:
@@ -9926,7 +10119,7 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
         Path to created HTML file
     """
     if output_path:
-        file_path = output_path if str(output_path).endswith('.html') else Path(f"{output_path}.html")
+        file_path = output_path if str(output_path).endswith(".html") else Path(f"{output_path}.html")
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.html"
@@ -9947,7 +10140,7 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
     total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
-    html_out = f'''<!DOCTYPE html>
+    html_out = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10082,14 +10275,14 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
                     <tr><th>Category</th><th>Metrics</th><th>Dimensions</th><th>Total</th><th>Distribution</th></tr>
                 </thead>
                 <tbody>
-'''
+"""
 
     total = result.total_unique_components or 1
 
     # Build correct label for core threshold
     if result.parameters.core_min_count is None:
-        core_label = f"{int(result.parameters.core_threshold*100)}%+"
-        core_desc = f"{int(result.parameters.core_threshold*100)}% or more of"
+        core_label = f"{int(result.parameters.core_threshold * 100)}%+"
+        core_desc = f"{int(result.parameters.core_threshold * 100)}% or more of"
     else:
         core_label = f"&gt;={result.parameters.core_min_count}"
         core_desc = f"{result.parameters.core_min_count} or more"
@@ -10102,16 +10295,16 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
     ]:
         bucket_total = len(m_list) + len(d_list)
         pct = bucket_total / total * 100
-        html_out += f'''                    <tr>
+        html_out += f"""                    <tr>
                         <td><span class="badge badge-{badge_class}">{bucket}</span></td>
                         <td>{len(m_list)}</td>
                         <td>{len(d_list)}</td>
                         <td>{bucket_total}</td>
                         <td><div class="progress-bar"><div class="progress-fill" style="width: {pct:.1f}%"></div></div></td>
                     </tr>
-'''
+"""
 
-    html_out += '''                </tbody>
+    html_out += """                </tbody>
             </table>
         </div>
 
@@ -10122,7 +10315,7 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
                     <tr><th>Name</th><th>ID</th><th>Metrics</th><th>Dimensions</th><th>Status</th></tr>
                 </thead>
                 <tbody>
-'''
+"""
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
         # Escape user-sourced strings to prevent HTML injection
@@ -10132,16 +10325,16 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
             error_escaped = html.escape(dv.error)
             html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td colspan="2">ERROR: {error_escaped}</td><td>{dv.status}</td></tr>\n'
         else:
-            html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td>{dv.metric_count}</td><td>{dv.dimension_count}</td><td>{dv.status}</td></tr>\n'
+            html_out += f"                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td>{dv.metric_count}</td><td>{dv.dimension_count}</td><td>{dv.status}</td></tr>\n"
 
-    html_out += '''                </tbody>
+    html_out += """                </tbody>
             </table>
         </div>
-'''
+"""
 
     # Core Components
     if dist.total_core > 0:
-        html_out += f'''
+        html_out += f"""
         <h2>Core Components</h2>
         <p>Components present in {core_desc} data views.</p>
         <div class="card">
@@ -10150,22 +10343,22 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
                     <tr><th>Component ID</th>{"<th>Name</th>" if has_names else ""}<th>Type</th><th>Data View Count</th></tr>
                 </thead>
                 <tbody>
-'''
+"""
         for comp_id in (dist.core_metrics + dist.core_dimensions)[:30]:
             info = result.component_index.get(comp_id)
             if info:
                 comp_id_escaped = html.escape(comp_id)
-                name_escaped = html.escape(info.name) if info.name else '-'
+                name_escaped = html.escape(info.name) if info.name else "-"
                 name_col = f"<td>{name_escaped}</td>" if has_names else ""
-                html_out += f'                    <tr><td><code>{comp_id_escaped}</code></td>{name_col}<td>{info.component_type.title()}</td><td>{info.presence_count}</td></tr>\n'
+                html_out += f"                    <tr><td><code>{comp_id_escaped}</code></td>{name_col}<td>{info.component_type.title()}</td><td>{info.presence_count}</td></tr>\n"
 
         if dist.total_core > 30:
             html_out += f'                    <tr><td colspan="{"4" if has_names else "3"}"><em>... and {dist.total_core - 30} more</em></td></tr>\n'
 
-        html_out += '''                </tbody>
+        html_out += """                </tbody>
             </table>
         </div>
-'''
+"""
 
     # Similarity Pairs
     if result.similarity_pairs:
@@ -10173,63 +10366,63 @@ def write_org_report_html(result: OrgReportResult, output_path: Optional[Path],
         threshold_note = ""
         if result.parameters.overlap_threshold > 0.9:
             threshold_note = (
-                f" (configured {int(result.parameters.overlap_threshold*100)}%, "
-                "capped at 90% for governance checks)"
+                f" (configured {int(result.parameters.overlap_threshold * 100)}%, capped at 90% for governance checks)"
             )
-        html_out += f'''
+        html_out += f"""
         <h2>High Overlap Pairs</h2>
-        <p>Data view pairs with &gt;= {int(effective_threshold*100)}% Jaccard similarity{threshold_note}.</p>
+        <p>Data view pairs with &gt;= {int(effective_threshold * 100)}% Jaccard similarity{threshold_note}.</p>
         <div class="card">
             <table>
                 <thead>
                     <tr><th>Data View 1</th><th>Data View 2</th><th>Similarity</th><th>Shared</th></tr>
                 </thead>
                 <tbody>
-'''
+"""
         for pair in result.similarity_pairs[:20]:
             dv1_escaped = html.escape(pair.dv1_name)
             dv2_escaped = html.escape(pair.dv2_name)
-            html_out += f'                    <tr><td>{dv1_escaped}</td><td>{dv2_escaped}</td><td>{pair.jaccard_similarity*100:.1f}%</td><td>{pair.shared_count}</td></tr>\n'
+            html_out += f"                    <tr><td>{dv1_escaped}</td><td>{dv2_escaped}</td><td>{pair.jaccard_similarity * 100:.1f}%</td><td>{pair.shared_count}</td></tr>\n"
 
         if len(result.similarity_pairs) > 20:
             html_out += f'                    <tr><td colspan="4"><em>... and {len(result.similarity_pairs) - 20} more pairs</em></td></tr>\n'
 
-        html_out += '''                </tbody>
+        html_out += """                </tbody>
             </table>
         </div>
-'''
+"""
 
     # Recommendations
     if result.recommendations:
-        html_out += '''
+        html_out += """
         <h2>Recommendations</h2>
-'''
+"""
         for rec in result.recommendations:
-            severity = rec.get('severity', 'low')
-            rec_type = html.escape(rec.get('type', 'Unknown').replace('_', ' ').title())
-            rec_reason = html.escape(rec.get('reason', 'No details provided.'))
-            html_out += f'''        <div class="recommendation {severity}">
+            severity = rec.get("severity", "low")
+            rec_type = html.escape(rec.get("type", "Unknown").replace("_", " ").title())
+            rec_reason = html.escape(rec.get("reason", "No details provided."))
+            html_out += f"""        <div class="recommendation {severity}">
             <strong><span class="badge badge-{severity}">{severity.upper()}</span> {rec_type}</strong>
             <p>{rec_reason}</p>
         </div>
-'''
+"""
 
-    html_out += '''
+    html_out += """
         <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border);">
         <p style="color: var(--text-secondary); font-size: 0.875rem;">Generated by CJA SDR Generator</p>
     </div>
 </body>
-</html>'''
+</html>"""
 
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(html_out)
 
     logger.info(f"HTML report written to {file_path}")
     return str(file_path)
 
 
-def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
-                         output_dir: str, logger: logging.Logger) -> str:
+def write_org_report_csv(
+    result: OrgReportResult, output_path: Optional[Path], output_dir: str, logger: logging.Logger
+) -> str:
     """Write org report as multiple CSV files.
 
     Creates the following CSV files:
@@ -10253,7 +10446,7 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     # Determine output directory
     if output_path:
         csv_dir = Path(output_path)
-        if csv_dir.suffix == '.csv':
+        if csv_dir.suffix == ".csv":
             csv_dir = csv_dir.parent / csv_dir.stem
     else:
         csv_dir = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}"
@@ -10270,26 +10463,28 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     total_derived_fields = total_derived_metrics + total_derived_dimensions
     effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
-    summary_data = [{
-        'Report Type': 'Org-Wide Component Analysis',
-        'Generated At': result.timestamp,
-        'Org ID': result.org_id,
-        'Total Data Views': result.total_data_views,
-        'Successful Data Views': result.successful_data_views,
-        'Total Unique Metrics': result.total_unique_metrics,
-        'Total Unique Dimensions': result.total_unique_dimensions,
-        'Total Unique Components': result.total_unique_components,
-        'Total Metrics (Non-Unique)': total_metrics_aggregate,
-        'Total Dimensions (Non-Unique)': total_dimensions_aggregate,
-        'Total Components (Non-Unique)': total_components_aggregate,
-        'Derived Metrics (Non-Unique)': total_derived_metrics,
-        'Derived Dimensions (Non-Unique)': total_derived_dimensions,
-        'Total Derived Fields (Non-Unique)': total_derived_fields,
-        'Core Threshold': result.parameters.core_threshold,
-        'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
-        'Overlap Threshold (Effective)': effective_overlap_threshold,
-        'Analysis Duration (s)': round(result.duration, 2),
-    }]
+    summary_data = [
+        {
+            "Report Type": "Org-Wide Component Analysis",
+            "Generated At": result.timestamp,
+            "Org ID": result.org_id,
+            "Total Data Views": result.total_data_views,
+            "Successful Data Views": result.successful_data_views,
+            "Total Unique Metrics": result.total_unique_metrics,
+            "Total Unique Dimensions": result.total_unique_dimensions,
+            "Total Unique Components": result.total_unique_components,
+            "Total Metrics (Non-Unique)": total_metrics_aggregate,
+            "Total Dimensions (Non-Unique)": total_dimensions_aggregate,
+            "Total Components (Non-Unique)": total_components_aggregate,
+            "Derived Metrics (Non-Unique)": total_derived_metrics,
+            "Derived Dimensions (Non-Unique)": total_derived_dimensions,
+            "Total Derived Fields (Non-Unique)": total_derived_fields,
+            "Core Threshold": result.parameters.core_threshold,
+            "Overlap Threshold (Configured)": result.parameters.overlap_threshold,
+            "Overlap Threshold (Effective)": effective_overlap_threshold,
+            "Analysis Duration (s)": round(result.duration, 2),
+        }
+    ]
     summary_df = pd.DataFrame(summary_data)
     summary_path = csv_dir / "org_report_summary.csv"
     summary_df.to_csv(summary_path, index=False)
@@ -10297,16 +10492,18 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     # 2. Data Views CSV
     dv_data = []
     for dv in result.data_view_summaries:
-        dv_data.append({
-            'Data View ID': dv.data_view_id,
-            'Data View Name': dv.data_view_name,
-            'Metrics Count': dv.metric_count,
-            'Dimensions Count': dv.dimension_count,
-            'Total Components': dv.total_components,
-            'Status': dv.status,
-            'Error': dv.error or '',
-            'Fetch Duration (s)': round(dv.fetch_duration, 3),
-        })
+        dv_data.append(
+            {
+                "Data View ID": dv.data_view_id,
+                "Data View Name": dv.data_view_name,
+                "Metrics Count": dv.metric_count,
+                "Dimensions Count": dv.dimension_count,
+                "Total Components": dv.total_components,
+                "Status": dv.status,
+                "Error": dv.error or "",
+                "Fetch Duration (s)": round(dv.fetch_duration, 3),
+            }
+        )
     dv_df = pd.DataFrame(dv_data)
     dv_path = csv_dir / "org_report_data_views.csv"
     dv_df.to_csv(dv_path, index=False)
@@ -10316,37 +10513,61 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     for comp_id, info in result.component_index.items():
         # Determine distribution bucket
         if comp_id in result.distribution.core_metrics or comp_id in result.distribution.core_dimensions:
-            bucket = 'Core'
+            bucket = "Core"
         elif comp_id in result.distribution.common_metrics or comp_id in result.distribution.common_dimensions:
-            bucket = 'Common'
+            bucket = "Common"
         elif comp_id in result.distribution.limited_metrics or comp_id in result.distribution.limited_dimensions:
-            bucket = 'Limited'
+            bucket = "Limited"
         else:
-            bucket = 'Isolated'
+            bucket = "Isolated"
 
-        coverage_pct = (info.presence_count / result.successful_data_views * 100) if result.successful_data_views > 0 else 0
+        coverage_pct = (
+            (info.presence_count / result.successful_data_views * 100) if result.successful_data_views > 0 else 0
+        )
 
-        comp_data.append({
-            'Component ID': comp_id,
-            'Component Type': info.component_type.title(),
-            'Name': info.name or '',
-            'Data View Count': info.presence_count,
-            'Coverage (%)': round(coverage_pct, 1),
-            'Distribution Bucket': bucket,
-            'Data Views': ';'.join(sorted(info.data_views)),
-        })
+        comp_data.append(
+            {
+                "Component ID": comp_id,
+                "Component Type": info.component_type.title(),
+                "Name": info.name or "",
+                "Data View Count": info.presence_count,
+                "Coverage (%)": round(coverage_pct, 1),
+                "Distribution Bucket": bucket,
+                "Data Views": ";".join(sorted(info.data_views)),
+            }
+        )
     comp_df = pd.DataFrame(comp_data)
-    comp_df = comp_df.sort_values(['Distribution Bucket', 'Data View Count'], ascending=[True, False])
+    comp_df = comp_df.sort_values(["Distribution Bucket", "Data View Count"], ascending=[True, False])
     comp_path = csv_dir / "org_report_components.csv"
     comp_df.to_csv(comp_path, index=False)
 
     # 4. Distribution CSV
     dist = result.distribution
     dist_data = [
-        {'Bucket': 'Core', 'Metrics': len(dist.core_metrics), 'Dimensions': len(dist.core_dimensions), 'Total': dist.total_core},
-        {'Bucket': 'Common', 'Metrics': len(dist.common_metrics), 'Dimensions': len(dist.common_dimensions), 'Total': dist.total_common},
-        {'Bucket': 'Limited', 'Metrics': len(dist.limited_metrics), 'Dimensions': len(dist.limited_dimensions), 'Total': dist.total_limited},
-        {'Bucket': 'Isolated', 'Metrics': len(dist.isolated_metrics), 'Dimensions': len(dist.isolated_dimensions), 'Total': dist.total_isolated},
+        {
+            "Bucket": "Core",
+            "Metrics": len(dist.core_metrics),
+            "Dimensions": len(dist.core_dimensions),
+            "Total": dist.total_core,
+        },
+        {
+            "Bucket": "Common",
+            "Metrics": len(dist.common_metrics),
+            "Dimensions": len(dist.common_dimensions),
+            "Total": dist.total_common,
+        },
+        {
+            "Bucket": "Limited",
+            "Metrics": len(dist.limited_metrics),
+            "Dimensions": len(dist.limited_dimensions),
+            "Total": dist.total_limited,
+        },
+        {
+            "Bucket": "Isolated",
+            "Metrics": len(dist.isolated_metrics),
+            "Dimensions": len(dist.isolated_dimensions),
+            "Total": dist.total_isolated,
+        },
     ]
     dist_df = pd.DataFrame(dist_data)
     dist_path = csv_dir / "org_report_distribution.csv"
@@ -10357,17 +10578,19 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
         effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
         sim_data = []
         for pair in result.similarity_pairs:
-            sim_data.append({
-                'Data View 1 ID': pair.dv1_id,
-                'Data View 1 Name': pair.dv1_name,
-                'Data View 2 ID': pair.dv2_id,
-                'Data View 2 Name': pair.dv2_name,
-                'Jaccard Similarity': pair.jaccard_similarity,
-                'Shared Components': pair.shared_count,
-                'Union Size': pair.union_count,
-                'Overlap Threshold (Configured)': result.parameters.overlap_threshold,
-                'Overlap Threshold (Effective)': effective_overlap_threshold,
-            })
+            sim_data.append(
+                {
+                    "Data View 1 ID": pair.dv1_id,
+                    "Data View 1 Name": pair.dv1_name,
+                    "Data View 2 ID": pair.dv2_id,
+                    "Data View 2 Name": pair.dv2_name,
+                    "Jaccard Similarity": pair.jaccard_similarity,
+                    "Shared Components": pair.shared_count,
+                    "Union Size": pair.union_count,
+                    "Overlap Threshold (Configured)": result.parameters.overlap_threshold,
+                    "Overlap Threshold (Effective)": effective_overlap_threshold,
+                }
+            )
         sim_df = pd.DataFrame(sim_data)
         sim_path = csv_dir / "org_report_similarity.csv"
         sim_df.to_csv(sim_path, index=False)
@@ -10376,13 +10599,15 @@ def write_org_report_csv(result: OrgReportResult, output_path: Optional[Path],
     if result.recommendations:
         rec_data = []
         for rec in result.recommendations:
-            rec_data.append({
-                'Type': rec.get('type', ''),
-                'Severity': rec.get('severity', ''),
-                'Description': rec.get('reason', ''),
-                'Data View': rec.get('data_view', rec.get('data_view_1', '')),
-                'Data View Name': rec.get('data_view_name', rec.get('data_view_1_name', '')),
-            })
+            rec_data.append(
+                {
+                    "Type": rec.get("type", ""),
+                    "Severity": rec.get("severity", ""),
+                    "Description": rec.get("reason", ""),
+                    "Data View": rec.get("data_view", rec.get("data_view_1", "")),
+                    "Data View Name": rec.get("data_view_name", rec.get("data_view_1_name", "")),
+                }
+            )
         rec_df = pd.DataFrame(rec_data)
         rec_path = csv_dir / "org_report_recommendations.csv"
         rec_df.to_csv(rec_path, index=False)
@@ -10415,11 +10640,11 @@ def run_org_report(
         Tuple of (success, thresholds_exceeded) - thresholds_exceeded triggers exit code 2
     """
     # Setup logging
-    logger = logging.getLogger('org_report')
+    logger = logging.getLogger("org_report")
     logger.setLevel(logging.INFO if not quiet else logging.WARNING)
 
-    output_to_stdout = output_path in ('-', 'stdout')
-    status_to_stderr = output_to_stdout and output_format == 'json'
+    output_to_stdout = output_path in ("-", "stdout")
+    status_to_stderr = output_to_stdout and output_format == "json"
     status_stream = sys.stderr if status_to_stderr else sys.stdout
 
     def _status_print(*args, **kwargs) -> None:
@@ -10443,7 +10668,7 @@ def run_org_report(
             return False, False
 
         # Extract org_id from credentials
-        org_id = credentials.get('org_id', 'unknown') if credentials else 'unknown'
+        org_id = credentials.get("org_id", "unknown") if credentials else "unknown"
 
         cja = cjapy.CJA()
 
@@ -10453,7 +10678,7 @@ def run_org_report(
             cache = OrgReportCache()
             if not quiet:
                 stats = cache.get_stats()
-                if stats['entries'] > 0:
+                if stats["entries"] > 0:
                     _status_print(f"Cache: {stats['entries']} entries available")
 
         # Run analysis
@@ -10476,7 +10701,9 @@ def run_org_report(
             except FileNotFoundError:
                 _status_print(ConsoleColors.error(f"ERROR: Previous report not found: {org_config.compare_org_report}"))
             except json.JSONDecodeError:
-                _status_print(ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"))
+                _status_print(
+                    ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}")
+                )
             except Exception as e:
                 _status_print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
 
@@ -10488,7 +10715,7 @@ def run_org_report(
             with contextlib.redirect_stdout(status_stream):
                 write_org_report_stats_only(result, quiet)
             # Still output JSON if requested for CI integration
-            if output_format == 'json':
+            if output_format == "json":
                 if output_to_stdout:
                     json.dump(build_org_report_json_data(result), sys.stdout, indent=2, ensure_ascii=False)
                     print()
@@ -10502,30 +10729,30 @@ def run_org_report(
         if output_format in FORMAT_ALIASES:
             formats_to_generate = FORMAT_ALIASES[output_format]
             generated_files = []
-            alias_base = output_path_obj.with_suffix('') if output_path_obj else None
+            alias_base = output_path_obj.with_suffix("") if output_path_obj else None
             for fmt in formats_to_generate:
-                if fmt == 'json':
+                if fmt == "json":
                     path = write_org_report_json(result, alias_base, output_dir, logger)
                     generated_files.append(f"JSON: {path}")
-                elif fmt == 'excel':
+                elif fmt == "excel":
                     path = write_org_report_excel(result, alias_base, output_dir, logger)
                     generated_files.append(f"Excel: {path}")
-                elif fmt == 'markdown':
+                elif fmt == "markdown":
                     path = write_org_report_markdown(result, alias_base, output_dir, logger)
                     generated_files.append(f"Markdown: {path}")
-                elif fmt == 'csv':
+                elif fmt == "csv":
                     path = write_org_report_csv(result, alias_base, output_dir, logger)
                     generated_files.append(f"CSV: {path}")
-                elif fmt == 'html':
+                elif fmt == "html":
                     path = write_org_report_html(result, alias_base, output_dir, logger)
                     generated_files.append(f"HTML: {path}")
             if not quiet:
                 _status_print(f"\n{ConsoleColors.success('✓')} Reports saved ({output_format} alias):")
                 for f in generated_files:
                     _status_print(f"  - {f}")
-        elif output_format == 'console' or (output_format is None and output_path is None):
+        elif output_format == "console" or (output_format is None and output_path is None):
             write_org_report_console(result, org_config, quiet)
-        elif output_format == 'json':
+        elif output_format == "json":
             if output_to_stdout:
                 json.dump(build_org_report_json_data(result), sys.stdout, indent=2, ensure_ascii=False)
                 print()
@@ -10533,29 +10760,33 @@ def run_org_report(
                 file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
                 if not quiet:
                     _status_print(f"\n{ConsoleColors.success('✓')} JSON report saved to: {file_path}")
-        elif output_format == 'excel':
+        elif output_format == "excel":
             file_path = write_org_report_excel(result, output_path_obj, output_dir, logger)
             if not quiet:
                 _status_print(f"\n{ConsoleColors.success('✓')} Excel report saved to: {file_path}")
-        elif output_format == 'markdown':
+        elif output_format == "markdown":
             file_path = write_org_report_markdown(result, output_path_obj, output_dir, logger)
             if not quiet:
                 _status_print(f"\n{ConsoleColors.success('✓')} Markdown report saved to: {file_path}")
-        elif output_format == 'html':
+        elif output_format == "html":
             file_path = write_org_report_html(result, output_path_obj, output_dir, logger)
             if not quiet:
                 _status_print(f"\n{ConsoleColors.success('✓')} HTML report saved to: {file_path}")
-        elif output_format == 'csv':
+        elif output_format == "csv":
             if output_to_stdout:
-                _status_print(ConsoleColors.error("ERROR: CSV output for org-report writes multiple files and cannot be sent to stdout. Use --output-dir or a file path."))
+                _status_print(
+                    ConsoleColors.error(
+                        "ERROR: CSV output for org-report writes multiple files and cannot be sent to stdout. Use --output-dir or a file path."
+                    )
+                )
                 return False, False
             csv_dir = write_org_report_csv(result, output_path_obj, output_dir, logger)
             if not quiet:
                 _status_print(f"\n{ConsoleColors.success('✓')} CSV reports saved to: {csv_dir}")
-        elif output_format == 'all':
+        elif output_format == "all":
             # Generate all formats
             write_org_report_console(result, org_config, quiet)
-            all_base = output_path_obj.with_suffix('') if output_path_obj else None
+            all_base = output_path_obj.with_suffix("") if output_path_obj else None
             json_path = write_org_report_json(result, all_base, output_dir, logger)
             excel_path = write_org_report_excel(result, all_base, output_dir, logger)
             md_path = write_org_report_markdown(result, all_base, output_dir, logger)
@@ -10570,7 +10801,11 @@ def run_org_report(
                 _status_print(f"  - CSV: {csv_dir}")
         else:
             # Unknown format - raise clear error instead of silent fallback
-            _status_print(ConsoleColors.error(f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"))
+            _status_print(
+                ConsoleColors.error(
+                    f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"
+                )
+            )
             return False, False
 
         if not quiet:
@@ -10579,7 +10814,11 @@ def run_org_report(
             _status_print(f"Analysis completed in {result.duration:.2f}s")
             # Show governance violation summary if thresholds exceeded
             if result.thresholds_exceeded and org_config.fail_on_threshold:
-                _status_print(ConsoleColors.warning(f"GOVERNANCE THRESHOLDS EXCEEDED - {len(result.governance_violations or [])} violation(s)"))
+                _status_print(
+                    ConsoleColors.warning(
+                        f"GOVERNANCE THRESHOLDS EXCEEDED - {len(result.governance_violations or [])} violation(s)"
+                    )
+                )
             _status_print("=" * 110)
 
         return True, result.thresholds_exceeded
@@ -10588,7 +10827,7 @@ def run_org_report(
         _status_print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False, False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not quiet:
             _status_print()
             _status_print(ConsoleColors.warning("Operation cancelled."))
@@ -10602,10 +10841,16 @@ def run_org_report(
 
 # ==================== DIFF AND SNAPSHOT COMMAND HANDLERS ====================
 
-def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: str = "config.json",
-                            quiet: bool = False, profile: Optional[str] = None,
-                            include_calculated_metrics: bool = False,
-                            include_segments: bool = False) -> bool:
+
+def handle_snapshot_command(
+    data_view_id: str,
+    snapshot_file: str,
+    config_file: str = "config.json",
+    quiet: bool = False,
+    profile: Optional[str] = None,
+    include_calculated_metrics: bool = False,
+    include_segments: bool = False,
+) -> bool:
     """
     Handle the --snapshot command to save a data view snapshot.
 
@@ -10653,9 +10898,11 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
         # Create and save snapshot
         snapshot_manager = SnapshotManager(logger)
         snapshot = snapshot_manager.create_snapshot(
-            cja, data_view_id, quiet,
+            cja,
+            data_view_id,
+            quiet,
             include_calculated_metrics=include_calculated_metrics,
-            include_segments=include_segments
+            include_segments=include_segments,
         )
         saved_path = snapshot_manager.save_snapshot(snapshot, snapshot_file)
 
@@ -10683,21 +10930,36 @@ def handle_snapshot_command(data_view_id: str, snapshot_file: str, config_file: 
         return False
 
 
-def handle_diff_command(source_id: str, target_id: str, config_file: str = "config.json",
-                        output_format: str = "console", output_dir: str = ".",
-                        changes_only: bool = False, summary_only: bool = False,
-                        ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
-                        quiet: bool = False, show_only: Optional[List[str]] = None,
-                        metrics_only: bool = False, dimensions_only: bool = False,
-                        extended_fields: bool = False, side_by_side: bool = False,
-                        no_color: bool = False, quiet_diff: bool = False,
-                        reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                        group_by_field: bool = False, group_by_field_limit: int = 10,
-                        diff_output: Optional[str] = None,
-                        format_pr_comment: bool = False, auto_snapshot: bool = False,
-                        snapshot_dir: str = "./snapshots", keep_last: int = 0,
-                        keep_since: Optional[str] = None,
-                        profile: Optional[str] = None) -> Tuple[bool, bool, Optional[int]]:
+def handle_diff_command(
+    source_id: str,
+    target_id: str,
+    config_file: str = "config.json",
+    output_format: str = "console",
+    output_dir: str = ".",
+    changes_only: bool = False,
+    summary_only: bool = False,
+    ignore_fields: Optional[List[str]] = None,
+    labels: Optional[Tuple[str, str]] = None,
+    quiet: bool = False,
+    show_only: Optional[List[str]] = None,
+    metrics_only: bool = False,
+    dimensions_only: bool = False,
+    extended_fields: bool = False,
+    side_by_side: bool = False,
+    no_color: bool = False,
+    quiet_diff: bool = False,
+    reverse_diff: bool = False,
+    warn_threshold: Optional[float] = None,
+    group_by_field: bool = False,
+    group_by_field_limit: int = 10,
+    diff_output: Optional[str] = None,
+    format_pr_comment: bool = False,
+    auto_snapshot: bool = False,
+    snapshot_dir: str = "./snapshots",
+    keep_last: int = 0,
+    keep_since: Optional[str] = None,
+    profile: Optional[str] = None,
+) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff command to compare two data views.
 
@@ -10778,16 +11040,12 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
             os.makedirs(snapshot_dir, exist_ok=True)
 
             # Save source snapshot
-            source_filename = snapshot_manager.generate_snapshot_filename(
-                source_id, source_snapshot.data_view_name
-            )
+            source_filename = snapshot_manager.generate_snapshot_filename(source_id, source_snapshot.data_view_name)
             source_path = os.path.join(snapshot_dir, source_filename)
             snapshot_manager.save_snapshot(source_snapshot, source_path)
 
             # Save target snapshot
-            target_filename = snapshot_manager.generate_snapshot_filename(
-                target_id, target_snapshot.data_view_name
-            )
+            target_filename = snapshot_manager.generate_snapshot_filename(target_id, target_snapshot.data_view_name)
             target_path = os.path.join(snapshot_dir, target_filename)
             snapshot_manager.save_snapshot(target_snapshot, target_path)
 
@@ -10801,12 +11059,8 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
 
             # Count-based retention
             if keep_last > 0:
-                deleted_source = snapshot_manager.apply_retention_policy(
-                    snapshot_dir, source_id, keep_last
-                )
-                deleted_target = snapshot_manager.apply_retention_policy(
-                    snapshot_dir, target_id, keep_last
-                )
+                deleted_source = snapshot_manager.apply_retention_policy(snapshot_dir, source_id, keep_last)
+                deleted_target = snapshot_manager.apply_retention_policy(snapshot_dir, target_id, keep_last)
                 total_deleted += len(deleted_source) + len(deleted_target)
 
             # Date-based retention
@@ -10837,7 +11091,7 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
             use_extended_fields=extended_fields,
             show_only=show_only,
             metrics_only=metrics_only,
-            dimensions_only=dimensions_only
+            dimensions_only=dimensions_only,
         )
         diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
 
@@ -10845,36 +11099,46 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
         exit_code_override = None
         if warn_threshold is not None:
             max_change_pct = max(
-                diff_result.summary.metrics_change_percent,
-                diff_result.summary.dimensions_change_percent
+                diff_result.summary.metrics_change_percent, diff_result.summary.dimensions_change_percent
             )
             if max_change_pct > warn_threshold:
                 exit_code_override = 3
                 if not quiet_diff:
-                    print(ConsoleColors.warning(
-                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
-                    ), file=sys.stderr)
+                    print(
+                        ConsoleColors.warning(
+                            f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                        ),
+                        file=sys.stderr,
+                    )
 
         # Generate output (unless quiet_diff is set)
         if not quiet_diff:
             # Determine effective format
-            effective_format = 'pr-comment' if format_pr_comment else output_format
+            effective_format = "pr-comment" if format_pr_comment else output_format
 
             base_filename = f"diff_{source_id}_{target_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_content = write_diff_output(
-                diff_result, effective_format, base_filename, output_dir, logger,
-                changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
+                diff_result,
+                effective_format,
+                base_filename,
+                output_dir,
+                logger,
+                changes_only,
+                summary_only,
+                side_by_side,
+                use_color=not no_color,
+                group_by_field=group_by_field,
+                group_by_field_limit=group_by_field_limit,
             )
 
             # Handle --diff-output flag
             if diff_output and output_content:
-                with open(diff_output, 'w', encoding='utf-8') as f:
+                with open(diff_output, "w", encoding="utf-8") as f:
                     f.write(output_content)
                 if not quiet:
                     print(f"Diff output written to: {diff_output}")
 
-            if not quiet and output_format != 'console':
+            if not quiet and output_format != "console":
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
@@ -10883,27 +11147,43 @@ def handle_diff_command(source_id: str, target_id: str, config_file: str = "conf
     except Exception as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {str(e)}"), file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return False, False, None
 
 
-def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_file: str = "config.json",
-                                  output_format: str = "console", output_dir: str = ".",
-                                  changes_only: bool = False, summary_only: bool = False,
-                                  ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
-                                  quiet: bool = False, show_only: Optional[List[str]] = None,
-                                  metrics_only: bool = False, dimensions_only: bool = False,
-                                  extended_fields: bool = False, side_by_side: bool = False,
-                                  no_color: bool = False, quiet_diff: bool = False,
-                                  reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                                  group_by_field: bool = False, group_by_field_limit: int = 10,
-                                  diff_output: Optional[str] = None,
-                                  format_pr_comment: bool = False, auto_snapshot: bool = False,
-                                  snapshot_dir: str = "./snapshots", keep_last: int = 0,
-                                  keep_since: Optional[str] = None,
-                                  profile: Optional[str] = None,
-                                  include_calc_metrics: bool = False,
-                                  include_segments: bool = False) -> Tuple[bool, bool, Optional[int]]:
+def handle_diff_snapshot_command(
+    data_view_id: str,
+    snapshot_file: str,
+    config_file: str = "config.json",
+    output_format: str = "console",
+    output_dir: str = ".",
+    changes_only: bool = False,
+    summary_only: bool = False,
+    ignore_fields: Optional[List[str]] = None,
+    labels: Optional[Tuple[str, str]] = None,
+    quiet: bool = False,
+    show_only: Optional[List[str]] = None,
+    metrics_only: bool = False,
+    dimensions_only: bool = False,
+    extended_fields: bool = False,
+    side_by_side: bool = False,
+    no_color: bool = False,
+    quiet_diff: bool = False,
+    reverse_diff: bool = False,
+    warn_threshold: Optional[float] = None,
+    group_by_field: bool = False,
+    group_by_field_limit: int = 10,
+    diff_output: Optional[str] = None,
+    format_pr_comment: bool = False,
+    auto_snapshot: bool = False,
+    snapshot_dir: str = "./snapshots",
+    keep_last: int = 0,
+    keep_since: Optional[str] = None,
+    profile: Optional[str] = None,
+    include_calc_metrics: bool = False,
+    include_segments: bool = False,
+) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
 
@@ -10977,13 +11257,22 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
 
         if missing_inventory:
             inv_summary = source_snapshot.get_inventory_summary()
-            print(ConsoleColors.error("ERROR: Cannot perform inventory diff - snapshot missing requested data."), file=sys.stderr)
+            print(
+                ConsoleColors.error("ERROR: Cannot perform inventory diff - snapshot missing requested data."),
+                file=sys.stderr,
+            )
             print(file=sys.stderr)
             print(f"Snapshot '{snapshot_file}' contains:", file=sys.stderr)
             print(f"  {'✓' if True else '✗'} Metrics ({len(source_snapshot.metrics)} items)", file=sys.stderr)
             print(f"  {'✓' if True else '✗'} Dimensions ({len(source_snapshot.dimensions)} items)", file=sys.stderr)
-            print(f"  {'✓' if inv_summary['calculated_metrics']['present'] else '✗'} Calculated Metrics Inventory ({inv_summary['calculated_metrics']['count']} items)", file=sys.stderr)
-            print(f"  {'✓' if inv_summary['segments']['present'] else '✗'} Segments Inventory ({inv_summary['segments']['count']} items)", file=sys.stderr)
+            print(
+                f"  {'✓' if inv_summary['calculated_metrics']['present'] else '✗'} Calculated Metrics Inventory ({inv_summary['calculated_metrics']['count']} items)",
+                file=sys.stderr,
+            )
+            print(
+                f"  {'✓' if inv_summary['segments']['present'] else '✗'} Segments Inventory ({inv_summary['segments']['count']} items)",
+                file=sys.stderr,
+            )
             print(file=sys.stderr)
             print(f"You requested: {', '.join(missing_inventory)}", file=sys.stderr)
             print(file=sys.stderr)
@@ -11016,6 +11305,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             if include_calc_metrics:
                 try:
                     from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
+
                     builder = CalculatedMetricsInventoryBuilder(logger=logger)
                     inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
                     target_snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
@@ -11027,6 +11317,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             if include_segments:
                 try:
                     from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
+
                     builder = SegmentsInventoryBuilder(logger=logger)
                     inventory = builder.build(cja, data_view_id, target_snapshot.data_view_name)
                     target_snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
@@ -11043,9 +11334,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             os.makedirs(snapshot_dir, exist_ok=True)
 
             # Save current state snapshot
-            current_filename = snapshot_manager.generate_snapshot_filename(
-                data_view_id, target_snapshot.data_view_name
-            )
+            current_filename = snapshot_manager.generate_snapshot_filename(data_view_id, target_snapshot.data_view_name)
             current_path = os.path.join(snapshot_dir, current_filename)
             snapshot_manager.save_snapshot(target_snapshot, current_path)
 
@@ -11057,9 +11346,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
 
             # Count-based retention
             if keep_last > 0:
-                deleted = snapshot_manager.apply_retention_policy(
-                    snapshot_dir, data_view_id, keep_last
-                )
+                deleted = snapshot_manager.apply_retention_policy(snapshot_dir, data_view_id, keep_last)
                 total_deleted += len(deleted)
 
             # Date-based retention
@@ -11093,7 +11380,7 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
             metrics_only=metrics_only,
             dimensions_only=dimensions_only,
             include_calc_metrics=include_calc_metrics,
-            include_segments=include_segments
+            include_segments=include_segments,
         )
         diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
 
@@ -11101,36 +11388,46 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
         exit_code_override = None
         if warn_threshold is not None:
             max_change_pct = max(
-                diff_result.summary.metrics_change_percent,
-                diff_result.summary.dimensions_change_percent
+                diff_result.summary.metrics_change_percent, diff_result.summary.dimensions_change_percent
             )
             if max_change_pct > warn_threshold:
                 exit_code_override = 3
                 if not quiet_diff:
-                    print(ConsoleColors.warning(
-                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
-                    ), file=sys.stderr)
+                    print(
+                        ConsoleColors.warning(
+                            f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                        ),
+                        file=sys.stderr,
+                    )
 
         # Generate output (unless quiet_diff is set)
         if not quiet_diff:
             # Determine effective format
-            effective_format = 'pr-comment' if format_pr_comment else output_format
+            effective_format = "pr-comment" if format_pr_comment else output_format
 
             base_filename = f"diff_{data_view_id}_snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_content = write_diff_output(
-                diff_result, effective_format, base_filename, output_dir, logger,
-                changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
+                diff_result,
+                effective_format,
+                base_filename,
+                output_dir,
+                logger,
+                changes_only,
+                summary_only,
+                side_by_side,
+                use_color=not no_color,
+                group_by_field=group_by_field,
+                group_by_field_limit=group_by_field_limit,
             )
 
             # Handle --diff-output flag
             if diff_output and output_content:
-                with open(diff_output, 'w', encoding='utf-8') as f:
+                with open(diff_output, "w", encoding="utf-8") as f:
                     f.write(output_content)
                 if not quiet:
                     print(f"Diff output written to: {diff_output}")
 
-            if not quiet and output_format != 'console':
+            if not quiet and output_format != "console":
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
@@ -11145,24 +11442,37 @@ def handle_diff_snapshot_command(data_view_id: str, snapshot_file: str, config_f
     except Exception as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {str(e)}"), file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return False, False, None
 
 
-def handle_compare_snapshots_command(source_file: str, target_file: str,
-                                      output_format: str = "console", output_dir: str = ".",
-                                      changes_only: bool = False, summary_only: bool = False,
-                                      ignore_fields: Optional[List[str]] = None, labels: Optional[Tuple[str, str]] = None,
-                                      quiet: bool = False, show_only: Optional[List[str]] = None,
-                                      metrics_only: bool = False, dimensions_only: bool = False,
-                                      extended_fields: bool = False, side_by_side: bool = False,
-                                      no_color: bool = False, quiet_diff: bool = False,
-                                      reverse_diff: bool = False, warn_threshold: Optional[float] = None,
-                                      group_by_field: bool = False, group_by_field_limit: int = 10,
-                                      diff_output: Optional[str] = None,
-                                      format_pr_comment: bool = False,
-                                      include_calc_metrics: bool = False,
-                                      include_segments: bool = False) -> Tuple[bool, bool, Optional[int]]:
+def handle_compare_snapshots_command(
+    source_file: str,
+    target_file: str,
+    output_format: str = "console",
+    output_dir: str = ".",
+    changes_only: bool = False,
+    summary_only: bool = False,
+    ignore_fields: Optional[List[str]] = None,
+    labels: Optional[Tuple[str, str]] = None,
+    quiet: bool = False,
+    show_only: Optional[List[str]] = None,
+    metrics_only: bool = False,
+    dimensions_only: bool = False,
+    extended_fields: bool = False,
+    side_by_side: bool = False,
+    no_color: bool = False,
+    quiet_diff: bool = False,
+    reverse_diff: bool = False,
+    warn_threshold: Optional[float] = None,
+    group_by_field: bool = False,
+    group_by_field_limit: int = 10,
+    diff_output: Optional[str] = None,
+    format_pr_comment: bool = False,
+    include_calc_metrics: bool = False,
+    include_segments: bool = False,
+) -> Tuple[bool, bool, Optional[int]]:
     """
     Handle the --compare-snapshots command to compare two snapshot files directly.
 
@@ -11229,14 +11539,21 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
         # Validate same data view for inventory comparison
         if include_calc_metrics or include_segments:
             if source_snapshot.data_view_id != target_snapshot.data_view_id:
-                print(ConsoleColors.error(
-                    f"ERROR: Inventory comparison requires snapshots from the same data view."
-                ), file=sys.stderr)
+                print(
+                    ConsoleColors.error(f"ERROR: Inventory comparison requires snapshots from the same data view."),
+                    file=sys.stderr,
+                )
                 print(f"  Source: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})", file=sys.stderr)
                 print(f"  Target: {target_snapshot.data_view_name} ({target_snapshot.data_view_id})", file=sys.stderr)
                 print(file=sys.stderr)
-                print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
-                print("Remove --include-segments, --include-calculated, --include-derived for cross-data-view comparison.", file=sys.stderr)
+                print(
+                    "Inventory IDs are data-view-scoped and cannot be matched across different data views.",
+                    file=sys.stderr,
+                )
+                print(
+                    "Remove --include-segments, --include-calculated, --include-derived for cross-data-view comparison.",
+                    file=sys.stderr,
+                )
                 return False, False, None
 
         # Handle reverse_diff - swap source and target
@@ -11262,7 +11579,7 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
 
             # Source snapshot info
             source_size = os.path.getsize(source_file)
-            source_size_str = f"{source_size:,} bytes" if source_size < 1024 else f"{source_size/1024:.1f} KB"
+            source_size_str = f"{source_size:,} bytes" if source_size < 1024 else f"{source_size / 1024:.1f} KB"
             print(f"  Source:")
             print(f"    File: {Path(source_file).name} ({source_size_str})")
             print(f"    Created: {source_snapshot.created_at}")
@@ -11271,7 +11588,7 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
 
             # Target snapshot info
             target_size = os.path.getsize(target_file)
-            target_size_str = f"{target_size:,} bytes" if target_size < 1024 else f"{target_size/1024:.1f} KB"
+            target_size_str = f"{target_size:,} bytes" if target_size < 1024 else f"{target_size / 1024:.1f} KB"
             print(f"  Target:")
             print(f"    File: {Path(target_file).name} ({target_size_str})")
             print(f"    Created: {target_snapshot.created_at}")
@@ -11290,7 +11607,7 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
             metrics_only=metrics_only,
             dimensions_only=dimensions_only,
             include_calc_metrics=include_calc_metrics,
-            include_segments=include_segments
+            include_segments=include_segments,
         )
         diff_result = comparator.compare(source_snapshot, target_snapshot, source_label, target_label)
 
@@ -11298,20 +11615,22 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
         exit_code_override = None
         if warn_threshold is not None:
             max_change_pct = max(
-                diff_result.summary.metrics_change_percent,
-                diff_result.summary.dimensions_change_percent
+                diff_result.summary.metrics_change_percent, diff_result.summary.dimensions_change_percent
             )
             if max_change_pct > warn_threshold:
                 exit_code_override = 3
                 if not quiet_diff:
-                    print(ConsoleColors.warning(
-                        f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
-                    ), file=sys.stderr)
+                    print(
+                        ConsoleColors.warning(
+                            f"WARNING: Change threshold exceeded! {max_change_pct:.1f}% > {warn_threshold}%"
+                        ),
+                        file=sys.stderr,
+                    )
 
         # Generate output (unless quiet_diff is set)
         if not quiet_diff:
             # Determine effective format
-            effective_format = 'pr-comment' if format_pr_comment else output_format
+            effective_format = "pr-comment" if format_pr_comment else output_format
 
             # Generate base filename from snapshot names
             source_base = Path(source_file).stem
@@ -11319,19 +11638,27 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
             base_filename = f"diff_{source_base}_vs_{target_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
             output_content = write_diff_output(
-                diff_result, effective_format, base_filename, output_dir, logger,
-                changes_only, summary_only, side_by_side, use_color=not no_color,
-                group_by_field=group_by_field, group_by_field_limit=group_by_field_limit
+                diff_result,
+                effective_format,
+                base_filename,
+                output_dir,
+                logger,
+                changes_only,
+                summary_only,
+                side_by_side,
+                use_color=not no_color,
+                group_by_field=group_by_field,
+                group_by_field_limit=group_by_field_limit,
             )
 
             # Handle --diff-output flag
             if diff_output and output_content:
-                with open(diff_output, 'w', encoding='utf-8') as f:
+                with open(diff_output, "w", encoding="utf-8") as f:
                     f.write(output_content)
                 if not quiet:
                     print(f"Diff output written to: {diff_output}")
 
-            if not quiet and output_format != 'console':
+            if not quiet and output_format != "console":
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
@@ -11346,11 +11673,13 @@ def handle_compare_snapshots_command(source_file: str, target_file: str,
     except Exception as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {str(e)}"), file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return False, False, None
 
 
 # ==================== MAIN FUNCTION ====================
+
 
 def main():
     """Main entry point for the script"""
@@ -11365,7 +11694,7 @@ def main():
 
     # Parse and validate --workers argument
     workers_auto = False
-    if args.workers.lower() == 'auto':
+    if args.workers.lower() == "auto":
         workers_auto = True
         # Will be set later based on data view count
         args.workers = DEFAULT_BATCH_WORKERS  # Temporary default
@@ -11394,21 +11723,21 @@ def main():
         _exit_error("--retry-max-delay must be >= --retry-base-delay")
 
     # Update global retry config with CLI arguments
-    DEFAULT_RETRY_CONFIG['max_retries'] = args.max_retries
-    DEFAULT_RETRY_CONFIG['base_delay'] = args.retry_base_delay
-    DEFAULT_RETRY_CONFIG['max_delay'] = args.retry_max_delay
+    DEFAULT_RETRY_CONFIG["max_retries"] = args.max_retries
+    DEFAULT_RETRY_CONFIG["base_delay"] = args.retry_base_delay
+    DEFAULT_RETRY_CONFIG["max_delay"] = args.retry_max_delay
     # Also set env vars so child processes (ProcessPoolExecutor) inherit the values
-    os.environ['MAX_RETRIES'] = str(args.max_retries)
-    os.environ['RETRY_BASE_DELAY'] = str(args.retry_base_delay)
-    os.environ['RETRY_MAX_DELAY'] = str(args.retry_max_delay)
+    os.environ["MAX_RETRIES"] = str(args.max_retries)
+    os.environ["RETRY_BASE_DELAY"] = str(args.retry_base_delay)
+    os.environ["RETRY_MAX_DELAY"] = str(args.retry_max_delay)
 
     # Handle --output for stdout - implies quiet mode
-    output_to_stdout = getattr(args, 'output', None) in ('-', 'stdout')
+    output_to_stdout = getattr(args, "output", None) in ("-", "stdout")
     if output_to_stdout:
         args.quiet = True
 
     # Auto-detect format from output file extension if --format not explicitly set
-    output_path = getattr(args, 'output', None)
+    output_path = getattr(args, "output", None)
     if output_path and not args.format:
         inferred_format = infer_format_from_path(output_path)
         if inferred_format:
@@ -11417,12 +11746,12 @@ def main():
                 print(f"Auto-detected format '{inferred_format}' from output file extension")
 
     # Set color theme for diff output (accessible accessibility)
-    color_theme = getattr(args, 'color_theme', 'default')
-    if color_theme and color_theme != 'default':
+    color_theme = getattr(args, "color_theme", "default")
+    if color_theme and color_theme != "default":
         ConsoleColors.set_theme(color_theme)
 
     # Handle --exit-codes mode (no data view required)
-    if getattr(args, 'exit_codes', False):
+    if getattr(args, "exit_codes", False):
         print("=" * BANNER_WIDTH)
         print("EXIT CODE REFERENCE")
         print("=" * BANNER_WIDTH)
@@ -11470,29 +11799,29 @@ def main():
     # ==================== PROFILE MANAGEMENT COMMANDS ====================
 
     # Handle --profile-list mode (no data view required)
-    if getattr(args, 'profile_list', False):
-        list_format = 'json' if args.format == 'json' else 'table'
+    if getattr(args, "profile_list", False):
+        list_format = "json" if args.format == "json" else "table"
         success = list_profiles(output_format=list_format)
         sys.exit(0 if success else 1)
 
     # Handle --profile-add mode (no data view required)
-    if getattr(args, 'profile_add', None):
+    if getattr(args, "profile_add", None):
         success = add_profile_interactive(args.profile_add)
         sys.exit(0 if success else 1)
 
     # Handle --profile-test mode (no data view required)
-    if getattr(args, 'profile_test', None):
+    if getattr(args, "profile_test", None):
         success = test_profile(args.profile_test)
         sys.exit(0 if success else 1)
 
     # Handle --profile-show mode (no data view required)
-    if getattr(args, 'profile_show', None):
+    if getattr(args, "profile_show", None):
         success = show_profile(args.profile_show)
         sys.exit(0 if success else 1)
 
     # Handle --git-init mode (no data view required)
-    if getattr(args, 'git_init', False):
-        git_dir = Path(getattr(args, 'git_dir', './sdr-snapshots'))
+    if getattr(args, "git_init", False):
+        git_dir = Path(getattr(args, "git_dir", "./sdr-snapshots"))
         print(f"Initializing Git repository at: {git_dir}")
         success, message = git_init_snapshot_repo(git_dir)
         if success:
@@ -11508,13 +11837,13 @@ def main():
         sys.exit(0 if success else 1)
 
     # Validate Git argument combinations
-    if getattr(args, 'git_push', False) and not getattr(args, 'git_commit', False):
+    if getattr(args, "git_push", False) and not getattr(args, "git_commit", False):
         print(ConsoleColors.error("ERROR: --git-push requires --git-commit"), file=sys.stderr)
         sys.exit(1)
 
     # Validate: --include-derived is not supported with --git-commit
     # Derived fields are for SDR generation only - they're computed from metrics/dimensions
-    if getattr(args, 'git_commit', False) and getattr(args, 'include_derived_inventory', False):
+    if getattr(args, "git_commit", False) and getattr(args, "include_derived_inventory", False):
         print(ConsoleColors.error("ERROR: --include-derived cannot be used with --git-commit"), file=sys.stderr)
         print("Derived fields inventory is only available in SDR generation mode.", file=sys.stderr)
         print("Derived field changes are captured in the standard Metrics/Dimensions diff.", file=sys.stderr)
@@ -11522,50 +11851,46 @@ def main():
 
     # Handle discovery commands (no data view required)
     _discovery_commands = {
-        'list_dataviews': list_dataviews,
-        'list_connections': list_connections,
-        'list_datasets': list_datasets,
+        "list_dataviews": list_dataviews,
+        "list_connections": list_connections,
+        "list_datasets": list_datasets,
     }
     for attr, func in _discovery_commands.items():
         if getattr(args, attr, False):
-            list_format = 'table'
-            if args.format in ('json', 'csv'):
+            list_format = "table"
+            if args.format in ("json", "csv"):
                 list_format = args.format
             elif output_to_stdout:
-                list_format = 'json'
+                list_format = "json"
             success = func(
                 args.config_file,
                 output_format=list_format,
-                output_file=getattr(args, 'output', None),
-                profile=getattr(args, 'profile', None),
+                output_file=getattr(args, "output", None),
+                profile=getattr(args, "profile", None),
             )
             sys.exit(0 if success else 1)
 
     # Handle --config-status mode (no data view required, no API call)
     # --config-json implies --config-status
-    if getattr(args, 'config_status', False) or getattr(args, 'config_json', False):
-        output_json = getattr(args, 'config_json', False)
-        success = show_config_status(
-            args.config_file,
-            profile=getattr(args, 'profile', None),
-            output_json=output_json
-        )
+    if getattr(args, "config_status", False) or getattr(args, "config_json", False):
+        output_json = getattr(args, "config_json", False)
+        success = show_config_status(args.config_file, profile=getattr(args, "profile", None), output_json=output_json)
         sys.exit(0 if success else 1)
 
     # Handle --validate-config mode (no data view required)
     if args.validate_config:
-        success = validate_config_only(args.config_file, profile=getattr(args, 'profile', None))
+        success = validate_config_only(args.config_file, profile=getattr(args, "profile", None))
         sys.exit(0 if success else 1)
 
     # Get data views from arguments
     data_view_inputs = args.data_views
 
     # Handle --interactive mode (full wizard for guided SDR generation)
-    if getattr(args, 'interactive', False):
+    if getattr(args, "interactive", False):
         if data_view_inputs:
             print(ConsoleColors.warning("Note: --interactive mode ignores command line arguments"))
 
-        wizard_config = interactive_wizard(args.config_file, profile=getattr(args, 'profile', None))
+        wizard_config = interactive_wizard(args.config_file, profile=getattr(args, "profile", None))
         if wizard_config is None:
             print("Cancelled. Exiting.")
             sys.exit(0)
@@ -11585,17 +11910,16 @@ def main():
         print()
 
     # Handle --stats mode (requires data views)
-    if getattr(args, 'stats', False):
+    if getattr(args, "stats", False):
         if not data_view_inputs:
             print(ConsoleColors.error("ERROR: --stats requires at least one data view ID or name"), file=sys.stderr)
             sys.exit(1)
 
         # Resolve data view names first
-        temp_logger = logging.getLogger('name_resolution')
+        temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
 
         if not resolved_ids:
@@ -11603,81 +11927,81 @@ def main():
             sys.exit(1)
 
         # Determine format for stats output
-        stats_format = 'table'
-        if args.format in ('json', 'csv'):
+        stats_format = "table"
+        if args.format in ("json", "csv"):
             stats_format = args.format
         elif output_to_stdout:
-            stats_format = 'json'
+            stats_format = "json"
 
         success = show_stats(
             resolved_ids,
             config_file=args.config_file,
             output_format=stats_format,
-            output_file=getattr(args, 'output', None),
+            output_file=getattr(args, "output", None),
             quiet=args.quiet,
-            profile=getattr(args, 'profile', None)
+            profile=getattr(args, "profile", None),
         )
         sys.exit(0 if success else 1)
 
     # Handle --org-report mode (no data views required)
-    if getattr(args, 'org_report', False):
+    if getattr(args, "org_report", False):
         # Build config from args
         org_config = OrgReportConfig(
-            filter_pattern=getattr(args, 'org_filter', None),
-            exclude_pattern=getattr(args, 'org_exclude', None),
-            limit=getattr(args, 'org_limit', None),
-            core_threshold=getattr(args, 'core_threshold', 0.5),
-            core_min_count=getattr(args, 'core_min_count', None),
-            overlap_threshold=getattr(args, 'overlap_threshold', 0.8),
-            summary_only=getattr(args, 'org_summary', False) or getattr(args, 'summary', False),
-            verbose=getattr(args, 'org_verbose', False),
-            include_names=getattr(args, 'org_include_names', False),
-            skip_similarity=getattr(args, 'skip_similarity', False),
-            similarity_max_dvs=getattr(args, 'org_similarity_max_dvs', 250),
-            force_similarity=getattr(args, 'org_force_similarity', False),
+            filter_pattern=getattr(args, "org_filter", None),
+            exclude_pattern=getattr(args, "org_exclude", None),
+            limit=getattr(args, "org_limit", None),
+            core_threshold=getattr(args, "core_threshold", 0.5),
+            core_min_count=getattr(args, "core_min_count", None),
+            overlap_threshold=getattr(args, "overlap_threshold", 0.8),
+            summary_only=getattr(args, "org_summary", False) or getattr(args, "summary", False),
+            verbose=getattr(args, "org_verbose", False),
+            include_names=getattr(args, "org_include_names", False),
+            skip_similarity=getattr(args, "skip_similarity", False),
+            similarity_max_dvs=getattr(args, "org_similarity_max_dvs", 250),
+            force_similarity=getattr(args, "org_force_similarity", False),
             # Existing options
-            include_component_types=not getattr(args, 'no_component_types', False),
-            include_metadata=getattr(args, 'org_include_metadata', False),
-            include_drift=getattr(args, 'org_include_drift', False),
-            sample_size=getattr(args, 'org_sample_size', None),
-            sample_seed=getattr(args, 'org_sample_seed', None),
-            sample_stratified=getattr(args, 'org_sample_stratified', False),
-            use_cache=getattr(args, 'org_use_cache', False),
-            cache_max_age_hours=getattr(args, 'org_cache_max_age', 24),
-            clear_cache=getattr(args, 'org_clear_cache', False),
-            validate_cache=getattr(args, 'org_validate_cache', False),
-            memory_warning_threshold_mb=getattr(args, 'org_memory_warning', 100),
-            memory_limit_mb=getattr(args, 'org_memory_limit', None),
-            enable_clustering=getattr(args, 'org_cluster', False),
-            cluster_method=getattr(args, 'org_cluster_method', 'average'),
+            include_component_types=not getattr(args, "no_component_types", False),
+            include_metadata=getattr(args, "org_include_metadata", False),
+            include_drift=getattr(args, "org_include_drift", False),
+            sample_size=getattr(args, "org_sample_size", None),
+            sample_seed=getattr(args, "org_sample_seed", None),
+            sample_stratified=getattr(args, "org_sample_stratified", False),
+            use_cache=getattr(args, "org_use_cache", False),
+            cache_max_age_hours=getattr(args, "org_cache_max_age", 24),
+            clear_cache=getattr(args, "org_clear_cache", False),
+            validate_cache=getattr(args, "org_validate_cache", False),
+            memory_warning_threshold_mb=getattr(args, "org_memory_warning", 100),
+            memory_limit_mb=getattr(args, "org_memory_limit", None),
+            enable_clustering=getattr(args, "org_cluster", False),
+            cluster_method=getattr(args, "org_cluster_method", "average"),
             quiet=args.quiet,
-            cja_per_thread=not getattr(args, 'org_shared_client', False),
+            cja_per_thread=not getattr(args, "org_shared_client", False),
             # Feature 1: Governance thresholds
-            duplicate_threshold=getattr(args, 'org_duplicate_threshold', None),
-            isolated_threshold=getattr(args, 'org_isolated_threshold', None),
-            fail_on_threshold=getattr(args, 'org_fail_on_threshold', False),
+            duplicate_threshold=getattr(args, "org_duplicate_threshold", None),
+            isolated_threshold=getattr(args, "org_isolated_threshold", None),
+            fail_on_threshold=getattr(args, "org_fail_on_threshold", False),
             # Feature 2: Org-stats mode
-            org_stats_only=getattr(args, 'org_stats_only', False),
+            org_stats_only=getattr(args, "org_stats_only", False),
             # Feature 3: Naming audit
-            audit_naming=getattr(args, 'org_audit_naming', False),
+            audit_naming=getattr(args, "org_audit_naming", False),
             # Feature 4: Trending/drift report
-            compare_org_report=getattr(args, 'org_compare_report', None),
+            compare_org_report=getattr(args, "org_compare_report", None),
             # Feature 5: Owner summary
-            include_owner_summary=getattr(args, 'org_owner_summary', False),
+            include_owner_summary=getattr(args, "org_owner_summary", False),
             # Feature 6: Stale component heuristics
-            flag_stale=getattr(args, 'org_flag_stale', False),
+            flag_stale=getattr(args, "org_flag_stale", False),
         )
 
         # Determine output format (default to console for org reports)
-        output_format = args.format if args.format else 'console'
+        output_format = args.format if args.format else "console"
 
         success, thresholds_exceeded = run_org_report(
             config_file=args.config_file,
             output_format=output_format,
-            output_path=getattr(args, 'output', None),
+            output_path=getattr(args, "output", None),
             output_dir=args.output_dir,
             org_config=org_config,
-            profile=getattr(args, 'profile', None),
+            profile=getattr(args, "profile", None),
             quiet=args.quiet,
         )
 
@@ -11691,14 +12015,14 @@ def main():
 
     # Parse ignore_fields if provided
     ignore_fields = None
-    if hasattr(args, 'ignore_fields') and args.ignore_fields:
-        ignore_fields = [f.strip() for f in args.ignore_fields.split(',')]
+    if hasattr(args, "ignore_fields") and args.ignore_fields:
+        ignore_fields = [f.strip() for f in args.ignore_fields.split(",")]
 
     # Parse show_only filter if provided
     show_only = None
-    if hasattr(args, 'show_only') and args.show_only:
-        show_only = [t.strip().lower() for t in args.show_only.split(',')]
-        valid_types = {'added', 'removed', 'modified', 'unchanged'}
+    if hasattr(args, "show_only") and args.show_only:
+        show_only = [t.strip().lower() for t in args.show_only.split(",")]
+        valid_types = {"added", "removed", "modified", "unchanged"}
         invalid = set(show_only) - valid_types
         if invalid:
             print(ConsoleColors.error(f"ERROR: Invalid --show-only types: {invalid}"), file=sys.stderr)
@@ -11707,50 +12031,55 @@ def main():
 
     # Parse labels if provided
     labels = None
-    if hasattr(args, 'diff_labels') and args.diff_labels:
+    if hasattr(args, "diff_labels") and args.diff_labels:
         labels = tuple(args.diff_labels)
 
     # Handle --compare-snapshots mode (compare two snapshot files directly)
-    if hasattr(args, 'compare_snapshots') and args.compare_snapshots:
+    if hasattr(args, "compare_snapshots") and args.compare_snapshots:
         source_file, target_file = args.compare_snapshots
 
         # Check for conflicting options
-        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+        if getattr(args, "metrics_only", False) and getattr(args, "dimensions_only", False):
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
         # Check for inventory-only (not supported in diff mode - inventory comparison is part of diff output)
-        if getattr(args, 'inventory_only', False):
-            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --compare-snapshots"), file=sys.stderr)
+        if getattr(args, "inventory_only", False):
+            print(
+                ConsoleColors.error(
+                    "ERROR: --inventory-only is only available in SDR mode, not with --compare-snapshots"
+                ),
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else 'console'
+        diff_format = args.format if args.format else "console"
         success, has_changes, exit_code_override = handle_compare_snapshots_command(
             source_file=source_file,
             target_file=target_file,
             output_format=diff_format,
             output_dir=args.output_dir,
-            changes_only=getattr(args, 'changes_only', False),
-            summary_only=getattr(args, 'summary', False),
+            changes_only=getattr(args, "changes_only", False),
+            summary_only=getattr(args, "summary", False),
             ignore_fields=ignore_fields,
             labels=labels,
             quiet=args.quiet,
             show_only=show_only,
-            metrics_only=getattr(args, 'metrics_only', False),
-            dimensions_only=getattr(args, 'dimensions_only', False),
-            extended_fields=getattr(args, 'extended_fields', False),
-            side_by_side=getattr(args, 'side_by_side', False),
-            no_color=getattr(args, 'no_color', False),
-            quiet_diff=getattr(args, 'quiet_diff', False),
-            reverse_diff=getattr(args, 'reverse_diff', False),
-            warn_threshold=getattr(args, 'warn_threshold', None),
-            group_by_field=getattr(args, 'group_by_field', False),
-            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
-            diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False),
-            include_calc_metrics=getattr(args, 'include_calculated_metrics', False),
-            include_segments=getattr(args, 'include_segments_inventory', False)
+            metrics_only=getattr(args, "metrics_only", False),
+            dimensions_only=getattr(args, "dimensions_only", False),
+            extended_fields=getattr(args, "extended_fields", False),
+            side_by_side=getattr(args, "side_by_side", False),
+            no_color=getattr(args, "no_color", False),
+            quiet_diff=getattr(args, "quiet_diff", False),
+            reverse_diff=getattr(args, "reverse_diff", False),
+            warn_threshold=getattr(args, "warn_threshold", None),
+            group_by_field=getattr(args, "group_by_field", False),
+            group_by_field_limit=getattr(args, "group_by_field_limit", 10),
+            diff_output=getattr(args, "diff_output", None),
+            format_pr_comment=getattr(args, "format_pr_comment", False),
+            include_calc_metrics=getattr(args, "include_calculated_metrics", False),
+            include_segments=getattr(args, "include_segments_inventory", False),
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -11762,41 +12091,72 @@ def main():
             sys.exit(1)
 
     # Handle --diff mode (compare two data views)
-    if hasattr(args, 'diff') and args.diff:
+    if hasattr(args, "diff") and args.diff:
         if len(data_view_inputs) != 2:
             print(ConsoleColors.error("ERROR: --diff requires exactly 2 data view IDs or names"), file=sys.stderr)
             print("Usage: cja_auto_sdr --diff DATA_VIEW_A DATA_VIEW_B", file=sys.stderr)
             sys.exit(1)
 
         # Check for conflicting options
-        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+        if getattr(args, "metrics_only", False) and getattr(args, "dimensions_only", False):
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
         # Check for inventory options (not supported in cross-DV diff - IDs are data-view-scoped)
         # Inventory diff is only supported for same-data-view snapshot comparisons
-        if getattr(args, 'include_derived_inventory', False):
-            print(ConsoleColors.error("ERROR: --include-derived cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
-            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
-            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+        if getattr(args, "include_derived_inventory", False):
+            print(
+                ConsoleColors.error("ERROR: --include-derived cannot be used with --diff (cross-data-view comparison)"),
+                file=sys.stderr,
+            )
+            print(
+                "Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr
+            )
+            print(
+                "For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev",
+                file=sys.stderr,
+            )
             sys.exit(1)
-        if getattr(args, 'include_calculated_metrics', False):
-            print(ConsoleColors.error("ERROR: --include-calculated cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
-            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
-            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+        if getattr(args, "include_calculated_metrics", False):
+            print(
+                ConsoleColors.error(
+                    "ERROR: --include-calculated cannot be used with --diff (cross-data-view comparison)"
+                ),
+                file=sys.stderr,
+            )
+            print(
+                "Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr
+            )
+            print(
+                "For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev",
+                file=sys.stderr,
+            )
             sys.exit(1)
-        if getattr(args, 'include_segments_inventory', False):
-            print(ConsoleColors.error("ERROR: --include-segments cannot be used with --diff (cross-data-view comparison)"), file=sys.stderr)
-            print("Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr)
-            print("For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev", file=sys.stderr)
+        if getattr(args, "include_segments_inventory", False):
+            print(
+                ConsoleColors.error(
+                    "ERROR: --include-segments cannot be used with --diff (cross-data-view comparison)"
+                ),
+                file=sys.stderr,
+            )
+            print(
+                "Inventory IDs are data-view-scoped and cannot be matched across different data views.", file=sys.stderr
+            )
+            print(
+                "For same-data-view comparisons, use: --diff-snapshot, --compare-snapshots, or --compare-with-prev",
+                file=sys.stderr,
+            )
             sys.exit(1)
-        if getattr(args, 'inventory_only', False):
-            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff"), file=sys.stderr)
+        if getattr(args, "inventory_only", False):
+            print(
+                ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff"),
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         # Resolve names to IDs if needed - resolve EACH identifier separately
         # to ensure 1:1 mapping for diff comparison
-        temp_logger = logging.getLogger('name_resolution')
+        temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
 
         source_input = data_view_inputs[0]
@@ -11804,8 +12164,7 @@ def main():
 
         # Resolve source identifier
         source_resolved, source_map = resolve_data_view_names(
-            [source_input], args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            [source_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
         if not source_resolved:
             print(ConsoleColors.error(f"ERROR: Could not resolve source data view: '{source_input}'"), file=sys.stderr)
@@ -11814,14 +12173,18 @@ def main():
             # Ambiguous - try interactive selection if in terminal
             options = [(dv_id, f"{source_input} ({dv_id})") for dv_id in source_resolved]
             selected = prompt_for_selection(
-                options,
-                f"Source name '{source_input}' matches {len(source_resolved)} data views. Please select one:"
+                options, f"Source name '{source_input}' matches {len(source_resolved)} data views. Please select one:"
             )
             if selected:
                 source_resolved = [selected]
             else:
                 # Not interactive or user cancelled
-                print(ConsoleColors.error(f"ERROR: Source name '{source_input}' is ambiguous - matches {len(source_resolved)} data views:"), file=sys.stderr)
+                print(
+                    ConsoleColors.error(
+                        f"ERROR: Source name '{source_input}' is ambiguous - matches {len(source_resolved)} data views:"
+                    ),
+                    file=sys.stderr,
+                )
                 for dv_id in source_resolved:
                     print(f"  • {dv_id}", file=sys.stderr)
                 print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
@@ -11829,8 +12192,7 @@ def main():
 
         # Resolve target identifier
         target_resolved, target_map = resolve_data_view_names(
-            [target_input], args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            [target_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
         if not target_resolved:
             print(ConsoleColors.error(f"ERROR: Could not resolve target data view: '{target_input}'"), file=sys.stderr)
@@ -11839,14 +12201,18 @@ def main():
             # Ambiguous - try interactive selection if in terminal
             options = [(dv_id, f"{target_input} ({dv_id})") for dv_id in target_resolved]
             selected = prompt_for_selection(
-                options,
-                f"Target name '{target_input}' matches {len(target_resolved)} data views. Please select one:"
+                options, f"Target name '{target_input}' matches {len(target_resolved)} data views. Please select one:"
             )
             if selected:
                 target_resolved = [selected]
             else:
                 # Not interactive or user cancelled
-                print(ConsoleColors.error(f"ERROR: Target name '{target_input}' is ambiguous - matches {len(target_resolved)} data views:"), file=sys.stderr)
+                print(
+                    ConsoleColors.error(
+                        f"ERROR: Target name '{target_input}' is ambiguous - matches {len(target_resolved)} data views:"
+                    ),
+                    file=sys.stderr,
+                )
                 for dv_id in target_resolved:
                     print(f"  • {dv_id}", file=sys.stderr)
                 print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
@@ -11855,36 +12221,36 @@ def main():
         resolved_ids = [source_resolved[0], target_resolved[0]]
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else 'console'
+        diff_format = args.format if args.format else "console"
         success, has_changes, exit_code_override = handle_diff_command(
             source_id=resolved_ids[0],
             target_id=resolved_ids[1],
             config_file=args.config_file,
             output_format=diff_format,
             output_dir=args.output_dir,
-            changes_only=getattr(args, 'changes_only', False),
-            summary_only=getattr(args, 'summary', False),
+            changes_only=getattr(args, "changes_only", False),
+            summary_only=getattr(args, "summary", False),
             ignore_fields=ignore_fields,
             labels=labels,
             quiet=args.quiet,
             show_only=show_only,
-            metrics_only=getattr(args, 'metrics_only', False),
-            dimensions_only=getattr(args, 'dimensions_only', False),
-            extended_fields=getattr(args, 'extended_fields', False),
-            side_by_side=getattr(args, 'side_by_side', False),
-            no_color=getattr(args, 'no_color', False),
-            quiet_diff=getattr(args, 'quiet_diff', False),
-            reverse_diff=getattr(args, 'reverse_diff', False),
-            warn_threshold=getattr(args, 'warn_threshold', None),
-            group_by_field=getattr(args, 'group_by_field', False),
-            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
-            diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False),
-            auto_snapshot=getattr(args, 'auto_snapshot', False),
-            snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
-            keep_last=getattr(args, 'keep_last', 0),
-            keep_since=getattr(args, 'keep_since', None),
-            profile=getattr(args, 'profile', None)
+            metrics_only=getattr(args, "metrics_only", False),
+            dimensions_only=getattr(args, "dimensions_only", False),
+            extended_fields=getattr(args, "extended_fields", False),
+            side_by_side=getattr(args, "side_by_side", False),
+            no_color=getattr(args, "no_color", False),
+            quiet_diff=getattr(args, "quiet_diff", False),
+            reverse_diff=getattr(args, "reverse_diff", False),
+            warn_threshold=getattr(args, "warn_threshold", None),
+            group_by_field=getattr(args, "group_by_field", False),
+            group_by_field_limit=getattr(args, "group_by_field_limit", 10),
+            diff_output=getattr(args, "diff_output", None),
+            format_pr_comment=getattr(args, "format_pr_comment", False),
+            auto_snapshot=getattr(args, "auto_snapshot", False),
+            snapshot_dir=getattr(args, "snapshot_dir", "./snapshots"),
+            keep_last=getattr(args, "keep_last", 0),
+            keep_since=getattr(args, "keep_since", None),
+            profile=getattr(args, "profile", None),
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -11896,7 +12262,7 @@ def main():
             sys.exit(1)
 
     # Handle --snapshot mode (save a data view snapshot)
-    if hasattr(args, 'snapshot') and args.snapshot:
+    if hasattr(args, "snapshot") and args.snapshot:
         if len(data_view_inputs) != 1:
             print(ConsoleColors.error("ERROR: --snapshot requires exactly 1 data view ID or name"), file=sys.stderr)
             print("Usage: cja_auto_sdr DATA_VIEW --snapshot ./snapshots/baseline.json", file=sys.stderr)
@@ -11904,18 +12270,17 @@ def main():
 
         # Validate: --include-derived is not supported with --snapshot
         # Derived fields are for SDR generation only - they're computed from metrics/dimensions
-        if getattr(args, 'include_derived_inventory', False):
+        if getattr(args, "include_derived_inventory", False):
             print(ConsoleColors.error("ERROR: --include-derived cannot be used with --snapshot"), file=sys.stderr)
             print("Derived fields inventory is only available in SDR generation mode.", file=sys.stderr)
             print("Derived field changes are captured in the standard Metrics/Dimensions diff.", file=sys.stderr)
             sys.exit(1)
 
         # Resolve name to ID if needed - ensure 1:1 mapping
-        temp_logger = logging.getLogger('name_resolution')
+        temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
 
         if not resolved_ids:
@@ -11926,13 +12291,17 @@ def main():
             dv_name = data_view_inputs[0]
             options = [(dv_id, f"{dv_name} ({dv_id})") for dv_id in resolved_ids]
             selected = prompt_for_selection(
-                options,
-                f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
+                options, f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
             )
             if selected:
                 resolved_ids = [selected]
             else:
-                print(ConsoleColors.error(f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"), file=sys.stderr)
+                print(
+                    ConsoleColors.error(
+                        f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"
+                    ),
+                    file=sys.stderr,
+                )
                 for dv_id in resolved_ids:
                     print(f"  • {dv_id}", file=sys.stderr)
                 print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
@@ -11943,30 +12312,37 @@ def main():
             snapshot_file=args.snapshot,
             config_file=args.config_file,
             quiet=args.quiet,
-            profile=getattr(args, 'profile', None),
-            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
-            include_segments=getattr(args, 'include_segments_inventory', False)
+            profile=getattr(args, "profile", None),
+            include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
+            include_segments=getattr(args, "include_segments_inventory", False),
         )
         sys.exit(0 if success else 1)
 
     # Handle --compare-with-prev mode (find most recent snapshot and compare)
-    if getattr(args, 'compare_with_prev', False):
+    if getattr(args, "compare_with_prev", False):
         if len(data_view_inputs) != 1:
-            print(ConsoleColors.error("ERROR: --compare-with-prev requires exactly 1 data view ID or name"), file=sys.stderr)
+            print(
+                ConsoleColors.error("ERROR: --compare-with-prev requires exactly 1 data view ID or name"),
+                file=sys.stderr,
+            )
             print("Usage: cja_auto_sdr DATA_VIEW --compare-with-prev", file=sys.stderr)
             sys.exit(1)
 
         # Check for inventory-only (not supported in diff mode - inventory comparison is part of diff output)
-        if getattr(args, 'inventory_only', False):
-            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --compare-with-prev"), file=sys.stderr)
+        if getattr(args, "inventory_only", False):
+            print(
+                ConsoleColors.error(
+                    "ERROR: --inventory-only is only available in SDR mode, not with --compare-with-prev"
+                ),
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         # Resolve name to ID if needed
-        temp_logger = logging.getLogger('name_resolution')
+        temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
 
         if not resolved_ids:
@@ -11977,26 +12353,38 @@ def main():
             dv_name = data_view_inputs[0]
             options = [(dv_id, f"{dv_name} ({dv_id})") for dv_id in resolved_ids]
             selected = prompt_for_selection(
-                options,
-                f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
+                options, f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
             )
             if selected:
                 resolved_ids = [selected]
             else:
-                print(ConsoleColors.error(f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"), file=sys.stderr)
+                print(
+                    ConsoleColors.error(
+                        f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"
+                    ),
+                    file=sys.stderr,
+                )
                 for dv_id in resolved_ids:
                     print(f"  • {dv_id}", file=sys.stderr)
                 print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
                 sys.exit(1)
 
         # Find most recent snapshot
-        snapshot_dir = getattr(args, 'snapshot_dir', './snapshots')
+        snapshot_dir = getattr(args, "snapshot_dir", "./snapshots")
         snapshot_mgr = SnapshotManager()
         prev_snapshot = snapshot_mgr.get_most_recent_snapshot(snapshot_dir, resolved_ids[0])
 
         if not prev_snapshot:
-            print(ConsoleColors.error(f"ERROR: No previous snapshots found for data view '{resolved_ids[0]}' in {snapshot_dir}"), file=sys.stderr)
-            print(f"Create a snapshot first with: cja_auto_sdr {resolved_ids[0]} --snapshot {snapshot_dir}/baseline.json", file=sys.stderr)
+            print(
+                ConsoleColors.error(
+                    f"ERROR: No previous snapshots found for data view '{resolved_ids[0]}' in {snapshot_dir}"
+                ),
+                file=sys.stderr,
+            )
+            print(
+                f"Create a snapshot first with: cja_auto_sdr {resolved_ids[0]} --snapshot {snapshot_dir}/baseline.json",
+                file=sys.stderr,
+            )
             print(f"Or use --auto-snapshot with --diff to automatically save snapshots.", file=sys.stderr)
             sys.exit(1)
 
@@ -12007,14 +12395,16 @@ def main():
         args.diff_snapshot = prev_snapshot
 
     # Handle --diff-snapshot mode (compare against a saved snapshot)
-    if hasattr(args, 'diff_snapshot') and args.diff_snapshot:
+    if hasattr(args, "diff_snapshot") and args.diff_snapshot:
         if len(data_view_inputs) != 1:
-            print(ConsoleColors.error("ERROR: --diff-snapshot requires exactly 1 data view ID or name"), file=sys.stderr)
+            print(
+                ConsoleColors.error("ERROR: --diff-snapshot requires exactly 1 data view ID or name"), file=sys.stderr
+            )
             print("Usage: cja_auto_sdr DATA_VIEW --diff-snapshot ./snapshots/baseline.json", file=sys.stderr)
             sys.exit(1)
 
         # Check for conflicting options
-        if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+        if getattr(args, "metrics_only", False) and getattr(args, "dimensions_only", False):
             print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
             sys.exit(1)
 
@@ -12022,20 +12412,22 @@ def main():
         # Note: --include-calculated, --include-segments ARE supported with --diff-snapshot
         # for inventory diff over time. --include-derived is NOT supported for diff since
         # derived fields are already captured in metrics/dimensions output.
-        if getattr(args, 'inventory_only', False):
-            print(ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff-snapshot"), file=sys.stderr)
+        if getattr(args, "inventory_only", False):
+            print(
+                ConsoleColors.error("ERROR: --inventory-only is only available in SDR mode, not with --diff-snapshot"),
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         # Get inventory flags (derived fields not supported in diff mode)
-        include_calc_metrics = getattr(args, 'include_calculated_metrics', False)
-        include_segments = getattr(args, 'include_segments_inventory', False)
+        include_calc_metrics = getattr(args, "include_calculated_metrics", False)
+        include_segments = getattr(args, "include_segments_inventory", False)
 
         # Resolve name to ID if needed - ensure 1:1 mapping
-        temp_logger = logging.getLogger('name_resolution')
+        temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger,
-            profile=getattr(args, 'profile', None)
+            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
         )
 
         if not resolved_ids:
@@ -12046,51 +12438,55 @@ def main():
             dv_name = data_view_inputs[0]
             options = [(dv_id, f"{dv_name} ({dv_id})") for dv_id in resolved_ids]
             selected = prompt_for_selection(
-                options,
-                f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
+                options, f"Name '{dv_name}' matches {len(resolved_ids)} data views. Please select one:"
             )
             if selected:
                 resolved_ids = [selected]
             else:
-                print(ConsoleColors.error(f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"), file=sys.stderr)
+                print(
+                    ConsoleColors.error(
+                        f"ERROR: Name '{dv_name}' is ambiguous - matches {len(resolved_ids)} data views:"
+                    ),
+                    file=sys.stderr,
+                )
                 for dv_id in resolved_ids:
                     print(f"  • {dv_id}", file=sys.stderr)
                 print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
                 sys.exit(1)
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else 'console'
+        diff_format = args.format if args.format else "console"
         success, has_changes, exit_code_override = handle_diff_snapshot_command(
             data_view_id=resolved_ids[0],
             snapshot_file=args.diff_snapshot,
             config_file=args.config_file,
             output_format=diff_format,
             output_dir=args.output_dir,
-            changes_only=getattr(args, 'changes_only', False),
-            summary_only=getattr(args, 'summary', False),
+            changes_only=getattr(args, "changes_only", False),
+            summary_only=getattr(args, "summary", False),
             ignore_fields=ignore_fields,
             labels=labels,
             quiet=args.quiet,
             show_only=show_only,
-            metrics_only=getattr(args, 'metrics_only', False),
-            dimensions_only=getattr(args, 'dimensions_only', False),
-            extended_fields=getattr(args, 'extended_fields', False),
-            side_by_side=getattr(args, 'side_by_side', False),
-            no_color=getattr(args, 'no_color', False),
-            quiet_diff=getattr(args, 'quiet_diff', False),
-            reverse_diff=getattr(args, 'reverse_diff', False),
-            warn_threshold=getattr(args, 'warn_threshold', None),
-            group_by_field=getattr(args, 'group_by_field', False),
-            group_by_field_limit=getattr(args, 'group_by_field_limit', 10),
-            diff_output=getattr(args, 'diff_output', None),
-            format_pr_comment=getattr(args, 'format_pr_comment', False),
-            auto_snapshot=getattr(args, 'auto_snapshot', False),
-            snapshot_dir=getattr(args, 'snapshot_dir', './snapshots'),
-            keep_last=getattr(args, 'keep_last', 0),
-            keep_since=getattr(args, 'keep_since', None),
-            profile=getattr(args, 'profile', None),
+            metrics_only=getattr(args, "metrics_only", False),
+            dimensions_only=getattr(args, "dimensions_only", False),
+            extended_fields=getattr(args, "extended_fields", False),
+            side_by_side=getattr(args, "side_by_side", False),
+            no_color=getattr(args, "no_color", False),
+            quiet_diff=getattr(args, "quiet_diff", False),
+            reverse_diff=getattr(args, "reverse_diff", False),
+            warn_threshold=getattr(args, "warn_threshold", None),
+            group_by_field=getattr(args, "group_by_field", False),
+            group_by_field_limit=getattr(args, "group_by_field_limit", 10),
+            diff_output=getattr(args, "diff_output", None),
+            format_pr_comment=getattr(args, "format_pr_comment", False),
+            auto_snapshot=getattr(args, "auto_snapshot", False),
+            snapshot_dir=getattr(args, "snapshot_dir", "./snapshots"),
+            keep_last=getattr(args, "keep_last", 0),
+            keep_since=getattr(args, "keep_since", None),
+            profile=getattr(args, "profile", None),
             include_calc_metrics=include_calc_metrics,
-            include_segments=include_segments
+            include_segments=include_segments,
         )
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
@@ -12110,10 +12506,10 @@ def main():
 
     # Resolve data view names to IDs
     # Create a temporary logger for name resolution
-    temp_logger = logging.getLogger('name_resolution')
+    temp_logger = logging.getLogger("name_resolution")
     temp_logger.setLevel(logging.INFO if not args.quiet else logging.ERROR)
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+    handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
     temp_logger.addHandler(handler)
     temp_logger.propagate = False
 
@@ -12126,8 +12522,7 @@ def main():
         print(ConsoleColors.info(f"Resolving {len(names_provided)} data view name(s)..."))
 
     data_views, name_to_ids_map = resolve_data_view_names(
-        data_view_inputs, args.config_file, temp_logger,
-        profile=getattr(args, 'profile', None)
+        data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
     )
 
     # Remove the temporary handler
@@ -12145,7 +12540,7 @@ def main():
         print()
         print("Tips for using Data View Names:", file=sys.stderr)
         print("  • Names must match EXACTLY: 'Production Analytics' ≠ 'production analytics'", file=sys.stderr)
-        print("  • Use quotes around names: cja_auto_sdr \"Production Analytics\"", file=sys.stderr)
+        print('  • Use quotes around names: cja_auto_sdr "Production Analytics"', file=sys.stderr)
         print("  • IDs start with 'dv_': cja_auto_sdr dv_12345", file=sys.stderr)
         print()
         print("Try running: cja_auto_sdr --list-dataviews", file=sys.stderr)
@@ -12186,11 +12581,13 @@ def main():
 
     # Large batch confirmation (unless --yes or --quiet)
     LARGE_BATCH_THRESHOLD = 20
-    if (len(data_views) >= LARGE_BATCH_THRESHOLD
-            and not getattr(args, 'assume_yes', False)
-            and not args.quiet
-            and not getattr(args, 'dry_run', False)
-            and sys.stdin.isatty()):
+    if (
+        len(data_views) >= LARGE_BATCH_THRESHOLD
+        and not getattr(args, "assume_yes", False)
+        and not args.quiet
+        and not getattr(args, "dry_run", False)
+        and sys.stdin.isatty()
+    ):
         print(ConsoleColors.warning(f"Large batch detected: {len(data_views)} data views"))
         print()
         print("Estimated processing:")
@@ -12205,11 +12602,11 @@ def main():
 
         try:
             response = input("Continue? [y/N]: ").strip().lower()
-            if response not in ('y', 'yes'):
+            if response not in ("y", "yes"):
                 print("Cancelled.")
                 sys.exit(0)
             print()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print("\nCancelled.")
             sys.exit(0)
 
@@ -12220,24 +12617,23 @@ def main():
 
     # Priority logic for log level: --quiet > --production > --log-level
     if args.quiet:
-        effective_log_level = 'ERROR'
+        effective_log_level = "ERROR"
     elif args.production:
-        effective_log_level = 'WARNING'
+        effective_log_level = "WARNING"
     else:
         effective_log_level = args.log_level
 
     # Handle dry-run mode
     if args.dry_run:
-        logger = setup_logging(batch_mode=True, log_level='WARNING', log_format=args.log_format)
-        success = run_dry_run(data_views, args.config_file, logger,
-                              profile=getattr(args, 'profile', None))
+        logger = setup_logging(batch_mode=True, log_level="WARNING", log_format=args.log_format)
+        success = run_dry_run(data_views, args.config_file, logger, profile=getattr(args, "profile", None))
         sys.exit(0 if success else 1)
 
     # Default to excel for SDR generation
-    sdr_format = args.format if args.format else 'excel'
+    sdr_format = args.format if args.format else "excel"
 
     # Validate format - console is only supported for diff comparison
-    if sdr_format == 'console':
+    if sdr_format == "console":
         print(ConsoleColors.error("Error: Console format is only supported for diff comparison."))
         print()
         print("For SDR generation, use one of these formats:")
@@ -12254,7 +12650,7 @@ def main():
         sys.exit(1)
 
     # Check for conflicting component filter options
-    if getattr(args, 'metrics_only', False) and getattr(args, 'dimensions_only', False):
+    if getattr(args, "metrics_only", False) and getattr(args, "dimensions_only", False):
         print(ConsoleColors.error("ERROR: Cannot use both --metrics-only and --dimensions-only"), file=sys.stderr)
         sys.exit(1)
 
@@ -12279,53 +12675,60 @@ def main():
 
     # Create API tuning config if enabled
     api_tuning_config = None
-    if getattr(args, 'api_auto_tune', False):
+    if getattr(args, "api_auto_tune", False):
         api_tuning_config = APITuningConfig(
-            min_workers=getattr(args, 'api_min_workers', 1),
-            max_workers=getattr(args, 'api_max_workers', 10)
+            min_workers=getattr(args, "api_min_workers", 1), max_workers=getattr(args, "api_max_workers", 10)
         )
         if not args.quiet:
-            print(ConsoleColors.info(f"API auto-tuning enabled (workers: {api_tuning_config.min_workers}-{api_tuning_config.max_workers})"))
+            print(
+                ConsoleColors.info(
+                    f"API auto-tuning enabled (workers: {api_tuning_config.min_workers}-{api_tuning_config.max_workers})"
+                )
+            )
 
     # Create circuit breaker config if enabled
     circuit_breaker_config = None
-    if getattr(args, 'circuit_breaker', False):
+    if getattr(args, "circuit_breaker", False):
         circuit_breaker_config = CircuitBreakerConfig(
-            failure_threshold=getattr(args, 'circuit_failure_threshold', 5),
-            timeout_seconds=getattr(args, 'circuit_timeout', 30.0)
+            failure_threshold=getattr(args, "circuit_failure_threshold", 5),
+            timeout_seconds=getattr(args, "circuit_timeout", 30.0),
         )
         if not args.quiet:
-            print(ConsoleColors.info(f"Circuit breaker enabled (threshold: {circuit_breaker_config.failure_threshold}, timeout: {circuit_breaker_config.timeout_seconds}s)"))
+            print(
+                ConsoleColors.info(
+                    f"Circuit breaker enabled (threshold: {circuit_breaker_config.failure_threshold}, timeout: {circuit_breaker_config.timeout_seconds}s)"
+                )
+            )
 
     # Expand --include-all-inventory into individual flags
-    if getattr(args, 'include_all_inventory', False):
+    if getattr(args, "include_all_inventory", False):
         # Always enable segments and calculated metrics
         args.include_segments_inventory = True
         args.include_calculated_metrics = True
 
         # Only enable derived fields if NOT using snapshots (derived not supported with snapshots)
         is_snapshot_mode = (
-            getattr(args, 'snapshot', None) or
-            getattr(args, 'git_commit', False) or
-            getattr(args, 'diff_snapshot', None) or
-            getattr(args, 'compare_snapshots', None) or
-            getattr(args, 'compare_with_prev', False)
+            getattr(args, "snapshot", None)
+            or getattr(args, "git_commit", False)
+            or getattr(args, "diff_snapshot", None)
+            or getattr(args, "compare_snapshots", None)
+            or getattr(args, "compare_with_prev", False)
         )
         if not is_snapshot_mode:
             args.include_derived_inventory = True
 
         if not args.quiet:
-            enabled = ['--include-segments', '--include-calculated']
+            enabled = ["--include-segments", "--include-calculated"]
             if not is_snapshot_mode:
-                enabled.append('--include-derived')
+                enabled.append("--include-derived")
             print(ConsoleColors.info(f"--include-all-inventory enabled: {', '.join(enabled)}"))
 
     # Validate --inventory-only requires at least one --include-* flag
-    if getattr(args, 'inventory_only', False):
+    if getattr(args, "inventory_only", False):
         has_inventory = (
-            getattr(args, 'include_derived_inventory', False) or
-            getattr(args, 'include_calculated_metrics', False) or
-            getattr(args, 'include_segments_inventory', False)
+            getattr(args, "include_derived_inventory", False)
+            or getattr(args, "include_calculated_metrics", False)
+            or getattr(args, "include_segments_inventory", False)
         )
         if not has_inventory:
             print(ConsoleColors.error("ERROR: --inventory-only requires at least one inventory flag"), file=sys.stderr)
@@ -12336,52 +12739,63 @@ def main():
     # Validate --inventory-summary requires at least one --include-* flag and is mutually exclusive with --inventory-only
     # Determine inventory order based on CLI argument order (used for both sheets and summaries)
     inventory_order = []
-    if getattr(args, 'include_derived_inventory', False) or getattr(args, 'include_calculated_metrics', False) or getattr(args, 'include_segments_inventory', False):
+    if (
+        getattr(args, "include_derived_inventory", False)
+        or getattr(args, "include_calculated_metrics", False)
+        or getattr(args, "include_segments_inventory", False)
+    ):
         # Check which flag appears first in sys.argv
         derived_pos = None
         calculated_pos = None
         segments_pos = None
         for i, arg in enumerate(sys.argv):
-            if arg == '--include-derived' and derived_pos is None:
+            if arg == "--include-derived" and derived_pos is None:
                 derived_pos = i
-            elif arg == '--include-calculated' and calculated_pos is None:
+            elif arg == "--include-calculated" and calculated_pos is None:
                 calculated_pos = i
-            elif arg == '--include-segments' and segments_pos is None:
+            elif arg == "--include-segments" and segments_pos is None:
                 segments_pos = i
 
         # Build order based on position
         positions = []
         if derived_pos is not None:
-            positions.append(('derived', derived_pos))
+            positions.append(("derived", derived_pos))
         if calculated_pos is not None:
-            positions.append(('calculated', calculated_pos))
+            positions.append(("calculated", calculated_pos))
         if segments_pos is not None:
-            positions.append(('segments', segments_pos))
+            positions.append(("segments", segments_pos))
 
         # Sort by position and extract names
         positions.sort(key=lambda x: x[1])
         inventory_order = [name for name, _ in positions]
 
-    if getattr(args, 'inventory_summary', False):
+    if getattr(args, "inventory_summary", False):
         has_inventory = (
-            getattr(args, 'include_derived_inventory', False) or
-            getattr(args, 'include_calculated_metrics', False) or
-            getattr(args, 'include_segments_inventory', False)
+            getattr(args, "include_derived_inventory", False)
+            or getattr(args, "include_calculated_metrics", False)
+            or getattr(args, "include_segments_inventory", False)
         )
         if not has_inventory:
-            print(ConsoleColors.error("ERROR: --inventory-summary requires at least one inventory flag"), file=sys.stderr)
+            print(
+                ConsoleColors.error("ERROR: --inventory-summary requires at least one inventory flag"), file=sys.stderr
+            )
             print("Use: --include-derived, --include-calculated, and/or --include-segments", file=sys.stderr)
             print("\nExample: cja_auto_sdr dv_12345 --include-segments --inventory-summary", file=sys.stderr)
             sys.exit(1)
-        if getattr(args, 'inventory_only', False):
-            print(ConsoleColors.error("ERROR: --inventory-summary cannot be used with --inventory-only"), file=sys.stderr)
-            print("Use --inventory-summary alone for quick stats, or --inventory-only for inventory sheets without full SDR.", file=sys.stderr)
+        if getattr(args, "inventory_only", False):
+            print(
+                ConsoleColors.error("ERROR: --inventory-summary cannot be used with --inventory-only"), file=sys.stderr
+            )
+            print(
+                "Use --inventory-summary alone for quick stats, or --inventory-only for inventory sheets without full SDR.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     # Handle --inventory-summary mode (quick stats without full output)
-    if getattr(args, 'inventory_summary', False):
+    if getattr(args, "inventory_summary", False):
         # Determine output format for summary
-        summary_format = args.format if args.format in ('json', 'all') else 'console'
+        summary_format = args.format if args.format in ("json", "all") else "console"
 
         if len(data_views) > 1:
             # Process multiple data views in summary mode
@@ -12393,10 +12807,10 @@ def main():
                     log_level=effective_log_level,
                     output_format=summary_format,
                     quiet=args.quiet,
-                    profile=getattr(args, 'profile', None),
-                    include_derived=getattr(args, 'include_derived_inventory', False),
-                    include_calculated=getattr(args, 'include_calculated_metrics', False),
-                    include_segments=getattr(args, 'include_segments_inventory', False),
+                    profile=getattr(args, "profile", None),
+                    include_derived=getattr(args, "include_derived_inventory", False),
+                    include_calculated=getattr(args, "include_calculated_metrics", False),
+                    include_segments=getattr(args, "include_segments_inventory", False),
                     inventory_order=inventory_order,
                 )
                 print()  # Blank line between data views
@@ -12409,10 +12823,10 @@ def main():
                 log_level=effective_log_level,
                 output_format=summary_format,
                 quiet=args.quiet,
-                profile=getattr(args, 'profile', None),
-                include_derived=getattr(args, 'include_derived_inventory', False),
-                include_calculated=getattr(args, 'include_calculated_metrics', False),
-                include_segments=getattr(args, 'include_segments_inventory', False),
+                profile=getattr(args, "profile", None),
+                include_derived=getattr(args, "include_derived_inventory", False),
+                include_calculated=getattr(args, "include_calculated_metrics", False),
+                include_segments=getattr(args, "include_segments_inventory", False),
                 inventory_order=inventory_order,
             )
         sys.exit(0)
@@ -12425,10 +12839,18 @@ def main():
             args.workers = auto_detect_workers(num_data_views=len(data_views))
             if not args.quiet:
                 cpu_count = os.cpu_count() or 4
-                print(ConsoleColors.info(f"Auto-detected workers: {args.workers} (based on {cpu_count} CPU cores, {len(data_views)} data views)"))
+                print(
+                    ConsoleColors.info(
+                        f"Auto-detected workers: {args.workers} (based on {cpu_count} CPU cores, {len(data_views)} data views)"
+                    )
+                )
 
         if not args.quiet:
-            print(ConsoleColors.info(f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers..."))
+            print(
+                ConsoleColors.info(
+                    f"Processing {len(data_views)} data view(s) in batch mode with {args.workers} workers..."
+                )
+            )
             print()
 
         processor = BatchProcessor(
@@ -12447,16 +12869,16 @@ def main():
             max_issues=args.max_issues,
             clear_cache=args.clear_cache,
             show_timings=args.show_timings,
-            metrics_only=getattr(args, 'metrics_only', False),
-            dimensions_only=getattr(args, 'dimensions_only', False),
-            profile=getattr(args, 'profile', None),
-            shared_cache=getattr(args, 'shared_cache', False),
+            metrics_only=getattr(args, "metrics_only", False),
+            dimensions_only=getattr(args, "dimensions_only", False),
+            profile=getattr(args, "profile", None),
+            shared_cache=getattr(args, "shared_cache", False),
             api_tuning_config=api_tuning_config,
             circuit_breaker_config=circuit_breaker_config,
-            include_derived_inventory=getattr(args, 'include_derived_inventory', False),
-            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
-            include_segments_inventory=getattr(args, 'include_segments_inventory', False),
-            inventory_only=getattr(args, 'inventory_only', False),
+            include_derived_inventory=getattr(args, "include_derived_inventory", False),
+            include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
+            include_segments_inventory=getattr(args, "include_segments_inventory", False),
+            inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
         )
 
@@ -12468,12 +12890,12 @@ def main():
         print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
         # Handle --open flag for batch mode (open all successful files)
-        if getattr(args, 'open', False) and results.get('successful'):
+        if getattr(args, "open", False) and results.get("successful"):
             files_to_open = []
-            for success_info in results['successful']:
-                if isinstance(success_info, dict) and success_info.get('output_file'):
-                    files_to_open.append(success_info['output_file'])
-                elif hasattr(success_info, 'output_file') and success_info.output_file:
+            for success_info in results["successful"]:
+                if isinstance(success_info, dict) and success_info.get("output_file"):
+                    files_to_open.append(success_info["output_file"])
+                elif hasattr(success_info, "output_file") and success_info.output_file:
                     files_to_open.append(success_info.output_file)
 
             if files_to_open:
@@ -12484,7 +12906,7 @@ def main():
                         print(ConsoleColors.warning(f"  Could not open: {file_path}"))
 
         # Exit with error code if any failed (unless continue-on-error)
-        if results['failed'] and not args.continue_on_error:
+        if results["failed"] and not args.continue_on_error:
             sys.exit(1)
 
     else:
@@ -12508,15 +12930,15 @@ def main():
             max_issues=args.max_issues,
             clear_cache=args.clear_cache,
             show_timings=args.show_timings,
-            metrics_only=getattr(args, 'metrics_only', False),
-            dimensions_only=getattr(args, 'dimensions_only', False),
-            profile=getattr(args, 'profile', None),
+            metrics_only=getattr(args, "metrics_only", False),
+            dimensions_only=getattr(args, "dimensions_only", False),
+            profile=getattr(args, "profile", None),
             api_tuning_config=api_tuning_config,
             circuit_breaker_config=circuit_breaker_config,
-            include_derived_inventory=getattr(args, 'include_derived_inventory', False),
-            include_calculated_metrics=getattr(args, 'include_calculated_metrics', False),
-            include_segments_inventory=getattr(args, 'include_segments_inventory', False),
-            inventory_only=getattr(args, 'inventory_only', False),
+            include_derived_inventory=getattr(args, "include_derived_inventory", False),
+            include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
+            include_segments_inventory=getattr(args, "include_segments_inventory", False),
+            inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
         )
 
@@ -12532,26 +12954,26 @@ def main():
                 print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))
 
             # Display inventory summary if any inventory was requested
-            include_segs = getattr(args, 'include_segments_inventory', False)
-            include_calc = getattr(args, 'include_calculated_metrics', False)
-            include_derived = getattr(args, 'include_derived_inventory', False)
+            include_segs = getattr(args, "include_segments_inventory", False)
+            include_calc = getattr(args, "include_calculated_metrics", False)
+            include_derived = getattr(args, "include_derived_inventory", False)
 
             if include_segs or include_calc or include_derived:
                 inv_parts = []
                 # Use inventory_order to maintain consistent ordering with sheets
-                inv_order = inventory_order if inventory_order else ['segments', 'calculated', 'derived']
+                inv_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
                 for inv_type in inv_order:
-                    if inv_type == 'segments' and include_segs:
+                    if inv_type == "segments" and include_segs:
                         seg_str = f"Segments: {result.segments_count}"
                         if result.segments_high_complexity > 0:
                             seg_str += f" ({result.segments_high_complexity} high-complexity)"
                         inv_parts.append(seg_str)
-                    elif inv_type == 'calculated' and include_calc:
+                    elif inv_type == "calculated" and include_calc:
                         calc_str = f"Calculated Metrics: {result.calculated_metrics_count}"
                         if result.calculated_metrics_high_complexity > 0:
                             calc_str += f" ({result.calculated_metrics_high_complexity} high-complexity)"
                         inv_parts.append(calc_str)
-                    elif inv_type == 'derived' and include_derived:
+                    elif inv_type == "derived" and include_derived:
                         derived_str = f"Derived Fields: {result.derived_fields_count}"
                         if result.derived_fields_high_complexity > 0:
                             derived_str += f" ({result.derived_fields_high_complexity} high-complexity)"
@@ -12562,12 +12984,16 @@ def main():
 
                 # Warn about high-complexity items
                 if result.total_high_complexity > 0:
-                    print(ConsoleColors.warning(f"  ⚠ {result.total_high_complexity} high-complexity items (≥75) - review recommended"))
+                    print(
+                        ConsoleColors.warning(
+                            f"  ⚠ {result.total_high_complexity} high-complexity items (≥75) - review recommended"
+                        )
+                    )
 
             # Handle --git-commit for single mode
-            if getattr(args, 'git_commit', False):
+            if getattr(args, "git_commit", False):
                 print()
-                git_dir = Path(getattr(args, 'git_dir', './sdr-snapshots'))
+                git_dir = Path(getattr(args, "git_dir", "./sdr-snapshots"))
 
                 # Initialize repo if needed
                 if not is_git_repository(git_dir):
@@ -12580,14 +13006,14 @@ def main():
 
                 # Create snapshot for Git
                 # Check if inventory flags are set
-                include_calc = getattr(args, 'include_calculated_metrics', False)
-                include_segs = getattr(args, 'include_segments_inventory', False)
+                include_calc = getattr(args, "include_calculated_metrics", False)
+                include_segs = getattr(args, "include_segments_inventory", False)
 
                 snapshot = DataViewSnapshot(
                     data_view_id=result.data_view_id,
                     data_view_name=result.data_view_name,
-                    metrics=result.metrics_data if hasattr(result, 'metrics_data') else [],
-                    dimensions=result.dimensions_data if hasattr(result, 'dimensions_data') else []
+                    metrics=result.metrics_data if hasattr(result, "metrics_data") else [],
+                    dimensions=result.dimensions_data if hasattr(result, "dimensions_data") else [],
                 )
 
                 # If we don't have the raw data in result, or if inventory is requested,
@@ -12600,15 +13026,17 @@ def main():
                     fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
                     print(f"Fetching {fetch_reason} for Git snapshot...")
                     try:
-                        temp_logger = logging.getLogger('git_snapshot')
+                        temp_logger = logging.getLogger("git_snapshot")
                         temp_logger.setLevel(logging.WARNING)
-                        cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, 'profile', None))
+                        cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, "profile", None))
                         if cja:
                             snapshot_mgr = SnapshotManager(temp_logger)
                             snapshot = snapshot_mgr.create_snapshot(
-                                cja, result.data_view_id, quiet=True,
+                                cja,
+                                result.data_view_id,
+                                quiet=True,
                                 include_calculated_metrics=include_calc,
-                                include_segments=include_segs
+                                include_segments=include_segs,
                             )
                     except Exception as e:
                         print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
@@ -12618,12 +13046,12 @@ def main():
                 saved_files = save_git_friendly_snapshot(
                     snapshot=snapshot,
                     output_dir=git_dir,
-                    quality_issues=result.dq_issues if hasattr(result, 'dq_issues') else None
+                    quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
                 )
 
                 # Commit to Git
-                git_push = getattr(args, 'git_push', False)
-                git_message = getattr(args, 'git_message', None)
+                git_push = getattr(args, "git_push", False)
+                git_message = getattr(args, "git_message", None)
 
                 commit_success, commit_result = git_commit_snapshot(
                     snapshot_dir=git_dir,
@@ -12631,9 +13059,9 @@ def main():
                     data_view_name=result.data_view_name,
                     metrics_count=result.metrics_count,
                     dimensions_count=result.dimensions_count,
-                    quality_issues=result.dq_issues if hasattr(result, 'dq_issues') else None,
+                    quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
                     custom_message=git_message,
-                    push=git_push
+                    push=git_push,
                 )
 
                 if commit_success:
@@ -12647,7 +13075,7 @@ def main():
                     print(ConsoleColors.error(f"  Git commit failed: {commit_result}"))
 
             # Handle --open flag for single mode
-            if getattr(args, 'open', False) and result.output_file:
+            if getattr(args, "open", False) and result.output_file:
                 print()
                 print("Opening file...")
                 if not open_file_in_default_app(result.output_file):
@@ -12659,6 +13087,7 @@ def main():
 
         if not result.success:
             sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
