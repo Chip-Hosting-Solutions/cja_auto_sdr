@@ -84,7 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/cja_auto_sdr/generator.py" = ["E", "W", "F", "B", "SIM", "RUF", "UP"]
+"src/cja_auto_sdr/generator.py" = ["E", "W", "F401", "B", "SIM", "RUF", "UP"]  # F401: intentional re-exports for backward compat
 "tests/**" = ["B", "SIM", "RUF012"]
 
 [tool.ruff.lint.isort]

@@ -1,18 +1,11 @@
 import argparse
-import atexit
 import contextlib
 import csv
-import functools
-import hashlib
 import html
 import io
 import json
 import logging
-import math
-import multiprocessing
 import os
-import platform
-import random
 import re
 import subprocess
 import sys
@@ -21,13 +14,9 @@ import textwrap
 import threading
 import time
 import uuid
-import webbrowser
-from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
-from logging.handlers import RotatingFileHandler
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NoReturn, Optional, Protocol, Tuple, TypeVar, Union, runtime_checkable
 
@@ -67,7 +56,6 @@ from cja_auto_sdr.api.resilience import (
     retry_with_backoff,
 )
 from cja_auto_sdr.core.colors import (
-    ANSIColors,
     ConsoleColors,
     _format_error_msg,
     format_file_size,
@@ -81,7 +69,6 @@ from cja_auto_sdr.core.config import (
     LogConfig,
     RetryConfig,
     SDRConfig,
-    WizardConfig,
     WorkerConfig,
 )
 from cja_auto_sdr.core.constants import (
@@ -510,7 +497,7 @@ def load_profile_credentials(profile_name: str, logger: logging.Logger) -> Optio
 
     if not profile_path.is_dir():
         raise ProfileConfigError(
-            f"Profile path is not a directory", profile_name=profile_name, details=str(profile_path)
+            "Profile path is not a directory", profile_name=profile_name, details=str(profile_path)
         )
 
     # Load config.json first
@@ -573,7 +560,7 @@ def list_profiles(output_format: str = "table") -> bool:
             print(f"Expected: {profiles_dir}")
             print()
             print("To create profiles, run:")
-            print(f"  cja_auto_sdr --profile-add <profile-name>")
+            print("  cja_auto_sdr --profile-add <profile-name>")
             print()
         return True
 
@@ -864,7 +851,7 @@ def test_profile(profile_name: str) -> bool:
 
             if dataviews is not None:
                 count = len(dataviews) if hasattr(dataviews, "__len__") else 0
-                print(f"   API connection: SUCCESS")
+                print("   API connection: SUCCESS")
                 print(f"   Data views accessible: {count}")
                 print()
                 print("Profile test: PASSED")
@@ -881,7 +868,7 @@ def test_profile(profile_name: str) -> bool:
             os.unlink(temp_config.name)
 
     except Exception as e:
-        print(f"   API connection: FAILED")
+        print("   API connection: FAILED")
         print(f"   Error: {e}")
         print()
         print("Profile test: FAILED")
@@ -1766,7 +1753,7 @@ def write_html_output(
                 continue
 
             icon = section_icons.get(sheet_name, "📄")
-            html_parts.append(f'<div class="section">')
+            html_parts.append('<div class="section">')
             html_parts.append(f"<h2>{icon} {sheet_name}</h2>")
 
             # Convert DataFrame to HTML with custom styling
@@ -1937,7 +1924,7 @@ def write_markdown_output(
 
             # For large tables (>50 rows), use collapsible sections
             if len(df) > 50:
-                md_parts.append(f"<details>")
+                md_parts.append("<details>")
                 md_parts.append(f"<summary>View {len(df)} rows (click to expand)</summary>\n")
                 md_parts.append(df_to_markdown_table(df, sheet_name))
                 md_parts.append("\n</details>\n")
@@ -2193,7 +2180,6 @@ def write_diff_console_output(
         lines.append(ANSIColors.bold(f"METRICS CHANGES ({change_count})", c))
         if metric_changes:
             for diff in metric_changes:
-                symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
                 lines.append(f'  [{colored_symbol}] {diff.id:{global_max_id_len}s} "{diff.name}"')
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
@@ -2214,7 +2200,6 @@ def write_diff_console_output(
         lines.append(ANSIColors.bold(f"DIMENSIONS CHANGES ({change_count})", c))
         if dim_changes:
             for diff in dim_changes:
-                symbol = _get_change_symbol(diff.change_type)
                 colored_symbol = _get_colored_symbol(diff.change_type, c)
                 lines.append(f'  [{colored_symbol}] {diff.id:{global_max_id_len}s} "{diff.name}"')
                 if side_by_side and diff.change_type == ChangeType.MODIFIED:
@@ -2549,7 +2534,6 @@ def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = F
     """
     lines = []
     summary = diff_result.summary
-    meta = diff_result.metadata_diff
 
     # Header
     lines.append("### 📊 Data View Comparison")
@@ -3454,9 +3438,6 @@ def write_diff_excel_output(
             workbook = writer.book
 
             # Define formats
-            header_format = workbook.add_format(
-                {"bold": True, "bg_color": "#3498db", "font_color": "white", "border": 1, "align": "center"}
-            )
             added_format = workbook.add_format({"bg_color": "#d4edda", "border": 1})
             removed_format = workbook.add_format({"bg_color": "#f8d7da", "border": 1})
             modified_format = workbook.add_format({"bg_color": "#fff3cd", "border": 1})
@@ -4340,7 +4321,7 @@ def process_single_dataview(
             logger.info("EXECUTION FAILED")
             logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
-            logger.info(f"Error: No metrics or dimensions found")
+            logger.info("Error: No metrics or dimensions found")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             # Flush handlers to ensure log is written
@@ -4951,7 +4932,7 @@ def process_single_dataview(
             logger.info("EXECUTION FAILED")
             logger.info("=" * BANNER_WIDTH)
             logger.info(f"Data View: {dv_name} ({data_view_id})")
-            logger.info(f"Error: Permission denied")
+            logger.info("Error: Permission denied")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             for handler in logger.handlers:
@@ -5436,7 +5417,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         if validate_config_file(config_file, logger):
             print(f"  ✓ Configuration file '{config_file}' is valid")
         else:
-            print(f"  ✗ Configuration file validation failed")
+            print("  ✗ Configuration file validation failed")
             all_passed = False
 
     if not all_passed:
@@ -5466,7 +5447,7 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
         )
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print(f"  ✓ API connection successful")
+            print("  ✓ API connection successful")
             print(f"  ✓ Found {dv_count} accessible data view(s)")
         else:
             print("  ⚠ API connection returned None - may be unstable")
@@ -5569,8 +5550,8 @@ def run_dry_run(data_views: List[str], config_file: str, logger: logging.Logger,
     print("=" * BANNER_WIDTH)
     print("DRY-RUN SUMMARY")
     print("=" * BANNER_WIDTH)
-    print(f"  Configuration: ✓ Valid")
-    print(f"  API Connection: ✓ Connected")
+    print("  Configuration: ✓ Valid")
+    print("  API Connection: ✓ Connected")
     print(f"  Data Views: {valid_count} valid, {invalid_count} invalid")
     print()
 
@@ -6883,7 +6864,7 @@ def prompt_for_selection(options: List[Tuple[str, str]], prompt_text: str) -> Op
         print(f"  [{i}] {display}")
         print(f"      ID: {opt_id}")
 
-    print(f"  [0] Cancel")
+    print("  [0] Cancel")
     print()
 
     while True:
@@ -7008,8 +6989,8 @@ def resolve_data_view_names(
                                 suggestions = [f"'{s[0]}'" for s in similar]
                                 logger.error(f"  → Did you mean: {', '.join(suggestions)}?")
 
-                    logger.error(f"  → Name matching is CASE-SENSITIVE and requires EXACT match")
-                    logger.error(f"  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
+                    logger.error("  → Name matching is CASE-SENSITIVE and requires EXACT match")
+                    logger.error("  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
                     # Don't add to resolved_ids - this is an error
 
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
@@ -8489,7 +8470,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
             print(f"  ✗ Missing required fields: {', '.join(missing)}")
             return False
         else:
-            print(f"  ✓ All required fields present")
+            print("  ✓ All required fields present")
             print(f"  → Using: {source_name}")
             return True
 
@@ -8522,16 +8503,16 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
     if not active_credentials and all_passed:
         env_credentials = load_credentials_from_env()
         if env_credentials:
-            print(f"  ✓ Environment variables detected")
+            print("  ✓ Environment variables detected")
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
                     credential_source = "env"
             else:
-                print(f"  ⚠ Environment credentials incomplete, checking config file...")
+                print("  ⚠ Environment credentials incomplete, checking config file...")
         else:
             if not profile:
-                print(f"  - No environment variables set")
+                print("  - No environment variables set")
 
     # Priority 3: Config file (if no profile and no env)
     if not active_credentials and all_passed:
@@ -8544,7 +8525,7 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
             try:
                 with open(config_file, "r") as f:
                     config = json.load(f)
-                print(f"  ✓ Config file is valid JSON")
+                print("  ✓ Config file is valid JSON")
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
                     credential_source = "file"
@@ -8589,16 +8570,16 @@ def validate_config_only(config_file: str = "config.json", profile: Optional[str
             cjapy.importConfigFile(config_file)
 
         cja = cjapy.CJA()
-        print(f"  ✓ CJA client initialized")
+        print("  ✓ CJA client initialized")
 
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print(f"  ✓ API connection successful")
+            print("  ✓ API connection successful")
             print(f"  ✓ Found {dv_count} accessible data view(s)")
         else:
-            print(f"  ⚠ API returned empty response - connection may be unstable")
+            print("  ⚠ API returned empty response - connection may be unstable")
 
     except KeyboardInterrupt, SystemExit:
         print()
@@ -9291,7 +9272,7 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
     print(f"Components: {result.total_unique_components} unique")
     print(f"  Metrics:    {result.total_unique_metrics}")
     print(f"  Dimensions: {result.total_unique_dimensions}")
-    print(f"Distribution:")
+    print("Distribution:")
     dist = result.distribution
     total = result.total_unique_components or 1
     print(f"  Core:     {dist.total_core:>6} ({dist.total_core / total * 100:>5.1f}%)")
@@ -9575,13 +9556,6 @@ def write_org_report_excel(
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
-        workbook = writer.book
-
-        # Define formats
-        header_format = workbook.add_format({"bold": True, "bg_color": "#366092", "font_color": "white", "border": 1})
-        number_format = workbook.add_format({"num_format": "#,##0"})
-        percent_format = workbook.add_format({"num_format": "0.0%"})
-
         # Sheet 1: Summary
         # Calculate total aggregates (non-unique counts across all data views)
         total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
@@ -10133,8 +10107,6 @@ def write_org_report_html(
     org_id_escaped = html.escape(result.org_id)
 
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
     total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
     total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
     total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
@@ -11433,7 +11405,7 @@ def handle_diff_snapshot_command(
 
         return True, diff_result.summary.has_changes, exit_code_override
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         print(ConsoleColors.error(f"ERROR: Snapshot file not found: {snapshot_file}"), file=sys.stderr)
         return False, False, None
     except ValueError as e:
@@ -11540,7 +11512,7 @@ def handle_compare_snapshots_command(
         if include_calc_metrics or include_segments:
             if source_snapshot.data_view_id != target_snapshot.data_view_id:
                 print(
-                    ConsoleColors.error(f"ERROR: Inventory comparison requires snapshots from the same data view."),
+                    ConsoleColors.error("ERROR: Inventory comparison requires snapshots from the same data view."),
                     file=sys.stderr,
                 )
                 print(f"  Source: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})", file=sys.stderr)
@@ -11580,7 +11552,7 @@ def handle_compare_snapshots_command(
             # Source snapshot info
             source_size = os.path.getsize(source_file)
             source_size_str = f"{source_size:,} bytes" if source_size < 1024 else f"{source_size / 1024:.1f} KB"
-            print(f"  Source:")
+            print("  Source:")
             print(f"    File: {Path(source_file).name} ({source_size_str})")
             print(f"    Created: {source_snapshot.created_at}")
             print(f"    Data View: {source_snapshot.data_view_name} ({source_snapshot.data_view_id})")
@@ -11589,7 +11561,7 @@ def handle_compare_snapshots_command(
             # Target snapshot info
             target_size = os.path.getsize(target_file)
             target_size_str = f"{target_size:,} bytes" if target_size < 1024 else f"{target_size / 1024:.1f} KB"
-            print(f"  Target:")
+            print("  Target:")
             print(f"    File: {Path(target_file).name} ({target_size_str})")
             print(f"    Created: {target_snapshot.created_at}")
             print(f"    Data View: {target_snapshot.data_view_name} ({target_snapshot.data_view_id})")
@@ -11687,7 +11659,7 @@ def main():
     # Parse arguments (will show error and help if no data views provided)
     try:
         args = parse_arguments()
-    except SystemExit as e:
+    except SystemExit:
         # argparse calls sys.exit() on error or --help
         # Re-raise to maintain expected behavior
         raise
@@ -11829,9 +11801,9 @@ def main():
             print(f"  Directory: {git_dir.absolute()}")
             print()
             print("Next steps:")
-            print(f"  1. Run SDR generation with --git-commit to save and commit snapshots")
+            print("  1. Run SDR generation with --git-commit to save and commit snapshots")
             print(f"  2. Add a remote: cd {git_dir} && git remote add origin <url>")
-            print(f"  3. Use --git-push to push commits to remote")
+            print("  3. Use --git-push to push commits to remote")
         else:
             print(ConsoleColors.error(f"FAILED: {message}"))
         sys.exit(0 if success else 1)
@@ -12385,7 +12357,7 @@ def main():
                 f"Create a snapshot first with: cja_auto_sdr {resolved_ids[0]} --snapshot {snapshot_dir}/baseline.json",
                 file=sys.stderr,
             )
-            print(f"Or use --auto-snapshot with --diff to automatically save snapshots.", file=sys.stderr)
+            print("Or use --auto-snapshot with --diff to automatically save snapshots.", file=sys.stderr)
             sys.exit(1)
 
         if not args.quiet:
@@ -12514,7 +12486,6 @@ def main():
     temp_logger.propagate = False
 
     # Show what we're resolving
-    ids_provided = [dv for dv in data_view_inputs if is_data_view_id(dv)]
     names_provided = [dv for dv in data_view_inputs if not is_data_view_id(dv)]
 
     if names_provided and not args.quiet:
@@ -13002,7 +12973,7 @@ def main():
                     if not init_success:
                         print(ConsoleColors.error(f"Git init failed: {init_msg}"))
                     else:
-                        print(ConsoleColors.success(f"  Repository initialized"))
+                        print(ConsoleColors.success("  Repository initialized"))
 
                 # Create snapshot for Git
                 # Check if inventory flags are set
@@ -13043,7 +13014,7 @@ def main():
 
                 # Save Git-friendly snapshot
                 print(f"Saving snapshot to: {git_dir}")
-                saved_files = save_git_friendly_snapshot(
+                save_git_friendly_snapshot(
                     snapshot=snapshot,
                     output_dir=git_dir,
                     quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
