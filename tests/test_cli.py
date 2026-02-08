@@ -1016,6 +1016,23 @@ class TestQualityGateAndReport:
 
         assert exc_info.value.code == 1
 
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    def test_auto_prune_allowed_for_prune_snapshots_mode(self, mock_snapshot_cls):
+        """--prune-snapshots should allow --auto-prune without --auto-snapshot."""
+        from cja_auto_sdr.generator import main
+
+        mock_snapshot = mock_snapshot_cls.return_value
+        mock_snapshot.list_snapshots.return_value = []
+        mock_snapshot.apply_retention_policy.return_value = []
+        mock_snapshot.apply_date_retention_policy.return_value = []
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--prune-snapshots", "--auto-prune"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        mock_snapshot.apply_date_retention_policy.assert_called_once()
+
     def test_auto_prune_defaults_apply_only_when_retention_flags_omitted(self):
         """Auto-prune defaults should only apply when neither retention flag is provided."""
         from cja_auto_sdr.generator import (
@@ -2579,6 +2596,7 @@ class TestRunSummaryOutput:
         payload = json.loads(summary_file.read_text())
         assert payload["mode"] == "sdr"
         assert payload["exit_code"] == 0
+        assert payload["output_format"] == "excel"
         assert payload["result_counts"]["total"] == 1
         assert payload["result_counts"]["successful"] == 1
         assert payload["results"][0]["data_view_id"] == "dv_test"
@@ -2636,6 +2654,64 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "discovery"
         assert payload["exit_code"] == 0
         assert payload["details"]["discovery_command"] == "list_dataviews"
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_stdout_is_json_only(self, mock_resolve, mock_process, capsys):
+        """--run-summary-json stdout should emit parseable JSON on stdout."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            metrics_count=1,
+            dimensions_count=1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+        )
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--run-summary-json", "stdout"]):
+            main()
+
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["mode"] == "sdr"
+        assert payload["exit_code"] == 0
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_records_inferred_output_format(self, mock_resolve, mock_process, tmp_path):
+        """Run summary should capture format inferred from --output extension."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            metrics_count=1,
+            dimensions_count=1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+            output_file="report.csv",
+        )
+
+        summary_file = tmp_path / "run_summary_inferred.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--output", "report.csv", "--run-summary-json", str(summary_file)],
+        ):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        assert payload["output_format"] == "csv"
 
 
 class TestProfileImportCLI:

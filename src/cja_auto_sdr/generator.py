@@ -12576,6 +12576,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
+    run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
     quality_policy_path = getattr(args, "quality_policy", None)
     applied_quality_policy: dict[str, Any] = {}
     if quality_policy_path:
@@ -12668,8 +12669,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     if getattr(args, "fail_on_quality", None) and non_sdr_modes_for_quality_options:
         _exit_error("--fail-on-quality is only supported in SDR generation mode")
 
-    if getattr(args, "auto_prune", False) and not getattr(args, "auto_snapshot", False):
-        _exit_error("--auto-prune requires --auto-snapshot")
+    if (
+        getattr(args, "auto_prune", False)
+        and not getattr(args, "auto_snapshot", False)
+        and not getattr(args, "prune_snapshots", False)
+    ):
+        _exit_error("--auto-prune requires --auto-snapshot or --prune-snapshots")
     if getattr(args, "fail_on_quality", None) and args.skip_validation:
         _exit_error("--fail-on-quality cannot be used with --skip-validation")
     if getattr(args, "quality_report", None) and args.skip_validation:
@@ -12691,9 +12696,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --output for stdout - implies quiet mode
     output_to_stdout = getattr(args, "output", None) in ("-", "stdout")
-    if getattr(args, "run_summary_json", None) in ("-", "stdout") and output_to_stdout:
+    if run_summary_to_stdout and output_to_stdout:
         _exit_error("--run-summary-json stdout cannot be combined with --output stdout")
-    if output_to_stdout:
+    if output_to_stdout or run_summary_to_stdout:
         args.quiet = True
 
     # Auto-detect format from output file extension if --format not explicitly set
@@ -12704,6 +12709,8 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             args.format = inferred_format
             if not args.quiet:
                 print(f"Auto-detected format '{inferred_format}' from output file extension")
+    if run_state is not None:
+        run_state["output_format"] = getattr(args, "format", None)
 
     # Set color theme for diff output (accessible accessibility)
     color_theme = getattr(args, "color_theme", "default")
@@ -12858,6 +12865,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 sort_expression=getattr(args, "discovery_sort", None),
             )
             if run_state is not None:
+                run_state["output_format"] = list_format
                 run_state["details"] = {"operation_success": success, "discovery_command": attr}
             sys.exit(0 if success else 1)
 
@@ -12945,6 +12953,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             profile=getattr(args, "profile", None),
         )
         if run_state is not None:
+            run_state["output_format"] = stats_format
             run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
@@ -13010,6 +13019,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             quiet=args.quiet,
         )
         if run_state is not None:
+            run_state["output_format"] = output_format
             run_state["details"] = {
                 "operation_success": success,
                 "thresholds_exceeded": thresholds_exceeded,
@@ -13134,6 +13144,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             _emit_output(table_text, getattr(args, "output", None), output_to_stdout)
 
         if run_state is not None:
+            run_state["output_format"] = list_output_format
             run_state["details"] = {"operation_success": True, "snapshot_count": len(snapshots)}
             if data_view_inputs:
                 run_state["resolved_data_views"] = list(data_view_inputs)
@@ -13218,6 +13229,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             _emit_output("\n".join(lines), getattr(args, "output", None), output_to_stdout)
 
         if run_state is not None:
+            run_state["output_format"] = prune_output_format
             run_state["details"] = {
                 "operation_success": True,
                 "deleted_count": len(unique_deleted),
@@ -13274,6 +13286,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             include_segments=getattr(args, "include_segments_inventory", False),
         )
         if run_state is not None:
+            run_state["output_format"] = diff_format
             run_state["details"] = {
                 "operation_success": success,
                 "has_changes": has_changes,
@@ -13464,6 +13477,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             profile=getattr(args, "profile", None),
         )
         if run_state is not None:
+            run_state["output_format"] = diff_format
             run_state["details"] = {
                 "operation_success": success,
                 "has_changes": has_changes,
@@ -13724,6 +13738,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             include_segments=include_segments,
         )
         if run_state is not None:
+            run_state["output_format"] = diff_format
             run_state["resolved_data_views"] = list(resolved_ids)
             run_state["details"] = {
                 "operation_success": success,
@@ -13885,6 +13900,8 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     sdr_format = args.format if args.format else "excel"
     if quality_report_only:
         sdr_format = "json"
+    if run_state is not None:
+        run_state["output_format"] = sdr_format
 
     # Validate format - console is only supported for diff comparison
     if sdr_format == "console" and not quality_report_only:
@@ -14485,11 +14502,15 @@ def main():
             self.code = code
 
     original_sys_exit = sys.exit
+    original_sys_stdout = sys.stdout
+    redirect_stdout_for_run_summary = run_state.get("run_summary_output") in ("-", "stdout")
 
     def _captured_sys_exit(code: Any = 0) -> NoReturn:
         raise _CapturedMainExit(code)
 
     sys.exit = _captured_sys_exit
+    if redirect_stdout_for_run_summary:
+        sys.stdout = sys.stderr
     try:
         _main_impl(run_state=run_state)
     except _CapturedMainExit as exc:
@@ -14506,6 +14527,7 @@ def main():
         raise
     finally:
         sys.exit = original_sys_exit
+        sys.stdout = original_sys_stdout
         run_summary_output = run_state.get("run_summary_output")
         if run_summary_output:
             serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]
