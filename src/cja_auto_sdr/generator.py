@@ -6643,9 +6643,10 @@ Requirements:
         action="store_true",
         dest="include_all_inventory",
         help="Enable all inventory options. In SDR mode, enables --include-segments, "
-        "--include-calculated, and --include-derived. With --snapshot or --git-commit, "
-        "enables only --include-segments and --include-calculated (derived fields are "
-        "not supported in snapshots).",
+        "--include-calculated, and --include-derived. In snapshot/snapshot-diff modes "
+        "(--snapshot, --diff-snapshot, --compare-snapshots, --compare-with-prev) and "
+        "with --git-commit, enables only --include-segments and --include-calculated "
+        "(derived fields are not supported there).",
     )
 
     # ==================== ORG-WIDE ANALYSIS ARGUMENTS ====================
@@ -12373,6 +12374,31 @@ def main():
     if hasattr(args, "diff_labels") and args.diff_labels:
         labels = tuple(args.diff_labels)
 
+    # Expand --include-all-inventory before any mode-specific dispatch so
+    # snapshot/diff handlers receive the resolved inventory flags.
+    if getattr(args, "include_all_inventory", False):
+        # Always enable segments and calculated metrics.
+        args.include_segments_inventory = True
+        args.include_calculated_metrics = True
+
+        # Derived inventory is SDR-only; snapshot and snapshot-diff modes
+        # should not include it.
+        snapshot_like_mode = (
+            getattr(args, "snapshot", None)
+            or getattr(args, "git_commit", False)
+            or getattr(args, "diff_snapshot", None)
+            or getattr(args, "compare_snapshots", None)
+            or getattr(args, "compare_with_prev", False)
+        )
+        if not snapshot_like_mode:
+            args.include_derived_inventory = True
+
+        if not args.quiet:
+            enabled = ["--include-segments", "--include-calculated"]
+            if not snapshot_like_mode:
+                enabled.append("--include-derived")
+            print(ConsoleColors.info(f"--include-all-inventory enabled: {', '.join(enabled)}"))
+
     # Handle --compare-snapshots mode (compare two snapshot files directly)
     if hasattr(args, "compare_snapshots") and args.compare_snapshots:
         source_file, target_file = args.compare_snapshots
@@ -13048,29 +13074,6 @@ def main():
                     f"Circuit breaker enabled (threshold: {circuit_breaker_config.failure_threshold}, timeout: {circuit_breaker_config.timeout_seconds}s)"
                 )
             )
-
-    # Expand --include-all-inventory into individual flags
-    if getattr(args, "include_all_inventory", False):
-        # Always enable segments and calculated metrics
-        args.include_segments_inventory = True
-        args.include_calculated_metrics = True
-
-        # Only enable derived fields if NOT using snapshots (derived not supported with snapshots)
-        is_snapshot_mode = (
-            getattr(args, "snapshot", None)
-            or getattr(args, "git_commit", False)
-            or getattr(args, "diff_snapshot", None)
-            or getattr(args, "compare_snapshots", None)
-            or getattr(args, "compare_with_prev", False)
-        )
-        if not is_snapshot_mode:
-            args.include_derived_inventory = True
-
-        if not args.quiet:
-            enabled = ["--include-segments", "--include-calculated"]
-            if not is_snapshot_mode:
-                enabled.append("--include-derived")
-            print(ConsoleColors.info(f"--include-all-inventory enabled: {', '.join(enabled)}"))
 
     # Validate --inventory-only requires at least one --include-* flag
     if getattr(args, "inventory_only", False):

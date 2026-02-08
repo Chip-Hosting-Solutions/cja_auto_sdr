@@ -28,7 +28,7 @@ cja_auto_sdr dv_12345 --include-segments --include-calculated --inventory-only
 | Option | Description |
 |--------|-------------|
 | `--include-segments` | Include segments inventory in SDR output. Adds a "Segments" sheet/section with complexity scores, definition summaries, and dimension/metric references. |
-| `--inventory-only` | Output only inventory sheets (Segments, Calculated Metrics, Derived Fields). Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). Requires at least one `--include-*` flag. |
+| `--inventory-only` | Output only inventory sheets (Segments, Calculated Metrics, Derived Fields). Skips standard SDR sheets (Metadata, Data Quality, DataView Details, Metrics, Dimensions). Requires at least one `--include-*` flag. |
 
 ## Output Columns
 

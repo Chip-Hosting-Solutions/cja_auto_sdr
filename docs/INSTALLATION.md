@@ -272,7 +272,7 @@ See `.env.example` for a complete template.
 
 ### Option 2: Configuration File
 
-Create a `config.json` file in the project root directory:
+Create a `config.json` file in your current working directory (default path), or pass `--config-file` to use a different location:
 
 ```bash
 # Copy the example template
