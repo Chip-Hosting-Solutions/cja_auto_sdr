@@ -953,6 +953,24 @@ class TestQualityGateAndReport:
         assert exc_info.value.code == 1
         mock_resolve.assert_not_called()
 
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    def test_quality_policy_defaults_deferred_for_non_sdr_mode(self, mock_list_dataviews, tmp_path):
+        """Non-SDR commands should not inherit SDR-only defaults from shared quality policy files."""
+        from cja_auto_sdr.generator import main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(
+            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}), encoding="utf-8"
+        )
+        mock_list_dataviews.return_value = True
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--list-dataviews", "--quality-policy", str(policy_path)]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        mock_list_dataviews.assert_called_once()
+
     def test_quality_report_csv_empty_writes_header_row(self, tmp_path):
         """CSV quality reports should include headers even when there are no issues."""
         from cja_auto_sdr.generator import write_quality_report_output
@@ -2862,6 +2880,40 @@ class TestRunSummaryOutput:
         assert payload["exit_code"] == 0
         assert payload["details"]["discovery_command"] == "list_dataviews"
 
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    def test_run_summary_non_sdr_quality_policy_is_not_applied(self, mock_list_dataviews, tmp_path):
+        """Run summary should record quality policy path but keep applied defaults empty in non-SDR modes."""
+        from cja_auto_sdr.generator import main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(
+            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}), encoding="utf-8"
+        )
+        mock_list_dataviews.return_value = True
+        summary_file = tmp_path / "run_summary_discovery_quality_policy.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "--list-dataviews",
+                "--quality-policy",
+                str(policy_path),
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "discovery"
+        assert payload["quality_policy"]["path"] == str(policy_path)
+        assert payload["quality_policy"]["applied"] == {}
+
     @patch("cja_auto_sdr.generator.run_org_report")
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_mode_precedence_matches_dispatch_order(
@@ -2916,6 +2968,45 @@ class TestRunSummaryOutput:
         self._assert_run_summary_schema(payload)
         assert payload["mode"] == "sdr"
         assert payload["exit_code"] == 0
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.interactive_wizard")
+    def test_run_summary_interactive_refreshes_data_view_inputs(
+        self, mock_wizard, mock_resolve, mock_process, tmp_path
+    ):
+        """Interactive runs should record wizard-selected data view inputs in run summary."""
+        from cja_auto_sdr.generator import ProcessingResult, WizardConfig, main
+
+        mock_wizard.return_value = WizardConfig(
+            data_view_ids=["dv_wizard_selected"],
+            output_format="excel",
+            include_segments=False,
+            include_calculated=False,
+            include_derived=False,
+            inventory_only=False,
+        )
+        mock_resolve.return_value = (["dv_wizard_selected"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_wizard_selected",
+            data_view_name="Wizard Selected",
+            success=True,
+            duration=0.1,
+            metrics_count=1,
+            dimensions_count=1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+        )
+
+        summary_file = tmp_path / "run_summary_interactive_inputs.json"
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--interactive", "--run-summary-json", str(summary_file)]):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "sdr"
+        assert payload["inputs"]["data_view_inputs"] == ["dv_wizard_selected"]
 
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_stdout_with_abbreviated_flag_is_json_only(self, mock_list_dataviews, capsys):
