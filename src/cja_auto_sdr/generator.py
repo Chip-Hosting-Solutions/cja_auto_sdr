@@ -317,9 +317,26 @@ def _exit_error(msg: str) -> NoReturn:
 
 
 def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
-    """Return True if an option was explicitly provided via --flag or --flag=value."""
+    """Return True if an option was explicitly provided via long-form token.
+
+    Accepts canonical forms (`--flag`, `--flag=value`) and argparse-compatible
+    long-option abbreviations (`--fla`, `--fla=value`) for the same option.
+    """
     tokens = argv if argv is not None else sys.argv[1:]
-    return any(token == option_name or token.startswith(f"{option_name}=") for token in tokens)
+
+    for token in tokens:
+        if token == option_name or token.startswith(f"{option_name}="):
+            return True
+
+        # argparse accepts unambiguous long-option abbreviations by default.
+        # Keep CLI-precedence checks aligned with that behavior.
+        if not token.startswith("--") or token == "--" or not option_name.startswith("--"):
+            continue
+        token_name = token.split("=", 1)[0]
+        if option_name.startswith(token_name):
+            return True
+
+    return False
 
 
 def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:

@@ -884,6 +884,35 @@ class TestQualityGateAndReport:
         ):
             main()
 
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_cli_abbreviated_quality_flags_override_quality_policy(self, mock_resolve, mock_process, tmp_path):
+        """Argparse-accepted long-option abbreviations should retain CLI precedence over policy defaults."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(json.dumps({"fail_on_quality": "HIGH", "max_issues": 7}), encoding="utf-8")
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "Threshold issue"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path), "--fail-on-q", "CRITICAL", "--max-i", "0"],
+        ):
+            main()
+
+        assert mock_process.call_args.kwargs["max_issues"] == 0
+
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_invalid_quality_policy_fails_fast(self, mock_resolve, tmp_path):
         """Invalid quality policy should exit before data view resolution."""
