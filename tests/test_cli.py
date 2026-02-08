@@ -57,6 +57,20 @@ class TestCLIArguments:
             args = parse_arguments()
             assert args.workers == "8"  # Now a string, parsed to int in main()
 
+    def test_name_match_default_exact(self):
+        """Test --name-match defaults to exact."""
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.name_match == "exact"
+
+    def test_name_match_flag(self):
+        """Test --name-match parses accepted values."""
+        test_args = ["cja_sdr_generator.py", "--name-match", "fuzzy", "Production Analytics"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.name_match == "fuzzy"
+
     def test_parse_output_dir(self):
         """Test parsing with custom output directory"""
         test_args = ["cja_sdr_generator.py", "--output-dir", "./reports", "dv_12345"]
@@ -305,6 +319,34 @@ class TestUXImprovements:
         with patch.object(sys, "argv", test_args):
             args = parse_arguments()
             assert args.quality_report == "json"
+
+    def test_run_summary_json_flag(self):
+        """Test parsing with --run-summary-json flag."""
+        test_args = ["cja_sdr_generator.py", "--run-summary-json", "run_summary.json", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.run_summary_json == "run_summary.json"
+
+    def test_quality_policy_flag(self):
+        """Test parsing with --quality-policy flag."""
+        test_args = ["cja_sdr_generator.py", "--quality-policy", "quality_policy.json", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.quality_policy == "quality_policy.json"
+
+    def test_profile_import_flags(self):
+        """Test parsing with --profile-import and --profile-overwrite flags."""
+        test_args = [
+            "cja_sdr_generator.py",
+            "--profile-import",
+            "client-a",
+            "credentials.json",
+            "--profile-overwrite",
+        ]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.profile_import == ["client-a", "credentials.json"]
+            assert args.profile_overwrite is True
 
 
 class TestProcessingResult:
@@ -789,6 +831,74 @@ class TestQualityGateAndReport:
         assert "Failed to write quality report" in captured.err
         mock_write_report.assert_called_once()
 
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_policy_applies_default_fail_on_quality(self, mock_resolve, mock_process, tmp_path):
+        """Quality policy should supply fail_on_quality when CLI flag is omitted."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(json.dumps({"fail_on_quality": "HIGH"}), encoding="utf-8")
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "Threshold issue"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path)]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_cli_fail_on_quality_overrides_quality_policy(self, mock_resolve, mock_process, tmp_path):
+        """Explicit --fail-on-quality should override policy defaults."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(json.dumps({"fail_on_quality": "HIGH"}), encoding="utf-8")
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "Threshold issue"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path), "--fail-on-quality", "CRITICAL"],
+        ):
+            main()
+
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_invalid_quality_policy_fails_fast(self, mock_resolve, tmp_path):
+        """Invalid quality policy should exit before data view resolution."""
+        from cja_auto_sdr.generator import main
+
+        policy_path = tmp_path / "quality_policy_invalid.json"
+        policy_path.write_text(json.dumps({"fail_on_quality": "NOT_A_LEVEL"}), encoding="utf-8")
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path)]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_resolve.assert_not_called()
+
     def test_quality_report_csv_empty_writes_header_row(self, tmp_path):
         """CSV quality reports should include headers even when there are no issues."""
         from cja_auto_sdr.generator import write_quality_report_output
@@ -1186,6 +1296,27 @@ class TestListConnectionsArgs:
             assert args.format == "csv"
             assert args.output == "conns.csv"
 
+    def test_list_connections_with_discovery_filters(self):
+        """Test discovery filter/sort/limit flags parse with list-connections."""
+        test_args = [
+            "cja_sdr_generator.py",
+            "--list-connections",
+            "--filter",
+            "prod",
+            "--exclude",
+            "staging",
+            "--limit",
+            "5",
+            "--sort=-name",
+        ]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.list_connections is True
+            assert args.org_filter == "prod"
+            assert args.org_exclude == "staging"
+            assert args.org_limit == 5
+            assert args.discovery_sort == "-name"
+
 
 class TestListDatasetsArgs:
     """Test --list-datasets argument parsing"""
@@ -1407,6 +1538,36 @@ class TestListDataviewsFunction:
         output = json.loads(f.getvalue())
         assert output["dataViews"][0]["owner"] == "N/A"
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dataviews_filter_sort_limit(self, mock_profile, mock_configure, mock_cjapy):
+        """Test discovery filter/sort/limit for list_dataviews."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {"id": "dv_1", "name": "Prod Alpha", "owner": {"name": "A"}},
+            {"id": "dv_2", "name": "Dev Beta", "owner": {"name": "B"}},
+            {"id": "dv_3", "name": "Prod Zeta", "owner": {"name": "C"}},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(
+                output_format="json",
+                filter_pattern="prod",
+                limit=1,
+                sort_expression="-id",
+            )
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 1
+        assert output["dataViews"][0]["id"] == "dv_3"
+
 
 class TestListConnectionsFunction:
     """Test list_connections() function with mocks"""
@@ -1441,6 +1602,36 @@ class TestListConnectionsFunction:
         assert output["count"] == 1
         assert output["connections"][0]["id"] == "conn_123"
         assert len(output["connections"][0]["datasets"]) == 2
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_connections_filter_exclude(self, mock_profile, mock_configure, mock_cjapy):
+        """Test discovery filter/exclude for list_connections."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            "content": [
+                {"id": "conn_1", "name": "Prod Connection", "ownerFullName": "Owner A", "dataSets": []},
+                {"id": "conn_2", "name": "Staging Connection", "ownerFullName": "Owner B", "dataSets": []},
+            ]
+        }
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(
+                output_format="json",
+                filter_pattern="connection",
+                exclude_pattern="staging",
+            )
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 1
+        assert output["connections"][0]["id"] == "conn_1"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -1724,6 +1915,37 @@ class TestListDatasetsFunction:
         assert output["dataViews"][0]["connection"]["id"] == "conn_456"
         assert len(output["dataViews"][0]["datasets"]) == 1
         mock_cja_instance.getDataView.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_datasets_filter_and_limit(self, mock_profile, mock_configure, mock_cjapy):
+        """Test discovery filter and limit for list_datasets."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {"content": []}
+        mock_cja_instance.getDataViews.return_value = [
+            {"id": "dv_1", "name": "Prod Main", "parentDataGroupId": "conn_1"},
+            {"id": "dv_2", "name": "Prod Secondary", "parentDataGroupId": "conn_2"},
+            {"id": "dv_3", "name": "Dev Sandbox", "parentDataGroupId": "conn_3"},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_datasets(
+                output_format="json",
+                filter_pattern="prod",
+                limit=1,
+                sort_expression="name",
+            )
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 1
+        assert output["dataViews"][0]["id"] == "dv_1"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -2324,3 +2546,139 @@ class TestDatasetsPermissionsFallback:
         assert output["dataViews"][0]["connection"]["name"] is None
         assert output["dataViews"][0]["connection"]["id"] == "dg_abc"
         assert output["dataViews"][0]["datasets"] == []
+
+
+class TestRunSummaryOutput:
+    """Tests for --run-summary-json output."""
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_written_for_sdr_success(self, mock_resolve, mock_process, tmp_path):
+        """Successful SDR run should write run summary with result details."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.25,
+            metrics_count=10,
+            dimensions_count=12,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+            output_file="report.xlsx",
+            file_size_bytes=2048,
+        )
+
+        summary_file = tmp_path / "run_summary.json"
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--run-summary-json", str(summary_file)]):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        assert payload["mode"] == "sdr"
+        assert payload["exit_code"] == 0
+        assert payload["result_counts"]["total"] == 1
+        assert payload["result_counts"]["successful"] == 1
+        assert payload["results"][0]["data_view_id"] == "dv_test"
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_written_for_policy_exit(self, mock_resolve, mock_process, tmp_path):
+        """Policy exits should still write run summary with quality gate status."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "Duplicate component"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+
+        summary_file = tmp_path / "run_summary_policy.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--fail-on-quality", "HIGH", "--run-summary-json", str(summary_file)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+        payload = json.loads(summary_file.read_text())
+        assert payload["exit_code"] == 2
+        assert payload["status"] == "policy_exit"
+        assert payload["quality_gate_failed"] is True
+
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    def test_run_summary_written_for_discovery_mode(self, mock_list_dataviews, tmp_path):
+        """Discovery mode should write summary even when exiting via SystemExit."""
+        from cja_auto_sdr.generator import main
+
+        mock_list_dataviews.return_value = True
+        summary_file = tmp_path / "run_summary_discovery.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--list-dataviews", "--run-summary-json", str(summary_file)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        assert payload["mode"] == "discovery"
+        assert payload["exit_code"] == 0
+        assert payload["details"]["discovery_command"] == "list_dataviews"
+
+
+class TestProfileImportCLI:
+    """Tests for non-interactive --profile-import CLI flow."""
+
+    @patch("cja_auto_sdr.generator.import_profile_non_interactive")
+    def test_profile_import_dispatches_without_data_views(self, mock_import):
+        """--profile-import should run profile import command without requiring data views."""
+        from cja_auto_sdr.generator import main
+
+        mock_import.return_value = True
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile-import", "client-a", "creds.json"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        mock_import.assert_called_once_with("client-a", "creds.json", overwrite=False)
+
+    @patch("cja_auto_sdr.generator.import_profile_non_interactive")
+    def test_profile_import_respects_overwrite_flag(self, mock_import):
+        """--profile-overwrite should be forwarded to import handler."""
+        from cja_auto_sdr.generator import main
+
+        mock_import.return_value = True
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--profile-import", "client-a", "creds.json", "--profile-overwrite"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        mock_import.assert_called_once_with("client-a", "creds.json", overwrite=True)
+
+    def test_profile_overwrite_requires_profile_import(self):
+        """--profile-overwrite without --profile-import should fail fast."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile-overwrite"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1

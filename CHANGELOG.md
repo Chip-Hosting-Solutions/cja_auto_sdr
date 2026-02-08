@@ -7,6 +7,23 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.2.2] - 2026-02-08
+
+### Added
+- New `--run-summary-json PATH` output for machine-readable run metadata across all CLI modes (supports file or stdout)
+- Discovery enhancements for `--list-dataviews`, `--list-connections`, and `--list-datasets`:
+  - shared `--filter`, `--exclude`, `--limit`, and `--sort` behavior
+- New data view resolution mode flag `--name-match` with `exact`, `insensitive`, and `fuzzy` strategies
+- Snapshot lifecycle commands:
+  - `--list-snapshots` to inspect snapshot inventory from `--snapshot-dir`
+  - `--prune-snapshots` to run retention-only cleanup without diff execution
+- New `--quality-policy PATH` to load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`) with explicit CLI flags taking precedence
+- New non-interactive profile onboarding flow:
+  - `--profile-import NAME FILE`
+  - `--profile-overwrite` for controlled replacement of existing profiles
+
 ## [3.2.1] - 2026-02-06
 
 ### Highlights

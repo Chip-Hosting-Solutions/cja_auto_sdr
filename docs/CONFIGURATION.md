@@ -517,6 +517,8 @@ CJA_PROFILE=client-b cja_auto_sdr --list-dataviews
 | `--profile-add NAME` | Create a new profile interactively |
 | `--profile-show NAME` | Show profile configuration (secrets masked) |
 | `--profile-test NAME` | Test profile credentials and API connectivity |
+| `--profile-import NAME FILE` | Import profile non-interactively from JSON/.env file (or profile directory) |
+| `--profile-overwrite` | With `--profile-import`, allow replacing an existing profile |
 
 **Examples:**
 
@@ -529,6 +531,10 @@ cja_auto_sdr --profile-show client-a
 
 # Test profile connectivity
 cja_auto_sdr --profile-test client-a
+
+# Import profile credentials from file (non-interactive)
+cja_auto_sdr --profile-import client-b ./client-b.env
+cja_auto_sdr --profile-import client-b ./client-b.json --profile-overwrite
 ```
 
 ### Profile Credential Precedence

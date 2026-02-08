@@ -17,10 +17,12 @@ from cja_auto_sdr.generator import (
     get_cja_home,
     get_profile_path,
     get_profiles_dir,
+    import_profile_non_interactive,
     list_profiles,
     load_profile_config_json,
     load_profile_credentials,
     load_profile_dotenv,
+    load_profile_import_source,
     mask_sensitive_value,
     resolve_active_profile,
     show_profile,
@@ -430,6 +432,107 @@ class TestShowProfile:
             assert result is False
             captured = capsys.readouterr()
             assert "Error" in captured.out
+
+
+class TestProfileImport:
+    """Test non-interactive profile import helpers."""
+
+    def test_load_profile_import_source_json(self, tmp_path):
+        """JSON source should normalize credential keys."""
+        source = tmp_path / "credentials.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "ORG_ID": "test@AdobeOrg",
+                    "clientId": "1234567890abcdef1234567890abcdef",
+                    "client_secret": "abcdefghijklmnop1234567890",
+                    "scopes": "openid,AdobeID,read_organizations",
+                }
+            )
+        )
+
+        credentials = load_profile_import_source(source)
+        assert credentials["org_id"] == "test@AdobeOrg"
+        assert credentials["client_id"] == "1234567890abcdef1234567890abcdef"
+        assert credentials["secret"] == "abcdefghijklmnop1234567890"
+
+    def test_load_profile_import_source_env(self, tmp_path):
+        """Env source should map uppercase env vars to config fields."""
+        source = tmp_path / "credentials.env"
+        source.write_text(
+            "\n".join(
+                [
+                    "ORG_ID=test@AdobeOrg",
+                    "CLIENT_ID=1234567890abcdef1234567890abcdef",
+                    "SECRET=abcdefghijklmnop1234567890",
+                    "SCOPES=openid,AdobeID",
+                ]
+            )
+        )
+
+        credentials = load_profile_import_source(source)
+        assert credentials["org_id"] == "test@AdobeOrg"
+        assert credentials["client_id"] == "1234567890abcdef1234567890abcdef"
+        assert credentials["secret"] == "abcdefghijklmnop1234567890"
+        assert credentials["scopes"] == "openid,AdobeID"
+
+    def test_import_profile_non_interactive_from_json(self, tmp_path):
+        """Import should write config.json for the target profile."""
+        source = tmp_path / "credentials.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "org_id": "test@AdobeOrg",
+                    "client_id": "1234567890abcdef1234567890abcdef",
+                    "secret": "abcdefghijklmnop1234567890",
+                    "scopes": "openid,AdobeID",
+                }
+            )
+        )
+
+        profile_dir = tmp_path / "orgs" / "client-a"
+        with patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir):
+            result = import_profile_non_interactive("client-a", source)
+
+        assert result is True
+        config_path = profile_dir / "config.json"
+        assert config_path.exists()
+        config = json.loads(config_path.read_text())
+        assert config["org_id"] == "test@AdobeOrg"
+        assert config["client_id"] == "1234567890abcdef1234567890abcdef"
+        assert config["secret"] == "abcdefghijklmnop1234567890"
+
+    def test_import_profile_non_interactive_rejects_existing_without_overwrite(self, tmp_path):
+        """Existing profile should not be replaced without overwrite."""
+        source = tmp_path / "credentials.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "org_id": "new@AdobeOrg",
+                    "client_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "secret": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                }
+            )
+        )
+
+        profile_dir = tmp_path / "orgs" / "client-a"
+        profile_dir.mkdir(parents=True)
+        existing_config = profile_dir / "config.json"
+        existing_config.write_text(
+            json.dumps(
+                {
+                    "org_id": "existing@AdobeOrg",
+                    "client_id": "existing_client",
+                    "secret": "existing_secret",
+                }
+            )
+        )
+
+        with patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir):
+            result = import_profile_non_interactive("client-a", source, overwrite=False)
+
+        assert result is False
+        assert json.loads(existing_config.read_text())["org_id"] == "existing@AdobeOrg"
 
 
 class TestProfileExceptions:
