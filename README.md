@@ -50,7 +50,8 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Snapshot Support | Save and compare against baseline snapshots for change tracking |
 | | Snapshot-to-Snapshot | Compare two snapshot files directly without API calls |
 | | Auto-Snapshot on Diff | Automatically save timestamped snapshots during comparisons for audit trails |
-| | CI/CD Integration | Exit codes for pipeline automation (2=changes found, 3=threshold exceeded) |
+| | CI/CD Integration | Policy exit codes for automation (2=policy threshold exceeded, 3=diff warn threshold exceeded) |
+| | GitHub Actions Step Summary | Automatically writes Markdown summaries to `GITHUB_STEP_SUMMARY` when available |
 | | Smart Name Resolution | Fuzzy matching suggestions for typos, interactive disambiguation for duplicates |
 | **Git Integration** | Version-Controlled Snapshots | Save SDR snapshots in Git-friendly format with auto-commit |
 | | Audit Trail | Full history of every Data View configuration change |
@@ -68,7 +69,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Connection & Dataset Discovery | `--list-connections` and `--list-datasets` for infrastructure inventory |
 | | Machine-Readable Discovery | `--list-dataviews --format json` for scripting integration |
 | | Dry-Run Mode | Test configuration without generating reports |
-| | Color-Coded Output | Green/yellow/red console feedback for instant status |
+| | Color-Coded Output | Global color controls via `--no-color`, `NO_COLOR`, and `FORCE_COLOR` |
 | | Enhanced Error Messages | Contextual error messages with actionable fix suggestions |
 | | Comprehensive Logging | Timestamped logs with rotation for audit trails |
 
@@ -235,6 +236,8 @@ cja_auto_sdr "Production Analytics"
 | Include calculated metrics | `cja_auto_sdr dv_12345 --include-calculated` |
 | Include all inventories | `cja_auto_sdr dv_12345 --include-all-inventory` |
 | Inventory-only output | `cja_auto_sdr dv_12345 --include-segments --inventory-only` |
+| Fail on quality issues >= HIGH | `cja_auto_sdr dv_12345 --fail-on-quality HIGH` |
+| Standalone quality report | `cja_auto_sdr dv_12345 --quality-report json --output -` |
 | **Output Formats** | |
 | Export as Excel (default) | `cja_auto_sdr dv_12345 --format excel` |
 | Export as CSV | `cja_auto_sdr dv_12345 --format csv` |
@@ -262,6 +265,7 @@ cja_auto_sdr "Production Analytics"
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
 | Auto-save snapshots | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
 | With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
+| Auto-prune snapshots (defaults) | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --auto-prune` |
 | **Inventory Diff** (same data view over time) | |
 | Snapshot with inventory | `cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments` |
 | Compare with inventory | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated` |

@@ -53,7 +53,42 @@ class ConsoleColors:
     _theme = "default"
 
     # Disable colors if not a TTY or on Windows without ANSI support
-    _enabled = sys.stdout.isatty() and (os.name != "nt" or os.environ.get("TERM"))
+    _enabled = False
+
+    @classmethod
+    def _detect_default_enabled(cls) -> bool:
+        """Detect whether ANSI colors should be enabled by default."""
+        return sys.stdout.isatty() and (os.name != "nt" or os.environ.get("TERM"))
+
+    @classmethod
+    def configure(cls, no_color: bool = False) -> bool:
+        """Configure color output from CLI/env policy and return final state.
+
+        Priority:
+        1. --no-color flag (always disable)
+        2. FORCE_COLOR env var (non-empty and != "0" enables; "0" disables)
+        3. NO_COLOR env var (non-empty disables)
+        4. TTY auto-detection fallback
+        """
+        force_color_raw = os.environ.get("FORCE_COLOR")
+        no_color_env = os.environ.get("NO_COLOR")
+
+        if no_color:
+            enabled = False
+        elif force_color_raw is not None:
+            enabled = force_color_raw.strip() not in ("", "0")
+        elif no_color_env is not None and no_color_env.strip() != "":
+            enabled = False
+        else:
+            enabled = cls._detect_default_enabled()
+
+        cls._enabled = enabled
+        return enabled
+
+    @classmethod
+    def set_enabled(cls, enabled: bool) -> None:
+        """Explicitly enable or disable ANSI colors."""
+        cls._enabled = bool(enabled)
 
     @classmethod
     def set_theme(cls, theme: str) -> None:
@@ -173,6 +208,10 @@ class ConsoleColors:
 
 # Alias for backwards compatibility
 ANSIColors = ConsoleColors
+
+
+# Initialize default color state at import time.
+ConsoleColors.configure()
 
 
 def format_file_size(size_bytes: int) -> str:

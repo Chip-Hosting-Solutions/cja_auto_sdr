@@ -113,6 +113,12 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--format FORMAT` | Output format (see table below) | excel (SDR), console (diff) |
 | `--stats` | Show quick statistics (metrics/dimensions count) without generating full SDR report | False |
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
+| `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). SDR mode only; cannot be combined with `--skip-validation` | - |
+| `--quality-report FORMAT` | Generate standalone quality issues report only (`json` or `csv`) without SDR files. SDR mode only; cannot be combined with `--skip-validation` | - |
+
+> **Quality Gate & Report Constraints:** `--fail-on-quality` and `--quality-report` are only supported in SDR generation mode and cannot be combined with `--skip-validation`.
+>
+> **Quality Report CSV Stability:** `--quality-report csv` always emits a header row, even when no issues are found.
 
 **Format Availability by Mode:**
 
@@ -232,7 +238,7 @@ cja_auto_sdr --list-dataviews
 | `--dimensions-only` | Only compare dimensions (exclude metrics) | False |
 | `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.) | False |
 | `--side-by-side` | Show side-by-side comparison view for modified items | False |
-| `--no-color` | Disable ANSI color codes in diff console output | False |
+| `--no-color` | Disable ANSI color codes in console output (global) | False |
 | `--color-theme THEME` | Color theme for diff output: `default` (green/red) or `accessible` (blue/orange) | default |
 | `--quiet-diff` | Suppress output, only return exit code | False |
 | `--reverse-diff` | Swap source and target comparison direction | False |
@@ -242,9 +248,12 @@ cja_auto_sdr --list-dataviews
 | `--diff-output FILE` | Write output to file instead of stdout | - |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format | False |
 | `--auto-snapshot` | Automatically save snapshots during diff for audit trail | False |
+| `--auto-prune` | With `--auto-snapshot`, apply default retention (`--keep-last 20` + `--keep-since 30d`) only when both retention flags are omitted | False |
 | `--snapshot-dir DIR` | Directory for auto-saved snapshots | ./snapshots |
 | `--keep-last N` | Retention: keep only last N snapshots per data view (0=all) | 0 |
 | `--keep-since PERIOD` | Date-based retention: delete snapshots older than PERIOD. Formats: `7d`, `2w`, `1m`, `30` (days) | - |
+
+> **Retention precedence:** Explicit values are preserved, including `--keep-last 0` / `--keep-last=0` and `--keep-since 90d` / `--keep-since=90d`.
 
 ### Org-Wide Analysis
 
@@ -416,6 +425,14 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 | `RETRY_BASE_DELAY` | Initial retry delay in seconds (overridden by --retry-base-delay) |
 | `RETRY_MAX_DELAY` | Maximum retry delay in seconds (overridden by --retry-max-delay) |
 
+**Console & CI Integration:**
+
+| Variable | Description |
+|----------|-------------|
+| `NO_COLOR` | Disable ANSI colors globally when set to a non-empty value (unless `FORCE_COLOR` is explicitly set) |
+| `FORCE_COLOR` | Force ANSI color behavior (`0` disables; any non-empty/non-`0` value enables) |
+| `GITHUB_STEP_SUMMARY` | When set by GitHub Actions, appends Markdown summaries for diff, quality, and org-report output |
+
 ## Usage Examples
 
 ### Single Data View
@@ -436,6 +453,12 @@ cja_auto_sdr "Production Analytics" --config-file ./prod_config.json
 
 # With debug logging
 cja_auto_sdr "Staging" --log-level DEBUG
+
+# Fail CI on quality issues at or above HIGH severity
+cja_auto_sdr dv_12345 --fail-on-quality HIGH
+
+# Generate standalone quality report only (no SDR files)
+cja_auto_sdr dv_12345 --quality-report json --output quality_issues.json
 ```
 
 ### Multiple Data Views
@@ -669,9 +692,9 @@ cja_auto_sdr --diff dv_12345 dv_67890 --ignore-fields description,title
 # Custom labels for source and target
 cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels Production Staging
 
-# CI/CD integration (exit code 2 if differences found)
+# CI/CD integration (policy exit codes)
 cja_auto_sdr --diff dv_12345 dv_67890 --changes-only --format json
-echo $?  # 0 = no differences, 2 = differences found, 1 = error
+echo $?  # 0 = no differences, 2 = differences found, 3 = warn-threshold exceeded, 1 = error
 
 # Filter by change type
 cja_auto_sdr --diff dv_12345 dv_67890 --show-only added
@@ -705,6 +728,12 @@ cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-last 10
 
 # Time-based retention (delete snapshots older than 30 days)
 cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-since 30d
+
+# Auto-prune defaults (when both retention flags are omitted)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --auto-prune
+
+# Explicit retention values (including --arg=value forms) override defaults
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --auto-prune --keep-last=0
 
 # Auto-snapshot works with diff-snapshot too (saves current state)
 cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
@@ -1005,15 +1034,14 @@ Throughput: 9.7 data views per minute
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success (diff: no differences found) |
-| 1 | General error (authentication, data view not found, API errors, etc.) |
-| 2 | Success with differences (diff mode only) - useful for CI/CD pipelines |
-| 3 | Threshold exceeded (diff mode with `--warn-threshold`) |
+| 0 | Success (SDR generated, validation passed, or diff found no changes) |
+| 1 | General error (authentication, data view not found, API/processing/file I/O failures) |
+| 2 | Policy threshold exceeded (diff changes found, quality gate failed, or org governance threshold exceeded) |
+| 3 | Diff warning threshold exceeded (`--warn-threshold`) |
 
-> **Note:** In diff mode:
-> - Exit code 2 indicates the comparison was successful but differences were found
-> - Exit code 3 indicates differences exceeded the `--warn-threshold` percentage
-> - This allows CI/CD pipelines to fail builds based on change magnitude
+> **Note:**
+> - Exit code 2 is intentionally used for CI policy failures that are not runtime crashes.
+> - Exit code 1 takes precedence if processing fails (even if a policy threshold is also exceeded).
 
 ## Shell Tab-Completion
 

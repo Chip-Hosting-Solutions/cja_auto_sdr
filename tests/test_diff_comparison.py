@@ -24,10 +24,13 @@ from cja_auto_sdr.generator import (
     ComponentDiff,
     DataViewComparator,
     DataViewSnapshot,
+    DiffResult,
     DiffSummary,
+    MetadataDiff,
     SnapshotManager,
     _format_markdown_side_by_side,
     _format_side_by_side,
+    build_diff_step_summary,
     write_diff_console_output,
     write_diff_csv_output,
     write_diff_excel_output,
@@ -448,6 +451,39 @@ class TestDiffOutputWriters:
         assert os.path.exists(os.path.join(dirpath, "metadata.csv"))
         assert os.path.exists(os.path.join(dirpath, "metrics_diff.csv"))
         assert os.path.exists(os.path.join(dirpath, "dimensions_diff.csv"))
+
+
+class TestDiffStepSummary:
+    """Tests for GitHub step summary generation for diff output."""
+
+    def test_total_changes_includes_inventory_only_changes(self):
+        """Inventory-only changes should contribute to the summary total."""
+        summary = DiffSummary(
+            source_calc_metrics_count=2,
+            target_calc_metrics_count=2,
+            calc_metrics_modified=2,
+            source_segments_count=1,
+            target_segments_count=2,
+            segments_added=1,
+        )
+        metadata = MetadataDiff(
+            source_name="DV Source",
+            target_name="DV Target",
+            source_id="dv_src",
+            target_id="dv_tgt",
+        )
+        result = DiffResult(
+            summary=summary,
+            metadata_diff=metadata,
+            metric_diffs=[],
+            dimension_diffs=[],
+        )
+
+        output = build_diff_step_summary(result)
+
+        assert "- Total changes: 3" in output
+        assert "| Calc Metrics | 2 | 2 | 0 | 0 | 2 | 0 |" in output
+        assert "| Segments | 1 | 2 | 1 | 0 | 0 | 0 |" in output
 
 
 # ==================== Edge Case Tests ====================
@@ -3027,6 +3063,28 @@ class TestAutoSnapshotCLIArguments:
             args = parse_arguments()
             assert args.auto_snapshot is True
 
+    def test_auto_prune_flag_default(self):
+        """Test that --auto-prune defaults to False."""
+        import sys
+        from unittest.mock import patch
+
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "--diff", "dv_a", "dv_b"]):
+            args = parse_arguments()
+            assert args.auto_prune is False
+
+    def test_auto_prune_flag_enabled(self):
+        """Test that --auto-prune can be enabled."""
+        import sys
+        from unittest.mock import patch
+
+        from cja_auto_sdr.generator import parse_arguments
+
+        with patch.object(sys, "argv", ["prog", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--auto-prune"]):
+            args = parse_arguments()
+            assert args.auto_prune is True
+
     def test_snapshot_dir_default(self):
         """Test that --snapshot-dir has correct default"""
         import sys
@@ -3085,6 +3143,7 @@ class TestAutoSnapshotCLIArguments:
         ):
             args = parse_arguments()
             assert args.auto_snapshot is True
+            assert args.auto_prune is False
             assert args.snapshot_dir == "./history"
             assert args.keep_last == 5
 

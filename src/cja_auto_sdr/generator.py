@@ -17,7 +17,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
@@ -245,6 +245,8 @@ class ProcessingResult:
     metrics_count: int = 0
     dimensions_count: int = 0
     dq_issues_count: int = 0
+    dq_issues: list[ValidationIssue] = field(default_factory=list)
+    dq_severity_counts: dict[str, int] = field(default_factory=dict)
     output_file: str = ""
     error_message: str = ""
     file_size_bytes: int = 0
@@ -305,12 +307,267 @@ class WorkerArgs:
     include_segments_inventory: bool = False
     inventory_only: bool = False
     inventory_order: str | None = None
+    quality_report_only: bool = False
 
 
 def _exit_error(msg: str) -> NoReturn:
     """Print a coloured error message to stderr and exit with code 1."""
     print(ConsoleColors.error(f"ERROR: {msg}"), file=sys.stderr)
     sys.exit(1)
+
+
+def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
+    """Return True if an option was explicitly provided via --flag or --flag=value."""
+    tokens = argv if argv is not None else sys.argv[1:]
+    return any(token == option_name or token.startswith(f"{option_name}=") for token in tokens)
+
+
+QUALITY_SEVERITY_ORDER: tuple[str, ...] = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+QUALITY_SEVERITY_RANK = {severity: index for index, severity in enumerate(QUALITY_SEVERITY_ORDER)}
+DEFAULT_AUTO_PRUNE_KEEP_LAST = 20
+DEFAULT_AUTO_PRUNE_KEEP_SINCE = "30d"
+QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
+    "Data View ID",
+    "Data View Name",
+    "Severity",
+    "Category",
+    "Type",
+    "Item Name",
+    "Issue",
+    "Details",
+)
+
+
+def normalize_quality_severity(severity: str) -> str:
+    """Normalize severity input and validate against supported values."""
+    normalized = severity.upper()
+    if normalized not in QUALITY_SEVERITY_RANK:
+        raise ValueError(f"Invalid quality severity: {severity}")
+    return normalized
+
+
+def count_quality_issues_by_severity(issues: list[dict[str, Any]]) -> dict[str, int]:
+    """Count quality issues by severity in canonical order."""
+    counts = {severity: 0 for severity in QUALITY_SEVERITY_ORDER}
+    for issue in issues:
+        severity = str(issue.get("Severity", "")).upper()
+        if severity in counts:
+            counts[severity] += 1
+    return {severity: count for severity, count in counts.items() if count > 0}
+
+
+def has_quality_issues_at_or_above(issues: list[dict[str, Any]], threshold: str) -> bool:
+    """Return True if at least one issue meets/exceeds the configured severity."""
+    threshold_rank = QUALITY_SEVERITY_RANK[normalize_quality_severity(threshold)]
+    for issue in issues:
+        severity = str(issue.get("Severity", "")).upper()
+        if severity in QUALITY_SEVERITY_RANK and QUALITY_SEVERITY_RANK[severity] <= threshold_rank:
+            return True
+    return False
+
+
+def aggregate_quality_issues(results: list[ProcessingResult]) -> list[dict[str, Any]]:
+    """Flatten quality issues across processing results with data view context."""
+    issues: list[dict[str, Any]] = []
+    for result in results:
+        for issue in result.dq_issues:
+            issue_with_context = dict(issue)
+            issue_with_context.setdefault("Data View ID", result.data_view_id)
+            issue_with_context.setdefault("Data View Name", result.data_view_name)
+            issues.append(issue_with_context)
+    return issues
+
+
+def resolve_auto_prune_retention(
+    keep_last: int,
+    keep_since: str | None,
+    auto_prune: bool,
+    keep_last_specified: bool = False,
+    keep_since_specified: bool = False,
+) -> tuple[int, str | None]:
+    """Resolve effective retention settings for auto-prune defaults.
+
+    Defaults are applied only when both retention flags were omitted.
+    Explicit values (including --keep-last 0) are preserved.
+    """
+    effective_keep_last = keep_last
+    effective_keep_since = keep_since
+
+    if auto_prune and not keep_last_specified and not keep_since_specified:
+        if effective_keep_last <= 0:
+            effective_keep_last = DEFAULT_AUTO_PRUNE_KEEP_LAST
+        if not effective_keep_since:
+            effective_keep_since = DEFAULT_AUTO_PRUNE_KEEP_SINCE
+
+    return effective_keep_last, effective_keep_since
+
+
+def _build_quality_report_dataframe(issues: list[dict[str, Any]]) -> pd.DataFrame:
+    """Build quality report dataframe with stable columns for empty/non-empty output."""
+    if not issues:
+        return pd.DataFrame(columns=list(QUALITY_REPORT_PREFERRED_COLUMNS))
+
+    df = pd.DataFrame(issues)
+    preferred_cols = [col for col in QUALITY_REPORT_PREFERRED_COLUMNS if col in df.columns]
+    other_cols = [col for col in df.columns if col not in preferred_cols]
+    return df[preferred_cols + other_cols]
+
+
+def write_quality_report_output(
+    issues: list[dict[str, Any]],
+    report_format: str,
+    output: str | None,
+    output_dir: str | Path,
+) -> str:
+    """Write standalone quality report in JSON or CSV format."""
+    output_to_stdout = output in ("-", "stdout")
+    report_format = report_format.lower()
+
+    if report_format not in ("json", "csv"):
+        raise ValueError(f"Unsupported quality report format: {report_format}")
+
+    issues_df = _build_quality_report_dataframe(issues)
+
+    if output_to_stdout:
+        if report_format == "json":
+            json.dump(issues, sys.stdout, indent=2, ensure_ascii=False)
+            print()
+        else:
+            issues_df.to_csv(sys.stdout, index=False)
+        return "stdout"
+
+    if output:
+        output_path = Path(output)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = Path(output_dir) / f"quality_report_{timestamp}.{report_format}"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if report_format == "json":
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(issues, f, indent=2, ensure_ascii=False)
+    else:
+        issues_df.to_csv(output_path, index=False)
+
+    return str(output_path)
+
+
+def append_github_step_summary(markdown: str, logger: logging.Logger | None = None) -> bool:
+    """Append markdown to GitHub Actions job summary when available."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return False
+
+    try:
+        with open(summary_path, "a", encoding="utf-8") as f:
+            f.write(markdown.rstrip() + "\n\n")
+        return True
+    except OSError as e:
+        if logger is not None:
+            logger.warning(f"Failed to write GitHub step summary: {e}")
+        return False
+
+
+def build_quality_step_summary(results: list[ProcessingResult]) -> str:
+    """Build markdown summary table for quality issues."""
+    total_views = len(results)
+    successful_views = sum(1 for r in results if r.success)
+    all_issues = aggregate_quality_issues(results)
+    severity_counts = count_quality_issues_by_severity(all_issues)
+
+    lines = [
+        "### Data Quality Summary",
+        "",
+        f"- Data views processed: {successful_views}/{total_views}",
+        f"- Total quality issues: {len(all_issues)}",
+        "",
+    ]
+
+    if severity_counts:
+        lines.extend(["| Severity | Count |", "|---|---:|"])
+        for severity in QUALITY_SEVERITY_ORDER:
+            count = severity_counts.get(severity, 0)
+            if count > 0:
+                lines.append(f"| {severity} | {count} |")
+        lines.append("")
+
+    lines.extend(["| Data View | ID | Issues | Highest Severity |", "|---|---|---:|---|"])
+    for result in results:
+        highest = "NONE"
+        for severity in QUALITY_SEVERITY_ORDER:
+            if result.dq_severity_counts.get(severity, 0) > 0:
+                highest = severity
+                break
+        lines.append(
+            f"| {result.data_view_name or '-'} | `{result.data_view_id}` | {result.dq_issues_count} | {highest} |"
+        )
+
+    return "\n".join(lines)
+
+
+def build_diff_step_summary(diff_result: "DiffResult") -> str:
+    """Build markdown summary table for diff output."""
+    summary = diff_result.summary
+    total_changes = summary.total_changes + summary.calc_metrics_changed + summary.segments_changed
+    lines = [
+        "### Diff Summary",
+        "",
+        f"- Source: `{diff_result.metadata_diff.source_id}` ({diff_result.metadata_diff.source_name})",
+        f"- Target: `{diff_result.metadata_diff.target_id}` ({diff_result.metadata_diff.target_name})",
+        f"- Total changes: {total_changes}",
+        "",
+        "| Type | Source | Target | Added | Removed | Modified | Unchanged |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+        (
+            f"| Metrics | {summary.source_metrics_count} | {summary.target_metrics_count} | "
+            f"{summary.metrics_added} | {summary.metrics_removed} | {summary.metrics_modified} | {summary.metrics_unchanged} |"
+        ),
+        (
+            f"| Dimensions | {summary.source_dimensions_count} | {summary.target_dimensions_count} | "
+            f"{summary.dimensions_added} | {summary.dimensions_removed} | {summary.dimensions_modified} | {summary.dimensions_unchanged} |"
+        ),
+    ]
+
+    if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
+        lines.append(
+            (
+                f"| Calc Metrics | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
+                f"{summary.calc_metrics_added} | {summary.calc_metrics_removed} | {summary.calc_metrics_modified} | {summary.calc_metrics_unchanged} |"
+            )
+        )
+    if summary.source_segments_count > 0 or summary.target_segments_count > 0:
+        lines.append(
+            (
+                f"| Segments | {summary.source_segments_count} | {summary.target_segments_count} | "
+                f"{summary.segments_added} | {summary.segments_removed} | {summary.segments_modified} | {summary.segments_unchanged} |"
+            )
+        )
+
+    return "\n".join(lines)
+
+
+def build_org_step_summary(result: "OrgReportResult") -> str:
+    """Build markdown summary table for org-report output."""
+    dist = result.distribution
+    lines = [
+        "### Org Report Summary",
+        "",
+        "| Metric | Value |",
+        "|---|---:|",
+        f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |",
+        f"| Total Unique Components | {result.total_unique_components} |",
+        f"| Total Unique Metrics | {result.total_unique_metrics} |",
+        f"| Total Unique Dimensions | {result.total_unique_dimensions} |",
+        f"| Core Components | {dist.total_core} |",
+        f"| Common Components | {dist.total_common} |",
+        f"| Limited Components | {dist.total_limited} |",
+        f"| Isolated Components | {dist.total_isolated} |",
+        f"| Recommendations | {len(result.recommendations)} |",
+        f"| Governance Violations | {len(result.governance_violations or [])} |",
+        f"| Duration (s) | {result.duration:.2f} |",
+    ]
+    return "\n".join(lines)
 
 
 # ==================== DIFF COMPARISON ====================
@@ -4200,6 +4457,7 @@ def process_single_dataview(
     include_segments_inventory: bool = False,
     inventory_only: bool = False,
     inventory_order: list[str] | None = None,
+    quality_report_only: bool = False,
 ) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
@@ -4224,6 +4482,7 @@ def process_single_dataview(
         include_segments_inventory: Include segments inventory in output (default: False)
         inventory_only: Output only inventory sheets, skip standard SDR content (default: False)
         inventory_order: Order of inventory sheets as they appear in CLI (default: ['derived', 'calculated', 'segments'])
+        quality_report_only: Validate and return quality issues without generating SDR files (default: False)
 
     Returns:
         ProcessingResult with processing details including success status, metrics/dimensions count,
@@ -4332,6 +4591,9 @@ def process_single_dataview(
         logger.info("Data fetch operations completed successfully")
 
         # Data quality validation (skip if --skip-validation flag is set)
+        dq_issues: list[dict[str, Any]] = []
+        severity_counts: dict[str, int] = {}
+        dq_checker: DataQualityChecker | None = None
         if skip_validation:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Skipping data quality validation (--skip-validation)")
@@ -4392,6 +4654,22 @@ def process_single_dataview(
 
             # Get data quality issues dataframe (limited if max_issues > 0)
             data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
+            dq_issues = list(dq_checker.issues)
+            severity_counts = count_quality_issues_by_severity(dq_issues)
+
+        if quality_report_only:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=True,
+                duration=time.time() - start_time,
+                metrics_count=len(metrics),
+                dimensions_count=len(dimensions),
+                dq_issues_count=len(dq_issues),
+                dq_issues=dq_issues,
+                dq_severity_counts=severity_counts,
+            )
 
         # Derived field inventory (if enabled)
         derived_inventory_df = pd.DataFrame()
@@ -4515,7 +4793,6 @@ def process_single_dataview(
             formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
             # Count data quality issues by severity
-            severity_counts = data_quality_df["Severity"].value_counts().to_dict()
             dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
 
             # Build base metadata properties
@@ -4538,7 +4815,7 @@ def process_single_dataview(
                 "\n".join(metric_summary) if metric_summary else "No metrics found",
                 len(dimensions),
                 "\n".join(dimension_summary) if dimension_summary else "No dimensions found",
-                len(dq_checker.issues),
+                len(dq_issues),
                 "\n".join(dq_summary) if dq_summary else "No issues",
             ]
 
@@ -4845,9 +5122,9 @@ def process_single_dataview(
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Metrics: {len(metrics)}")
             logger.info(f"Dimensions: {len(dimensions)}")
-            logger.info(f"Data Quality Issues: {len(dq_checker.issues)}")
+            logger.info(f"Data Quality Issues: {len(dq_issues)}")
 
-            if dq_checker.issues:
+            if dq_issues:
                 logger.info("Data Quality Issues by Severity:")
                 for severity, count in severity_counts.items():
                     logger.info(f"  {severity}: {count}")
@@ -4908,7 +5185,9 @@ def process_single_dataview(
                 duration=duration,
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
-                dq_issues_count=len(dq_checker.issues),
+                dq_issues_count=len(dq_issues),
+                dq_issues=dq_issues,
+                dq_severity_counts=severity_counts,
                 output_file=str(output_path),
                 file_size_bytes=total_size,
                 segments_count=segments_count,
@@ -5020,6 +5299,7 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
         include_segments_inventory=args.include_segments_inventory,
         inventory_only=args.inventory_only,
         inventory_order=args.inventory_order,
+        quality_report_only=args.quality_report_only,
     )
 
 
@@ -5085,6 +5365,7 @@ class BatchProcessor:
         include_segments_inventory: bool = False,
         inventory_only: bool = False,
         inventory_order: list[str] | None = None,
+        quality_report_only: bool = False,
     ):
         self.config_file = config_file
         self.output_dir = output_dir
@@ -5112,6 +5393,7 @@ class BatchProcessor:
         self.include_segments_inventory = include_segments_inventory
         self.inventory_only = inventory_only
         self.inventory_order = inventory_order
+        self.quality_report_only = quality_report_only
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
         self.logger = setup_logging(batch_mode=True, log_level=log_level, log_format=log_format)
         self.logger.info(f"Batch ID: {self.batch_id}")
@@ -5188,6 +5470,7 @@ class BatchProcessor:
                 include_segments_inventory=self.include_segments_inventory,
                 inventory_only=self.inventory_only,
                 inventory_order=self.inventory_order,
+                quality_report_only=self.quality_report_only,
             )
             for dv_id in data_view_ids
         ]
@@ -5731,7 +6014,7 @@ Note:
 Exit Codes:
   0 - Success (diff: no differences found)
   1 - Error occurred
-  2 - Success with differences found (diff mode only)
+  2 - Policy threshold exceeded (diff changes, quality gate, or governance threshold)
 
 Requirements:
   Python 3.14 or higher required. Verify with: python3 --version
@@ -5991,6 +6274,23 @@ Requirements:
         help="Limit data quality issues to top N by severity (0 = show all, default: 0)",
     )
 
+    parser.add_argument(
+        "--fail-on-quality",
+        type=str.upper,
+        choices=list(QUALITY_SEVERITY_ORDER),
+        metavar="SEVERITY",
+        help="Exit with code 2 when quality issues at or above SEVERITY are found "
+        "(CRITICAL, HIGH, MEDIUM, LOW, INFO)",
+    )
+
+    parser.add_argument(
+        "--quality-report",
+        type=str,
+        choices=["json", "csv"],
+        metavar="FORMAT",
+        help="Generate standalone quality issues report only (json or csv) without SDR files",
+    )
+
     # ==================== UX ENHANCEMENT ARGUMENTS ====================
 
     parser.add_argument(
@@ -6170,6 +6470,16 @@ Requirements:
         action="store_true",
         help="Automatically save snapshots of data views during diff comparison. "
         "Creates timestamped snapshots in --snapshot-dir for audit trail",
+    )
+
+    diff_group.add_argument(
+        "--auto-prune",
+        action="store_true",
+        help=(
+            "When used with --auto-snapshot, automatically apply default retention "
+            f"(--keep-last {DEFAULT_AUTO_PRUNE_KEEP_LAST} and --keep-since {DEFAULT_AUTO_PRUNE_KEEP_SINCE}) "
+            "if explicit retention flags are not provided"
+        ),
     )
 
     diff_group.add_argument(
@@ -10679,6 +10989,7 @@ def run_org_report(
                     file_path = write_org_report_json(result, output_path_obj, output_dir, logger)
                     if not quiet:
                         _status_print(f"JSON saved to: {file_path}")
+            append_github_step_summary(build_org_step_summary(result), logger)
             return True, result.thresholds_exceeded
 
         # Handle format aliases (reports, data, ci)
@@ -10777,6 +11088,7 @@ def run_org_report(
                 )
             _status_print("=" * 110)
 
+        append_github_step_summary(build_org_step_summary(result), logger)
         return True, result.thresholds_exceeded
 
     except FileNotFoundError:
@@ -10911,9 +11223,12 @@ def handle_diff_command(
     diff_output: str | None = None,
     format_pr_comment: bool = False,
     auto_snapshot: bool = False,
+    auto_prune: bool = False,
     snapshot_dir: str = "./snapshots",
     keep_last: int = 0,
     keep_since: str | None = None,
+    keep_last_specified: bool = False,
+    keep_since_specified: bool = False,
     profile: str | None = None,
 ) -> tuple[bool, bool, int | None]:
     """
@@ -10944,9 +11259,12 @@ def handle_diff_command(
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
         auto_snapshot: Automatically save snapshots during diff
+        auto_prune: Apply default retention when --auto-snapshot is enabled
         snapshot_dir: Directory for auto-saved snapshots
         keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
         keep_since: Date-based retention - delete snapshots older than this period (e.g., '7d', '2w', '1m')
+        keep_last_specified: Whether --keep-last was explicitly provided
+        keep_since_specified: Whether --keep-since was explicitly provided
         profile: Optional profile name for credentials
 
     Returns:
@@ -10995,6 +11313,14 @@ def handle_diff_command(
         if auto_snapshot:
             os.makedirs(snapshot_dir, exist_ok=True)
 
+            effective_keep_last, effective_keep_since = resolve_auto_prune_retention(
+                keep_last=keep_last,
+                keep_since=keep_since,
+                auto_prune=auto_prune,
+                keep_last_specified=keep_last_specified,
+                keep_since_specified=keep_since_specified,
+            )
+
             # Save source snapshot
             source_filename = snapshot_manager.generate_snapshot_filename(source_id, source_snapshot.data_view_name)
             source_path = os.path.join(snapshot_dir, source_filename)
@@ -11014,14 +11340,14 @@ def handle_diff_command(
             total_deleted = 0
 
             # Count-based retention
-            if keep_last > 0:
-                deleted_source = snapshot_manager.apply_retention_policy(snapshot_dir, source_id, keep_last)
-                deleted_target = snapshot_manager.apply_retention_policy(snapshot_dir, target_id, keep_last)
+            if effective_keep_last > 0:
+                deleted_source = snapshot_manager.apply_retention_policy(snapshot_dir, source_id, effective_keep_last)
+                deleted_target = snapshot_manager.apply_retention_policy(snapshot_dir, target_id, effective_keep_last)
                 total_deleted += len(deleted_source) + len(deleted_target)
 
             # Date-based retention
-            if keep_since:
-                days = parse_retention_period(keep_since)
+            if effective_keep_since:
+                days = parse_retention_period(effective_keep_since)
                 if days:
                     deleted_source = snapshot_manager.apply_date_retention_policy(
                         snapshot_dir, source_id, keep_since_days=days
@@ -11082,7 +11408,7 @@ def handle_diff_command(
                 changes_only,
                 summary_only,
                 side_by_side,
-                use_color=not no_color,
+                use_color=ConsoleColors.is_enabled() and not no_color,
                 group_by_field=group_by_field,
                 group_by_field_limit=group_by_field_limit,
             )
@@ -11098,6 +11424,7 @@ def handle_diff_command(
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
+        append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
     except Exception as e:
@@ -11133,9 +11460,12 @@ def handle_diff_snapshot_command(
     diff_output: str | None = None,
     format_pr_comment: bool = False,
     auto_snapshot: bool = False,
+    auto_prune: bool = False,
     snapshot_dir: str = "./snapshots",
     keep_last: int = 0,
     keep_since: str | None = None,
+    keep_last_specified: bool = False,
+    keep_since_specified: bool = False,
     profile: str | None = None,
     include_calc_metrics: bool = False,
     include_segments: bool = False,
@@ -11168,9 +11498,12 @@ def handle_diff_snapshot_command(
         diff_output: Write output to file instead of stdout
         format_pr_comment: Output in PR comment format
         auto_snapshot: Automatically save snapshot of current data view state
+        auto_prune: Apply default retention when --auto-snapshot is enabled
         snapshot_dir: Directory for auto-saved snapshots
         keep_last: Retention policy - keep only last N snapshots per data view (0 = keep all)
         keep_since: Date-based retention - delete snapshots older than this period (e.g., '7d', '2w', '1m')
+        keep_last_specified: Whether --keep-last was explicitly provided
+        keep_since_specified: Whether --keep-since was explicitly provided
         profile: Optional profile name for credentials
         include_calc_metrics: Include calculated metrics inventory in comparison
         include_segments: Include segments inventory in comparison
@@ -11289,6 +11622,14 @@ def handle_diff_snapshot_command(
         if auto_snapshot:
             os.makedirs(snapshot_dir, exist_ok=True)
 
+            effective_keep_last, effective_keep_since = resolve_auto_prune_retention(
+                keep_last=keep_last,
+                keep_since=keep_since,
+                auto_prune=auto_prune,
+                keep_last_specified=keep_last_specified,
+                keep_since_specified=keep_since_specified,
+            )
+
             # Save current state snapshot
             current_filename = snapshot_manager.generate_snapshot_filename(data_view_id, target_snapshot.data_view_name)
             current_path = os.path.join(snapshot_dir, current_filename)
@@ -11301,13 +11642,13 @@ def handle_diff_snapshot_command(
             total_deleted = 0
 
             # Count-based retention
-            if keep_last > 0:
-                deleted = snapshot_manager.apply_retention_policy(snapshot_dir, data_view_id, keep_last)
+            if effective_keep_last > 0:
+                deleted = snapshot_manager.apply_retention_policy(snapshot_dir, data_view_id, effective_keep_last)
                 total_deleted += len(deleted)
 
             # Date-based retention
-            if keep_since:
-                days = parse_retention_period(keep_since)
+            if effective_keep_since:
+                days = parse_retention_period(effective_keep_since)
                 if days:
                     deleted = snapshot_manager.apply_date_retention_policy(
                         snapshot_dir, data_view_id, keep_since_days=days
@@ -11371,7 +11712,7 @@ def handle_diff_snapshot_command(
                 changes_only,
                 summary_only,
                 side_by_side,
-                use_color=not no_color,
+                use_color=ConsoleColors.is_enabled() and not no_color,
                 group_by_field=group_by_field,
                 group_by_field_limit=group_by_field_limit,
             )
@@ -11387,6 +11728,7 @@ def handle_diff_snapshot_command(
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
+        append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
     except FileNotFoundError:
@@ -11601,7 +11943,7 @@ def handle_compare_snapshots_command(
                 changes_only,
                 summary_only,
                 side_by_side,
-                use_color=not no_color,
+                use_color=ConsoleColors.is_enabled() and not no_color,
                 group_by_field=group_by_field,
                 group_by_field_limit=group_by_field_limit,
             )
@@ -11617,6 +11959,7 @@ def handle_compare_snapshots_command(
                 print()
                 print(ConsoleColors.success("Diff report generated successfully"))
 
+        append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
     except FileNotFoundError as e:
@@ -11641,6 +11984,9 @@ def main():
 
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
+
+    # Configure global color policy for all ConsoleColors call sites.
+    ConsoleColors.configure(no_color=getattr(args, "no_color", False))
 
     # Parse and validate --workers argument
     workers_auto = False
@@ -11671,6 +12017,55 @@ def main():
         _exit_error("--retry-base-delay cannot be negative")
     if args.retry_max_delay < args.retry_base_delay:
         _exit_error("--retry-max-delay must be >= --retry-base-delay")
+
+    # Track whether retention flags were explicitly provided so auto-prune
+    # defaults don't override intentional values like --keep-last 0.
+    keep_last_specified = _cli_option_specified("--keep-last")
+    keep_since_specified = _cli_option_specified("--keep-since")
+
+    non_sdr_modes_for_quality_gate = (
+        getattr(args, "diff", False)
+        or getattr(args, "snapshot", None)
+        or getattr(args, "diff_snapshot", None)
+        or getattr(args, "compare_with_prev", False)
+        or getattr(args, "compare_snapshots", None)
+        or getattr(args, "org_report", False)
+        or getattr(args, "inventory_summary", False)
+        or getattr(args, "list_dataviews", False)
+        or getattr(args, "list_connections", False)
+        or getattr(args, "list_datasets", False)
+        or getattr(args, "validate_config", False)
+        or getattr(args, "config_status", False)
+        or getattr(args, "sample_config", False)
+        or getattr(args, "exit_codes", False)
+        or getattr(args, "profile_list", False)
+        or getattr(args, "profile_add", None)
+        or getattr(args, "profile_test", None)
+        or getattr(args, "profile_show", None)
+        or getattr(args, "git_init", False)
+        or getattr(args, "compare_org_report", None)
+        or getattr(args, "stats", False)
+        or getattr(args, "dry_run", False)
+    )
+    if getattr(args, "fail_on_quality", None) and non_sdr_modes_for_quality_gate:
+        _exit_error("--fail-on-quality is only supported in SDR generation mode")
+
+    if getattr(args, "auto_prune", False) and not getattr(args, "auto_snapshot", False):
+        _exit_error("--auto-prune requires --auto-snapshot")
+    if getattr(args, "fail_on_quality", None) and args.skip_validation:
+        _exit_error("--fail-on-quality cannot be used with --skip-validation")
+    if getattr(args, "quality_report", None) and args.skip_validation:
+        _exit_error("--quality-report cannot be used with --skip-validation")
+    if getattr(args, "quality_report", None) and (
+        getattr(args, "diff", False)
+        or getattr(args, "snapshot", None)
+        or getattr(args, "diff_snapshot", None)
+        or getattr(args, "compare_with_prev", False)
+        or getattr(args, "compare_snapshots", None)
+        or getattr(args, "org_report", False)
+        or getattr(args, "inventory_summary", False)
+    ):
+        _exit_error("--quality-report is only supported in SDR generation mode")
 
     # Propagate retry config via env vars so both the current process
     # (read by _effective_retry_config in resilience.py) and child
@@ -11717,9 +12112,10 @@ def main():
         print("        - Validation failed")
         print("        - File I/O error")
         print()
-        print("    2   Diff: Changes found (not an error)")
-        print("        - Use for CI/CD gates to detect drift")
-        print("        - Example: cja_auto_sdr --diff dv_A dv_B && echo 'No changes'")
+        print("    2   Policy threshold exceeded (not a runtime error)")
+        print("        - Diff mode: changes found")
+        print("        - SDR mode: quality gate failed (--fail-on-quality)")
+        print("        - Org mode: governance threshold failed (--fail-on-threshold)")
         print()
         print("    3   Diff: Warning threshold exceeded")
         print("        - Triggered by --warn-threshold PERCENT")
@@ -12195,9 +12591,12 @@ def main():
             diff_output=getattr(args, "diff_output", None),
             format_pr_comment=getattr(args, "format_pr_comment", False),
             auto_snapshot=getattr(args, "auto_snapshot", False),
+            auto_prune=getattr(args, "auto_prune", False),
             snapshot_dir=getattr(args, "snapshot_dir", "./snapshots"),
             keep_last=getattr(args, "keep_last", 0),
             keep_since=getattr(args, "keep_since", None),
+            keep_last_specified=keep_last_specified,
+            keep_since_specified=keep_since_specified,
             profile=getattr(args, "profile", None),
         )
 
@@ -12429,9 +12828,12 @@ def main():
             diff_output=getattr(args, "diff_output", None),
             format_pr_comment=getattr(args, "format_pr_comment", False),
             auto_snapshot=getattr(args, "auto_snapshot", False),
+            auto_prune=getattr(args, "auto_prune", False),
             snapshot_dir=getattr(args, "snapshot_dir", "./snapshots"),
             keep_last=getattr(args, "keep_last", 0),
             keep_since=getattr(args, "keep_since", None),
+            keep_last_specified=keep_last_specified,
+            keep_since_specified=keep_since_specified,
             profile=getattr(args, "profile", None),
             include_calc_metrics=include_calc_metrics,
             include_segments=include_segments,
@@ -12576,11 +12978,16 @@ def main():
         success = run_dry_run(data_views, args.config_file, logger, profile=getattr(args, "profile", None))
         sys.exit(0 if success else 1)
 
+    quality_report_format = getattr(args, "quality_report", None)
+    quality_report_only = quality_report_format is not None
+
     # Default to excel for SDR generation
     sdr_format = args.format if args.format else "excel"
+    if quality_report_only:
+        sdr_format = "json"
 
     # Validate format - console is only supported for diff comparison
-    if sdr_format == "console":
+    if sdr_format == "console" and not quality_report_only:
         print(ConsoleColors.error("Error: Console format is only supported for diff comparison."))
         print()
         print("For SDR generation, use one of these formats:")
@@ -12778,7 +13185,71 @@ def main():
             )
         sys.exit(0)
 
-    if args.batch or len(data_views) > 1:
+    successful_results: list[ProcessingResult] = []
+    quality_report_results: list[ProcessingResult] = []
+    processed_results: list[ProcessingResult] = []
+    overall_failure = False
+    processing_failures_detected = False
+
+    if quality_report_only:
+        if not args.quiet:
+            print(ConsoleColors.info(f"Validating data quality for {len(data_views)} data view(s)..."))
+            print()
+
+        for dv_id in data_views:
+            result = process_single_dataview(
+                dv_id,
+                config_file=args.config_file,
+                output_dir=args.output_dir,
+                log_level=effective_log_level,
+                log_format=args.log_format,
+                output_format=sdr_format,
+                enable_cache=args.enable_cache,
+                cache_size=args.cache_size,
+                cache_ttl=args.cache_ttl,
+                quiet=args.quiet,
+                skip_validation=args.skip_validation,
+                max_issues=args.max_issues,
+                clear_cache=args.clear_cache,
+                show_timings=args.show_timings,
+                metrics_only=getattr(args, "metrics_only", False),
+                dimensions_only=getattr(args, "dimensions_only", False),
+                profile=getattr(args, "profile", None),
+                api_tuning_config=api_tuning_config,
+                circuit_breaker_config=circuit_breaker_config,
+                include_derived_inventory=False,
+                include_calculated_metrics=False,
+                include_segments_inventory=False,
+                inventory_only=False,
+                inventory_order=None,
+                quality_report_only=True,
+            )
+            quality_report_results.append(result)
+            processed_results.append(result)
+
+            if result.success:
+                successful_results.append(result)
+                if not args.quiet:
+                    print(
+                        ConsoleColors.success(
+                            f"✓ {result.data_view_name} ({result.data_view_id}): {result.dq_issues_count} issues"
+                        )
+                    )
+            else:
+                # Quality report mode should still fail overall if any DV fails,
+                # even when --continue-on-error is used to keep processing.
+                overall_failure = True
+                processing_failures_detected = True
+                print(ConsoleColors.error(f"FAILED: {result.data_view_id} - {result.error_message}"), file=sys.stderr)
+                if not args.continue_on_error:
+                    break
+
+        if not args.quiet:
+            total_runtime = time.time() - processing_start_time
+            print()
+            print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
+
+    elif args.batch or len(data_views) > 1:
         # Batch mode - parallel processing
 
         # Apply auto-detection for workers if requested
@@ -12827,9 +13298,12 @@ def main():
             include_segments_inventory=getattr(args, "include_segments_inventory", False),
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
+            quality_report_only=quality_report_only,
         )
 
         results = processor.process_batch(data_views)
+        successful_results = list(results.get("successful", []))
+        processed_results = successful_results + list(results.get("failed", []))
 
         # Print total runtime
         total_runtime = time.time() - processing_start_time
@@ -12837,7 +13311,7 @@ def main():
         print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
         # Handle --open flag for batch mode (open all successful files)
-        if getattr(args, "open", False) and results.get("successful"):
+        if getattr(args, "open", False) and results.get("successful") and not quality_report_only:
             files_to_open = []
             for success_info in results["successful"]:
                 if isinstance(success_info, dict) and success_info.get("output_file"):
@@ -12852,9 +13326,11 @@ def main():
                     if not open_file_in_default_app(file_path):
                         print(ConsoleColors.warning(f"  Could not open: {file_path}"))
 
+        # Track processing failures separately for exit-code precedence logic.
+        processing_failures_detected = bool(results.get("failed"))
+
         # Exit with error code if any failed (unless continue-on-error)
-        if results["failed"] and not args.continue_on_error:
-            sys.exit(1)
+        overall_failure = bool(results["failed"] and not args.continue_on_error)
 
     else:
         # Single mode - process one data view
@@ -12887,153 +13363,219 @@ def main():
             include_segments_inventory=getattr(args, "include_segments_inventory", False),
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
+            quality_report_only=quality_report_only,
         )
+        processed_results = [result]
 
         # Print final status with color and total runtime
         total_runtime = time.time() - processing_start_time
         print()
         if result.success:
-            print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
-            print(f"  Output: {result.output_file}")
-            print(f"  Size: {result.file_size_formatted}")
-            print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
-            if result.dq_issues_count > 0:
-                print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))
+            successful_results = [result]
+            if quality_report_only:
+                print(ConsoleColors.success(f"SUCCESS: Quality validation completed for {result.data_view_name}"))
+                print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
+                print(f"  Data Quality Issues: {result.dq_issues_count}")
+            else:
+                print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
+                print(f"  Output: {result.output_file}")
+                print(f"  Size: {result.file_size_formatted}")
+                print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
+                if result.dq_issues_count > 0:
+                    print(ConsoleColors.warning(f"  Data Quality Issues: {result.dq_issues_count}"))
 
-            # Display inventory summary if any inventory was requested
-            include_segs = getattr(args, "include_segments_inventory", False)
-            include_calc = getattr(args, "include_calculated_metrics", False)
-            include_derived = getattr(args, "include_derived_inventory", False)
+                # Display inventory summary if any inventory was requested
+                include_segs = getattr(args, "include_segments_inventory", False)
+                include_calc = getattr(args, "include_calculated_metrics", False)
+                include_derived = getattr(args, "include_derived_inventory", False)
 
-            if include_segs or include_calc or include_derived:
-                inv_parts = []
-                # Use inventory_order to maintain consistent ordering with sheets
-                inv_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
-                for inv_type in inv_order:
-                    if inv_type == "segments" and include_segs:
-                        seg_str = f"Segments: {result.segments_count}"
-                        if result.segments_high_complexity > 0:
-                            seg_str += f" ({result.segments_high_complexity} high-complexity)"
-                        inv_parts.append(seg_str)
-                    elif inv_type == "calculated" and include_calc:
-                        calc_str = f"Calculated Metrics: {result.calculated_metrics_count}"
-                        if result.calculated_metrics_high_complexity > 0:
-                            calc_str += f" ({result.calculated_metrics_high_complexity} high-complexity)"
-                        inv_parts.append(calc_str)
-                    elif inv_type == "derived" and include_derived:
-                        derived_str = f"Derived Fields: {result.derived_fields_count}"
-                        if result.derived_fields_high_complexity > 0:
-                            derived_str += f" ({result.derived_fields_high_complexity} high-complexity)"
-                        inv_parts.append(derived_str)
+                if include_segs or include_calc or include_derived:
+                    inv_parts = []
+                    # Use inventory_order to maintain consistent ordering with sheets
+                    inv_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
+                    for inv_type in inv_order:
+                        if inv_type == "segments" and include_segs:
+                            seg_str = f"Segments: {result.segments_count}"
+                            if result.segments_high_complexity > 0:
+                                seg_str += f" ({result.segments_high_complexity} high-complexity)"
+                            inv_parts.append(seg_str)
+                        elif inv_type == "calculated" and include_calc:
+                            calc_str = f"Calculated Metrics: {result.calculated_metrics_count}"
+                            if result.calculated_metrics_high_complexity > 0:
+                                calc_str += f" ({result.calculated_metrics_high_complexity} high-complexity)"
+                            inv_parts.append(calc_str)
+                        elif inv_type == "derived" and include_derived:
+                            derived_str = f"Derived Fields: {result.derived_fields_count}"
+                            if result.derived_fields_high_complexity > 0:
+                                derived_str += f" ({result.derived_fields_high_complexity} high-complexity)"
+                            inv_parts.append(derived_str)
 
-                if inv_parts:
-                    print(f"  Inventory: {', '.join(inv_parts)}")
+                    if inv_parts:
+                        print(f"  Inventory: {', '.join(inv_parts)}")
 
-                # Warn about high-complexity items
-                if result.total_high_complexity > 0:
-                    print(
-                        ConsoleColors.warning(
-                            f"  ⚠ {result.total_high_complexity} high-complexity items (≥75) - review recommended"
+                    # Warn about high-complexity items
+                    if result.total_high_complexity > 0:
+                        print(
+                            ConsoleColors.warning(
+                                f"  ⚠ {result.total_high_complexity} high-complexity items (≥75) - review recommended"
+                            )
                         )
+
+                # Handle --git-commit for single mode
+                if getattr(args, "git_commit", False):
+                    print()
+                    git_dir = Path(getattr(args, "git_dir", "./sdr-snapshots"))
+
+                    # Initialize repo if needed
+                    if not is_git_repository(git_dir):
+                        print(f"Initializing Git repository at: {git_dir}")
+                        init_success, init_msg = git_init_snapshot_repo(git_dir)
+                        if not init_success:
+                            print(ConsoleColors.error(f"Git init failed: {init_msg}"))
+                        else:
+                            print(ConsoleColors.success("  Repository initialized"))
+
+                    # Create snapshot for Git
+                    # Check if inventory flags are set
+                    include_calc = getattr(args, "include_calculated_metrics", False)
+                    include_segs = getattr(args, "include_segments_inventory", False)
+
+                    snapshot = DataViewSnapshot(
+                        data_view_id=result.data_view_id,
+                        data_view_name=result.data_view_name,
+                        metrics=result.metrics_data if hasattr(result, "metrics_data") else [],
+                        dimensions=result.dimensions_data if hasattr(result, "dimensions_data") else [],
                     )
 
-            # Handle --git-commit for single mode
-            if getattr(args, "git_commit", False):
-                print()
-                git_dir = Path(getattr(args, "git_dir", "./sdr-snapshots"))
+                    # If we don't have the raw data in result, or if inventory is requested,
+                    # we need to fetch it via create_snapshot
+                    needs_fetch = not snapshot.metrics and not snapshot.dimensions
+                    needs_inventory = include_calc or include_segs
 
-                # Initialize repo if needed
-                if not is_git_repository(git_dir):
-                    print(f"Initializing Git repository at: {git_dir}")
-                    init_success, init_msg = git_init_snapshot_repo(git_dir)
-                    if not init_success:
-                        print(ConsoleColors.error(f"Git init failed: {init_msg}"))
+                    if needs_fetch or needs_inventory:
+                        # Re-fetch data for Git snapshot (with optional inventory)
+                        fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
+                        print(f"Fetching {fetch_reason} for Git snapshot...")
+                        try:
+                            temp_logger = logging.getLogger("git_snapshot")
+                            temp_logger.setLevel(logging.WARNING)
+                            cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, "profile", None))
+                            if cja:
+                                snapshot_mgr = SnapshotManager(temp_logger)
+                                snapshot = snapshot_mgr.create_snapshot(
+                                    cja,
+                                    result.data_view_id,
+                                    quiet=True,
+                                    include_calculated_metrics=include_calc,
+                                    include_segments=include_segs,
+                                )
+                        except Exception as e:
+                            print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
+
+                    # Save Git-friendly snapshot
+                    print(f"Saving snapshot to: {git_dir}")
+                    save_git_friendly_snapshot(
+                        snapshot=snapshot,
+                        output_dir=git_dir,
+                        quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
+                    )
+
+                    # Commit to Git
+                    git_push = getattr(args, "git_push", False)
+                    git_message = getattr(args, "git_message", None)
+
+                    commit_success, commit_result = git_commit_snapshot(
+                        snapshot_dir=git_dir,
+                        data_view_id=result.data_view_id,
+                        data_view_name=result.data_view_name,
+                        metrics_count=result.metrics_count,
+                        dimensions_count=result.dimensions_count,
+                        quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
+                        custom_message=git_message,
+                        push=git_push,
+                    )
+
+                    if commit_success:
+                        if commit_result == "no_changes":
+                            print(ConsoleColors.info("  No changes to commit (snapshot unchanged)"))
+                        else:
+                            print(ConsoleColors.success(f"  Committed: {commit_result}"))
+                            if git_push:
+                                print(ConsoleColors.success("  Pushed to remote"))
                     else:
-                        print(ConsoleColors.success("  Repository initialized"))
+                        print(ConsoleColors.error(f"  Git commit failed: {commit_result}"))
 
-                # Create snapshot for Git
-                # Check if inventory flags are set
-                include_calc = getattr(args, "include_calculated_metrics", False)
-                include_segs = getattr(args, "include_segments_inventory", False)
-
-                snapshot = DataViewSnapshot(
-                    data_view_id=result.data_view_id,
-                    data_view_name=result.data_view_name,
-                    metrics=result.metrics_data if hasattr(result, "metrics_data") else [],
-                    dimensions=result.dimensions_data if hasattr(result, "dimensions_data") else [],
-                )
-
-                # If we don't have the raw data in result, or if inventory is requested,
-                # we need to fetch it via create_snapshot
-                needs_fetch = not snapshot.metrics and not snapshot.dimensions
-                needs_inventory = include_calc or include_segs
-
-                if needs_fetch or needs_inventory:
-                    # Re-fetch data for Git snapshot (with optional inventory)
-                    fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
-                    print(f"Fetching {fetch_reason} for Git snapshot...")
-                    try:
-                        temp_logger = logging.getLogger("git_snapshot")
-                        temp_logger.setLevel(logging.WARNING)
-                        cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, "profile", None))
-                        if cja:
-                            snapshot_mgr = SnapshotManager(temp_logger)
-                            snapshot = snapshot_mgr.create_snapshot(
-                                cja,
-                                result.data_view_id,
-                                quiet=True,
-                                include_calculated_metrics=include_calc,
-                                include_segments=include_segs,
-                            )
-                    except Exception as e:
-                        print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
-
-                # Save Git-friendly snapshot
-                print(f"Saving snapshot to: {git_dir}")
-                save_git_friendly_snapshot(
-                    snapshot=snapshot,
-                    output_dir=git_dir,
-                    quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
-                )
-
-                # Commit to Git
-                git_push = getattr(args, "git_push", False)
-                git_message = getattr(args, "git_message", None)
-
-                commit_success, commit_result = git_commit_snapshot(
-                    snapshot_dir=git_dir,
-                    data_view_id=result.data_view_id,
-                    data_view_name=result.data_view_name,
-                    metrics_count=result.metrics_count,
-                    dimensions_count=result.dimensions_count,
-                    quality_issues=result.dq_issues if hasattr(result, "dq_issues") else None,
-                    custom_message=git_message,
-                    push=git_push,
-                )
-
-                if commit_success:
-                    if commit_result == "no_changes":
-                        print(ConsoleColors.info("  No changes to commit (snapshot unchanged)"))
-                    else:
-                        print(ConsoleColors.success(f"  Committed: {commit_result}"))
-                        if git_push:
-                            print(ConsoleColors.success("  Pushed to remote"))
-                else:
-                    print(ConsoleColors.error(f"  Git commit failed: {commit_result}"))
-
-            # Handle --open flag for single mode
-            if getattr(args, "open", False) and result.output_file:
-                print()
-                print("Opening file...")
-                if not open_file_in_default_app(result.output_file):
-                    print(ConsoleColors.warning(f"  Could not open: {result.output_file}"))
+                # Handle --open flag for single mode
+                if getattr(args, "open", False) and result.output_file:
+                    print()
+                    print("Opening file...")
+                    if not open_file_in_default_app(result.output_file):
+                        print(ConsoleColors.warning(f"  Could not open: {result.output_file}"))
         else:
             print(ConsoleColors.error(f"FAILED: {result.error_message}"))
+            overall_failure = True
+            processing_failures_detected = True
 
         print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
-        if not result.success:
+    all_quality_issues = aggregate_quality_issues(successful_results)
+
+    if quality_report_only:
+        summary_results = quality_report_results
+    else:
+        summary_results = processed_results
+    if summary_results:
+        append_github_step_summary(build_quality_step_summary(summary_results))
+
+    if quality_report_only:
+        try:
+            report_target = write_quality_report_output(
+                all_quality_issues,
+                report_format=quality_report_format,
+                output=getattr(args, "output", None),
+                output_dir=args.output_dir,
+            )
+            if not args.quiet:
+                if report_target == "stdout":
+                    print(ConsoleColors.success("Quality report written to stdout"))
+                else:
+                    print(ConsoleColors.success(f"Quality report written to: {report_target}"))
+        except Exception as e:
+            print(ConsoleColors.error(f"ERROR: Failed to write quality report: {e!s}"), file=sys.stderr)
+            overall_failure = True
+
+    fail_on_quality = getattr(args, "fail_on_quality", None)
+    quality_gate_failed = False
+    if fail_on_quality and has_quality_issues_at_or_above(all_quality_issues, fail_on_quality):
+        quality_gate_failed = True
+        threshold_rank = QUALITY_SEVERITY_RANK[fail_on_quality]
+        failing_counts = count_quality_issues_by_severity(
+            [
+                issue
+                for issue in all_quality_issues
+                if QUALITY_SEVERITY_RANK.get(str(issue.get("Severity", "")).upper(), 99) <= threshold_rank
+            ]
+        )
+        if not args.quiet:
+            print(
+                ConsoleColors.error(
+                    f"QUALITY GATE FAILED: Found issues at or above {fail_on_quality} severity."
+                ),
+                file=sys.stderr,
+            )
+            for severity in QUALITY_SEVERITY_ORDER:
+                count = failing_counts.get(severity, 0)
+                if count > 0:
+                    print(f"  {severity}: {count}", file=sys.stderr)
+
+    if quality_gate_failed:
+        # Exit code 1 has precedence when processing failed.
+        if processing_failures_detected or overall_failure:
             sys.exit(1)
+        sys.exit(2)
+
+    if overall_failure:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
