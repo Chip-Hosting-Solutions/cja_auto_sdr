@@ -2759,6 +2759,34 @@ class TestRunSummaryOutput:
         assert payload["status"] == "error"
         assert payload["exit_code"] == 2
 
+    def test_run_summary_missing_value_does_not_write_flag_named_file(self, tmp_path, monkeypatch):
+        """Malformed --run-summary-json should not treat the next flag as an output path."""
+        from cja_auto_sdr.generator import main
+
+        bad_output_name = "--list-dataviews"
+        monkeypatch.chdir(tmp_path)
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--run-summary-json", "--list-dataviews"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+        assert not (tmp_path / bad_output_name).exists()
+
+    def test_cli_option_value_uses_last_valid_occurrence(self):
+        """Raw option helper should align with argparse 'last value wins' behavior."""
+        from cja_auto_sdr.generator import _cli_option_value
+
+        value = _cli_option_value(
+            "--run-summary-json",
+            [
+                "--run-summary-json",
+                "stdout",
+                "--run-summary-json",
+                "summary.json",
+            ],
+        )
+        assert value == "summary.json"
+
 
 class TestProfileImportCLI:
     """Tests for non-interactive --profile-import CLI flow."""

@@ -323,14 +323,30 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
 
 
 def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:
-    """Return the value for --option VALUE or --option=VALUE from argv."""
+    """Return the last valid value for --option VALUE or --option=VALUE from argv.
+
+    This helper is intentionally conservative: for `--option VALUE` forms it
+    ignores candidates that look like another long/short option (except `-`,
+    which is a valid stdout token for some flags).
+    """
     tokens = argv if argv is not None else sys.argv[1:]
+    resolved_value: str | None = None
+
     for index, token in enumerate(tokens):
         if token == option_name:
-            return tokens[index + 1] if index + 1 < len(tokens) else None
+            if index + 1 >= len(tokens):
+                continue
+            candidate = tokens[index + 1]
+            if candidate != "-" and candidate.startswith("-"):
+                # Looks like another flag, so treat this occurrence as invalid.
+                continue
+            resolved_value = candidate
         if token.startswith(f"{option_name}="):
-            return token.split("=", 1)[1]
-    return None
+            candidate = token.split("=", 1)[1]
+            if candidate:
+                resolved_value = candidate
+
+    return resolved_value
 
 
 QUALITY_SEVERITY_ORDER: tuple[str, ...] = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
@@ -6624,7 +6640,7 @@ Requirements:
         type=str,
         dest="discovery_sort",
         metavar="FIELD",
-        help='Sort discovery output by field (prefix "-" for descending), e.g. --sort name or --sort -id',
+        help='Sort discovery output by field (prefix "-" for descending), e.g. --sort name or --sort=-id',
     )
 
     parser.add_argument(
