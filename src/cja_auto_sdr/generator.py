@@ -659,52 +659,45 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
 
 
 def _infer_run_mode(args: argparse.Namespace) -> str:
-    """Infer high-level execution mode for run summary output."""
-    if getattr(args, "list_snapshots", False):
-        return "list_snapshots"
-    if getattr(args, "prune_snapshots", False):
-        return "prune_snapshots"
-    if getattr(args, "compare_snapshots", None):
-        return "compare_snapshots"
-    if getattr(args, "diff_snapshot", None) or getattr(args, "compare_with_prev", False):
-        return "diff_snapshot"
-    if getattr(args, "snapshot", None):
-        return "snapshot"
-    if getattr(args, "diff", False):
-        return "diff"
-    if getattr(args, "org_report", False):
-        return "org_report"
-    if (
-        getattr(args, "list_dataviews", False)
-        or getattr(args, "list_connections", False)
-        or getattr(args, "list_datasets", False)
-    ):
-        return "discovery"
-    if getattr(args, "inventory_summary", False):
-        return "inventory_summary"
-    if getattr(args, "stats", False):
-        return "stats"
-    if getattr(args, "dry_run", False):
-        return "dry_run"
-    if getattr(args, "validate_config", False):
-        return "validate_config"
-    if getattr(args, "config_status", False) or getattr(args, "config_json", False):
-        return "config_status"
-    if (
-        getattr(args, "profile_list", False)
-        or getattr(args, "profile_add", None)
-        or getattr(args, "profile_test", None)
-        or getattr(args, "profile_import", None)
-    ):
-        return "profile_management"
-    if getattr(args, "profile_show", None):
-        return "profile_management"
-    if getattr(args, "sample_config", False):
-        return "sample_config"
-    if getattr(args, "git_init", False):
-        return "git_init"
-    if getattr(args, "exit_codes", False):
-        return "exit_codes"
+    """Infer run mode using the same precedence as command dispatch in _main_impl."""
+    mode_checks: tuple[tuple[str, bool], ...] = (
+        ("exit_codes", getattr(args, "exit_codes", False)),
+        ("sample_config", getattr(args, "sample_config", False)),
+        (
+            "profile_management",
+            bool(
+                getattr(args, "profile_list", False)
+                or getattr(args, "profile_add", None)
+                or getattr(args, "profile_test", None)
+                or getattr(args, "profile_import", None)
+                or getattr(args, "profile_show", None)
+            ),
+        ),
+        ("git_init", getattr(args, "git_init", False)),
+        (
+            "discovery",
+            bool(
+                getattr(args, "list_dataviews", False)
+                or getattr(args, "list_connections", False)
+                or getattr(args, "list_datasets", False)
+            ),
+        ),
+        ("config_status", bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
+        ("validate_config", getattr(args, "validate_config", False)),
+        ("stats", getattr(args, "stats", False)),
+        ("org_report", getattr(args, "org_report", False)),
+        ("list_snapshots", getattr(args, "list_snapshots", False)),
+        ("prune_snapshots", getattr(args, "prune_snapshots", False)),
+        ("compare_snapshots", bool(getattr(args, "compare_snapshots", None))),
+        ("diff", getattr(args, "diff", False)),
+        ("snapshot", bool(getattr(args, "snapshot", None))),
+        ("diff_snapshot", bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None))),
+        ("dry_run", getattr(args, "dry_run", False)),
+        ("inventory_summary", getattr(args, "inventory_summary", False)),
+    )
+    for mode, is_active in mode_checks:
+        if is_active:
+            return mode
     return "sdr"
 
 
@@ -12763,16 +12756,6 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
-    run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
-    quality_policy_path = getattr(args, "quality_policy", None)
-    applied_quality_policy: dict[str, Any] = {}
-    if quality_policy_path:
-        try:
-            quality_policy = load_quality_policy(quality_policy_path)
-        except (OSError, json.JSONDecodeError, ValueError) as e:
-            _exit_error(f"Failed to load --quality-policy '{quality_policy_path}': {e}")
-        applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
-
     if run_state is not None:
         run_state["mode"] = _infer_run_mode(args)
         run_state["profile"] = getattr(args, "profile", None)
@@ -12781,11 +12764,23 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         run_state["output_dir"] = getattr(args, "output_dir", ".")
         run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
         run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
-        if quality_policy_path:
+
+    run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
+    quality_policy_path = getattr(args, "quality_policy", None)
+    applied_quality_policy: dict[str, Any] = {}
+    if quality_policy_path:
+        if run_state is not None:
             run_state["quality_policy"] = {
                 "path": str(Path(quality_policy_path).expanduser()),
-                "applied": applied_quality_policy,
+                "applied": {},
             }
+        try:
+            quality_policy = load_quality_policy(quality_policy_path)
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            _exit_error(f"Failed to load --quality-policy '{quality_policy_path}': {e}")
+        applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
+        if run_state is not None and isinstance(run_state.get("quality_policy"), dict):
+            run_state["quality_policy"]["applied"] = applied_quality_policy
 
     # Configure global color policy for all ConsoleColors call sites.
     ConsoleColors.configure(no_color=getattr(args, "no_color", False))

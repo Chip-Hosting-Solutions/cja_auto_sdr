@@ -2846,6 +2846,33 @@ class TestRunSummaryOutput:
         assert payload["exit_code"] == 0
         assert payload["details"]["discovery_command"] == "list_dataviews"
 
+    @patch("cja_auto_sdr.generator.run_org_report")
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    def test_run_summary_mode_precedence_matches_dispatch_order(
+        self, mock_list_dataviews, mock_run_org_report, tmp_path
+    ):
+        """When multiple mode flags are present, summary mode should match the first dispatch branch."""
+        from cja_auto_sdr.generator import main
+
+        mock_list_dataviews.return_value = True
+        summary_file = tmp_path / "run_summary_mode_precedence.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--list-dataviews", "--org-report", "--run-summary-json", str(summary_file)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "discovery"
+        assert payload["details"]["discovery_command"] == "list_dataviews"
+        mock_list_dataviews.assert_called_once()
+        mock_run_org_report.assert_not_called()
+
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_run_summary_stdout_is_json_only(self, mock_resolve, mock_process, capsys):
@@ -3075,6 +3102,36 @@ class TestRunSummaryOutput:
         assert payload["status"] == "error"
         assert payload["exit_code"] == 2
 
+    def test_run_summary_invalid_quality_policy_preserves_inferred_mode(self, tmp_path):
+        """Policy-load failures should still emit run summary with inferred mode metadata."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_quality_policy_error.json"
+        missing_policy = tmp_path / "missing_quality_policy.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "--list-dataviews",
+                "--quality-policy",
+                str(missing_policy),
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "discovery"
+        assert payload["status"] == "error"
+        assert payload["quality_policy"]["path"] == str(missing_policy)
+        assert payload["quality_policy"]["applied"] == {}
+
     def test_run_summary_missing_value_does_not_write_flag_named_file(self, tmp_path, monkeypatch):
         """Malformed --run-summary-json should not treat the next flag as an output path."""
         from cja_auto_sdr.generator import main
@@ -3144,6 +3201,29 @@ class TestRunSummaryOutput:
         from cja_auto_sdr.generator import _cli_option_specified
 
         assert _cli_option_specified(option_name, argv) is expected
+
+
+class TestRunModeInference:
+    """Tests that run-mode inference remains aligned with dispatch precedence."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected_mode"),
+        [
+            (["cja_auto_sdr", "--list-dataviews", "--org-report"], "discovery"),
+            (["cja_auto_sdr", "--config-status", "--validate-config"], "config_status"),
+            (["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--dry-run"], "diff"),
+            (["cja_auto_sdr", "dv_test", "--snapshot", "baseline.json", "--compare-with-prev"], "snapshot"),
+            (["cja_auto_sdr", "dv_test", "--include-segments", "--inventory-summary", "--dry-run"], "dry_run"),
+        ],
+    )
+    def test_infer_run_mode_precedence_matches_dispatch(self, argv, expected_mode):
+        """_infer_run_mode should classify modes with the same precedence as _main_impl dispatch."""
+        from cja_auto_sdr.generator import _infer_run_mode, parse_arguments
+
+        with patch.object(sys, "argv", argv):
+            args = parse_arguments()
+
+        assert _infer_run_mode(args) == expected_mode
 
 
 class TestProfileImportCLI:
