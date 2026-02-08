@@ -39,7 +39,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,345 comprehensive tests**
+**Total: 1,347 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -68,7 +68,7 @@ tests/
 | `test_retry.py` | 21 | Retry with exponential backoff |
 | `test_batch_processor.py` | 20 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
-| `test_process_single_dataview.py` | 18 | End-to-end single data view processing |
+| `test_process_single_dataview.py` | 20 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 16 | Data view name to ID resolution |
 | `test_shared_cache.py` | 16 | Shared validation cache |
@@ -79,7 +79,7 @@ tests/
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
 | `test_discovery_formatters.py` | 23 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
-| **Total** | **1,345** | **Collected via pytest --collect-only** |
+| **Total** | **1,347** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -483,7 +483,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,345 tests total)
+- [x] Comprehensive test coverage (1,347 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 43 tests

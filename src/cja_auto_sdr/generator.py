@@ -4670,9 +4670,7 @@ def process_single_dataview(
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
                 error_message=(
-                    f"Data quality validation failed: {validation_error_message}"
-                    if validation_failed
-                    else ""
+                    f"Data quality validation failed: {validation_error_message}" if validation_failed else ""
                 ),
             )
 
