@@ -194,7 +194,7 @@ cja_auto_sdr --org-report --sample 50
 # Reproducible sample with seed
 cja_auto_sdr --org-report --sample 50 --sample-seed 42
 
-# Stratified sampling by owner
+# Stratified sampling by data view name prefix
 cja_auto_sdr --org-report --sample 50 --sample-stratified
 
 # --- Trending & Comparison ---
@@ -272,11 +272,13 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
 | `--include-derived` | Add derived field inventory sheet/section | SDR only |
 | `--include-calculated` | Add calculated metrics inventory sheet/section | SDR + Snapshot Diff |
-| `--include-all-inventory` | Enable all inventory options (smart mode detection) | SDR + Snapshot Diff |
+| `--include-all-inventory` | Enable all inventory options (smart mode: auto-excludes derived in snapshot/diff modes) | SDR + Snapshot Diff |
 | `--inventory-only` | Output only inventory sheets (requires `--include-*`) | SDR only |
 | `--inventory-summary` | Quick stats without full output (requires `--include-*`) | SDR only |
 
 > **Note:** `--include-derived` is for SDR generation only. Derived fields are already included in the standard metrics/dimensions output, so changes are captured in the Metrics/Dimensions diff.
+>
+> **Snapshot/Diff inventory:** `--include-all-inventory` automatically enables `--include-segments` and `--include-calculated`, and excludes `--include-derived`.
 
 ### Diff-Specific Options
 
@@ -392,11 +394,12 @@ cja_auto_sdr dv_12345 --include-segments --inventory-summary --format json
 
 # --- Inventory Diff (same data view over time) ---
 
-# Create snapshot with inventory
-cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments
+# Create snapshot with inventory (smart shorthand)
+cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory
+# Equivalent to: --include-calculated --include-segments
 
-# Compare against snapshot with inventory
-cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated --include-segments
+# Compare against snapshot with inventory (same behavior)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-all-inventory
 ```
 
 ## Environment Variables
@@ -448,7 +451,7 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 **Excel Sheet Order:**
 1. Metadata
 2. Data Quality
-3. DataView
+3. DataView Details
 4. Metrics
 5. Dimensions
 6. Segments (if `--include-segments`)

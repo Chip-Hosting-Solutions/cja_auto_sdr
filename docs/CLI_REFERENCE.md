@@ -233,7 +233,7 @@ cja_auto_sdr --list-dataviews
 | `--summary` | Show summary statistics only | False |
 | `--ignore-fields FIELDS` | Comma-separated fields to ignore in comparison | - |
 | `--diff-labels A B` | Custom labels for the two sides | Data view names |
-| `--show-only TYPES` | Filter by change type: added, removed, modified (comma-separated) | All types |
+| `--show-only TYPES` | Filter by change type: added, removed, modified, unchanged (comma-separated) | All types |
 | `--metrics-only` | Only compare metrics (exclude dimensions) | False |
 | `--dimensions-only` | Only compare dimensions (exclude metrics) | False |
 | `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.) | False |
@@ -393,15 +393,17 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 | `--include-segments` | Include segments inventory in output. Adds a "Segments" sheet/section with complexity scores, container types, definition summaries, and component references. Works in SDR and snapshot diff modes (same data view only—see note). | False |
 | `--include-derived` | Include derived field inventory in output. Adds a "Derived Fields" sheet/section with complexity scores, functions used, and logic summaries. **SDR mode only** (not diff—see note below). | False |
 | `--include-calculated` | Include calculated metrics inventory in output. Adds a "Calculated Metrics" sheet/section with complexity scores, formula summaries, and metric references. Works in SDR and snapshot diff modes (same data view only—see note). | False |
-| `--inventory-only` | Output only inventory sheets (Segments, Derived Fields, Calculated Metrics). Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). Requires at least one `--include-*` flag. SDR mode only. | False |
+| `--inventory-only` | Output only inventory sheets (Segments, Derived Fields, Calculated Metrics). Skips standard SDR sheets (Metadata, Data Quality, DataView Details, Metrics, Dimensions). Requires at least one `--include-*` flag. SDR mode only. | False |
 | `--inventory-summary` | Display quick inventory statistics without generating full output files. Shows counts, complexity distribution, governance metadata, and high-complexity warnings. Requires at least one `--include-*` flag. Cannot be used with `--inventory-only`. | False |
-| `--include-all-inventory` | Enable all applicable inventory options. In SDR mode, enables all three (`--include-segments`, `--include-calculated`, `--include-derived`). With snapshots, enables only segments and calculated metrics (derived not supported). | False |
+| `--include-all-inventory` | Enable all inventory options with smart mode detection. SDR mode enables `--include-segments`, `--include-calculated`, and `--include-derived`. Snapshot/diff modes (`--snapshot`, `--diff-snapshot`, `--compare-snapshots`, `--compare-with-prev`) enable only `--include-segments` and `--include-calculated`. | False |
 
 > **Sheet Ordering:** Inventory sheets appear at the end of the output. When multiple are enabled, they appear in the order specified on the command line. For example, `--include-calculated --include-segments` places Calculated Metrics before Segments.
 >
 > **Diff Mode Support:** `--include-calculated` and `--include-segments` work with snapshot diff modes (`--diff-snapshot`, `--compare-snapshots`, `--compare-with-prev`) for comparing the **same data view** over time. Cross-data-view comparison (`--diff dv_A dv_B`) does not support inventory options because inventory IDs are data-view-scoped. **Design choice:** CJA Auto SDR intentionally does not attempt name-based or formula-based fuzzy matching for calculated metrics or segments across data views, to avoid false positives where identically-named components represent different business logic.
 >
 > **Derived Fields:** `--include-derived` is for **SDR generation only**, not diff. Derived fields are already included in the standard metrics/dimensions API output, so changes to derived fields are automatically captured in the Metrics/Dimensions diff sections. The `--include-derived` flag provides additional logic analysis (complexity scores, functions used, branch counts) that is valuable for SDR documentation but would be duplicative in diff mode.
+>
+> **Snapshot/Diff Tip:** `--include-all-inventory` automatically excludes `--include-derived` in `--snapshot`, `--diff-snapshot`, `--compare-snapshots`, and `--compare-with-prev` modes.
 
 ### Environment Variables
 
@@ -888,13 +890,13 @@ cja_auto_sdr dv_12345 --git-commit --git-dir ./my-snapshots
 ### Inventory Options
 
 ```bash
-# Include segments inventory (SDR + Diff)
+# Include segments inventory (SDR + Snapshot Diff)
 cja_auto_sdr dv_12345 --include-segments
 
 # Include derived field inventory (SDR only)
 cja_auto_sdr dv_12345 --include-derived
 
-# Include calculated metrics inventory (SDR + Diff)
+# Include calculated metrics inventory (SDR + Snapshot Diff)
 cja_auto_sdr dv_12345 --include-calculated
 
 # Include all three inventories in SDR output
@@ -916,8 +918,9 @@ cja_auto_sdr dv_12345 --include-all-inventory
 # Same as above - shorthand is equivalent to all three flags
 # cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
 
-# With snapshot (automatically excludes --include-derived since not supported)
+# With snapshot/diff modes, shorthand enables only supported inventories
 cja_auto_sdr dv_12345 --snapshot ./snap.json --include-all-inventory
+cja_auto_sdr dv_12345 --diff-snapshot ./snap.json --include-all-inventory
 
 # Combine with inventory-only or inventory-summary
 cja_auto_sdr dv_12345 --include-all-inventory --inventory-only
@@ -972,7 +975,7 @@ cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json \
 - **Sheets** (in order):
   1. Metadata
   2. Data Quality
-  3. DataView
+  3. DataView Details
   4. Metrics
   5. Dimensions
   6. Segments (if `--include-segments`)

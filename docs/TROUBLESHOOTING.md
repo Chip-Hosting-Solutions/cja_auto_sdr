@@ -1400,7 +1400,7 @@ The inventory features (`--include-segments`, `--include-calculated`, `--include
 
 ### Using --include-all-inventory
 
-The `--include-all-inventory` flag is a shorthand that enables all inventory types with **smart mode detection**:
+The `--include-all-inventory` flag uses smart mode detection:
 
 ```bash
 # Shorthand for all inventories (SDR mode)
@@ -1410,7 +1410,7 @@ cja_auto_sdr dv_12345 --include-all-inventory
 cja_auto_sdr dv_12345 --include-segments --include-calculated --include-derived
 ```
 
-**Smart mode detection:** When used with snapshot or diff modes, `--include-all-inventory` automatically excludes `--include-derived` (since derived fields don't support diff):
+When used with snapshot/diff modes, it automatically excludes `--include-derived`:
 
 ```bash
 # In snapshot mode, --include-all-inventory enables only segments and calculated metrics

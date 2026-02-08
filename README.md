@@ -18,7 +18,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 
 1. **Connects** to your CJA instance via the Adobe API
 2. **Extracts** all metrics, dimensions, and configuration from your Data View(s)
-3. **Validates** data quality with 8+ automated checks (duplicates, missing fields, null values)
+3. **Validates** data quality with core automated checks (duplicates, required fields, null values, missing descriptions, empty datasets, invalid IDs)
 4. **Generates** formatted documentation with color-coded quality indicators
 
 ### Key Features
@@ -29,14 +29,14 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Validation Caching | 50-90% faster on repeated runs with intelligent result caching |
 | | Optimized Validation | Single-pass DataFrame scanning (30-50% faster) |
 | | Configurable Workers | Scale from 1-256 parallel workers based on your infrastructure |
-| **Quality** | 8+ Validation Checks | Detect duplicates, missing fields, null values, invalid IDs |
+| **Quality** | Core Validation Checks | Detect duplicates, missing fields, null values, invalid IDs, and empty datasets |
 | | Severity Classification | CRITICAL, HIGH, MEDIUM, LOW with color-coded Excel formatting |
 | | Quality Dashboard | Dedicated sheet with filtering, sorting, and actionable insights |
 | **Output** | Multiple Formats | Excel, CSV, JSON, HTML, Markdown—or generate all at once |
 | | Professional Excel | Up to 8 formatted sheets with conditional formatting, frozen headers, auto-filtering |
-| | Segments Inventory | Document segment filters, complexity, and references with `--include-segments` (SDR + Diff) |
+| | Segments Inventory | Document segment filters, complexity, and references with `--include-segments` (SDR + Snapshot Diff) |
 | | Derived Field Inventory | Document derived field logic, complexity, and dependencies with `--include-derived` (SDR only) |
-| | Calculated Metrics Inventory | Document calculated metric formulas and references with `--include-calculated` (SDR + Diff) |
+| | Calculated Metrics Inventory | Document calculated metric formulas and references with `--include-calculated` (SDR + Snapshot Diff) |
 | | Inventory-Only Mode | Generate only inventory sheets without standard SDR with `--inventory-only` |
 | | Stdout Support | Pipe JSON/CSV output directly to other tools with `--output -` |
 | | Auto-Open Files | Open generated files immediately with `--open` flag |
@@ -145,7 +145,7 @@ uv run cja_auto_sdr --sample-config
 # Edit config.json with your credentials
 ```
 
-> **Note:** The configuration file must be named `config.json` and placed in the project root directory.
+> **Note:** By default, the tool reads `./config.json` from your current working directory. Use `--config-file /path/to/config.json` to load a file from a different location or filename.
 
 ```json
 {
@@ -267,7 +267,7 @@ cja_auto_sdr "Production Analytics"
 | With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
 | Auto-prune snapshots (defaults) | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --auto-prune` |
 | **Inventory Diff** (same data view over time) | |
-| Snapshot with inventory | `cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated --include-segments` |
+| Snapshot with inventory | `cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory` |
 | Compare with inventory | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated` |
 | Full inventory diff | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated --include-segments` |
 | **Git Integration** | |
@@ -361,7 +361,7 @@ cja_auto_sdr/
 │   ├── GIT_INTEGRATION.md   # Git integration guide
 │   ├── ORG_WIDE_ANALYSIS.md # Org-wide report guide
 │   └── ...                  # Additional guides
-├── tests/                   # Test suite (1,347+ tests)
+├── tests/                   # Test suite (1,351+ tests)
 ├── sample_outputs/          # Example output files
 │   ├── excel/               # Sample Excel SDR
 │   ├── csv/                 # Sample CSV output

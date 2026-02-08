@@ -1071,6 +1071,93 @@ class TestIncludeAllInventory:
             assert args.include_all_inventory is True
             assert args.inventory_summary is True
 
+    @patch("cja_auto_sdr.generator.handle_snapshot_command")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_include_all_inventory_expands_for_snapshot_mode(self, mock_resolve, mock_handle_snapshot):
+        """Test include-all enables calculated+segments for --snapshot mode."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.return_value = (["dv_12345"], {})
+        mock_handle_snapshot.return_value = True
+
+        with patch(
+            "sys.argv",
+            ["cja_sdr_generator.py", "dv_12345", "--snapshot", "baseline.json", "--include-all-inventory"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        kwargs = mock_handle_snapshot.call_args.kwargs
+        assert kwargs["include_calculated_metrics"] is True
+        assert kwargs["include_segments"] is True
+
+    @patch("cja_auto_sdr.generator.handle_diff_snapshot_command")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_include_all_inventory_expands_for_diff_snapshot_mode(self, mock_resolve, mock_handle_diff_snapshot):
+        """Test include-all enables calculated+segments for --diff-snapshot mode."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.return_value = (["dv_12345"], {})
+        mock_handle_diff_snapshot.return_value = (True, False, None)
+
+        with patch(
+            "sys.argv",
+            ["cja_sdr_generator.py", "dv_12345", "--diff-snapshot", "baseline.json", "--include-all-inventory"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        kwargs = mock_handle_diff_snapshot.call_args.kwargs
+        assert kwargs["include_calc_metrics"] is True
+        assert kwargs["include_segments"] is True
+
+    @patch("cja_auto_sdr.generator.handle_compare_snapshots_command")
+    def test_include_all_inventory_expands_for_compare_snapshots_mode(self, mock_handle_compare_snapshots):
+        """Test include-all enables calculated+segments for --compare-snapshots mode."""
+        from cja_auto_sdr.generator import main
+
+        mock_handle_compare_snapshots.return_value = (True, False, None)
+
+        with patch(
+            "sys.argv",
+            ["cja_sdr_generator.py", "--compare-snapshots", "source.json", "target.json", "--include-all-inventory"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        kwargs = mock_handle_compare_snapshots.call_args.kwargs
+        assert kwargs["include_calc_metrics"] is True
+        assert kwargs["include_segments"] is True
+
+    @patch("cja_auto_sdr.generator.handle_diff_snapshot_command")
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_include_all_inventory_expands_for_compare_with_prev_mode(
+        self, mock_resolve, mock_snapshot_manager_cls, mock_handle_diff_snapshot
+    ):
+        """Test include-all enables calculated+segments for --compare-with-prev mode."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.return_value = (["dv_12345"], {})
+        mock_snapshot_manager_cls.return_value.get_most_recent_snapshot.return_value = "./snapshots/prev.json"
+        mock_handle_diff_snapshot.return_value = (True, False, None)
+
+        with patch(
+            "sys.argv",
+            ["cja_sdr_generator.py", "dv_12345", "--compare-with-prev", "--include-all-inventory"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        kwargs = mock_handle_diff_snapshot.call_args.kwargs
+        assert kwargs["snapshot_file"] == "./snapshots/prev.json"
+        assert kwargs["include_calc_metrics"] is True
+        assert kwargs["include_segments"] is True
+
 
 class TestProcessingResultInventory:
     """Tests for ProcessingResult inventory statistics."""

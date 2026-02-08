@@ -135,7 +135,7 @@ Adds a "Derived Fields" sheet to the SDR workbook, sorted by complexity score (h
 **Sheet Order:**
 1. Metadata
 2. Data Quality
-3. DataView
+3. DataView Details
 4. Metrics
 5. Dimensions
 6. Derived Fields (if `--include-derived`)

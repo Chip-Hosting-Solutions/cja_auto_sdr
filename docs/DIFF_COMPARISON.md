@@ -643,7 +643,7 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--summary` | Show summary statistics only (no detailed changes). |
 | `--ignore-fields FIELDS` | Comma-separated fields to ignore during comparison. |
 | `--diff-labels A B` | Custom labels for source and target sides. |
-| `--show-only TYPES` | Filter by change type: added, removed, modified (comma-separated). |
+| `--show-only TYPES` | Filter by change type: added, removed, modified, unchanged (comma-separated). |
 | `--metrics-only` | Only compare metrics (exclude dimensions). |
 | `--dimensions-only` | Only compare dimensions (exclude metrics). |
 | `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.). |
@@ -882,7 +882,7 @@ Basic snapshot without inventory data:
 
 ### Version 2.0 (With Inventory)
 
-When created with `--include-calculated`, `--include-segments`, or `--include-all-inventory`:
+When created with `--include-calculated` and/or `--include-segments`:
 
 ```json
 {
@@ -1233,11 +1233,7 @@ For reliable cross-DV comparison of calculated metrics or segments, manual revie
 When creating a snapshot, include inventory flags to capture that data:
 
 ```bash
-# Create snapshot with all supported inventories (shorthand)
-# Note: --include-all-inventory auto-excludes --include-derived in snapshot mode
-cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory
-
-# Create snapshot with calculated metrics and segments inventory (longhand)
+# Create snapshot with calculated metrics and segments inventory
 cja_auto_sdr dv_12345 --snapshot ./baseline.json \
   --include-calculated --include-segments
 
@@ -1247,16 +1243,13 @@ cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-calculated
 
 Snapshots with inventory data use version 2.0 format and include the inventory arrays.
 
-> **Note:** `--include-derived` is not supported with `--snapshot`. Derived fields inventory is only available in SDR generation mode. Derived field changes are captured in the standard Metrics/Dimensions diff. The `--include-all-inventory` flag uses smart mode detection and automatically excludes derived fields when in snapshot mode.
+> **Note:** `--include-derived` is not supported with `--snapshot`. Derived fields inventory is only available in SDR generation mode. Derived field changes are captured in the standard Metrics/Dimensions diff. `--include-all-inventory` uses smart mode detection in snapshot/diff workflows and automatically enables only `--include-calculated` + `--include-segments`.
 
 ### Comparing Snapshots with Inventory
 
 When comparing against a snapshot, request the same inventory types that were captured:
 
 ```bash
-# Compare with all inventory types (shorthand, auto-excludes derived)
-cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-all-inventory
-
 # Compare with calculated metrics inventory
 cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated
 
@@ -1265,7 +1258,11 @@ cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json \
   --include-calculated --include-segments
 
 # Compare two snapshot files directly
-cja_auto_sdr --compare-snapshots ./before.json ./after.json --include-all-inventory
+cja_auto_sdr --compare-snapshots ./before.json ./after.json \
+  --include-calculated --include-segments
+
+# Snapshot/diff shorthand (auto-excludes derived)
+cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-all-inventory
 ```
 
 ### Inventory Validation

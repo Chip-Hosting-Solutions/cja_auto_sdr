@@ -185,7 +185,7 @@ uv sync
 Resolved 15 packages in 0.5s
 Downloaded 15 packages in 2.3s
 Installed 15 packages in 0.8s
- + cjapy==0.2.4.post2
+ + cjapy==0.2.4.post3
  + pandas==2.3.3
  + xlsxwriter==3.2.9
  + tqdm==4.66.0
@@ -203,7 +203,7 @@ This command:
 
 ```bash
 $ uv run cja_auto_sdr --version
-cja_auto_sdr 3.2.0
+cja_auto_sdr 3.2.1
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
@@ -244,7 +244,7 @@ You have two options for configuring credentials:
 
 ### Option A: Configuration File (Quickest)
 
-Create a file named `config.json` in the project root directory:
+Create a `config.json` file in your current working directory (default path), or use `--config-file` to point to a different location:
 
 ```bash
 # Copy the example template (recommended)
@@ -507,7 +507,7 @@ Extracting dimensions... ━━━━━━━━━━━━━━━━━━�
 ============================================================
 RUNNING DATA QUALITY VALIDATION
 ============================================================
-Running 8 validation checks...
+Running validation checks...
 ✓ Duplicate ID check: PASSED
 ✓ Missing name check: PASSED (2 warnings)
 ✓ Null value check: PASSED
@@ -519,7 +519,7 @@ GENERATING EXCEL REPORT
 Creating workbook...
 Writing Metadata sheet...
 Writing Data Quality sheet...
-Writing DataView sheet...
+Writing DataView Details sheet...
 Writing Metrics sheet (145 metrics)...
 Writing Dimensions sheet (287 dimensions)...
 Applying formatting...
@@ -581,7 +581,7 @@ Results of automated validation checks:
 | Column | Description |
 |--------|-------------|
 | Severity | CRITICAL, HIGH, MEDIUM, LOW, or INFO |
-| Category | Type of check (Duplicates, Naming, etc.) |
+| Category | Type of check (Duplicates, Missing Fields, etc.) |
 | Type | Component type (Metrics, Dimensions) |
 | Item Name | Name of the affected component |
 | Issue | Description of the problem |
@@ -734,7 +734,7 @@ Keep the [Quick Reference Card](QUICK_REFERENCE.md) handy for common commands an
 Error: Configuration file 'config.json' not found
 ```
 
-**Solution:** Ensure `config.json` exists in the project root directory, not in a subdirectory.
+**Solution:** Ensure your config file exists at the path you're using. By default this is `./config.json` in your current directory, or pass an explicit path with `--config-file`.
 
 ```bash
 ls config.json

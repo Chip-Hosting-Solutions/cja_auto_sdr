@@ -11,13 +11,13 @@ Component inventories provide comprehensive documentation of CJA analytics compo
 | [Calculated Metrics](./CALCULATED_METRICS_INVENTORY.md) | `--include-calculated` | CJA API (`getCalculatedMetrics`) | Yes (same DV only)† |
 | [Segments](./SEGMENTS_INVENTORY.md) | `--include-segments` | CJA API (`getFilters`) | Yes (same DV only)† |
 | [Derived Fields](./DERIVED_FIELDS_INVENTORY.md) | `--include-derived` | Data View components | No* |
-| **All Inventories** | `--include-all-inventory` | All sources | Smart** |
+| **All Inventories** | `--include-all-inventory` | All sources | Yes (smart mode)‡ |
 
 > *Derived fields appear in standard Metrics/Dimensions SDR output, so changes are captured in the standard diff. The inventory provides additional logic analysis not available elsewhere.
 >
 > †**Same Data View Only:** Inventory diff is only supported for snapshot comparisons of the **same data view** over time (`--diff-snapshot`, `--compare-snapshots`, `--compare-with-prev`). Cross-data-view comparison (`--diff dv_A dv_B`) does not support inventory options because calculated metric and segment IDs are data-view-scoped and cannot be reliably matched across different data views.
 >
-> **Smart mode detection: `--include-all-inventory` enables all three inventories for SDR generation, but automatically excludes `--include-derived` when in snapshot/diff mode (since derived fields don't support diff).
+> ‡**Smart mode detection:** `--include-all-inventory` enables all three inventories in SDR mode, and enables only calculated metrics + segments in snapshot/diff modes (derived fields are excluded).
 
 ## When to Use Each Inventory
 
@@ -240,16 +240,13 @@ Track changes to calculated metrics and segments over time. See [Diff Comparison
 ```bash
 # Create baseline snapshot
 cja_auto_sdr dv_12345 \
-    --include-calculated \
-    --include-segments \
-    --format json \
-    --output baseline_$(date +%Y%m%d).json
+    --snapshot baseline_$(date +%Y%m%d).json \
+    --include-all-inventory
 
 # Later: compare against baseline
 cja_auto_sdr dv_12345 \
     --diff-snapshot baseline_20260101.json \
-    --include-calculated \
-    --include-segments
+    --include-all-inventory
 ```
 
 This reveals:

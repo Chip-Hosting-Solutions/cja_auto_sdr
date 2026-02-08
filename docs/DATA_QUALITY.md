@@ -4,7 +4,7 @@ Comprehensive guide to the automated data quality checks performed by the CJA SD
 
 ## Overview
 
-The generator performs 8+ automated validation checks on your CJA components, identifying issues before they impact your analytics. Each issue is classified by severity and includes actionable recommendations.
+The generator performs six core automated validation checks on your CJA components, identifying issues before they impact your analytics. Each issue is classified by severity and includes actionable recommendations.
 
 ## Validation Checks
 
@@ -68,25 +68,16 @@ The generator performs 8+ automated validation checks on your CJA components, id
 | Impact | Components cannot be referenced properly in reports |
 | Example | ID field is empty or contains invalid characters |
 
-### 7. Field Existence Validation
+### No-Issue Summary Row
 
-**What it checks**: Verifies expected columns are present in API response.
-
-| Aspect | Details |
-|--------|---------|
-| Severity | CRITICAL |
-| Impact | May indicate API changes or permissions issues |
-| Example | Expected "attribution" field missing from response |
-
-### 8. Data Completeness
-
-**What it checks**: Overall assessment of data quality across all checks.
+When no issues are detected, the report includes an informational summary row:
 
 | Aspect | Details |
 |--------|---------|
-| Severity | Multiple levels |
-| Impact | Varies by specific issue |
-| Example | 15% of components missing descriptions |
+| Severity | INFO |
+| Category | Data Quality |
+| Issue | No data quality issues detected |
+| Details | All validation checks passed successfully |
 
 ## Severity Levels
 
@@ -118,13 +109,20 @@ The generator performs 8+ automated validation checks on your CJA components, id
 - Examples: Missing descriptions
 - **Action**: Address during maintenance windows
 
+### INFO (Green Background)
+
+- **Informational status**
+- Indicates validation passed with no issues found
+- Example: "No data quality issues detected"
+- **Action**: No remediation required
+
 ## Understanding the Data Quality Sheet
 
 The Excel output includes a dedicated "Data Quality" sheet with these columns:
 
 | Column | Description |
 |--------|-------------|
-| Severity | Issue severity level (CRITICAL, HIGH, MEDIUM, LOW) |
+| Severity | Issue severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO) |
 | Category | Type of issue (Duplicates, Missing Fields, etc.) |
 | Type | Whether it affects Metrics or Dimensions |
 | Item Name | Specific component(s) affected |
