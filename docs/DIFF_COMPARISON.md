@@ -10,6 +10,7 @@ The diff comparison feature allows you to:
 - **Compare inventory items** in snapshot diffs for the same data view (calculated metrics, segments)
 - **Generate diff reports** in all supported output formats
 - **Integrate with CI/CD pipelines** using exit codes
+- **Publish GitHub Actions summaries** automatically via `GITHUB_STEP_SUMMARY`
 
 ## How Comparison Works
 
@@ -568,6 +569,15 @@ cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --snapshot-dir ./history
 # With retention policy (keep only last 10 snapshots per data view)
 cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-last 10
 
+# Time-based retention (delete snapshots older than 30 days)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --keep-since 30d
+
+# Auto-prune defaults (when both retention flags are omitted)
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --auto-prune
+
+# Explicit retention values (space or --arg=value form) override defaults
+cja_auto_sdr --diff dv_12345 dv_67890 --auto-snapshot --auto-prune --keep-last=0
+
 # Works with diff-snapshot too (saves current state)
 cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
 ```
@@ -581,6 +591,9 @@ cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --auto-snapshot
 **Retention Policy:**
 - `--keep-last 0` (default): Keep all snapshots forever
 - `--keep-last N`: Keep only the N most recent snapshots per data view
+- `--keep-since PERIOD`: Delete snapshots older than `7d`, `2w`, `1m`, or numeric days (for example `30`)
+- `--auto-prune`: Applies defaults `--keep-last 20` + `--keep-since 30d` only when both retention flags are omitted
+- Explicit retention in either form always takes precedence (`--keep-last N` / `--keep-last=N`, `--keep-since PERIOD` / `--keep-since=PERIOD`)
 - Old snapshots are deleted automatically after new ones are saved
 
 ## Smart Name Resolution
@@ -635,7 +648,7 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--dimensions-only` | Only compare dimensions (exclude metrics). |
 | `--extended-fields` | Include extended fields (attribution, format, bucketing, etc.). |
 | `--side-by-side` | Show side-by-side comparison view for modified items. |
-| `--no-color` | Disable ANSI color codes in diff console output. |
+| `--no-color` | Disable ANSI color codes in console output (global). |
 | `--quiet-diff` | Suppress output, only return exit code (0=no changes, 2=changes, 3=threshold). |
 | `--reverse-diff` | Swap source and target comparison direction. |
 | `--warn-threshold PERCENT` | Exit with code 3 if change percentage exceeds threshold. |
@@ -644,8 +657,10 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--diff-output FILE` | Write diff output directly to file instead of stdout. |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format with collapsible details. |
 | `--auto-snapshot` | Automatically save snapshots during diff for audit trail. |
+| `--auto-prune` | With `--auto-snapshot`, apply default retention (`--keep-last 20` and `--keep-since 30d`) only when both retention flags are omitted. |
 | `--snapshot-dir DIR` | Directory for auto-saved snapshots (default: ./snapshots). |
 | `--keep-last N` | Retention: keep only last N snapshots per data view (0 = keep all). |
+| `--keep-since PERIOD` | Date-based retention: delete snapshots older than PERIOD (`7d`, `2w`, `1m`, `30`). |
 
 ## Output Formats
 
@@ -826,7 +841,7 @@ In detailed output, changes are marked with symbols:
 
 The summary appears in all output formats with slight variations:
 
-- **Console**: Colored symbols and percentages with ANSI codes (use `--no-color` to disable)
+- **Console**: Colored symbols and percentages with ANSI codes (disable with `--no-color` or `NO_COLOR`; force with `FORCE_COLOR`)
 - **Markdown**: Plain text table suitable for documentation and PR comments
 - **HTML**: Styled table with color-coded cells
 - **Excel**: Dedicated Summary sheet with formatted columns
@@ -930,6 +945,8 @@ The diff command uses exit codes for CI/CD integration:
 | 2 | Success, differences found |
 | 3 | Threshold exceeded (`--warn-threshold` triggered) |
 
+> **Note:** Exit code `2` is used globally for policy threshold failures. In diff mode, it means differences were found.
+
 ### Example: GitHub Actions
 
 ```yaml
@@ -941,6 +958,8 @@ The diff command uses exit codes for CI/CD integration:
       exit 1  # Fail the build
     fi
 ```
+
+If running in GitHub Actions, CJA Auto SDR also appends a Markdown diff summary automatically when `GITHUB_STEP_SUMMARY` is present. The summary total includes metrics, dimensions, calculated metrics, and segment inventory changes.
 
 ### Example: Pre-deployment Validation
 
@@ -1438,7 +1457,7 @@ The diff comparison feature includes comprehensive unit tests in `tests/test_dif
 | `TestAutoSnapshotCLIArguments` | 10 | --auto-snapshot, --snapshot-dir, --keep-last |
 | `TestGetMostRecentSnapshot` | 5 | Most recent snapshot lookup, filtering |
 
-**Total: 159 tests**
+**Total: 162 tests**
 
 ### Running Tests
 

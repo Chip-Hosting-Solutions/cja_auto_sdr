@@ -80,7 +80,15 @@ cja_auto_sdr --interactive
 
 # Validate config without processing
 cja_auto_sdr --validate-config
+
+# Fail on quality issues at or above HIGH severity
+cja_auto_sdr dv_12345 --fail-on-quality HIGH
+
+# Generate standalone quality report only (JSON or CSV)
+cja_auto_sdr dv_12345 --quality-report json --output quality_issues.json
 ```
+
+> **Quality constraints:** `--fail-on-quality` and `--quality-report` are SDR-only and cannot be used with `--skip-validation`.
 
 ## Diff Comparison Commands (Diff Mode)
 
@@ -259,6 +267,8 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--workers N` | Parallel workers: `auto` (default) or `1-256` | SDR only |
 | `--skip-validation` | Skip data quality checks (faster) | SDR only |
 | `--continue-on-error` | Don't stop on failures in batch mode | SDR only |
+| `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (requires validation; incompatible with `--skip-validation`) | SDR only |
+| `--quality-report FORMAT` | Generate standalone quality issues report (`json` or `csv`) without SDR files (requires validation; incompatible with `--skip-validation`) | SDR only |
 | `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
 | `--include-derived` | Add derived field inventory sheet/section | SDR only |
 | `--include-calculated` | Add calculated metrics inventory sheet/section | SDR + Snapshot Diff |
@@ -276,9 +286,14 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--compare-with-prev` | Compare against most recent snapshot in --snapshot-dir |
 | `--diff-labels A B` | Custom labels for comparison columns (default: data view names) |
 | `--auto-snapshot` | Automatically save snapshots during diff for future comparisons |
+| `--auto-prune` | With `--auto-snapshot`, apply default retention (`--keep-last 20` + `--keep-since 30d`) only when both retention flags are omitted |
+| `--keep-last N` | Retention: keep last N snapshots per data view (`0` keeps all) |
+| `--keep-since PERIOD` | Date retention: delete snapshots older than `7d`, `2w`, `1m`, or days (`30`) |
 | `--warn-threshold PERCENT` | Exit with code 3 if change % exceeds threshold (for CI/CD) |
-| `--no-color` | Disable ANSI color codes in console output |
+| `--no-color` | Disable ANSI color codes in console output (global) |
 | `--format-pr-comment` | Output in GitHub/GitLab PR comment format |
+
+> **Retention precedence:** Explicit values are preserved in both forms: `--keep-last 0` / `--keep-last=0` and `--keep-since 90d` / `--keep-since=90d`.
 
 ### Format Support by Mode
 
@@ -396,6 +411,13 @@ export SCOPES="your_scopes_from_developer_console"
 # Optional settings
 export OUTPUT_DIR=./reports
 export LOG_LEVEL=INFO
+
+# Console color policy
+export NO_COLOR=1            # disable ANSI colors globally
+export FORCE_COLOR=1         # force-enable ANSI colors (FORCE_COLOR=0 disables)
+
+# GitHub Actions job summary (usually set by GitHub Actions automatically)
+export GITHUB_STEP_SUMMARY=/path/to/summary.md
 ```
 
 ## Setup Commands
@@ -439,13 +461,13 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success (diff: no changes found) |
-| 1 | Error (config, API, or processing failure) |
-| 2 | Diff: changes found |
-| 3 | Diff: changes exceeded threshold |
-| 2 | Org-report: governance threshold exceeded (with `--fail-on-threshold`) |
+| 0 | Success (SDR/diff/org command completed) |
+| 1 | Error (config, API, validation, or processing failure) |
+| 2 | Policy threshold exceeded (diff changes found, `--fail-on-quality`, or `--fail-on-threshold`) |
+| 3 | Diff warning threshold exceeded (`--warn-threshold`) |
 
-> **CI/CD Tip:** Use exit codes with `--fail-on-threshold` for automated governance checks.
+> **CI/CD Tip:** Use exit code 2 gates with `--fail-on-quality` and/or `--fail-on-threshold`.
+> If processing fails, exit code `1` takes precedence over policy exit code `2`.
 
 ## More Information
 

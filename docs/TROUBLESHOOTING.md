@@ -91,10 +91,10 @@ uv run cja_auto_sdr --sample-config
 |-----------|---------|---------------|
 | `0` | Success | Command completed successfully (diff: no changes found) |
 | `1` | General Error | Configuration errors, missing arguments, validation failures |
-| `2` | Diff: Changes Found | Diff comparison succeeded but differences were detected |
+| `2` | Policy Threshold Exceeded | Diff changes found, quality gate failed (`--fail-on-quality`), or org governance threshold failed (`--fail-on-threshold`) |
 | `3` | Diff: Threshold Exceeded | Changes exceeded `--warn-threshold` percentage |
 
-**Diff-specific exit codes** are designed for CI/CD integration:
+**Policy-aware exit codes** are designed for CI/CD integration:
 
 ```bash
 # Check exit code after diff
@@ -102,7 +102,7 @@ cja_auto_sdr --diff dv_12345 dv_67890 --quiet-diff
 case $? in
   0) echo "No differences found" ;;
   1) echo "Error occurred" ;;
-  2) echo "Differences detected (review needed)" ;;
+  2) echo "Policy threshold exceeded (review needed)" ;;
   3) echo "Too many changes (threshold exceeded)" ;;
 esac
 ```
@@ -844,6 +844,8 @@ ERROR - Failed to save auto-snapshot: ./snapshots/DataView_dv_123_20260118.json
 **Symptoms:** Old snapshots accumulate even with `--keep-last N` set.
 
 **Cause:** Retention applies per data view, not globally. If you have 10 data views, `--keep-last 5` keeps 5 snapshots *per data view* (up to 50 total).
+
+**Tip:** If you want retention applied automatically on every diff run, use `--auto-prune` with `--auto-snapshot` (defaults to `--keep-last 20` and `--keep-since 30d` unless explicit retention flags are provided).
 
 **Verification:**
 ```bash
@@ -2327,7 +2329,7 @@ For detailed org-wide analysis troubleshooting, see the [Troubleshooting section
 | "scipy not available" with `--cluster` | Optional dependency not installed | Install with: `uv pip install 'cja-auto-sdr[clustering]'` |
 | Cache not working | Cache directory permissions | Check `~/.cja_auto_sdr/cache/` (macOS/Linux) or `%USERPROFILE%\.cja_auto_sdr\cache\` (Windows) is writable |
 | `--owner-summary` shows nothing | Missing metadata | Add `--include-metadata` flag |
-| Exit code 2 unexpectedly | Governance threshold exceeded | Check `--duplicate-threshold` and `--isolated-threshold` values |
+| Exit code 2 unexpectedly in `--org-report` | Governance threshold exceeded | Check `--duplicate-threshold` and `--isolated-threshold` values |
 | "Another --org-report is already running" | Concurrent run prevention | Wait for other run to finish, or check if a previous run crashed (lock auto-expires after 1 hour) |
 
 ### Clustering Issues

@@ -524,6 +524,36 @@ class TestConsoleColorsTheme:
         result = ConsoleColors.diff_modified("test")
         assert "test" in result
 
+    def test_no_color_env_disables_colors(self):
+        """Test NO_COLOR environment variable disables ANSI colors."""
+        from cja_auto_sdr.generator import ConsoleColors
+
+        original_state = ConsoleColors.is_enabled()
+        with patch.dict("os.environ", {"NO_COLOR": "1"}, clear=False):
+            ConsoleColors.configure()
+            assert ConsoleColors.is_enabled() is False
+        ConsoleColors.set_enabled(original_state)
+
+    def test_force_color_env_enables_colors(self):
+        """Test FORCE_COLOR environment variable enables ANSI colors."""
+        from cja_auto_sdr.generator import ConsoleColors
+
+        original_state = ConsoleColors.is_enabled()
+        with patch.dict("os.environ", {"FORCE_COLOR": "1"}, clear=False):
+            ConsoleColors.configure()
+            assert ConsoleColors.is_enabled() is True
+        ConsoleColors.set_enabled(original_state)
+
+    def test_no_color_flag_overrides_force_color(self):
+        """Test --no-color policy overrides FORCE_COLOR."""
+        from cja_auto_sdr.generator import ConsoleColors
+
+        original_state = ConsoleColors.is_enabled()
+        with patch.dict("os.environ", {"FORCE_COLOR": "1"}, clear=False):
+            ConsoleColors.configure(no_color=True)
+            assert ConsoleColors.is_enabled() is False
+        ConsoleColors.set_enabled(original_state)
+
 
 class TestInteractiveFlag:
     """Tests for --interactive flag"""

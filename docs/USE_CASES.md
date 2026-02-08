@@ -210,7 +210,7 @@ done
 
 Integrate diff comparison into CI/CD pipelines to catch unexpected changes:
 - Automated detection of configuration drift
-- Exit codes for pipeline integration (0=no changes, 2=changes found, 3=threshold exceeded)
+- Exit codes for pipeline integration (0=pass, 2=policy threshold exceeded, 3=diff warning threshold exceeded)
 - PR comments with change summaries
 - Fail builds when critical changes exceed thresholds
 
@@ -219,7 +219,7 @@ Integrate diff comparison into CI/CD pipelines to catch unexpected changes:
 ```bash
 # Basic CI/CD drift check (exit code 2 if differences found)
 cja_auto_sdr --diff dv_12345 dv_67890 --quiet-diff
-echo "Exit code: $?"  # 0=identical, 2=different
+echo "Exit code: $?"  # 0=identical, 2=different, 3=warn-threshold exceeded
 
 # Fail build if changes exceed 5%
 cja_auto_sdr --diff dv_12345 dv_67890 --warn-threshold 5 --quiet-diff

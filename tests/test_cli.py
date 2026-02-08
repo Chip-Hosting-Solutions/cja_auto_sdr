@@ -292,6 +292,20 @@ class TestUXImprovements:
             assert args.max_issues == 5
             assert args.skip_validation is True
 
+    def test_fail_on_quality_flag(self):
+        """Test parsing with --fail-on-quality flag (case-insensitive input)."""
+        test_args = ["cja_sdr_generator.py", "--fail-on-quality", "high", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.fail_on_quality == "HIGH"
+
+    def test_quality_report_flag(self):
+        """Test parsing with --quality-report flag."""
+        test_args = ["cja_sdr_generator.py", "--quality-report", "json", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.quality_report == "json"
+
 
 class TestProcessingResult:
     """Test ProcessingResult dataclass"""
@@ -538,6 +552,427 @@ class TestConsoleScriptEntryPoints:
         )
         assert result.returncode == 0
         assert __version__ in result.stdout
+
+
+class TestQualityGateAndReport:
+    """Tests for quality gate/report behavior in main()."""
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_fail_on_quality_exits_with_code_2(self, mock_resolve, mock_process):
+        """Exit code should be 2 when threshold severity issues are found."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            metrics_count=1,
+            dimensions_count=1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "Duplicate component"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--fail-on-quality", "HIGH"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+
+    @patch("cja_auto_sdr.generator.write_quality_report_output")
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_report_mode_uses_standalone_writer(self, mock_resolve, mock_process, mock_write_report):
+        """Quality report mode should bypass SDR files and emit standalone report."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_write_report.return_value = "stdout"
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "LOW", "Issue": "Missing description"}],
+            dq_severity_counts={"LOW": 1},
+        )
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-report", "json", "--output", "-"]):
+            main()
+
+        assert mock_process.call_args.kwargs["quality_report_only"] is True
+        mock_write_report.assert_called_once()
+
+    def test_quality_report_rejects_skip_validation(self):
+        """Quality report mode should reject --skip-validation."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-report", "json", "--skip-validation"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
+    def test_fail_on_quality_rejects_skip_validation(self):
+        """Quality gate should reject --skip-validation to avoid silent policy bypass."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--fail-on-quality", "HIGH", "--skip-validation"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
+    @patch("cja_auto_sdr.generator.show_config_status")
+    def test_fail_on_quality_rejects_non_sdr_config_json_mode(self, mock_show_config_status):
+        """Quality gate should fail fast for --config-json (non-SDR mode)."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--config-json", "--fail-on-quality", "HIGH"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_show_config_status.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.handle_diff_command")
+    def test_fail_on_quality_rejects_non_sdr_diff_mode(self, mock_handle_diff):
+        """Quality gate should fail fast in non-SDR modes instead of being silently ignored."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--fail-on-quality", "HIGH"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_handle_diff.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.generate_sample_config")
+    def test_quality_report_rejects_non_sdr_sample_config_mode(self, mock_generate_sample_config):
+        """Quality report should fail fast for sample-config mode instead of being ignored."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--sample-config", "--quality-report", "json"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_generate_sample_config.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.write_quality_report_output")
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_report_continue_on_error_still_exits_1_on_processing_failure(
+        self, mock_resolve, mock_process, mock_write_report
+    ):
+        """--continue-on-error should continue processing but still fail on processing errors."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_fail", "dv_ok"], {})
+        mock_write_report.return_value = "stdout"
+        mock_process.side_effect = [
+            ProcessingResult(
+                data_view_id="dv_fail",
+                data_view_name="Failing View",
+                success=False,
+                duration=0.1,
+                error_message="mock failure",
+            ),
+            ProcessingResult(
+                data_view_id="dv_ok",
+                data_view_name="Healthy View",
+                success=True,
+                duration=0.1,
+                dq_issues_count=1,
+                dq_issues=[{"Severity": "LOW", "Issue": "Minor"}],
+                dq_severity_counts={"LOW": 1},
+            ),
+        ]
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_fail", "dv_ok", "--quality-report", "json", "--output", "-", "--continue-on-error"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_write_report.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.write_quality_report_output")
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_quality_step_summary")
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_report_summary_includes_failed_and_successful_results(
+        self,
+        mock_resolve,
+        mock_process,
+        mock_build_summary,
+        mock_append_summary,
+        mock_write_report,
+    ):
+        """GitHub quality summary should include all processed data views."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_fail", "dv_ok"], {})
+        mock_build_summary.return_value = "summary"
+        mock_append_summary.return_value = True
+        mock_write_report.return_value = "stdout"
+        mock_process.side_effect = [
+            ProcessingResult(
+                data_view_id="dv_fail",
+                data_view_name="Failing View",
+                success=False,
+                duration=0.1,
+                error_message="mock failure",
+            ),
+            ProcessingResult(
+                data_view_id="dv_ok",
+                data_view_name="Healthy View",
+                success=True,
+                duration=0.1,
+                dq_issues_count=1,
+                dq_issues=[{"Severity": "LOW", "Issue": "Minor"}],
+                dq_severity_counts={"LOW": 1},
+            ),
+        ]
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_fail", "dv_ok", "--quality-report", "json", "--output", "-", "--continue-on-error"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_build_summary.assert_called_once()
+        summary_results = mock_build_summary.call_args.args[0]
+        assert [r.data_view_id for r in summary_results] == ["dv_fail", "dv_ok"]
+        assert summary_results[0].success is False
+        assert summary_results[1].success is True
+
+    @patch("cja_auto_sdr.generator.write_quality_report_output", side_effect=OSError("permission denied"))
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_report_write_error_exits_cleanly_with_code_1(
+        self, mock_resolve, mock_process, mock_write_report, capsys
+    ):
+        """Quality report write failures should be handled with a clean exit code 1."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_ok"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_ok",
+            data_view_name="Healthy View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+        )
+
+        with patch.object(
+            sys, "argv", ["cja_auto_sdr", "dv_ok", "--quality-report", "json", "--output", "report.json"]
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Failed to write quality report" in captured.err
+        mock_write_report.assert_called_once()
+
+    def test_quality_report_csv_empty_writes_header_row(self, tmp_path):
+        """CSV quality reports should include headers even when there are no issues."""
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        output_path = tmp_path / "quality_report.csv"
+        write_quality_report_output([], report_format="csv", output=str(output_path), output_dir=tmp_path)
+
+        header = output_path.read_text(encoding="utf-8").splitlines()[0]
+        assert header == "Data View ID,Data View Name,Severity,Category,Type,Item Name,Issue,Details"
+
+    @patch("cja_auto_sdr.generator.BatchProcessor")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_batch_failures_take_precedence_over_quality_gate_with_continue_on_error(
+        self, mock_resolve, mock_batch_cls
+    ):
+        """Batch processing failures should keep exit code 1 precedence over quality gate exit 2."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_fail", "dv_ok"], {})
+        mock_batch = mock_batch_cls.return_value
+        mock_batch.process_batch.return_value = {
+            "successful": [
+                ProcessingResult(
+                    data_view_id="dv_ok",
+                    data_view_name="Healthy View",
+                    success=True,
+                    duration=0.1,
+                    dq_issues_count=1,
+                    dq_issues=[{"Severity": "HIGH", "Issue": "Threshold issue"}],
+                    dq_severity_counts={"HIGH": 1},
+                )
+            ],
+            "failed": [
+                ProcessingResult(
+                    data_view_id="dv_fail",
+                    data_view_name="Failing View",
+                    success=False,
+                    duration=0.1,
+                    error_message="mock failure",
+                )
+            ],
+            "total": 2,
+            "total_duration": 0.2,
+        }
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_fail", "dv_ok", "--continue-on-error", "--fail-on-quality", "HIGH"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_quality_step_summary")
+    @patch("cja_auto_sdr.generator.BatchProcessor")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_batch_summary_includes_failed_views_in_standard_mode(
+        self,
+        mock_resolve,
+        mock_batch_cls,
+        mock_build_summary,
+        mock_append_summary,
+    ):
+        """Quality summary should include failed views in normal SDR batch mode."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_fail", "dv_ok"], {})
+        mock_build_summary.return_value = "summary"
+        mock_append_summary.return_value = True
+        mock_batch = mock_batch_cls.return_value
+        mock_batch.process_batch.return_value = {
+            "successful": [
+                ProcessingResult(
+                    data_view_id="dv_ok",
+                    data_view_name="Healthy View",
+                    success=True,
+                    duration=0.1,
+                    dq_issues_count=0,
+                    dq_issues=[],
+                    dq_severity_counts={},
+                )
+            ],
+            "failed": [
+                ProcessingResult(
+                    data_view_id="dv_fail",
+                    data_view_name="Failing View",
+                    success=False,
+                    duration=0.1,
+                    error_message="mock failure",
+                )
+            ],
+            "total": 2,
+            "total_duration": 0.2,
+        }
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_fail", "dv_ok", "--continue-on-error"]):
+            main()
+
+        mock_build_summary.assert_called_once()
+        summary_results = mock_build_summary.call_args.args[0]
+        assert len(summary_results) == 2
+        assert {result.data_view_id for result in summary_results} == {"dv_fail", "dv_ok"}
+        assert any(not result.success for result in summary_results)
+
+    def test_auto_prune_requires_auto_snapshot(self):
+        """--auto-prune should fail fast without --auto-snapshot."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--auto-prune"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
+    def test_auto_prune_defaults_apply_only_when_retention_flags_omitted(self):
+        """Auto-prune defaults should only apply when neither retention flag is provided."""
+        from cja_auto_sdr.generator import (
+            DEFAULT_AUTO_PRUNE_KEEP_LAST,
+            DEFAULT_AUTO_PRUNE_KEEP_SINCE,
+            resolve_auto_prune_retention,
+        )
+
+        keep_last, keep_since = resolve_auto_prune_retention(
+            keep_last=0,
+            keep_since=None,
+            auto_prune=True,
+            keep_last_specified=False,
+            keep_since_specified=False,
+        )
+        assert keep_last == DEFAULT_AUTO_PRUNE_KEEP_LAST
+        assert keep_since == DEFAULT_AUTO_PRUNE_KEEP_SINCE
+
+        keep_last, keep_since = resolve_auto_prune_retention(
+            keep_last=0,
+            keep_since=None,
+            auto_prune=True,
+            keep_last_specified=True,
+            keep_since_specified=False,
+        )
+        assert keep_last == 0
+        assert keep_since is None
+
+    @patch("cja_auto_sdr.generator.handle_diff_command")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_keep_last_equals_syntax_counts_as_explicit_for_auto_prune(self, mock_resolve, mock_handle_diff):
+        """--keep-last=0 should be treated as explicitly provided retention."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.side_effect = [(["dv_a"], {}), (["dv_b"], {})]
+        mock_handle_diff.return_value = (True, False, None)
+
+        with patch.object(
+            sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--auto-prune", "--keep-last=0"]
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        assert mock_handle_diff.call_args.kwargs["keep_last_specified"] is True
+        assert mock_handle_diff.call_args.kwargs["keep_since_specified"] is False
+
+    @patch("cja_auto_sdr.generator.handle_diff_command")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_keep_since_equals_syntax_counts_as_explicit_for_auto_prune(self, mock_resolve, mock_handle_diff):
+        """--keep-since=90d should be treated as explicitly provided retention."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.side_effect = [(["dv_a"], {}), (["dv_b"], {})]
+        mock_handle_diff.return_value = (True, False, None)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--auto-prune", "--keep-since=90d"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        assert mock_handle_diff.call_args.kwargs["keep_last_specified"] is False
+        assert mock_handle_diff.call_args.kwargs["keep_since_specified"] is True
 
 
 class TestRetryArguments:

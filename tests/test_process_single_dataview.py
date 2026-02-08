@@ -698,6 +698,7 @@ class TestProcessSingleDataviewWorker:
             include_segments_inventory=False,
             inventory_only=False,
             inventory_order=None,
+            quality_report_only=False,
         )
 
 

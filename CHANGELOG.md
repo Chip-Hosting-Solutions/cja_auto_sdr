@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dataset Discovery** - List all data views with their backing connections and datasets using `--list-datasets`
 - **Permissions Fallback** - When the API service account lacks product-admin privileges, both commands gracefully fall back to deriving connection IDs from data views instead of failing
 - **Mutually Exclusive Discovery** - `--list-dataviews`, `--list-connections`, and `--list-datasets` are now mutually exclusive at the CLI level
+- **CI Quality Gates & Reports** - Added quality policy exits via `--fail-on-quality` and standalone issue exports via `--quality-report`
+- **GitHub Step Summaries** - Added automatic Markdown summaries for diff, quality, and org-report output in GitHub Actions
+- **Snapshot Auto-Prune Defaults** - Added default retention behavior for `--auto-prune` with explicit-flag precedence
 
 ### Added
 
@@ -28,6 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### CLI Improvements
 - Discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`) are now mutually exclusive via argparse `add_mutually_exclusive_group()`
+
+#### CI, Quality & Snapshot Controls
+- Added global ANSI color controls across all output paths via `--no-color`, `NO_COLOR`, and `FORCE_COLOR`
+- Added `--fail-on-quality SEVERITY` for SDR mode to return exit code `2` when quality thresholds are exceeded
+- Added standalone quality issues reporting with `--quality-report json|csv` (file or stdout)
+- Added automatic GitHub Actions step summaries for diff, quality, and org-report output when `GITHUB_STEP_SUMMARY` is set
+- Added `--auto-prune` defaults for diff auto-snapshot flows (`--keep-last 20` + `--keep-since 30d` when retention flags are omitted)
+
+### Fixed
+- Rejected unsupported quality gate combinations: `--fail-on-quality` now errors outside SDR mode and when combined with `--skip-validation`
+- Corrected quality-report failure semantics: processing failures now still exit `1` even with `--continue-on-error`, and write failures are reported as clean CLI errors instead of uncaught tracebacks
+- Corrected GitHub quality summaries to include failed and successful data views in processed counts
+- Corrected diff GitHub summary totals to include inventory-only changes (calculated metrics and segments)
+- Corrected auto-prune retention precedence: explicit values are preserved, including `--keep-last 0`, `--keep-last=0`, `--keep-since 90d`, and `--keep-since=90d`
+- Corrected empty CSV quality reports to emit a stable header row for zero-issue runs
 
 ### Testing
 - Added tests for `--list-connections` table, JSON, CSV output and no-results handling

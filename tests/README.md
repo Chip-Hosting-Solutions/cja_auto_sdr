@@ -39,17 +39,17 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,320 comprehensive tests**
+**Total: 1,345 comprehensive tests**
 
 ### Test Count Breakdown
 
 | Test File | Tests | Coverage Area |
 |-----------|-------|---------------|
-| `test_diff_comparison.py` | 159 | Data view diff comparison feature with inventory support |
-| `test_ux_features.py` | 116 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
+| `test_diff_comparison.py` | 162 | Data view diff comparison feature with inventory support |
+| `test_ux_features.py` | 119 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 144 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 141 | Command-line interface and argument parsing |
+| `test_cli.py` | 160 | Command-line interface and argument parsing |
 | `test_profiles.py` | 43 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 41 | Inventory utilities and helpers |
@@ -79,7 +79,7 @@ tests/
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
 | `test_discovery_formatters.py` | 23 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
-| **Total** | **1,320** | **Collected via pytest --collect-only** |
+| **Total** | **1,345** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -483,7 +483,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,320 tests total)
+- [x] Comprehensive test coverage (1,345 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 43 tests
@@ -495,8 +495,8 @@ Check for drift (CI-friendly):
 - [x] Derived fields inventory tests (test_derived_inventory.py) - 43 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 41 tests
 - [x] Git integration tests (test_git_integration.py) - 33 tests
-- [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 159 tests
-- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 116 tests
+- [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 162 tests
+- [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 119 tests
 - [x] Parallel validation tests (test_parallel_validation.py)
 - [x] Validation caching tests (test_validation_cache.py)
 - [x] Early exit optimization tests (test_early_exit.py)
@@ -511,7 +511,7 @@ Check for drift (CI-friendly):
 - [x] Excel formatting tests (test_excel_formatting.py)
 - [x] CJA initialization tests (test_cja_initialization.py)
 - [x] Name resolution tests (test_name_resolution.py)
-- [x] Data view diff comparison tests (test_diff_comparison.py) - 159 tests covering snapshots, comparison logic, output formats, CLI arguments, name resolution
+- [x] Data view diff comparison tests (test_diff_comparison.py) - 162 tests covering snapshots, comparison logic, output formats, CLI arguments, name resolution
 - [x] Edge case tests (test_edge_cases.py) - 39 tests covering custom exceptions, configuration dataclasses, OutputWriter Protocol, boundary conditions
 
 ## Future Enhancements
