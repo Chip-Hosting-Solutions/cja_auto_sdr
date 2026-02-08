@@ -907,7 +907,16 @@ class TestQualityGateAndReport:
         with patch.object(
             sys,
             "argv",
-            ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path), "--fail-on-q", "CRITICAL", "--max-i", "0"],
+            [
+                "cja_auto_sdr",
+                "dv_test",
+                "--quality-policy",
+                str(policy_path),
+                "--fail-on-q",
+                "CRITICAL",
+                "--max-i",
+                "0",
+            ],
         ):
             main()
 
@@ -2711,6 +2720,29 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "sdr"
         assert payload["exit_code"] == 0
 
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    def test_run_summary_stdout_with_abbreviated_flag_is_json_only(self, mock_list_dataviews, capsys):
+        """Abbreviated --run-summary-json should still redirect normal stdout chatter."""
+        from cja_auto_sdr.generator import main
+
+        def _mock_list_dataviews(*args, **kwargs):
+            print("discovery table output")
+            return True
+
+        mock_list_dataviews.side_effect = _mock_list_dataviews
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--list-dataviews", "--run-summary-j", "stdout"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["mode"] == "discovery"
+        assert payload["exit_code"] == 0
+        assert "discovery table output" not in captured.out
+        assert "discovery table output" in captured.err
+
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_run_summary_records_inferred_output_format(self, mock_resolve, mock_process, tmp_path):
@@ -2815,6 +2847,13 @@ class TestRunSummaryOutput:
             ],
         )
         assert value == "summary.json"
+
+    def test_cli_option_value_accepts_unambiguous_long_option_abbreviation(self):
+        """Raw option helper should resolve argparse-accepted long-option abbreviations."""
+        from cja_auto_sdr.generator import _cli_option_value
+
+        value = _cli_option_value("--run-summary-json", ["--run-summary-j", "stdout"])
+        assert value == "stdout"
 
 
 class TestProfileImportCLI:

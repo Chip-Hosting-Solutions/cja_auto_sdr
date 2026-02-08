@@ -19,6 +19,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
 
@@ -324,19 +325,43 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
     """
     tokens = argv if argv is not None else sys.argv[1:]
 
+    known_long_options = _known_long_options() if option_name.startswith("--") else frozenset()
+
     for token in tokens:
         if token == option_name or token.startswith(f"{option_name}="):
             return True
 
-        # argparse accepts unambiguous long-option abbreviations by default.
-        # Keep CLI-precedence checks aligned with that behavior.
-        if not token.startswith("--") or token == "--" or not option_name.startswith("--"):
-            continue
-        token_name = token.split("=", 1)[0]
-        if option_name.startswith(token_name):
+        if option_name.startswith("--") and _resolve_long_option_token(token, known_long_options) == option_name:
             return True
 
     return False
+
+
+@lru_cache(maxsize=1)
+def _known_long_options() -> frozenset[str]:
+    """Return canonical long-option strings from the configured parser."""
+    parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    return frozenset(
+        option for action in parser._actions for option in action.option_strings if option.startswith("--")
+    )
+
+
+def _resolve_long_option_token(token: str, known_long_options: frozenset[str]) -> str | None:
+    """Resolve a token to a canonical long option if argparse would accept it.
+
+    Returns None for non-option tokens and ambiguous abbreviations.
+    """
+    token_name = token.split("=", 1)[0]
+    if not token_name.startswith("--") or token_name == "--":
+        return None
+
+    if token_name in known_long_options:
+        return token_name
+
+    matches = [option for option in known_long_options if option.startswith(token_name)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:
@@ -348,20 +373,40 @@ def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | 
     """
     tokens = argv if argv is not None else sys.argv[1:]
     resolved_value: str | None = None
+    known_long_options = _known_long_options() if option_name.startswith("--") else frozenset()
 
     for index, token in enumerate(tokens):
+        canonical_option: str | None = None
+        inline_value: str | None = None
+
         if token == option_name:
-            if index + 1 >= len(tokens):
-                continue
-            candidate = tokens[index + 1]
-            if candidate != "-" and candidate.startswith("-"):
-                # Looks like another flag, so treat this occurrence as invalid.
-                continue
-            resolved_value = candidate
-        if token.startswith(f"{option_name}="):
-            candidate = token.split("=", 1)[1]
-            if candidate:
-                resolved_value = candidate
+            canonical_option = option_name
+        elif token.startswith(f"{option_name}="):
+            canonical_option = option_name
+            inline_value = token.split("=", 1)[1]
+        elif option_name.startswith("--"):
+            resolved_option = _resolve_long_option_token(token, known_long_options)
+            if resolved_option == option_name:
+                canonical_option = option_name
+                if "=" in token:
+                    inline_value = token.split("=", 1)[1]
+
+        if canonical_option != option_name:
+            continue
+
+        if inline_value is not None:
+            if inline_value:
+                resolved_value = inline_value
+            continue
+
+        if index + 1 >= len(tokens):
+            continue
+
+        candidate = tokens[index + 1]
+        if candidate != "-" and candidate.startswith("-"):
+            # Looks like another flag, so treat this occurrence as invalid.
+            continue
+        resolved_value = candidate
 
     return resolved_value
 
@@ -6275,8 +6320,16 @@ def _bounded_float(min_val: float, max_val: float):
     return _type
 
 
-def parse_arguments() -> argparse.Namespace:
-    """Parse command-line arguments"""
+def parse_arguments(
+    argv: list[str] | None = None, *, return_parser: bool = False, enable_autocomplete: bool = True
+) -> argparse.Namespace | argparse.ArgumentParser:
+    """Build and parse CLI arguments.
+
+    Args:
+        argv: Optional argv list to parse. Defaults to sys.argv when None.
+        return_parser: When True, return the configured parser without parsing.
+        enable_autocomplete: Enable argcomplete integration when available.
+    """
     parser = argparse.ArgumentParser(
         description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -7413,10 +7466,13 @@ Requirements:
     )
 
     # Enable shell tab-completion if argcomplete is installed
-    if _ARGCOMPLETE_AVAILABLE:
+    if enable_autocomplete and _ARGCOMPLETE_AVAILABLE:
         argcomplete.autocomplete(parser)
 
-    return parser.parse_args()
+    if return_parser:
+        return parser
+
+    return parser.parse_args(argv)
 
 
 # ==================== DATA VIEW NAME RESOLUTION ====================
