@@ -567,8 +567,10 @@ def _infer_run_mode(args: argparse.Namespace) -> str:
         return "diff"
     if getattr(args, "org_report", False):
         return "org_report"
-    if getattr(args, "list_dataviews", False) or getattr(args, "list_connections", False) or getattr(
-        args, "list_datasets", False
+    if (
+        getattr(args, "list_dataviews", False)
+        or getattr(args, "list_connections", False)
+        or getattr(args, "list_datasets", False)
     ):
         return "discovery"
     if getattr(args, "stats", False):
@@ -1282,18 +1284,14 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     if not is_usable:
         print("Error: Imported credentials are missing required fields:")
         required_field_issues = [
-            issue
-            for issue in issues
-            if "Missing required field" in issue or "Empty value for required field" in issue
+            issue for issue in issues if "Missing required field" in issue or "Empty value for required field" in issue
         ]
         for issue in required_field_issues:
             print(f"  - {issue}")
         return False
 
     config_payload = {
-        key: credentials[key]
-        for key in ("org_id", "client_id", "secret", "scopes", "sandbox")
-        if key in credentials and credentials[key]
+        key: value for key in ("org_id", "client_id", "secret", "scopes", "sandbox") if (value := credentials.get(key))
     }
 
     try:
@@ -13160,9 +13158,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             keep_since_specified=keep_since_specified,
         )
         if effective_keep_last <= 0 and not effective_keep_since:
-            _exit_error(
-                "--prune-snapshots requires --keep-last and/or --keep-since (or use --auto-prune for defaults)"
-            )
+            _exit_error("--prune-snapshots requires --keep-last and/or --keep-since (or use --auto-prune for defaults)")
 
         keep_since_days = None
         if effective_keep_since:
@@ -13179,7 +13175,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             if target_ids:
                 for dv_id in target_ids:
                     deleted_paths.extend(
-                        snapshot_manager.apply_date_retention_policy(snapshot_dir, dv_id, keep_since_days=keep_since_days)
+                        snapshot_manager.apply_date_retention_policy(
+                            snapshot_dir, dv_id, keep_since_days=keep_since_days
+                        )
                     )
             else:
                 deleted_paths.extend(
@@ -14496,7 +14494,7 @@ def main():
         _main_impl(run_state=run_state)
     except _CapturedMainExit as exc:
         exit_code = _normalize_exit_code(exc.code)
-        raise SystemExit(exc.code)
+        raise SystemExit(exc.code) from exc
     except KeyboardInterrupt:
         exit_code = 130
         raise
