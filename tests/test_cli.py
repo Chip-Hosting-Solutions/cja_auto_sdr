@@ -2962,6 +2962,71 @@ class TestRunSummaryOutput:
         self._assert_run_summary_schema(payload)
         assert payload["output_format"] == "csv"
 
+    @patch("cja_auto_sdr.generator.write_quality_report_output")
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_quality_report_uses_quality_report_format(
+        self, mock_resolve, mock_process, mock_write_report, tmp_path
+    ):
+        """Run summary output_format should reflect --quality-report format, not internal SDR writer format."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_write_report.return_value = "stdout"
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "LOW", "Issue": "Minor"}],
+            dq_severity_counts={"LOW": 1},
+        )
+
+        summary_file = tmp_path / "run_summary_quality_report_format.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--quality-report", "csv", "--run-summary-json", str(summary_file)],
+        ):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "sdr"
+        assert payload["output_format"] == "csv"
+
+    @patch("cja_auto_sdr.generator.process_inventory_summary")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_inventory_summary_mode_and_output_format(self, mock_resolve, mock_inventory_summary, tmp_path):
+        """Inventory summary runs should report mode=inventory_summary with effective summary output format."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_inventory_summary.return_value = {}
+        summary_file = tmp_path / "run_summary_inventory_summary.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "dv_test",
+                "--include-segments",
+                "--inventory-summary",
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "inventory_summary"
+        assert payload["output_format"] == "console"
+
     @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
     def test_run_summary_git_init_mode(self, mock_git_init, tmp_path):
         """Run summary should classify --git-init runs with git_init mode."""

@@ -680,6 +680,8 @@ def _infer_run_mode(args: argparse.Namespace) -> str:
         or getattr(args, "list_datasets", False)
     ):
         return "discovery"
+    if getattr(args, "inventory_summary", False):
+        return "inventory_summary"
     if getattr(args, "stats", False):
         return "stats"
     if getattr(args, "dry_run", False):
@@ -14086,7 +14088,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     if quality_report_only:
         sdr_format = "json"
     if run_state is not None:
-        run_state["output_format"] = sdr_format
+        run_state["output_format"] = quality_report_format if quality_report_only else sdr_format
 
     # Validate format - console is only supported for diff comparison
     if sdr_format == "console" and not quality_report_only:
@@ -14229,6 +14231,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     if getattr(args, "inventory_summary", False):
         # Determine output format for summary
         summary_format = args.format if args.format in ("json", "all") else "console"
+        if run_state is not None:
+            run_state["output_format"] = summary_format
+            run_state["details"] = {"operation_success": True}
 
         if len(data_views) > 1:
             # Process multiple data views in summary mode
