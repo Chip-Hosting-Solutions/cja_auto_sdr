@@ -611,9 +611,7 @@ class TestQualityGateAndReport:
         """Quality report mode should reject --skip-validation."""
         from cja_auto_sdr.generator import main
 
-        with patch.object(
-            sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-report", "json", "--skip-validation"]
-        ):
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-report", "json", "--skip-validation"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 

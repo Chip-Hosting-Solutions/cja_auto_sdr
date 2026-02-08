@@ -6275,8 +6275,7 @@ Requirements:
         type=str.upper,
         choices=list(QUALITY_SEVERITY_ORDER),
         metavar="SEVERITY",
-        help="Exit with code 2 when quality issues at or above SEVERITY are found "
-        "(CRITICAL, HIGH, MEDIUM, LOW, INFO)",
+        help="Exit with code 2 when quality issues at or above SEVERITY are found (CRITICAL, HIGH, MEDIUM, LOW, INFO)",
     )
 
     parser.add_argument(
@@ -13547,9 +13546,7 @@ def main():
         )
         if not args.quiet:
             print(
-                ConsoleColors.error(
-                    f"QUALITY GATE FAILED: Found issues at or above {fail_on_quality} severity."
-                ),
+                ConsoleColors.error(f"QUALITY GATE FAILED: Found issues at or above {fail_on_quality} severity."),
                 file=sys.stderr,
             )
             for severity in QUALITY_SEVERITY_ORDER:
