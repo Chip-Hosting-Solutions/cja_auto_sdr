@@ -8044,6 +8044,46 @@ def _to_searchable_text(value: Any) -> str:
         return str(value)
 
 
+_NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
+
+
+def _to_numeric_sort_value(value: Any) -> float | None:
+    """Convert a sortable value to float when it is numerically representable."""
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+        return float(value)
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or not _NUMERIC_SORT_VALUE_RE.fullmatch(stripped):
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _is_missing_sort_value(value: Any) -> bool:
+    """Return True for values that should be sorted after concrete values."""
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    try:
+        return bool(pd.isna(value))
+    except Exception:
+        return False
+
+
 def _apply_discovery_filters_and_sort(
     rows: list[dict[str, Any]],
     *,
@@ -8084,7 +8124,32 @@ def _apply_discovery_filters_and_sort(
         else:
             sort_field = sort_expr
 
-    filtered_rows.sort(key=lambda row: _to_searchable_text(row.get(sort_field, "")).lower(), reverse=reverse)
+    non_missing_values = [
+        row.get(sort_field) for row in filtered_rows if not _is_missing_sort_value(row.get(sort_field))
+    ]
+    use_numeric_sort = bool(non_missing_values) and all(
+        _to_numeric_sort_value(value) is not None for value in non_missing_values
+    )
+
+    concrete_rows: list[tuple[float | str, dict[str, Any]]] = []
+    missing_rows: list[dict[str, Any]] = []
+    for row in filtered_rows:
+        raw_value = row.get(sort_field)
+        if _is_missing_sort_value(raw_value):
+            missing_rows.append(row)
+            continue
+
+        if use_numeric_sort:
+            numeric_value = _to_numeric_sort_value(raw_value)
+            if numeric_value is None:
+                missing_rows.append(row)
+                continue
+            concrete_rows.append((numeric_value, row))
+        else:
+            concrete_rows.append((_to_searchable_text(raw_value).casefold(), row))
+
+    concrete_rows.sort(key=lambda item: item[0], reverse=reverse)
+    filtered_rows = [row for _, row in concrete_rows] + missing_rows
 
     if limit is not None:
         if limit < 0:

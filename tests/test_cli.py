@@ -2546,6 +2546,62 @@ class TestConnectionsPermissionsFallback:
         assert "dataview_count" in lines[0]
         assert "dg_abc" in lines[1]
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_connections_fallback_sort_numeric_ascending(self, mock_profile, mock_configure, mock_cjapy):
+        """Derived connection sorting by dataview_count should be numeric ascending, not lexicographic."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {"content": []}
+        mock_cja_instance.getDataViews.return_value = [
+            *[{"id": f"dv_big_{i}", "name": "Big", "parentDataGroupId": "dg_big"} for i in range(10)],
+            {"id": "dv_small_1", "name": "Small", "parentDataGroupId": "dg_small"},
+            {"id": "dv_small_2", "name": "Small", "parentDataGroupId": "dg_small"},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format="json", sort_expression="dataview_count")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        sorted_ids = [c["id"] for c in output["connections"]]
+        assert sorted_ids == ["dg_small", "dg_big"]
+        sorted_counts = [c["dataview_count"] for c in output["connections"]]
+        assert sorted_counts == [2, 10]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_connections_fallback_sort_numeric_descending(self, mock_profile, mock_configure, mock_cjapy):
+        """Derived connection sorting by dataview_count should be numeric descending with --sort -dataview_count."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {"content": []}
+        mock_cja_instance.getDataViews.return_value = [
+            *[{"id": f"dv_big_{i}", "name": "Big", "parentDataGroupId": "dg_big"} for i in range(10)],
+            {"id": "dv_small_1", "name": "Small", "parentDataGroupId": "dg_small"},
+            {"id": "dv_small_2", "name": "Small", "parentDataGroupId": "dg_small"},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format="json", sort_expression="-dataview_count")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        sorted_ids = [c["id"] for c in output["connections"]]
+        assert sorted_ids == ["dg_big", "dg_small"]
+        sorted_counts = [c["dataview_count"] for c in output["connections"]]
+        assert sorted_counts == [10, 2]
+
 
 class TestDatasetsPermissionsFallback:
     """Test list_datasets behaviour when connection details are unavailable."""
