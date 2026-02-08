@@ -820,6 +820,129 @@ class TestProcessSingleDataviewMaxIssues:
         assert result.success is True
         mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=10)
 
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_quality_report_only_respects_max_issues(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality report mode should keep only the max_issues-limited set in ProcessingResult."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+        mock_validate_dv.return_value = True
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        all_issues = [
+            {
+                "Severity": "CRITICAL",
+                "Category": "Missing Fields",
+                "Type": "Metrics",
+                "Item Name": "N/A",
+                "Issue": "Critical issue",
+                "Details": "details",
+            },
+            {
+                "Severity": "HIGH",
+                "Category": "Duplicates",
+                "Type": "Dimensions",
+                "Item Name": "dup",
+                "Issue": "High issue",
+                "Details": "details",
+            },
+            {
+                "Severity": "LOW",
+                "Category": "Descriptions",
+                "Type": "Metrics",
+                "Item Name": "missing desc",
+                "Issue": "Low issue",
+                "Details": "details",
+            },
+        ]
+        limited_issues = all_issues[:2]
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = all_issues
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(limited_issues)
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+            max_issues=2,
+        )
+
+        assert result.success is True
+        assert result.dq_issues_count == 2
+        assert [issue["Issue"] for issue in result.dq_issues] == ["Critical issue", "High issue"]
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=2)
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_quality_report_only_fails_when_validation_errors(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality report mode should fail when validation itself raises an exception."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+        mock_validate_dv.return_value = True
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("unexpected validation failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
+        assert "unexpected validation failure" in result.error_message
+
 
 class TestProcessingResultDataclass:
     """Tests for ProcessingResult dataclass"""
