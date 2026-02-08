@@ -629,6 +629,18 @@ class TestQualityGateAndReport:
 
         assert exc_info.value.code == 1
 
+    @patch("cja_auto_sdr.generator.show_config_status")
+    def test_fail_on_quality_rejects_non_sdr_config_json_mode(self, mock_show_config_status):
+        """Quality gate should fail fast for --config-json (non-SDR mode)."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--config-json", "--fail-on-quality", "HIGH"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_show_config_status.assert_not_called()
+
     @patch("cja_auto_sdr.generator.handle_diff_command")
     def test_fail_on_quality_rejects_non_sdr_diff_mode(self, mock_handle_diff):
         """Quality gate should fail fast in non-SDR modes instead of being silently ignored."""
@@ -640,6 +652,18 @@ class TestQualityGateAndReport:
 
         assert exc_info.value.code == 1
         mock_handle_diff.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.generate_sample_config")
+    def test_quality_report_rejects_non_sdr_sample_config_mode(self, mock_generate_sample_config):
+        """Quality report should fail fast for sample-config mode instead of being ignored."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--sample-config", "--quality-report", "json"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_generate_sample_config.assert_not_called()
 
     @patch("cja_auto_sdr.generator.write_quality_report_output")
     @patch("cja_auto_sdr.generator.process_single_dataview")

@@ -12023,7 +12023,7 @@ def main():
     keep_last_specified = _cli_option_specified("--keep-last")
     keep_since_specified = _cli_option_specified("--keep-since")
 
-    non_sdr_modes_for_quality_gate = (
+    non_sdr_modes_for_quality_options = (
         getattr(args, "diff", False)
         or getattr(args, "snapshot", None)
         or getattr(args, "diff_snapshot", None)
@@ -12036,6 +12036,7 @@ def main():
         or getattr(args, "list_datasets", False)
         or getattr(args, "validate_config", False)
         or getattr(args, "config_status", False)
+        or getattr(args, "config_json", False)
         or getattr(args, "sample_config", False)
         or getattr(args, "exit_codes", False)
         or getattr(args, "profile_list", False)
@@ -12043,11 +12044,11 @@ def main():
         or getattr(args, "profile_test", None)
         or getattr(args, "profile_show", None)
         or getattr(args, "git_init", False)
-        or getattr(args, "compare_org_report", None)
+        or getattr(args, "org_compare_report", None)
         or getattr(args, "stats", False)
         or getattr(args, "dry_run", False)
     )
-    if getattr(args, "fail_on_quality", None) and non_sdr_modes_for_quality_gate:
+    if getattr(args, "fail_on_quality", None) and non_sdr_modes_for_quality_options:
         _exit_error("--fail-on-quality is only supported in SDR generation mode")
 
     if getattr(args, "auto_prune", False) and not getattr(args, "auto_snapshot", False):
@@ -12056,15 +12057,7 @@ def main():
         _exit_error("--fail-on-quality cannot be used with --skip-validation")
     if getattr(args, "quality_report", None) and args.skip_validation:
         _exit_error("--quality-report cannot be used with --skip-validation")
-    if getattr(args, "quality_report", None) and (
-        getattr(args, "diff", False)
-        or getattr(args, "snapshot", None)
-        or getattr(args, "diff_snapshot", None)
-        or getattr(args, "compare_with_prev", False)
-        or getattr(args, "compare_snapshots", None)
-        or getattr(args, "org_report", False)
-        or getattr(args, "inventory_summary", False)
-    ):
+    if getattr(args, "quality_report", None) and non_sdr_modes_for_quality_options:
         _exit_error("--quality-report is only supported in SDR generation mode")
 
     # Propagate retry config via env vars so both the current process
