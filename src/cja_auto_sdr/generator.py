@@ -4590,6 +4590,8 @@ def process_single_dataview(
         dq_issues: list[dict[str, Any]] = []
         severity_counts: dict[str, int] = {}
         dq_checker: DataQualityChecker | None = None
+        validation_failed = False
+        validation_error_message = ""
         if skip_validation:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Skipping data quality validation (--skip-validation)")
@@ -4647,10 +4649,12 @@ def process_single_dataview(
                 logger.error(_format_error_msg("during data quality validation", error=e))
                 logger.info("Continuing with SDR generation despite validation errors")
                 perf_tracker.end("Data Quality Validation")
+                validation_failed = True
+                validation_error_message = str(e)
 
             # Get data quality issues dataframe (limited if max_issues > 0)
             data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
-            dq_issues = list(dq_checker.issues)
+            dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
             severity_counts = count_quality_issues_by_severity(dq_issues)
 
         if quality_report_only:
@@ -4658,13 +4662,18 @@ def process_single_dataview(
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
-                success=True,
+                success=not validation_failed,
                 duration=time.time() - start_time,
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_issues),
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
+                error_message=(
+                    f"Data quality validation failed: {validation_error_message}"
+                    if validation_failed
+                    else ""
+                ),
             )
 
         # Derived field inventory (if enabled)
