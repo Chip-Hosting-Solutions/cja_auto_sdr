@@ -937,6 +937,22 @@ class TestQualityGateAndReport:
         assert exc_info.value.code == 1
         mock_resolve.assert_not_called()
 
+    @pytest.mark.parametrize("invalid_max_issues", [True, 1.9, "10"])
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_invalid_quality_policy_max_issues_type_fails_fast(self, mock_resolve, invalid_max_issues, tmp_path):
+        """max_issues must be a JSON integer; bool/float/string values should fail fast."""
+        from cja_auto_sdr.generator import main
+
+        policy_path = tmp_path / "quality_policy_invalid_max_issues.json"
+        policy_path.write_text(json.dumps({"max_issues": invalid_max_issues}), encoding="utf-8")
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path)]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_resolve.assert_not_called()
+
     def test_quality_report_csv_empty_writes_header_row(self, tmp_path):
         """CSV quality reports should include headers even when there are no issues."""
         from cja_auto_sdr.generator import write_quality_report_output
@@ -3132,6 +3148,25 @@ class TestRunSummaryOutput:
         assert payload["quality_policy"]["path"] == str(missing_policy)
         assert payload["quality_policy"]["applied"] == {}
 
+    def test_run_summary_profile_overwrite_validation_error_mode(self, tmp_path):
+        """Profile overwrite validation failures should still be classified as profile_management mode."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_profile_overwrite_error.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--profile-overwrite", "--run-summary-json", str(summary_file)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "profile_management"
+        assert payload["status"] == "error"
+
     def test_run_summary_missing_value_does_not_write_flag_named_file(self, tmp_path, monkeypatch):
         """Malformed --run-summary-json should not treat the next flag as an output path."""
         from cja_auto_sdr.generator import main
@@ -3214,6 +3249,7 @@ class TestRunModeInference:
             (["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--dry-run"], "diff"),
             (["cja_auto_sdr", "dv_test", "--snapshot", "baseline.json", "--compare-with-prev"], "snapshot"),
             (["cja_auto_sdr", "dv_test", "--include-segments", "--inventory-summary", "--dry-run"], "dry_run"),
+            (["cja_auto_sdr", "--profile-overwrite"], "profile_management"),
         ],
     )
     def test_infer_run_mode_precedence_matches_dispatch(self, argv, expected_mode):

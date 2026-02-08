@@ -433,6 +433,19 @@ def _canonical_quality_policy_key(raw_key: Any) -> str:
     return str(raw_key).strip().lower().replace("-", "_")
 
 
+def _parse_non_negative_policy_int(value: Any, *, key: str) -> int:
+    """Validate a quality policy integer field.
+
+    Strictly accepts JSON integer values (rejects bool, float, and string
+    coercions) to keep policy contracts explicit and predictable.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"quality policy '{key}' must be an integer >= 0")
+    if value < 0:
+        raise ValueError(f"quality policy '{key}' must be >= 0")
+    return value
+
+
 def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
     """Load and validate quality policy JSON file."""
     policy_path = Path(policy_file).expanduser()
@@ -471,13 +484,9 @@ def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
         normalized_policy["quality_report"] = report_format
 
     if "max_issues" in normalized_payload:
-        try:
-            max_issues = int(normalized_payload["max_issues"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("quality policy 'max_issues' must be an integer >= 0") from exc
-        if max_issues < 0:
-            raise ValueError("quality policy 'max_issues' must be >= 0")
-        normalized_policy["max_issues"] = max_issues
+        normalized_policy["max_issues"] = _parse_non_negative_policy_int(
+            normalized_payload["max_issues"], key="max_issues"
+        )
 
     return normalized_policy
 
@@ -671,6 +680,7 @@ def _infer_run_mode(args: argparse.Namespace) -> str:
                 or getattr(args, "profile_test", None)
                 or getattr(args, "profile_import", None)
                 or getattr(args, "profile_show", None)
+                or getattr(args, "profile_overwrite", False)
             ),
         ),
         ("git_init", getattr(args, "git_init", False)),
