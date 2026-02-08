@@ -2606,6 +2606,100 @@ class TestDatasetsPermissionsFallback:
 class TestRunSummaryOutput:
     """Tests for --run-summary-json output."""
 
+    @staticmethod
+    def _assert_run_summary_schema(payload):
+        """Validate run summary payload contract used by automation."""
+        required_keys = {
+            "summary_version",
+            "tool_version",
+            "started_at",
+            "ended_at",
+            "duration_seconds",
+            "exit_code",
+            "status",
+            "mode",
+            "profile",
+            "config_file",
+            "output_format",
+            "command",
+            "inputs",
+            "results",
+            "result_counts",
+            "quality_gate_failed",
+            "quality_policy",
+            "details",
+        }
+        assert required_keys.issubset(payload)
+        assert payload["summary_version"] == "1.0"
+        assert isinstance(payload["tool_version"], str)
+        assert isinstance(payload["started_at"], str)
+        assert isinstance(payload["ended_at"], str)
+        assert isinstance(payload["duration_seconds"], (int, float))
+        assert isinstance(payload["exit_code"], int)
+        assert payload["status"] in {"success", "error", "policy_exit"}
+        assert isinstance(payload["mode"], str)
+        assert payload["profile"] is None or isinstance(payload["profile"], str)
+        assert payload["config_file"] is None or isinstance(payload["config_file"], str)
+        assert payload["output_format"] is None or isinstance(payload["output_format"], str)
+
+        command = payload["command"]
+        assert isinstance(command, dict)
+        assert isinstance(command.get("argv"), list)
+        assert all(isinstance(arg, str) for arg in command["argv"])
+        assert isinstance(command.get("cwd"), str)
+
+        inputs = payload["inputs"]
+        assert isinstance(inputs, dict)
+        assert isinstance(inputs.get("data_view_inputs"), list)
+        assert isinstance(inputs.get("resolved_data_views"), list)
+
+        result_counts = payload["result_counts"]
+        assert isinstance(result_counts, dict)
+        assert isinstance(result_counts.get("total"), int)
+        assert isinstance(result_counts.get("successful"), int)
+        assert isinstance(result_counts.get("failed"), int)
+        assert isinstance(result_counts.get("quality_issues"), int)
+        assert result_counts["total"] == result_counts["successful"] + result_counts["failed"]
+
+        assert isinstance(payload["results"], list)
+        result_required_keys = {
+            "data_view_id",
+            "data_view_name",
+            "success",
+            "duration_seconds",
+            "metrics_count",
+            "dimensions_count",
+            "dq_issues_count",
+            "dq_severity_counts",
+            "output_file",
+            "error_message",
+            "file_size_bytes",
+            "segments_count",
+            "segments_high_complexity",
+            "calculated_metrics_count",
+            "calculated_metrics_high_complexity",
+            "derived_fields_count",
+            "derived_fields_high_complexity",
+        }
+        for result in payload["results"]:
+            assert isinstance(result, dict)
+            assert result_required_keys.issubset(result)
+            assert isinstance(result["data_view_id"], str)
+            assert isinstance(result["data_view_name"], str)
+            assert isinstance(result["success"], bool)
+            assert isinstance(result["duration_seconds"], (int, float))
+            assert isinstance(result["dq_severity_counts"], dict)
+
+        assert isinstance(payload["quality_gate_failed"], bool)
+
+        quality_policy = payload["quality_policy"]
+        if quality_policy is not None:
+            assert isinstance(quality_policy, dict)
+            assert isinstance(quality_policy.get("path"), str)
+            assert isinstance(quality_policy.get("applied"), dict)
+
+        assert isinstance(payload["details"], dict)
+
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_run_summary_written_for_sdr_success(self, mock_resolve, mock_process, tmp_path):
@@ -2632,6 +2726,7 @@ class TestRunSummaryOutput:
             main()
 
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["mode"] == "sdr"
         assert payload["exit_code"] == 0
         assert payload["output_format"] == "excel"
@@ -2667,6 +2762,7 @@ class TestRunSummaryOutput:
 
         assert exc_info.value.code == 2
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["exit_code"] == 2
         assert payload["status"] == "policy_exit"
         assert payload["quality_gate_failed"] is True
@@ -2689,6 +2785,7 @@ class TestRunSummaryOutput:
 
         assert exc_info.value.code == 0
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["mode"] == "discovery"
         assert payload["exit_code"] == 0
         assert payload["details"]["discovery_command"] == "list_dataviews"
@@ -2717,6 +2814,7 @@ class TestRunSummaryOutput:
 
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
+        self._assert_run_summary_schema(payload)
         assert payload["mode"] == "sdr"
         assert payload["exit_code"] == 0
 
@@ -2738,10 +2836,43 @@ class TestRunSummaryOutput:
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
+        self._assert_run_summary_schema(payload)
         assert payload["mode"] == "discovery"
         assert payload["exit_code"] == 0
         assert "discovery table output" not in captured.out
         assert "discovery table output" in captured.err
+
+    def test_run_summary_stdout_json_only_subprocess_exit_codes_full_flag(self):
+        """E2E: full flag should keep stdout as JSON-only in chatty exit-codes mode."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--exit-codes", "--run-summary-json", "stdout"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "exit_codes"
+        assert "EXIT CODE REFERENCE" not in result.stdout
+        assert "EXIT CODE REFERENCE" in result.stderr
+
+    def test_run_summary_stdout_json_only_subprocess_exit_codes_abbreviated_flag(self):
+        """E2E: abbreviated flag should keep stdout as JSON-only in chatty exit-codes mode."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--exit-codes", "--run-summary-j", "stdout"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "exit_codes"
+        assert "EXIT CODE REFERENCE" not in result.stdout
+        assert "EXIT CODE REFERENCE" in result.stderr
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2772,6 +2903,7 @@ class TestRunSummaryOutput:
             main()
 
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["output_format"] == "csv"
 
     @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
@@ -2799,6 +2931,7 @@ class TestRunSummaryOutput:
 
         assert exc_info.value.code == 0
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["mode"] == "git_init"
         assert payload["status"] == "success"
 
@@ -2817,6 +2950,7 @@ class TestRunSummaryOutput:
 
         assert exc_info.value.code == 2
         payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
         assert payload["status"] == "error"
         assert payload["exit_code"] == 2
 
@@ -2854,6 +2988,41 @@ class TestRunSummaryOutput:
 
         value = _cli_option_value("--run-summary-json", ["--run-summary-j", "stdout"])
         assert value == "stdout"
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["--run-summary-json", "stdout"], "stdout"),
+            (["--run-summary-j", "stdout"], "stdout"),
+            (["--run-summary-j=stdout"], "stdout"),
+            (["--run-summary-json", "--list-dataviews"], None),
+            (["--run-summary-j", "--list-dataviews"], None),
+            (["--run-summary-json", "stdout", "--run-summary-j", "summary.json"], "summary.json"),
+            (["--run-summary-json=stdout", "--run-summary-j=summary.json"], "summary.json"),
+            (["--run-summary-json", "stdout", "--run-summary-json"], "stdout"),
+        ],
+    )
+    def test_cli_option_value_permutations(self, argv, expected):
+        """Raw option helper should stay aligned with argparse-style option permutations."""
+        from cja_auto_sdr.generator import _cli_option_value
+
+        assert _cli_option_value("--run-summary-json", argv) == expected
+
+    @pytest.mark.parametrize(
+        ("option_name", "argv", "expected"),
+        [
+            ("--run-summary-json", ["--run-summary-j", "stdout"], True),
+            ("--max-issues", ["--max-i=10"], True),
+            ("--fail-on-quality", ["--fail-on-q", "HIGH"], True),
+            ("--profile", ["--pro"], False),
+            ("--run-summary-json", ["-q"], False),
+        ],
+    )
+    def test_cli_option_specified_permutations(self, option_name, argv, expected):
+        """Explicit option detection should follow argparse abbreviation semantics."""
+        from cja_auto_sdr.generator import _cli_option_specified
+
+        assert _cli_option_specified(option_name, argv) is expected
 
 
 class TestProfileImportCLI:
