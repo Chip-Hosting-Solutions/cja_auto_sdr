@@ -506,7 +506,7 @@ def build_quality_step_summary(results: list[ProcessingResult]) -> str:
     return "\n".join(lines)
 
 
-def build_diff_step_summary(diff_result: "DiffResult") -> str:
+def build_diff_step_summary(diff_result: DiffResult) -> str:
     """Build markdown summary table for diff output."""
     summary = diff_result.summary
     total_changes = summary.total_changes + summary.calc_metrics_changed + summary.segments_changed
@@ -531,23 +531,19 @@ def build_diff_step_summary(diff_result: "DiffResult") -> str:
 
     if summary.source_calc_metrics_count > 0 or summary.target_calc_metrics_count > 0:
         lines.append(
-            (
-                f"| Calc Metrics | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
-                f"{summary.calc_metrics_added} | {summary.calc_metrics_removed} | {summary.calc_metrics_modified} | {summary.calc_metrics_unchanged} |"
-            )
+            f"| Calc Metrics | {summary.source_calc_metrics_count} | {summary.target_calc_metrics_count} | "
+            f"{summary.calc_metrics_added} | {summary.calc_metrics_removed} | {summary.calc_metrics_modified} | {summary.calc_metrics_unchanged} |"
         )
     if summary.source_segments_count > 0 or summary.target_segments_count > 0:
         lines.append(
-            (
-                f"| Segments | {summary.source_segments_count} | {summary.target_segments_count} | "
-                f"{summary.segments_added} | {summary.segments_removed} | {summary.segments_modified} | {summary.segments_unchanged} |"
-            )
+            f"| Segments | {summary.source_segments_count} | {summary.target_segments_count} | "
+            f"{summary.segments_added} | {summary.segments_removed} | {summary.segments_modified} | {summary.segments_unchanged} |"
         )
 
     return "\n".join(lines)
 
 
-def build_org_step_summary(result: "OrgReportResult") -> str:
+def build_org_step_summary(result: OrgReportResult) -> str:
     """Build markdown summary table for org-report output."""
     dist = result.distribution
     lines = [
@@ -2629,11 +2625,11 @@ def _format_side_by_side(
 
     # Pre-compute all display strings
     field_displays = []
-    for field, (old_val, new_val) in diff.changed_fields.items():
+    for field_name, (old_val, new_val) in diff.changed_fields.items():
         old_str = _format_diff_value(old_val, truncate=False)
         new_str = _format_diff_value(new_val, truncate=False)
-        old_display = f"{field}: {old_str}"
-        new_display = f"{field}: {new_str}"
+        old_display = f"{field_name}: {old_str}"
+        new_display = f"{field_name}: {new_str}"
         field_displays.append((old_display, new_display))
 
     # Calculate column width: expand to fit content but cap at max_col_width
@@ -3302,7 +3298,7 @@ def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target
     lines.append(f"| Field | {source_label} | {target_label} |")
     lines.append("| --- | --- | --- |")
 
-    for field, (old_val, new_val) in diff.changed_fields.items():
+    for field_name, (old_val, new_val) in diff.changed_fields.items():
         old_formatted = _format_diff_value(old_val, truncate=False)
         new_formatted = _format_diff_value(new_val, truncate=False)
         # Use italic for empty values in markdown
@@ -3315,7 +3311,7 @@ def _format_markdown_side_by_side(diff: ComponentDiff, source_label: str, target
         if len(new_str) > 50:
             new_str = new_str[:47] + "..."
 
-        lines.append(f"| `{field}` | {old_str} | {new_str} |")
+        lines.append(f"| `{field_name}` | {old_str} | {new_str} |")
 
     lines.append("")
     return lines
@@ -8745,23 +8741,23 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
 
         print()
         print("  Credential status:")
-        for field in required_fields:
-            if creds.get(field):
-                value = creds[field]
-                if field in ["secret", "client_id"]:
+        for field_name in required_fields:
+            if creds.get(field_name):
+                value = creds[field_name]
+                if field_name in ["secret", "client_id"]:
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
-                print(f"    ✓ {field}: {masked}")
+                print(f"    ✓ {field_name}: {masked}")
             else:
-                print(f"    ✗ {field}: not set (required)")
-                missing.append(field)
+                print(f"    ✗ {field_name}: not set (required)")
+                missing.append(field_name)
 
-        for field in optional_fields:
-            if creds.get(field):
-                print(f"    ✓ {field}: {creds[field]}")
+        for field_name in optional_fields:
+            if creds.get(field_name):
+                print(f"    ✓ {field_name}: {creds[field_name]}")
             else:
-                print(f"    - {field}: not set (optional)")
+                print(f"    - {field_name}: not set (optional)")
 
         print()
         if missing:
