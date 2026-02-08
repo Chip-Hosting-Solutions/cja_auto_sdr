@@ -551,6 +551,35 @@ def _normalize_exit_code(code: Any) -> int:
     return 1
 
 
+def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
+    """Classify run summary status based on known policy paths, not raw exit code alone."""
+    if exit_code == 0:
+        return "success"
+
+    details = run_state.get("details") or {}
+    mode = run_state.get("mode")
+    operation_success = details.get("operation_success")
+
+    # SDR quality gate
+    if bool(run_state.get("quality_gate_failed", False)) and exit_code == 2:
+        return "policy_exit"
+
+    # Org governance threshold gate
+    if (
+        mode == "org_report"
+        and exit_code == 2
+        and bool(details.get("thresholds_exceeded"))
+        and bool(details.get("fail_on_threshold"))
+    ):
+        return "policy_exit"
+
+    # Diff family policy exits (changes found or warn-threshold exit 3)
+    if mode in {"diff", "diff_snapshot", "compare_snapshots"} and operation_success is True and exit_code in (2, 3):
+        return "policy_exit"
+
+    return "error"
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Infer high-level execution mode for run summary output."""
     if getattr(args, "list_snapshots", False):
@@ -592,6 +621,8 @@ def _infer_run_mode(args: argparse.Namespace) -> str:
         return "profile_management"
     if getattr(args, "sample_config", False):
         return "sample_config"
+    if getattr(args, "git_init", False):
+        return "git_init"
     if getattr(args, "exit_codes", False):
         return "exit_codes"
     return "sdr"
@@ -14540,7 +14571,7 @@ def main():
                 "ended_at": datetime.now().isoformat(),
                 "duration_seconds": round(time.time() - summary_start_perf, 3),
                 "exit_code": exit_code,
-                "status": "success" if exit_code == 0 else ("policy_exit" if exit_code in (2, 3) else "error"),
+                "status": _infer_run_status(exit_code, run_state),
                 "mode": run_state.get("mode", "unknown"),
                 "profile": run_state.get("profile"),
                 "config_file": run_state.get("config_file"),

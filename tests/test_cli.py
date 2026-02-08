@@ -2713,6 +2713,52 @@ class TestRunSummaryOutput:
         payload = json.loads(summary_file.read_text())
         assert payload["output_format"] == "csv"
 
+    @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
+    def test_run_summary_git_init_mode(self, mock_git_init, tmp_path):
+        """Run summary should classify --git-init runs with git_init mode."""
+        from cja_auto_sdr.generator import main
+
+        mock_git_init.return_value = (True, "initialized")
+        summary_file = tmp_path / "run_summary_git_init.json"
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "--git-init",
+                "--git-dir",
+                str(tmp_path / "repo"),
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        assert payload["mode"] == "git_init"
+        assert payload["status"] == "success"
+
+    def test_run_summary_invalid_cli_status_is_error(self, tmp_path):
+        """Argparse usage errors (exit 2) should be reported as status=error, not policy_exit."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_cli_error.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--definitely-invalid-flag", "--run-summary-json", str(summary_file)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+        payload = json.loads(summary_file.read_text())
+        assert payload["status"] == "error"
+        assert payload["exit_code"] == 2
+
 
 class TestProfileImportCLI:
     """Tests for non-interactive --profile-import CLI flow."""
