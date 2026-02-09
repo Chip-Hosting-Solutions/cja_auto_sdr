@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--profile-import NAME FILE`
   - `--profile-overwrite` for controlled replacement of existing profiles
 
+### Fixed
+- **HTML escaping**: Replaced manual `.replace("<", "&lt;").replace(">", "&gt;")` with `html.escape()` in 3 locations (metadata values, diff tables, inventory diff tables), properly handling `&`, `"`, and `'` in addition to `<` and `>`
+- **DataFrame HTML escaping**: Changed `df.to_html(escape=False)` to `escape=True` so metric/dimension values containing HTML entities are rendered safely
+- **Credential file race condition**: Profile creation and import now use atomic `os.open()` with `0o600` permissions instead of `open()` followed by `chmod()`, closing the window where credentials were world-readable
+- **SharedValidationCache resource leak**: Added `atexit.register(self.shutdown)` so the multiprocessing manager is cleaned up even if `shutdown()` is never called explicitly
+- **Secret echo on headless systems**: Removed `getpass` fallback that silently used `input()` (echoing secrets to terminal); now prints an error and returns `False` when no TTY is available
+
+### Tests
+- Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)
+- Added `test_main_entry_points.py` — 19 tests for `main()` and `_main_impl()` dispatch, exit codes, run_state tracking, and run summary JSON emission
+- Added `test_malformed_api_responses.py` — 19 negative tests for malformed API data (wrong types, missing columns, exceptions, partial responses)
+- Added `test_output_content_validation.py` — 26 tests validating output file content across CSV, JSON, HTML, Excel, and Markdown formats (roundtrip correctness, escaping, cross-format consistency)
+- Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
+- **1,511 tests** (1,509 passing, 2 skipped) — up from 1,431
+
 ## [3.2.1] - 2026-02-06
 
 ### Highlights
