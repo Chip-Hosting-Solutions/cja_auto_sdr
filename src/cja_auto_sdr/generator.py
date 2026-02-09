@@ -835,7 +835,11 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
         return "policy_exit"
 
     # Diff family policy exits (changes found or warn-threshold exit 3)
-    if mode in {RunMode.DIFF, RunMode.DIFF_SNAPSHOT, RunMode.COMPARE_SNAPSHOTS} and operation_success is True and exit_code in (2, 3):
+    if (
+        mode in {RunMode.DIFF, RunMode.DIFF_SNAPSHOT, RunMode.COMPARE_SNAPSHOTS}
+        and operation_success is True
+        and exit_code in (2, 3)
+    ):
         return "policy_exit"
 
     return "error"
@@ -875,7 +879,10 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
         (RunMode.COMPARE_SNAPSHOTS, bool(getattr(args, "compare_snapshots", None))),
         (RunMode.DIFF, getattr(args, "diff", False)),
         (RunMode.SNAPSHOT, bool(getattr(args, "snapshot", None))),
-        (RunMode.DIFF_SNAPSHOT, bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None))),
+        (
+            RunMode.DIFF_SNAPSHOT,
+            bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None)),
+        ),
         (RunMode.DRY_RUN, getattr(args, "dry_run", False)),
         (RunMode.INVENTORY_SUMMARY, getattr(args, "inventory_summary", False)),
     )
@@ -8335,7 +8342,7 @@ def _to_numeric_sort_value(value: Any) -> float | None:
         try:
             if pd.isna(value):
                 return None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         return float(value)
 
@@ -8359,7 +8366,7 @@ def _is_missing_sort_value(value: Any) -> bool:
         return True
     try:
         return bool(pd.isna(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
 
 
