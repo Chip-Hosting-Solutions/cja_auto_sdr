@@ -18,6 +18,16 @@ from cja_auto_sdr.core.constants import DEFAULT_RETRY_CONFIG, RETRYABLE_STATUS_C
 from cja_auto_sdr.core.exceptions import CircuitBreakerOpen, RetryableHTTPError
 
 
+def _parse_env_numeric(value: str | None, cast: Callable[[str], Any]) -> Any | None:
+    """Parse an environment value, returning None when invalid."""
+    if value is None:
+        return None
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _effective_retry_config() -> dict[str, Any]:
     """Return retry config with env-var overrides applied.
 
@@ -26,12 +36,34 @@ def _effective_retry_config() -> dict[str, Any]:
     the module-level DEFAULT_RETRY_CONFIG dict.
     """
     cfg = dict(DEFAULT_RETRY_CONFIG)
-    if "MAX_RETRIES" in os.environ:
-        cfg["max_retries"] = int(os.environ["MAX_RETRIES"])
-    if "RETRY_BASE_DELAY" in os.environ:
-        cfg["base_delay"] = float(os.environ["RETRY_BASE_DELAY"])
-    if "RETRY_MAX_DELAY" in os.environ:
-        cfg["max_delay"] = float(os.environ["RETRY_MAX_DELAY"])
+    logger = logging.getLogger(__name__)
+
+    parsed_max_retries = _parse_env_numeric(os.environ.get("MAX_RETRIES"), int)
+    if parsed_max_retries is not None:
+        cfg["max_retries"] = parsed_max_retries
+    elif "MAX_RETRIES" in os.environ:
+        logger.warning(
+            f"Ignoring invalid MAX_RETRIES={os.environ.get('MAX_RETRIES')!r}; using default {cfg['max_retries']}"
+        )
+
+    parsed_base_delay = _parse_env_numeric(os.environ.get("RETRY_BASE_DELAY"), float)
+    if parsed_base_delay is not None:
+        cfg["base_delay"] = parsed_base_delay
+    elif "RETRY_BASE_DELAY" in os.environ:
+        logger.warning(
+            f"Ignoring invalid RETRY_BASE_DELAY={os.environ.get('RETRY_BASE_DELAY')!r}; "
+            f"using default {cfg['base_delay']}"
+        )
+
+    parsed_max_delay = _parse_env_numeric(os.environ.get("RETRY_MAX_DELAY"), float)
+    if parsed_max_delay is not None:
+        cfg["max_delay"] = parsed_max_delay
+    elif "RETRY_MAX_DELAY" in os.environ:
+        logger.warning(
+            f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; "
+            f"using default {cfg['max_delay']}"
+        )
+
     return cfg
 
 

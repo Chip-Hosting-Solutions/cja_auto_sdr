@@ -292,6 +292,75 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_exception_cancels_remaining_when_continue_on_error_false(
+        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+    ):
+        """Exceptions should cancel outstanding futures when stopping early."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = Exception("Boom")
+        mock_future.cancel = Mock()
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=False)
+            processor.process_batch(["dv_test_12345"])
+
+        mock_future.cancel.assert_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_shared_cache_shutdown_on_interrupt(
+        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+    ):
+        """Shared cache should be shutdown even when processing is interrupted."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = KeyboardInterrupt()
+        mock_future.cancel = Mock()
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                continue_on_error=True,
+                enable_cache=True,
+                shared_cache=True,
+            )
+            mock_shared_cache = Mock()
+            mock_shared_cache.get_statistics.return_value = {"hits": 0, "misses": 0, "hit_rate": 0.0}
+            processor._shared_cache = mock_shared_cache
+
+            with pytest.raises(KeyboardInterrupt):
+                processor.process_batch(["dv_test_12345"])
+
+            mock_shared_cache.shutdown.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_calculates_total_duration(
         self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir, successful_result
     ):

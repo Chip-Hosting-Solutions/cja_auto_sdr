@@ -8,7 +8,9 @@ repeat analysis runs, and a lock mechanism to prevent concurrent runs.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -158,8 +160,13 @@ class OrgReportLock:
         try:
             os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
             return True
-        except OSError, ProcessLookupError:
+        except ProcessLookupError:
             return False
+        except PermissionError:
+            # EPERM means the process exists but we do not have permission to signal it.
+            return True
+        except OSError as e:
+            return e.errno == errno.EPERM
 
     def get_lock_info(self) -> dict[str, Any] | None:
         """Get information about the current lock holder.
@@ -183,16 +190,18 @@ class OrgReportCache:
     Cache is JSON-based and stores component IDs, counts, and metadata.
     """
 
-    def __init__(self, cache_dir: Path | None = None):
+    def __init__(self, cache_dir: Path | None = None, logger: logging.Logger | None = None):
         """Initialize the cache.
 
         Args:
             cache_dir: Directory for cache files. Defaults to ~/.cja_auto_sdr/cache/
+            logger: Optional logger for cache load/save warnings
         """
         if cache_dir is None:
             cache_dir = Path.home() / ".cja_auto_sdr" / "cache"
         self.cache_dir = cache_dir
         self.cache_file = cache_dir / "org_report_cache.json"
+        self.logger = logger or logging.getLogger(__name__)
         self._cache: dict[str, dict[str, Any]] = {}
         self._load_cache()
 
@@ -202,7 +211,8 @@ class OrgReportCache:
             try:
                 with open(self.cache_file, encoding="utf-8") as f:
                     self._cache = json.load(f)
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError) as e:
+                self.logger.warning(f"Failed to load org report cache from {self.cache_file}: {e}")
                 self._cache = {}
 
     def _save_cache(self) -> None:
@@ -211,8 +221,8 @@ class OrgReportCache:
         try:
             with open(self.cache_file, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f, indent=2, default=str)
-        except OSError:
-            pass
+        except OSError as e:
+            self.logger.warning(f"Failed to save org report cache to {self.cache_file}: {e}")
 
     def get(
         self,

@@ -123,6 +123,11 @@ class TestOrgReportLock:
             assert "@" not in lock.lock_file.name
             assert "/" not in lock.lock_file.name
 
+    def test_process_running_treats_permission_error_as_running(self):
+        """PermissionError should be treated as process alive (EPERM semantics)."""
+        with patch("os.kill", side_effect=PermissionError):
+            assert OrgReportLock._is_process_running(12345) is True
+
 
 class TestConcurrentOrgReportError:
     """Test ConcurrentOrgReportError exception"""
@@ -1426,6 +1431,18 @@ class TestOrgReportCache:
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = OrgReportCache(cache_dir=Path(tmpdir))
             assert cache.get("nonexistent") is None
+
+    def test_cache_save_failure_logs_warning(self):
+        """Test that cache write failures are visible via logger warnings."""
+        logger = Mock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OrgReportCache(cache_dir=Path(tmpdir), logger=logger)
+
+            with patch("builtins.open", side_effect=OSError("disk full")):
+                cache.put(DataViewSummary("dv_test", "Test DV"))
+
+            logger.warning.assert_called()
+            assert "Failed to save org report cache" in logger.warning.call_args[0][0]
 
 
 class TestLargeOrgScaling:

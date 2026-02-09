@@ -1275,6 +1275,36 @@ class TestRetryArguments:
                 args = parse_arguments()
                 assert args.max_retries == 2
 
+    def test_invalid_retry_env_max_retries_falls_back_to_default(self):
+        """Invalid MAX_RETRIES env values should not crash argument parsing."""
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
+
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+        with patch.dict(os.environ, {"MAX_RETRIES": "invalid"}):
+            with patch.object(sys, "argv", test_args):
+                args = parse_arguments()
+                assert args.max_retries == DEFAULT_RETRY_CONFIG["max_retries"]
+
+    def test_invalid_retry_env_base_delay_falls_back_to_default(self):
+        """Invalid RETRY_BASE_DELAY env values should fall back cleanly."""
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
+
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+        with patch.dict(os.environ, {"RETRY_BASE_DELAY": "invalid"}):
+            with patch.object(sys, "argv", test_args):
+                args = parse_arguments()
+                assert args.retry_base_delay == DEFAULT_RETRY_CONFIG["base_delay"]
+
+    def test_invalid_retry_env_max_delay_falls_back_to_default(self):
+        """Invalid RETRY_MAX_DELAY env values should fall back cleanly."""
+        from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG
+
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+        with patch.dict(os.environ, {"RETRY_MAX_DELAY": "invalid"}):
+            with patch.object(sys, "argv", test_args):
+                args = parse_arguments()
+                assert args.retry_max_delay == DEFAULT_RETRY_CONFIG["max_delay"]
+
 
 class TestValidateConfigFlag:
     """Test --validate-config flag"""

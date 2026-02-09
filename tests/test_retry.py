@@ -2,6 +2,7 @@
 Tests for retry with exponential backoff functionality
 """
 
+import os
 import sys
 from unittest.mock import Mock, patch
 
@@ -9,6 +10,7 @@ import pytest
 
 sys.path.insert(0, ".")
 
+from cja_auto_sdr.api.resilience import _effective_retry_config
 from cja_auto_sdr.generator import (
     DEFAULT_RETRY_CONFIG,
     RETRYABLE_EXCEPTIONS,
@@ -281,3 +283,20 @@ class TestRetryIntegration:
 
         assert result == {"id": "test_id", "data": "test"}
         assert client.call_count == 2
+
+
+class TestRetryEnvOverrides:
+    """Tests for environment-driven retry configuration."""
+
+    def test_effective_retry_config_ignores_invalid_env(self):
+        """Invalid env values should not raise and should keep defaults."""
+        with patch.dict(
+            os.environ,
+            {"MAX_RETRIES": "bad", "RETRY_BASE_DELAY": "nope", "RETRY_MAX_DELAY": "nanx"},
+            clear=False,
+        ):
+            cfg = _effective_retry_config()
+
+        assert cfg["max_retries"] == DEFAULT_RETRY_CONFIG["max_retries"]
+        assert cfg["base_delay"] == DEFAULT_RETRY_CONFIG["base_delay"]
+        assert cfg["max_delay"] == DEFAULT_RETRY_CONFIG["max_delay"]
