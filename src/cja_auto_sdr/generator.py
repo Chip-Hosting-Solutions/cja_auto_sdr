@@ -1226,13 +1226,14 @@ def add_profile_interactive(profile_name: str) -> bool:
             print("Error: Client ID is required")
             return False
 
-        # Use getpass for secret if available
-        try:
-            import getpass
+        # Use getpass for secret (never fall back to echoing input)
+        import getpass
 
+        try:
             secret = getpass.getpass("Client Secret: ").strip()
-        except ImportError, getpass.GetPassWarning:
-            secret = input("Client Secret: ").strip()
+        except getpass.GetPassWarning:
+            print("Error: Cannot securely read secret (no TTY available). Use --profile import instead.")
+            return False
 
         if not secret:
             print("Error: Client Secret is required")
@@ -1252,10 +1253,9 @@ def add_profile_interactive(profile_name: str) -> bool:
 
     config_file = profile_path / "config.json"
     try:
-        with open(config_file, "w") as f:
+        fd = os.open(str(config_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
-        # Set restrictive permissions
-        config_file.chmod(0o600)
     except OSError as e:
         print(f"Error writing config file: {e}")
         return False
@@ -1411,10 +1411,10 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     try:
         profile_path.mkdir(parents=True, exist_ok=True)
         config_path = profile_path / "config.json"
-        with open(config_path, "w", encoding="utf-8") as f:
+        fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
             json.dump(config_payload, f, indent=2)
             f.write("\n")
-        config_path.chmod(0o600)
     except OSError as e:
         print(f"Error writing profile config: {e}")
         return False
@@ -2444,7 +2444,7 @@ def write_html_output(
         html_parts.append('<div class="metadata">')
         html_parts.append("<h2>📋 Metadata</h2>")
         for key, value in metadata_dict.items():
-            safe_value = str(value).replace("<", "&lt;").replace(">", "&gt;")
+            safe_value = html.escape(str(value))
             html_parts.append(f"""
             <div class="metadata-item">
                 <span class="metadata-label">{key}:</span>
@@ -2473,7 +2473,7 @@ def write_html_output(
             html_parts.append(f"<h2>{icon} {sheet_name}</h2>")
 
             # Convert DataFrame to HTML with custom styling
-            df_html = df.to_html(index=False, escape=False, classes="data-table")
+            df_html = df.to_html(index=False, escape=True, classes="data-table")
 
             # Add severity-based row classes for Data Quality sheet
             if sheet_name == "Data Quality" and "Severity" in df.columns:
@@ -3801,6 +3801,7 @@ def write_diff_html_output(
     try:
         logger.info("Generating diff HTML output...")
 
+        _html_escape = html.escape  # Capture before nested functions shadow 'html'
         summary = diff_result.summary
         meta = diff_result.metadata_diff
         html_parts = []
@@ -4034,7 +4035,7 @@ def write_diff_html_output(
                 badge_class = f"badge-{diff.change_type.value}"
                 badge_text = diff.change_type.value.upper()
                 detail = _get_change_detail(diff)
-                detail_escaped = detail.replace("<", "&lt;").replace(">", "&gt;")
+                detail_escaped = _html_escape(detail)
 
                 html += f'''
                 <tr class="{row_class}">
@@ -4078,7 +4079,7 @@ def write_diff_html_output(
                     badge_class = f"badge-{diff.change_type.value}"
                     badge_text = diff.change_type.value.upper()
                     detail = _get_inventory_change_detail(diff)
-                    detail_escaped = detail.replace("<", "&lt;").replace(">", "&gt;")
+                    detail_escaped = _html_escape(detail)
 
                     html += f'''
                     <tr class="{row_class}">

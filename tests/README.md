@@ -44,10 +44,14 @@ tests/
 ├── test_utils.py                    # Utility function tests
 ├── test_ux_features.py              # UX enhancement features tests
 ├── test_validation_cache.py         # Validation caching tests
+├── test_e2e_integration.py          # End-to-end integration tests
+├── test_main_entry_points.py        # main() and _main_impl() entry point tests
+├── test_malformed_api_responses.py  # Negative tests for malformed API data
+├── test_output_content_validation.py # Output format content validation tests
 └── README.md                        # This file
 ```
 
-**Total: 1,431 comprehensive tests**
+**Total: 1,511 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -87,7 +91,11 @@ tests/
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 8 | Parallel validation operations |
 | `test_discovery_formatters.py` | 27 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
-| **Total** | **1,431** | **Collected via pytest --collect-only** |
+| `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
+| `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
+| `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
+| `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
+| **Total** | **1,511** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -491,7 +499,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,431 tests total)
+- [x] Comprehensive test coverage (1,511 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 47 tests
