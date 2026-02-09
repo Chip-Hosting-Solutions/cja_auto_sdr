@@ -124,7 +124,7 @@ class OrgReportLock:
             except OSError:
                 return False
 
-        except OSError, json.JSONDecodeError, KeyError:
+        except (OSError, json.JSONDecodeError, KeyError):
             # Corrupted lock file — remove and retry
             with contextlib.suppress(OSError):
                 os.unlink(str(self.lock_file))
@@ -135,7 +135,7 @@ class OrgReportLock:
                 finally:
                     os.close(fd)
                 return True
-            except OSError, FileExistsError:
+            except (OSError, FileExistsError):
                 return False
 
     def _release(self) -> None:
@@ -147,7 +147,7 @@ class OrgReportLock:
                     lock_data = json.load(f)
                 if lock_data.get("pid") == self._pid:
                     self.lock_file.unlink()
-        except OSError, json.JSONDecodeError, KeyError:
+        except (OSError, json.JSONDecodeError, KeyError):
             # Best effort removal
             with contextlib.suppress(Exception):
                 self.lock_file.unlink(missing_ok=True)
@@ -158,7 +158,7 @@ class OrgReportLock:
         try:
             os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
             return True
-        except OSError, ProcessLookupError:
+        except (OSError, ProcessLookupError):
             return False
 
     def get_lock_info(self) -> dict[str, Any] | None:
@@ -172,7 +172,7 @@ class OrgReportLock:
         try:
             with open(self.lock_file) as f:
                 return json.load(f)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return None
 
 
@@ -202,7 +202,7 @@ class OrgReportCache:
             try:
                 with open(self.cache_file, encoding="utf-8") as f:
                     self._cache = json.load(f)
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 self._cache = {}
 
     def _save_cache(self) -> None:
@@ -245,7 +245,7 @@ class OrgReportCache:
             fetched_time = datetime.fromisoformat(fetched_at)
             if datetime.now() - fetched_time > timedelta(hours=max_age_hours):
                 return None  # Cache is stale
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
         # Validate modification timestamp if provided
@@ -409,7 +409,7 @@ class OrgReportCache:
             fetched_time = datetime.fromisoformat(fetched_at)
             if datetime.now() - fetched_time > timedelta(hours=max_age_hours):
                 return False  # Cache is stale anyway
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return False
 
         return True

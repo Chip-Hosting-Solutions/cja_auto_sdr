@@ -165,7 +165,7 @@ class SnapshotManager:
                                 "dimensions_count": len(data.get("dimensions", [])),
                             }
                         )
-                except OSError, json.JSONDecodeError:
+                except (OSError, json.JSONDecodeError):
                     continue
 
         return sorted(snapshots, key=lambda x: x.get("created_at", ""), reverse=True)

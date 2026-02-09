@@ -17,7 +17,7 @@ def is_git_repository(path: Path) -> bool:
             ["git", "rev-parse", "--git-dir"], cwd=str(path), capture_output=True, text=True, timeout=10
         )
         return result.returncode == 0
-    except subprocess.TimeoutExpired, FileNotFoundError:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
 
 
@@ -30,14 +30,14 @@ def git_get_user_info() -> tuple[str, str]:
         result = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             name = result.stdout.strip()
-    except subprocess.TimeoutExpired, FileNotFoundError:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     try:
         result = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             email = result.stdout.strip()
-    except subprocess.TimeoutExpired, FileNotFoundError:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     return name, email

@@ -43,7 +43,7 @@ def format_iso_date(iso_date: str) -> str:
             dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%d %H:%M")
         return iso_date[:10]  # Just the date part
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return iso_date[:19] if len(iso_date) > 19 else iso_date
 
 
