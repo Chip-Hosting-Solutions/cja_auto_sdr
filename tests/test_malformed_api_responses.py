@@ -22,9 +22,11 @@ from cja_auto_sdr.generator import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def malformed_config(tmp_path):
     import json
+
     cfg = {"org_id": "x@AdobeOrg", "client_id": "x", "secret": "x", "scopes": "openid"}
     p = tmp_path / "cfg.json"
     p.write_text(json.dumps(cfg))
@@ -54,8 +56,9 @@ def _apply(func):
     return func
 
 
-def _setup_mocks(mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
-                 metrics_df, dimensions_df, dataview_info):
+def _setup_mocks(
+    mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class, metrics_df, dimensions_df, dataview_info
+):
     logger = logging.getLogger("malformed_test")
     logger.handlers = []
     logger.setLevel(logging.DEBUG)
@@ -74,67 +77,101 @@ def _setup_mocks(mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetch
 # Tests for API returning wrong types
 # ===================================================================
 
+
 class TestAPIReturnsWrongTypes:
     """API methods return unexpected types instead of DataFrames."""
 
     @_apply
     def test_metrics_as_list_instead_of_dataframe(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns a raw list instead of DataFrame for metrics."""
         raw_list = [
             {"id": "m1", "name": "Metric 1", "type": "int", "title": "M1", "description": "desc"},
         ]
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame(raw_list),  # Convert so fetcher returns valid DF
             pd.DataFrame([{"id": "d1", "name": "Dim 1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         assert result.success is True
         assert result.metrics_count == 1
 
     @_apply
     def test_dataview_info_missing_owner_key(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns dataview info without 'owner' key."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV"},  # No 'owner' key
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         assert result.success is True
 
     @_apply
     def test_dataview_info_is_empty_dict(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns an empty dict for dataview info."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {},  # Empty dataview info
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         assert result.success is True
         assert result.data_view_name == "Unknown"
@@ -144,95 +181,153 @@ class TestAPIReturnsWrongTypes:
 # Tests for DataFrames with unexpected schemas
 # ===================================================================
 
+
 class TestMalformedDataFrameSchemas:
     """DataFrames with missing, extra, or unexpected columns."""
 
     @_apply
     def test_metrics_missing_description_column(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """Metrics DF has no 'description' column at all."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1"}]),  # No description
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="csv", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="csv",
+            quiet=True,
         )
         # Should succeed with DQ issues about missing description column
         assert result.success is True
 
     @_apply
     def test_metrics_with_extra_unknown_columns(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """Metrics DF has extra columns the tool doesn't know about."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
-            pd.DataFrame([{
-                "id": "m1", "name": "M1", "type": "int", "title": "M1",
-                "description": "d", "unknown_field": "xyz", "another_new_field": 42,
-            }]),
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            pd.DataFrame(
+                [
+                    {
+                        "id": "m1",
+                        "name": "M1",
+                        "type": "int",
+                        "title": "M1",
+                        "description": "d",
+                        "unknown_field": "xyz",
+                        "another_new_field": 42,
+                    }
+                ]
+            ),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         assert result.success is True
         assert result.metrics_count == 1
 
     @_apply
     def test_dimensions_all_null_descriptions(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """All dimension descriptions are None."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
-            pd.DataFrame([
-                {"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": None},
-                {"id": "d2", "name": "D2", "type": "string", "title": "D2", "description": None},
-                {"id": "d3", "name": "D3", "type": "string", "title": "D3", "description": None},
-            ]),
+            pd.DataFrame(
+                [
+                    {"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": None},
+                    {"id": "d2", "name": "D2", "type": "string", "title": "D2", "description": None},
+                    {"id": "d3", "name": "D3", "type": "string", "title": "D3", "description": None},
+                ]
+            ),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="excel", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="excel",
+            quiet=True,
         )
         assert result.success is True
         assert result.dq_issues_count > 0  # Should flag null descriptions
 
     @_apply
     def test_metrics_with_mixed_types_in_columns(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """Columns have mixed types (int IDs, dict values, etc)."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
-            pd.DataFrame([
-                {"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": {"nested": "dict"}},
-                {"id": 12345, "name": "M2", "type": "int", "title": "M2", "description": ["a", "list"]},
-            ]),
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            pd.DataFrame(
+                [
+                    {"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": {"nested": "dict"}},
+                    {"id": 12345, "name": "M2", "type": "int", "title": "M2", "description": ["a", "list"]},
+                ]
+            ),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         # Should not crash — JSON formatting handles dicts/lists via format_json_cell
         assert result.success is True
@@ -242,13 +337,19 @@ class TestMalformedDataFrameSchemas:
 # Tests for API raising exceptions during fetch
 # ===================================================================
 
+
 class TestAPIExceptionsDuringFetch:
     """API methods raise various exceptions."""
 
     @_apply
     def test_fetcher_raises_connection_error(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """ParallelAPIFetcher.fetch_all_data raises ConnectionError."""
         logger = logging.getLogger("conn_err")
@@ -262,7 +363,9 @@ class TestAPIExceptionsDuringFetch:
         mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
             quiet=True,
         )
         assert result.success is False
@@ -270,8 +373,13 @@ class TestAPIExceptionsDuringFetch:
 
     @_apply
     def test_fetcher_raises_timeout_error(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """ParallelAPIFetcher.fetch_all_data raises TimeoutError."""
         logger = logging.getLogger("timeout_err")
@@ -285,15 +393,22 @@ class TestAPIExceptionsDuringFetch:
         mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
             quiet=True,
         )
         assert result.success is False
 
     @_apply
     def test_fetcher_raises_attribute_error(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """ParallelAPIFetcher.fetch_all_data raises AttributeError (API version mismatch)."""
         logger = logging.getLogger("attr_err")
@@ -307,7 +422,9 @@ class TestAPIExceptionsDuringFetch:
         mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
             quiet=True,
         )
         assert result.success is False
@@ -317,25 +434,37 @@ class TestAPIExceptionsDuringFetch:
 # Tests for partial API responses
 # ===================================================================
 
+
 class TestPartialAPIResponses:
     """API returns data for some components but not others."""
 
     @_apply
     def test_metrics_only_no_dimensions(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns metrics but empty dimensions."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame(),  # Empty dimensions
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         # Should succeed — having at least one component is enough
         assert result.success is True
@@ -344,20 +473,31 @@ class TestPartialAPIResponses:
 
     @_apply
     def test_dimensions_only_no_metrics(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns dimensions but empty metrics."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame(),  # Empty metrics
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="json", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
         )
         assert result.success is True
         assert result.metrics_count == 0
@@ -365,20 +505,31 @@ class TestPartialAPIResponses:
 
     @_apply
     def test_single_row_dataframes(
-        self, mock_fetcher_class, mock_validate_dv, mock_init_cja, mock_setup_logging,
-        malformed_config, output_dir,
+        self,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
     ):
         """API returns exactly one metric and one dimension."""
         _setup_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
 
         result = process_single_dataview(
-            data_view_id="dv_test", config_file=malformed_config, output_dir=output_dir,
-            output_format="excel", quiet=True,
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="excel",
+            quiet=True,
         )
         assert result.success is True
         assert result.metrics_count == 1
@@ -389,6 +540,7 @@ class TestPartialAPIResponses:
 # Tests for DataQualityChecker with malformed input
 # ===================================================================
 
+
 class TestDataQualityCheckerMalformedInput:
     """DataQualityChecker handles unexpected DataFrame shapes."""
 
@@ -398,9 +550,7 @@ class TestDataQualityCheckerMalformedInput:
         checker = DataQualityChecker(logger)
 
         df = pd.DataFrame({"foo": [1, 2], "bar": ["a", "b"], "baz": [True, False]})
-        checker.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
-        )
+        checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
 
         # Should produce critical issues about missing required fields
         assert len(checker.issues) > 0
@@ -412,9 +562,7 @@ class TestDataQualityCheckerMalformedInput:
         logger = logging.getLogger("dq_empty")
         checker = DataQualityChecker(logger)
 
-        checker.check_all_quality_issues_optimized(
-            pd.DataFrame(), "Metrics", ["id", "name", "type"], ["id", "name"]
-        )
+        checker.check_all_quality_issues_optimized(pd.DataFrame(), "Metrics", ["id", "name", "type"], ["id", "name"])
         # Should have critical issue about empty data
         assert len(checker.issues) > 0
 
@@ -424,9 +572,7 @@ class TestDataQualityCheckerMalformedInput:
         checker = DataQualityChecker(logger)
 
         df = pd.DataFrame({"id": [None, None], "name": [None, None], "type": [None, None]})
-        checker.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
-        )
+        checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         # Should not crash; should flag null issues
         assert len(checker.issues) > 0
 
@@ -436,15 +582,16 @@ class TestDataQualityCheckerMalformedInput:
         checker = DataQualityChecker(logger)
 
         import numpy as np
-        df = pd.DataFrame({
-            "id": ["m1", "m2"],
-            "name": ["Metric 1", np.nan],
-            "type": ["int", "int"],
-            "description": [np.nan, "desc"],
-        })
-        checker.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+
+        df = pd.DataFrame(
+            {
+                "id": ["m1", "m2"],
+                "name": ["Metric 1", np.nan],
+                "type": ["int", "int"],
+                "description": [np.nan, "desc"],
+            }
         )
+        checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         assert len(checker.issues) > 0
 
     def test_very_large_string_values(self):
@@ -452,15 +599,15 @@ class TestDataQualityCheckerMalformedInput:
         logger = logging.getLogger("dq_large")
         checker = DataQualityChecker(logger)
 
-        df = pd.DataFrame({
-            "id": ["m1"],
-            "name": ["A" * 10000],  # 10KB string
-            "type": ["int"],
-            "description": ["B" * 50000],  # 50KB string
-        })
-        checker.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+        df = pd.DataFrame(
+            {
+                "id": ["m1"],
+                "name": ["A" * 10000],  # 10KB string
+                "type": ["int"],
+                "description": ["B" * 50000],  # 50KB string
+            }
         )
+        checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         # Should not crash or hang
         assert isinstance(checker.issues, list)
 
@@ -471,8 +618,6 @@ class TestDataQualityCheckerMalformedInput:
 
         # Create DataFrame with duplicate column via construction trick
         df = pd.DataFrame([[1, "a", "int", "desc", "extra"]], columns=["id", "name", "type", "description", "name"])
-        checker.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
-        )
+        checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         # Should not crash
         assert isinstance(checker.issues, list)

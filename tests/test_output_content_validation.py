@@ -30,38 +30,71 @@ XLSX_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def rich_data_dict():
     """Data dict with varied types, nulls, and special characters."""
     return {
-        "Metadata": pd.DataFrame({
-            "Property": ["Generated At", "Data View ID", "Tool Version", "Total Metrics"],
-            "Value": ["2025-01-15 10:30:00 PST", "dv_content_test", "3.2.2", 3],
-        }),
-        "Data Quality": pd.DataFrame([
-            {"Severity": "HIGH", "Category": "Duplicates", "Type": "Metrics",
-             "Item Name": "Revenue", "Issue": "Duplicate name", "Details": "Appears 2 times"},
-            {"Severity": "MEDIUM", "Category": "Null Values", "Type": "Dimensions",
-             "Item Name": "Region", "Issue": "Missing description", "Details": "1 item"},
-            {"Severity": "LOW", "Category": "Missing Descriptions", "Type": "Metrics",
-             "Item Name": "Bounce Rate", "Issue": "No description", "Details": "Consider adding"},
-        ]),
-        "DataView Details": pd.DataFrame({
-            "Property": ["Name", "ID", "Owner"],
-            "Value": ["Test DataView", "dv_content_test", "Test Owner"],
-        }),
-        "Metrics": pd.DataFrame([
-            {"id": "m1", "name": "Page Views", "type": "int", "description": "Total page views"},
-            {"id": "m2", "name": "Revenue", "type": "currency", "description": None},
-            {"id": "m3", "name": "Bounce Rate", "type": "percent", "description": ""},
-        ]),
-        "Dimensions": pd.DataFrame([
-            {"id": "d1", "name": "Page Name", "type": "string", "description": "URL path"},
-            {"id": "d2", "name": "Browser", "type": "string", "description": "User agent"},
-            {"id": "d3", "name": "Region", "type": "string", "description": None},
-            {"id": "d4", "name": "OS & Device <Type>", "type": "string",
-             "description": 'Contains "quotes" & <angles>'},
-        ]),
+        "Metadata": pd.DataFrame(
+            {
+                "Property": ["Generated At", "Data View ID", "Tool Version", "Total Metrics"],
+                "Value": ["2025-01-15 10:30:00 PST", "dv_content_test", "3.2.2", 3],
+            }
+        ),
+        "Data Quality": pd.DataFrame(
+            [
+                {
+                    "Severity": "HIGH",
+                    "Category": "Duplicates",
+                    "Type": "Metrics",
+                    "Item Name": "Revenue",
+                    "Issue": "Duplicate name",
+                    "Details": "Appears 2 times",
+                },
+                {
+                    "Severity": "MEDIUM",
+                    "Category": "Null Values",
+                    "Type": "Dimensions",
+                    "Item Name": "Region",
+                    "Issue": "Missing description",
+                    "Details": "1 item",
+                },
+                {
+                    "Severity": "LOW",
+                    "Category": "Missing Descriptions",
+                    "Type": "Metrics",
+                    "Item Name": "Bounce Rate",
+                    "Issue": "No description",
+                    "Details": "Consider adding",
+                },
+            ]
+        ),
+        "DataView Details": pd.DataFrame(
+            {
+                "Property": ["Name", "ID", "Owner"],
+                "Value": ["Test DataView", "dv_content_test", "Test Owner"],
+            }
+        ),
+        "Metrics": pd.DataFrame(
+            [
+                {"id": "m1", "name": "Page Views", "type": "int", "description": "Total page views"},
+                {"id": "m2", "name": "Revenue", "type": "currency", "description": None},
+                {"id": "m3", "name": "Bounce Rate", "type": "percent", "description": ""},
+            ]
+        ),
+        "Dimensions": pd.DataFrame(
+            [
+                {"id": "d1", "name": "Page Name", "type": "string", "description": "URL path"},
+                {"id": "d2", "name": "Browser", "type": "string", "description": "User agent"},
+                {"id": "d3", "name": "Region", "type": "string", "description": None},
+                {
+                    "id": "d4",
+                    "name": "OS & Device <Type>",
+                    "type": "string",
+                    "description": 'Contains "quotes" & <angles>',
+                },
+            ]
+        ),
     }
 
 
@@ -80,6 +113,7 @@ def rich_metadata_dict():
 # ===================================================================
 # CSV content validation
 # ===================================================================
+
 
 class TestCSVContentValidation:
     """Validate CSV files are parseable with correct data."""
@@ -131,6 +165,7 @@ class TestCSVContentValidation:
 # ===================================================================
 # JSON content validation
 # ===================================================================
+
 
 class TestJSONContentValidation:
     """Validate JSON files have correct structure and data."""
@@ -196,6 +231,7 @@ class TestJSONContentValidation:
 # HTML content validation
 # ===================================================================
 
+
 class TestHTMLContentValidation:
     """Validate HTML files contain correct, escaped data."""
 
@@ -260,6 +296,7 @@ class TestHTMLContentValidation:
 # Excel content validation
 # ===================================================================
 
+
 class TestExcelContentValidation:
     """Validate Excel files have correct sheets and data."""
 
@@ -273,10 +310,7 @@ class TestExcelContentValidation:
             if "xl/sharedStrings.xml" not in zf.namelist():
                 return []
             root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
-        return [
-            "".join(t.text or "" for t in si.findall(".//x:t", XLSX_NS))
-            for si in root.findall("x:si", XLSX_NS)
-        ]
+        return ["".join(t.text or "" for t in si.findall(".//x:t", XLSX_NS)) for si in root.findall("x:si", XLSX_NS)]
 
     def test_excel_has_all_expected_sheets(self, tmp_path, rich_data_dict):
         logger = logging.getLogger("excel_test")
@@ -316,6 +350,7 @@ class TestExcelContentValidation:
 # ===================================================================
 # Markdown content validation
 # ===================================================================
+
 
 class TestMarkdownContentValidation:
     """Validate Markdown files have correct tables and content."""
@@ -357,9 +392,9 @@ class TestMarkdownContentValidation:
         """Values containing | should be escaped in markdown tables."""
         logger = logging.getLogger("md_test")
         data_dict = {
-            "Metrics": pd.DataFrame([
-                {"id": "m1", "name": "Rate | Percentage", "type": "int", "description": "Has | pipe"}
-            ])
+            "Metrics": pd.DataFrame(
+                [{"id": "m1", "name": "Rate | Percentage", "type": "int", "description": "Has | pipe"}]
+            )
         }
         path = write_markdown_output(data_dict, rich_metadata_dict, "test", str(tmp_path), logger)
 
@@ -373,6 +408,7 @@ class TestMarkdownContentValidation:
 # ===================================================================
 # Cross-format consistency
 # ===================================================================
+
 
 class TestCrossFormatConsistency:
     """Verify data is consistent across output formats."""

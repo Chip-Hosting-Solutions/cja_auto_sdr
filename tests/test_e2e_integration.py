@@ -54,92 +54,96 @@ def e2e_output_dir(tmp_path):
 @pytest.fixture
 def e2e_metrics_df():
     """Realistic metrics DataFrame with varied types and edge cases."""
-    return pd.DataFrame([
-        {
-            "id": "metrics/page_views",
-            "name": "Page Views",
-            "type": "int",
-            "title": "Page Views",
-            "description": "Total page views across all pages",
-        },
-        {
-            "id": "metrics/visits",
-            "name": "Visits",
-            "type": "int",
-            "title": "Visits",
-            "description": "Total number of visits",
-        },
-        {
-            "id": "metrics/revenue",
-            "name": "Revenue",
-            "type": "currency",
-            "title": "Revenue",
-            "description": None,  # Missing description — triggers DQ issue
-        },
-        {
-            "id": "metrics/bounce_rate",
-            "name": "Bounce Rate",
-            "type": "percent",
-            "title": "Bounce Rate",
-            "description": "Session bounce rate",
-        },
-        {
-            "id": "metrics/cart_adds",
-            "name": "Cart Additions",
-            "type": "int",
-            "title": "Cart Additions",
-            "description": "Items added to cart",
-        },
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "id": "metrics/page_views",
+                "name": "Page Views",
+                "type": "int",
+                "title": "Page Views",
+                "description": "Total page views across all pages",
+            },
+            {
+                "id": "metrics/visits",
+                "name": "Visits",
+                "type": "int",
+                "title": "Visits",
+                "description": "Total number of visits",
+            },
+            {
+                "id": "metrics/revenue",
+                "name": "Revenue",
+                "type": "currency",
+                "title": "Revenue",
+                "description": None,  # Missing description — triggers DQ issue
+            },
+            {
+                "id": "metrics/bounce_rate",
+                "name": "Bounce Rate",
+                "type": "percent",
+                "title": "Bounce Rate",
+                "description": "Session bounce rate",
+            },
+            {
+                "id": "metrics/cart_adds",
+                "name": "Cart Additions",
+                "type": "int",
+                "title": "Cart Additions",
+                "description": "Items added to cart",
+            },
+        ]
+    )
 
 
 @pytest.fixture
 def e2e_dimensions_df():
     """Realistic dimensions DataFrame with duplicates and edge cases."""
-    return pd.DataFrame([
-        {
-            "id": "dimensions/page",
-            "name": "Page Name",
-            "type": "string",
-            "title": "Page Name",
-            "description": "Page URL path",
-        },
-        {
-            "id": "dimensions/browser",
-            "name": "Browser",
-            "type": "string",
-            "title": "Browser",
-            "description": "User's web browser",
-        },
-        {
-            "id": "dimensions/region",
-            "name": "Region",
-            "type": "string",
-            "title": "Region",
-            "description": "",  # Empty description — triggers DQ issue
-        },
-        {
-            "id": "dimensions/device_type",
-            "name": "Device Type",
-            "type": "string",
-            "title": "Device Type",
-            "description": "Mobile, Desktop, or Tablet",
-        },
-        {
-            "id": "dimensions/marketing_channel",
-            "name": "Page Name",  # Duplicate name — triggers DQ issue
-            "type": "string",
-            "title": "Marketing Channel",
-            "description": "Traffic source classification",
-        },
-        {
-            "id": "dimensions/os",
-            "name": "Operating System",
-            "type": "string",
-            "title": "Operating System",
-            "description": "OS with <special> & \"chars\"",  # Special chars
-        },
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "id": "dimensions/page",
+                "name": "Page Name",
+                "type": "string",
+                "title": "Page Name",
+                "description": "Page URL path",
+            },
+            {
+                "id": "dimensions/browser",
+                "name": "Browser",
+                "type": "string",
+                "title": "Browser",
+                "description": "User's web browser",
+            },
+            {
+                "id": "dimensions/region",
+                "name": "Region",
+                "type": "string",
+                "title": "Region",
+                "description": "",  # Empty description — triggers DQ issue
+            },
+            {
+                "id": "dimensions/device_type",
+                "name": "Device Type",
+                "type": "string",
+                "title": "Device Type",
+                "description": "Mobile, Desktop, or Tablet",
+            },
+            {
+                "id": "dimensions/marketing_channel",
+                "name": "Page Name",  # Duplicate name — triggers DQ issue
+                "type": "string",
+                "title": "Marketing Channel",
+                "description": "Traffic source classification",
+            },
+            {
+                "id": "dimensions/os",
+                "name": "Operating System",
+                "type": "string",
+                "title": "Operating System",
+                "description": 'OS with <special> & "chars"',  # Special chars
+            },
+        ]
+    )
 
 
 @pytest.fixture
@@ -203,6 +207,7 @@ def _apply_patches(func):
 # Excel helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_excel_sheet_names(file_path: str) -> list[str]:
     with zipfile.ZipFile(file_path) as zf:
         root = ET.fromstring(zf.read("xl/workbook.xml"))
@@ -214,15 +219,13 @@ def _get_excel_shared_strings(file_path: str) -> list[str]:
         if "xl/sharedStrings.xml" not in zf.namelist():
             return []
         root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
-    return [
-        "".join(t.text or "" for t in si.findall(".//x:t", XLSX_NS))
-        for si in root.findall("x:si", XLSX_NS)
-    ]
+    return ["".join(t.text or "" for t in si.findall(".//x:t", XLSX_NS)) for si in root.findall("x:si", XLSX_NS)]
 
 
 # ===================================================================
 # Test class
 # ===================================================================
+
 
 class TestEndToEndPipeline:
     """Full pipeline integration tests — mock API only, real everything else."""
@@ -243,8 +246,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -296,8 +304,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -352,8 +365,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -415,8 +433,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -465,8 +488,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -509,8 +537,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -551,8 +584,13 @@ class TestEndToEndPipeline:
     ):
         """Verify the real DataQualityChecker finds issues in our test data."""
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -589,8 +627,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -623,8 +666,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -761,8 +809,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -793,8 +846,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         result = process_single_dataview(
@@ -827,8 +885,13 @@ class TestEndToEndPipeline:
         e2e_dataview_info,
     ):
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         # First run without limit to get total issues
@@ -877,8 +940,13 @@ class TestEndToEndPipeline:
     ):
         """Verify special chars (HTML entities, quotes) don't corrupt output."""
         _setup_api_mocks(
-            mock_setup_logging, mock_init_cja, mock_validate_dv,
-            mock_fetcher_class, e2e_metrics_df, e2e_dimensions_df, e2e_dataview_info,
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            e2e_metrics_df,
+            e2e_dimensions_df,
+            e2e_dataview_info,
         )
 
         # Test HTML — our fixture has description with <special> & "chars"

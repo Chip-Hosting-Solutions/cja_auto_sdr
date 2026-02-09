@@ -95,23 +95,18 @@ class TestValidationCache:
 
             # Store result
             cache.put(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"],
-                [{"test": "issue"}]
+                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"], [{"test": "issue"}]
             )
 
             # Should be cached immediately
-            result, _ = cache.get(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
-            )
+            result, _ = cache.get(sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
             assert result is not None
 
             # Advance time past TTL
             fake_now[0] += 1.5
 
             # Should be expired now
-            result, _ = cache.get(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
-            )
+            result, _ = cache.get(sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
             assert result is None
 
     def test_lru_eviction(self):
