@@ -166,7 +166,7 @@ class TestJSONContentValidation:
         with open(path) as f:
             data = json.load(f)
 
-        revenue = [m for m in data["metrics"] if m["id"] == "m2"][0]
+        revenue = next(m for m in data["metrics"] if m["id"] == "m2")
         # None should be preserved as JSON null, not the string "None"
         assert revenue["description"] is None or revenue["description"] == ""
 

@@ -6,7 +6,6 @@ writers all produce actual files on disk which are then parsed and
 validated for correctness.
 """
 
-import csv
 import json
 import logging
 import os
@@ -892,7 +891,7 @@ class TestEndToEndPipeline:
         )
         assert result.success is True
 
-        html_file = [f for f in os.listdir(e2e_output_dir) if f.endswith(".html")][0]
+        html_file = next(f for f in os.listdir(e2e_output_dir) if f.endswith(".html"))
         with open(os.path.join(e2e_output_dir, html_file), encoding="utf-8") as f:
             html_content = f.read()
 
@@ -913,7 +912,7 @@ class TestEndToEndPipeline:
         )
         assert result_json.success is True
 
-        json_file = [f for f in os.listdir(json_dir) if f.endswith(".json")][0]
+        json_file = next(f for f in os.listdir(json_dir) if f.endswith(".json"))
         with open(os.path.join(json_dir, json_file), encoding="utf-8") as f:
             data = json.load(f)
 

@@ -15,10 +15,8 @@ import pytest
 
 from cja_auto_sdr.generator import (
     DataQualityChecker,
-    ProcessingResult,
     process_single_dataview,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

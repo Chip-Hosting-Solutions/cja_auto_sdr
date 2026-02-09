@@ -9,7 +9,7 @@ import os
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
