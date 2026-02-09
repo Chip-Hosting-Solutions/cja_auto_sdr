@@ -1,5 +1,7 @@
 """Inventory summary mode (current implementation lives in generator)."""
 
+from __future__ import annotations
+
 __all__ = ["display_inventory_summary"]
 
 from cja_auto_sdr.core.lazy import make_getattr

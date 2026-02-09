@@ -1,5 +1,7 @@
 """CLI command handlers (current implementation lives in generator)."""
 
+from __future__ import annotations
+
 __all__ = [
     "generate_sample_config",
     "list_dataviews",

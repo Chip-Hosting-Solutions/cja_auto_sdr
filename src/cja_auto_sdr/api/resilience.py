@@ -4,6 +4,8 @@ This module provides error handling, circuit breaker, and retry logic
 for robust API communication.
 """
 
+from __future__ import annotations
+
 import functools
 import logging
 import os

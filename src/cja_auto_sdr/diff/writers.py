@@ -1,5 +1,7 @@
 """Diff output writers (current implementation lives in generator for compatibility)."""
 
+from __future__ import annotations
+
 __all__ = [
     "write_diff_console_output",
     "write_diff_csv_output",

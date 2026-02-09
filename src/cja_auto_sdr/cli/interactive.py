@@ -1,5 +1,7 @@
 """Interactive CLI flows (current implementation lives in generator)."""
 
+from __future__ import annotations
+
 __all__ = [
     "interactive_select_dataviews",
     "interactive_wizard",

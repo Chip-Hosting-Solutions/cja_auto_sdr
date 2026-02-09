@@ -1,5 +1,7 @@
 """Batch processing (current implementation lives in generator)."""
 
+from __future__ import annotations
+
 __all__ = ["BatchProcessor"]
 
 from cja_auto_sdr.core.lazy import make_getattr

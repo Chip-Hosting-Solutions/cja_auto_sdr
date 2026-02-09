@@ -1,5 +1,7 @@
 """Data quality validation for CJA Auto SDR."""
 
+from __future__ import annotations
+
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed

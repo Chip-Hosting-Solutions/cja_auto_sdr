@@ -1,5 +1,7 @@
 """Parallel API data fetching for CJA Auto SDR."""
 
+from __future__ import annotations
+
 import logging
 import time
 from collections.abc import Callable

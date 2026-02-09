@@ -1,5 +1,7 @@
 """CLI module - Command-line interface components."""
 
+from __future__ import annotations
+
 from cja_auto_sdr.cli.commands import (
     generate_sample_config,
     list_dataviews,

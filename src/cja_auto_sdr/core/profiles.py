@@ -1,5 +1,7 @@
 """Profile management helpers (current implementation lives in generator)."""
 
+from __future__ import annotations
+
 __all__ = [
     "add_profile_interactive",
     "get_cja_home",

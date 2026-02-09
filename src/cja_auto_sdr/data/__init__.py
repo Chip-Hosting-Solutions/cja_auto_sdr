@@ -12,6 +12,8 @@ Example usage:
     from cja_auto_sdr.data import ProcessingResult, DiffSummary
 """
 
+from __future__ import annotations
+
 # Deferred imports to avoid circular import with generator.py
 # Will be populated when code is fully extracted
 
