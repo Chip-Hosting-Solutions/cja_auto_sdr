@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Credential file race condition**: Profile creation and import now use atomic `os.open()` with `0o600` permissions instead of `open()` followed by `chmod()`, closing the window where credentials were world-readable
 - **SharedValidationCache resource leak**: Added `atexit.register(self.shutdown)` so the multiprocessing manager is cleaned up even if `shutdown()` is never called explicitly
 - **Secret echo on headless systems**: Removed `getpass` fallback that silently used `input()` (echoing secrets to terminal); now prints an error and returns `False` when no TTY is available
+- **Git snapshot commit safety**: `git_commit_snapshot()` now stages only snapshot paths for the targeted data view ID instead of `git add .`, preventing unrelated repository changes from being committed
+- **Git init false-success path**: `git_init_snapshot_repo()` now checks and propagates `git add` / `git commit` failures instead of reporting initialization success when either command fails
+- **Org-report lock liveness**: `OrgReportLock._is_process_running()` now treats `PermissionError`/EPERM as process-alive to avoid stale-lock takeover of active runs
+- **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
+- **Retry env parsing hard-failures**: Invalid `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults in both CLI parsing and runtime retry configuration
+- **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
+- **Org cache observability**: `OrgReportCache` now logs warnings on cache load/save failures instead of silently swallowing I/O errors
+- **Snapshot diff guidance typo**: Corrected invalid remediation command shown for missing inventory snapshot data (removed nonexistent `--sdr` flag)
 
 ### Tests
 - Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)
@@ -37,7 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `test_malformed_api_responses.py` — 19 negative tests for malformed API data (wrong types, missing columns, exceptions, partial responses)
 - Added `test_output_content_validation.py` — 26 tests validating output file content across CSV, JSON, HTML, Excel, and Markdown formats (roundtrip correctness, escaping, cross-format consistency)
 - Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
-- **1,511 tests** (1,509 passing, 2 skipped) — up from 1,431
+- Added targeted regression tests for:
+  - Git init failure propagation and data-view-scoped staging behavior
+  - Org lock PermissionError liveness semantics
+  - Org cache save warning visibility
+  - Invalid retry env var fallback behavior (CLI + runtime)
+  - Batch cancellation/shutdown behavior on exception and interrupt paths
+- **1,522 tests** (1,520 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient
