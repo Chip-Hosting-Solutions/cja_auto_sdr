@@ -313,7 +313,9 @@ class TestBatchProcessorProcessBatch:
         mock_executor.return_value = mock_executor_instance
 
         with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
-            processor = BatchProcessor(config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=False)
+            processor = BatchProcessor(
+                config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=False
+            )
             processor.process_batch(["dv_test_12345"])
 
         mock_future.cancel.assert_called()

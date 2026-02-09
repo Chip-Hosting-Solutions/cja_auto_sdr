@@ -6220,7 +6220,9 @@ class BatchProcessor:
             # Process with ProcessPoolExecutor for true parallelism
             with ProcessPoolExecutor(max_workers=self.workers) as executor:
                 # Submit all tasks
-                future_to_dv = {executor.submit(process_single_dataview_worker, wa): wa.data_view_id for wa in worker_args}
+                future_to_dv = {
+                    executor.submit(process_single_dataview_worker, wa): wa.data_view_id for wa in worker_args
+                }
 
                 # Collect results as they complete with progress bar
                 with tqdm(
@@ -6611,7 +6613,7 @@ def _safe_env_number(env_var: str, default: int | float, cast: Callable[[str], i
         return default
     try:
         return cast(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -15148,7 +15150,9 @@ def main():
     exit_code = 0
 
     redirect_stdout_for_run_summary = run_state.get("run_summary_output") in ("-", "stdout")
-    run_context = contextlib.redirect_stdout(sys.stderr) if redirect_stdout_for_run_summary else contextlib.nullcontext()
+    run_context = (
+        contextlib.redirect_stdout(sys.stderr) if redirect_stdout_for_run_summary else contextlib.nullcontext()
+    )
 
     try:
         with run_context:
