@@ -6216,78 +6216,80 @@ class BatchProcessor:
             for dv_id in data_view_ids
         ]
 
-        # Process with ProcessPoolExecutor for true parallelism
-        with ProcessPoolExecutor(max_workers=self.workers) as executor:
-            # Submit all tasks
-            future_to_dv = {executor.submit(process_single_dataview_worker, wa): wa.data_view_id for wa in worker_args}
+        try:
+            # Process with ProcessPoolExecutor for true parallelism
+            with ProcessPoolExecutor(max_workers=self.workers) as executor:
+                # Submit all tasks
+                future_to_dv = {executor.submit(process_single_dataview_worker, wa): wa.data_view_id for wa in worker_args}
 
-            # Collect results as they complete with progress bar
-            with tqdm(
-                total=len(data_view_ids),
-                desc="Processing data views",
-                unit="view",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-                disable=self.quiet,
-            ) as pbar:
-                for future in as_completed(future_to_dv):
-                    dv_id = future_to_dv[future]
-                    try:
-                        result = future.result()
+                # Collect results as they complete with progress bar
+                with tqdm(
+                    total=len(data_view_ids),
+                    desc="Processing data views",
+                    unit="view",
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                    disable=self.quiet,
+                ) as pbar:
+                    for future in as_completed(future_to_dv):
+                        dv_id = future_to_dv[future]
+                        try:
+                            result = future.result()
 
-                        if result.success:
-                            results["successful"].append(result)
-                            pbar.set_postfix_str(f"✓ {dv_id[:20]}", refresh=True)
-                            self.logger.info(f"[{self.batch_id}] ✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
-                        else:
-                            results["failed"].append(result)
-                            pbar.set_postfix_str(f"✗ {dv_id[:20]}", refresh=True)
-                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: FAILED - {result.error_message}")
+                            if result.success:
+                                results["successful"].append(result)
+                                pbar.set_postfix_str(f"✓ {dv_id[:20]}", refresh=True)
+                                self.logger.info(f"[{self.batch_id}] ✓ {dv_id}: SUCCESS ({result.duration:.1f}s)")
+                            else:
+                                results["failed"].append(result)
+                                pbar.set_postfix_str(f"✗ {dv_id[:20]}", refresh=True)
+                                self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: FAILED - {result.error_message}")
+
+                                if not self.continue_on_error:
+                                    self.logger.warning(
+                                        f"[{self.batch_id}] Stopping batch processing due to error (use --continue-on-error to continue)"
+                                    )
+                                    # Cancel remaining tasks
+                                    for f in future_to_dv:
+                                        f.cancel()
+                                    break
+
+                        except KeyboardInterrupt, SystemExit:
+                            # Allow graceful shutdown on Ctrl+C
+                            self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
+                            for f in future_to_dv:
+                                f.cancel()
+                            raise
+                        except Exception as e:
+                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
+                            results["failed"].append(
+                                ProcessingResult(
+                                    data_view_id=dv_id,
+                                    data_view_name="Unknown",
+                                    success=False,
+                                    duration=0,
+                                    error_message=str(e),
+                                )
+                            )
 
                             if not self.continue_on_error:
-                                self.logger.warning(
-                                    f"[{self.batch_id}] Stopping batch processing due to error (use --continue-on-error to continue)"
-                                )
-                                # Cancel remaining tasks
+                                self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
                                 for f in future_to_dv:
                                     f.cancel()
                                 break
 
-                    except KeyboardInterrupt, SystemExit:
-                        # Allow graceful shutdown on Ctrl+C
-                        self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
-                        for f in future_to_dv:
-                            f.cancel()
-                        raise
-                    except Exception as e:
-                        self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
-                        results["failed"].append(
-                            ProcessingResult(
-                                data_view_id=dv_id,
-                                data_view_name="Unknown",
-                                success=False,
-                                duration=0,
-                                error_message=str(e),
-                            )
-                        )
-
-                        if not self.continue_on_error:
-                            self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
-                            break
-
-                    pbar.update(1)
+                        pbar.update(1)
+        finally:
+            # Log shared cache statistics and always cleanup resources.
+            if self._shared_cache is not None:
+                cache_stats = self._shared_cache.get_statistics()
+                self.logger.info(
+                    f"[{self.batch_id}] Shared cache stats: {cache_stats['hits']} hits, "
+                    f"{cache_stats['misses']} misses ({cache_stats['hit_rate']:.1f}% hit rate)"
+                )
+                self._shared_cache.shutdown()
+                self._shared_cache = None
 
         results["total_duration"] = time.time() - batch_start_time
-
-        # Log shared cache statistics if enabled
-        if self._shared_cache is not None:
-            cache_stats = self._shared_cache.get_statistics()
-            self.logger.info(
-                f"[{self.batch_id}] Shared cache stats: {cache_stats['hits']} hits, "
-                f"{cache_stats['misses']} misses ({cache_stats['hit_rate']:.1f}% hit rate)"
-            )
-            # Cleanup shared cache resources
-            self._shared_cache.shutdown()
-            self._shared_cache = None
 
         # Print summary
         self.print_summary(results)
@@ -6602,6 +6604,17 @@ def _bounded_float(min_val: float, max_val: float):
     return _type
 
 
+def _safe_env_number(env_var: str, default: int | float, cast: Callable[[str], int | float]) -> int | float:
+    """Read a numeric env var and fall back to default when invalid."""
+    raw = os.environ.get(env_var)
+    if raw is None:
+        return default
+    try:
+        return cast(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def parse_arguments(
     argv: list[str] | None = None, *, return_parser: bool = False, enable_autocomplete: bool = True
 ) -> argparse.Namespace | argparse.ArgumentParser:
@@ -6869,21 +6882,21 @@ Requirements:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=int(os.environ.get("MAX_RETRIES", DEFAULT_RETRY_CONFIG["max_retries"])),
+        default=int(_safe_env_number("MAX_RETRIES", DEFAULT_RETRY_CONFIG["max_retries"], int)),
         help=f"Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG['max_retries']}, or MAX_RETRIES env var)",
     )
 
     parser.add_argument(
         "--retry-base-delay",
         type=float,
-        default=float(os.environ.get("RETRY_BASE_DELAY", DEFAULT_RETRY_CONFIG["base_delay"])),
+        default=float(_safe_env_number("RETRY_BASE_DELAY", DEFAULT_RETRY_CONFIG["base_delay"], float)),
         help=f"Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['base_delay']}, or RETRY_BASE_DELAY env var)",
     )
 
     parser.add_argument(
         "--retry-max-delay",
         type=float,
-        default=float(os.environ.get("RETRY_MAX_DELAY", DEFAULT_RETRY_CONFIG["max_delay"])),
+        default=float(_safe_env_number("RETRY_MAX_DELAY", DEFAULT_RETRY_CONFIG["max_delay"], float)),
         help=f"Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['max_delay']}, or RETRY_MAX_DELAY env var)",
     )
 
@@ -12816,7 +12829,7 @@ def handle_diff_snapshot_command(
                 flags.append("--include-calculated")
             if include_segments:
                 flags.append("--include-segments")
-            print(f"  cja-auto-sdr --sdr {data_view_id} {' '.join(flags)} --auto-snapshot", file=sys.stderr)
+            print(f"  cja_auto_sdr {data_view_id} {' '.join(flags)} --auto-snapshot", file=sys.stderr)
             return False, False, None
 
         # Initialize CJA with profile support
@@ -15134,25 +15147,12 @@ def main():
     }
     exit_code = 0
 
-    class _CapturedMainExit(Exception):
-        def __init__(self, code: Any = 0):
-            self.code = code
-
-    original_sys_exit = sys.exit
-    original_sys_stdout = sys.stdout
     redirect_stdout_for_run_summary = run_state.get("run_summary_output") in ("-", "stdout")
+    run_context = contextlib.redirect_stdout(sys.stderr) if redirect_stdout_for_run_summary else contextlib.nullcontext()
 
-    def _captured_sys_exit(code: Any = 0) -> NoReturn:
-        raise _CapturedMainExit(code)
-
-    sys.exit = _captured_sys_exit
-    if redirect_stdout_for_run_summary:
-        sys.stdout = sys.stderr
     try:
-        _main_impl(run_state=run_state)
-    except _CapturedMainExit as exc:
-        exit_code = _normalize_exit_code(exc.code)
-        raise SystemExit(exc.code) from exc
+        with run_context:
+            _main_impl(run_state=run_state)
     except KeyboardInterrupt:
         exit_code = 130
         raise
@@ -15163,8 +15163,6 @@ def main():
         exit_code = 1
         raise
     finally:
-        sys.exit = original_sys_exit
-        sys.stdout = original_sys_stdout
         run_summary_output = run_state.get("run_summary_output")
         if run_summary_output:
             serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]

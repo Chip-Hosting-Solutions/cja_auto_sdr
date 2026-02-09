@@ -390,6 +390,39 @@ class TestGitInitSnapshotRepo:
         assert "metrics.json" in content
         assert "dimensions.json" in content
 
+    @patch("cja_auto_sdr.diff.git.git_get_user_info", return_value=("Test User", "test@example.com"))
+    @patch("cja_auto_sdr.diff.git.is_git_repository", return_value=False)
+    @patch("cja_auto_sdr.diff.git.subprocess.run")
+    def test_init_fails_when_git_add_fails(self, mock_run, _mock_is_repo, _mock_user_info, tmp_path):
+        """Test that git add failures are surfaced during init."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stderr="", stdout=""),  # git init
+            MagicMock(returncode=0, stderr="", stdout=""),  # git config user.name
+            MagicMock(returncode=0, stderr="", stdout=""),  # git config user.email
+            MagicMock(returncode=1, stderr="add failed", stdout=""),  # git add
+        ]
+
+        success, message = git_init_snapshot_repo(tmp_path)
+        assert success is False
+        assert "git add failed" in message
+
+    @patch("cja_auto_sdr.diff.git.git_get_user_info", return_value=("Test User", "test@example.com"))
+    @patch("cja_auto_sdr.diff.git.is_git_repository", return_value=False)
+    @patch("cja_auto_sdr.diff.git.subprocess.run")
+    def test_init_fails_when_git_commit_fails(self, mock_run, _mock_is_repo, _mock_user_info, tmp_path):
+        """Test that git commit failures are surfaced during init."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stderr="", stdout=""),  # git init
+            MagicMock(returncode=0, stderr="", stdout=""),  # git config user.name
+            MagicMock(returncode=0, stderr="", stdout=""),  # git config user.email
+            MagicMock(returncode=0, stderr="", stdout=""),  # git add
+            MagicMock(returncode=1, stderr="commit failed", stdout=""),  # git commit
+        ]
+
+        success, message = git_init_snapshot_repo(tmp_path)
+        assert success is False
+        assert "git commit failed" in message
+
 
 class TestGitCommitSnapshot:
     """Tests for git_commit_snapshot function."""
@@ -401,8 +434,10 @@ class TestGitCommitSnapshot:
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
 
-        # Create a file to commit
-        test_file = tmp_path / "test.json"
+        # Create a snapshot-style directory to commit
+        dv_dir = tmp_path / "Test_DV_dv_12345"
+        dv_dir.mkdir()
+        test_file = dv_dir / "metadata.json"
         test_file.write_text('{"test": "data"}')
 
         success, result = git_commit_snapshot(
@@ -424,7 +459,9 @@ class TestGitCommitSnapshot:
         subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
-        test_file = tmp_path / "test.json"
+        dv_dir = tmp_path / "Test_DV_dv_12345"
+        dv_dir.mkdir()
+        test_file = dv_dir / "metadata.json"
         test_file.write_text('{"test": "data"}')
         subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True)
         subprocess.run(["git", "commit", "-m", "Initial"], cwd=str(tmp_path), capture_output=True)
@@ -453,7 +490,9 @@ class TestGitCommitSnapshot:
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
 
-        test_file = tmp_path / "test.json"
+        dv_dir = tmp_path / "Test_DV_dv_12345"
+        dv_dir.mkdir()
+        test_file = dv_dir / "metadata.json"
         test_file.write_text('{"test": "data"}')
 
         git_commit_snapshot(
@@ -469,6 +508,48 @@ class TestGitCommitSnapshot:
             ["git", "log", "--oneline", "-1"], cwd=str(tmp_path), capture_output=True, text=True
         )
         assert "Custom commit message" in log_result.stdout
+
+    def test_only_stages_matching_data_view_snapshot_paths(self, tmp_path):
+        """Test that committing one data view does not stage unrelated changes."""
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
+
+        target_dir = tmp_path / "Target_dv_12345"
+        other_dir = tmp_path / "Other_dv_99999"
+        target_dir.mkdir()
+        other_dir.mkdir()
+        (target_dir / "metadata.json").write_text('{"v": 1}')
+        (other_dir / "metadata.json").write_text('{"v": 1}')
+        unrelated = tmp_path / "notes.txt"
+        unrelated.write_text("base")
+        subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True)
+        subprocess.run(["git", "commit", "-m", "baseline"], cwd=str(tmp_path), capture_output=True)
+
+        (target_dir / "metadata.json").write_text('{"v": 2}')
+        (other_dir / "metadata.json").write_text('{"v": 2}')
+        unrelated.write_text("changed")
+
+        success, result = git_commit_snapshot(
+            snapshot_dir=tmp_path,
+            data_view_id="dv_12345",
+            data_view_name="Target",
+            metrics_count=1,
+            dimensions_count=1,
+        )
+
+        assert success is True
+        assert result != "no_changes"
+
+        changed_files = subprocess.run(
+            ["git", "show", "--name-only", "--pretty=format:", "HEAD"],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert "Target_dv_12345/metadata.json" in changed_files
+        assert "Other_dv_99999/metadata.json" not in changed_files
+        assert "notes.txt" not in changed_files
 
 
 class TestCLIGitArguments:
