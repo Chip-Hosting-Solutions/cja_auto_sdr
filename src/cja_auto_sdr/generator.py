@@ -8049,6 +8049,10 @@ def _to_searchable_text(value: Any) -> str:
         return str(value)
 
 
+class DiscoveryArgumentError(ValueError):
+    """Raised when discovery filter/sort arguments are invalid."""
+
+
 _NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
 
 
@@ -8089,6 +8093,28 @@ def _is_missing_sort_value(value: Any) -> bool:
         return False
 
 
+def _compile_discovery_pattern(pattern: str | None, *, option_name: str) -> re.Pattern[str] | None:
+    """Compile a discovery regex and raise a user-facing validation error on failure."""
+    if not pattern:
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        raise DiscoveryArgumentError(f"Invalid {option_name} regex '{pattern}': {exc!s}") from exc
+
+
+def _validate_discovery_query_inputs(
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+) -> None:
+    """Validate discovery query flags before executing API calls."""
+    _compile_discovery_pattern(filter_pattern, option_name="--filter")
+    _compile_discovery_pattern(exclude_pattern, option_name="--exclude")
+    if limit is not None and limit < 0:
+        raise DiscoveryArgumentError("--limit cannot be negative")
+
+
 def _apply_discovery_filters_and_sort(
     rows: list[dict[str, Any]],
     *,
@@ -8103,8 +8129,9 @@ def _apply_discovery_filters_and_sort(
     filtered_rows = list(rows)
     fields = searchable_fields or list(rows[0].keys()) if rows else []
 
-    filter_re = re.compile(filter_pattern, re.IGNORECASE) if filter_pattern else None
-    exclude_re = re.compile(exclude_pattern, re.IGNORECASE) if exclude_pattern else None
+    _validate_discovery_query_inputs(filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit)
+    filter_re = _compile_discovery_pattern(filter_pattern, option_name="--filter")
+    exclude_re = _compile_discovery_pattern(exclude_pattern, option_name="--exclude")
 
     if filter_re:
         filtered_rows = [
@@ -8157,8 +8184,6 @@ def _apply_discovery_filters_and_sort(
     filtered_rows = [row for _, row in concrete_rows] + missing_rows
 
     if limit is not None:
-        if limit < 0:
-            raise ValueError("--limit cannot be negative")
         filtered_rows = filtered_rows[:limit]
 
     return filtered_rows
@@ -8172,6 +8197,7 @@ def _run_list_command(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    validate_inputs: Callable[[], None] | None = None,
 ) -> bool:
     """Shared boilerplate for list-* discovery commands.
 
@@ -8195,6 +8221,7 @@ def _run_list_command(
         output_format: "table", "json", or "csv".
         output_file: File path, "-" for stdout pipe, or None.
         profile: Optional profile name.
+        validate_inputs: Optional callback to validate local discovery arguments.
 
     Returns:
         True if successful, False otherwise.
@@ -8217,6 +8244,9 @@ def _run_list_command(
         print()
 
     try:
+        if validate_inputs:
+            validate_inputs()
+
         logger = logging.getLogger(command_name)
         logger.setLevel(logging.WARNING)
         success, source, _ = configure_cjapy(profile=active_profile, config_file=config_file, logger=logger)
@@ -8236,6 +8266,13 @@ def _run_list_command(
             _emit_output(output_data, output_file, is_stdout)
 
         return True
+
+    except DiscoveryArgumentError as e:
+        if is_machine_readable:
+            print(json.dumps({"error": str(e), "error_type": "invalid_arguments"}), file=sys.stderr)
+        else:
+            print(ConsoleColors.error(f"ERROR: {e}"))
+        return False
 
     except FileNotFoundError:
         if is_machine_readable:
@@ -8362,6 +8399,9 @@ def list_dataviews(
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 
@@ -8566,6 +8606,9 @@ def list_connections(
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 
@@ -8763,6 +8806,9 @@ def list_datasets(
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 

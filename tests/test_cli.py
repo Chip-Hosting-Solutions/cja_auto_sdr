@@ -2207,6 +2207,69 @@ class TestListDatasetsFunction:
         assert error == {"error": "Configuration error: Missing credentials"}
 
 
+class TestDiscoveryArgumentValidation:
+    """Validate discovery argument errors are handled as local input failures."""
+
+    @pytest.mark.parametrize("list_fn", [list_dataviews, list_connections, list_datasets])
+    def test_invalid_regex_reports_invalid_arguments_json(self, list_fn):
+        """Invalid --filter regex should not be mislabeled as an API connectivity failure."""
+        import io
+        from contextlib import redirect_stderr
+
+        with (
+            patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None),
+            patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
+        ):
+            f = io.StringIO()
+            with redirect_stderr(f):
+                result = list_fn(output_format="json", filter_pattern="[invalid")
+
+        assert result is False
+        payload = json.loads(f.getvalue())
+        assert payload["error_type"] == "invalid_arguments"
+        assert payload["error"].startswith("Invalid --filter regex")
+        assert "Failed to connect to CJA API" not in payload["error"]
+        mock_configure.assert_not_called()
+
+    @pytest.mark.parametrize("list_fn", [list_dataviews, list_connections, list_datasets])
+    def test_negative_limit_reports_invalid_arguments_json(self, list_fn):
+        """Negative --limit should fail fast as invalid input before any API/config call."""
+        import io
+        from contextlib import redirect_stderr
+
+        with (
+            patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None),
+            patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
+        ):
+            f = io.StringIO()
+            with redirect_stderr(f):
+                result = list_fn(output_format="json", limit=-1)
+
+        assert result is False
+        payload = json.loads(f.getvalue())
+        assert payload == {"error": "--limit cannot be negative", "error_type": "invalid_arguments"}
+        mock_configure.assert_not_called()
+
+    def test_invalid_regex_reports_local_error_in_table_mode(self):
+        """Table-mode errors should still be classified as local argument issues."""
+        import io
+        from contextlib import redirect_stdout
+
+        with (
+            patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None),
+            patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
+        ):
+            f = io.StringIO()
+            with redirect_stdout(f):
+                result = list_dataviews(output_format="table", filter_pattern="[invalid")
+
+        assert result is False
+        output = f.getvalue()
+        assert "ERROR: Invalid --filter regex" in output
+        assert "Failed to connect to CJA API" not in output
+        mock_configure.assert_not_called()
+
+
 class TestFileOutput:
     """Test that list commands write output to disk via --output."""
 
