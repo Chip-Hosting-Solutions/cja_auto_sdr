@@ -3,7 +3,7 @@ name = "cja-auto-sdr"
 dynamic = ["version"]
 description = "Customer Journey Analytics SDR Generator with Data Quality Validation"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "cjapy>=0.2.4.post3",
     "numpy>=2.2.0,!=2.4.0",
@@ -58,7 +58,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py312"
 line-length = 120
 src = ["src", "tests"]
 
