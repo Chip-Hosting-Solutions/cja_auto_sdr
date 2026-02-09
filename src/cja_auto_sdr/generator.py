@@ -19,6 +19,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
@@ -309,6 +310,179 @@ class WorkerArgs:
     inventory_only: bool = False
     inventory_order: str | None = None
     quality_report_only: bool = False
+
+
+@dataclass(frozen=True)
+class ProcessingConfig:
+    """Configuration bundle for single data view processing."""
+
+    config_file: str = "config.json"
+    output_dir: str | Path = "."
+    log_level: str = "INFO"
+    log_format: str = "text"
+    output_format: str = "excel"
+    enable_cache: bool = False
+    cache_size: int = 1000
+    cache_ttl: int = 3600
+    quiet: bool = False
+    skip_validation: bool = False
+    max_issues: int = 0
+    clear_cache: bool = False
+    show_timings: bool = False
+    metrics_only: bool = False
+    dimensions_only: bool = False
+    profile: str | None = None
+    shared_cache: Any = None
+    api_tuning_config: APITuningConfig | None = None
+    circuit_breaker_config: CircuitBreakerConfig | None = None
+    include_derived_inventory: bool = False
+    include_calculated_metrics: bool = False
+    include_segments_inventory: bool = False
+    inventory_only: bool = False
+    inventory_order: list[str] | None = None
+    quality_report_only: bool = False
+
+
+@dataclass(frozen=True)
+class BatchConfig:
+    """Configuration bundle for batch processing."""
+
+    config_file: str = "config.json"
+    output_dir: str = "."
+    workers: int = 4
+    continue_on_error: bool = False
+    log_level: str = "INFO"
+    log_format: str = "text"
+    output_format: str = "excel"
+    enable_cache: bool = False
+    cache_size: int = 1000
+    cache_ttl: int = 3600
+    quiet: bool = False
+    skip_validation: bool = False
+    max_issues: int = 0
+    clear_cache: bool = False
+    show_timings: bool = False
+    metrics_only: bool = False
+    dimensions_only: bool = False
+    profile: str | None = None
+    shared_cache: bool = False
+    api_tuning_config: APITuningConfig | None = None
+    circuit_breaker_config: CircuitBreakerConfig | None = None
+    include_derived_inventory: bool = False
+    include_calculated_metrics: bool = False
+    include_segments_inventory: bool = False
+    inventory_only: bool = False
+    inventory_order: list[str] | None = None
+    quality_report_only: bool = False
+
+
+@dataclass(frozen=True)
+class DiffConfig:
+    """Configuration bundle for live data view diff comparisons."""
+
+    source_id: str
+    target_id: str
+    config_file: str = "config.json"
+    output_format: str = "console"
+    output_dir: str = "."
+    changes_only: bool = False
+    summary_only: bool = False
+    ignore_fields: list[str] | None = None
+    labels: tuple[str, str] | None = None
+    quiet: bool = False
+    show_only: list[str] | None = None
+    metrics_only: bool = False
+    dimensions_only: bool = False
+    extended_fields: bool = False
+    side_by_side: bool = False
+    no_color: bool = False
+    quiet_diff: bool = False
+    reverse_diff: bool = False
+    warn_threshold: float | None = None
+    group_by_field: bool = False
+    group_by_field_limit: int = 10
+    diff_output: str | None = None
+    format_pr_comment: bool = False
+    auto_snapshot: bool = False
+    auto_prune: bool = False
+    snapshot_dir: str = "./snapshots"
+    keep_last: int = 0
+    keep_since: str | None = None
+    keep_last_specified: bool = False
+    keep_since_specified: bool = False
+    profile: str | None = None
+
+
+@dataclass(frozen=True)
+class DiffSnapshotConfig:
+    """Configuration bundle for snapshot-vs-live diff comparisons."""
+
+    data_view_id: str
+    snapshot_file: str
+    config_file: str = "config.json"
+    output_format: str = "console"
+    output_dir: str = "."
+    changes_only: bool = False
+    summary_only: bool = False
+    ignore_fields: list[str] | None = None
+    labels: tuple[str, str] | None = None
+    quiet: bool = False
+    show_only: list[str] | None = None
+    metrics_only: bool = False
+    dimensions_only: bool = False
+    extended_fields: bool = False
+    side_by_side: bool = False
+    no_color: bool = False
+    quiet_diff: bool = False
+    reverse_diff: bool = False
+    warn_threshold: float | None = None
+    group_by_field: bool = False
+    group_by_field_limit: int = 10
+    diff_output: str | None = None
+    format_pr_comment: bool = False
+    auto_snapshot: bool = False
+    auto_prune: bool = False
+    snapshot_dir: str = "./snapshots"
+    keep_last: int = 0
+    keep_since: str | None = None
+    keep_last_specified: bool = False
+    keep_since_specified: bool = False
+    profile: str | None = None
+    include_calc_metrics: bool = False
+    include_segments: bool = False
+
+
+class RunMode(Enum):
+    """CLI run modes used by dispatch and run summary classification."""
+
+    EXIT_CODES = "exit_codes"
+    SAMPLE_CONFIG = "sample_config"
+    PROFILE_MANAGEMENT = "profile_management"
+    GIT_INIT = "git_init"
+    DISCOVERY = "discovery"
+    CONFIG_STATUS = "config_status"
+    VALIDATE_CONFIG = "validate_config"
+    STATS = "stats"
+    ORG_REPORT = "org_report"
+    LIST_SNAPSHOTS = "list_snapshots"
+    PRUNE_SNAPSHOTS = "prune_snapshots"
+    COMPARE_SNAPSHOTS = "compare_snapshots"
+    DIFF = "diff"
+    SNAPSHOT = "snapshot"
+    DIFF_SNAPSHOT = "diff_snapshot"
+    DRY_RUN = "dry_run"
+    INVENTORY_SUMMARY = "inventory_summary"
+    SDR = "sdr"
+
+
+def _coerce_run_mode(mode: Any) -> RunMode | None:
+    """Convert a raw run mode value to RunMode when possible."""
+    if isinstance(mode, RunMode):
+        return mode
+    if isinstance(mode, str):
+        with contextlib.suppress(ValueError):
+            return RunMode(mode)
+    return None
 
 
 def _exit_error(msg: str) -> NoReturn:
@@ -644,7 +818,7 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
         return "success"
 
     details = run_state.get("details") or {}
-    mode = run_state.get("mode")
+    mode = _coerce_run_mode(run_state.get("mode"))
     operation_success = details.get("operation_success")
 
     # SDR quality gate
@@ -653,7 +827,7 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
 
     # Org governance threshold gate
     if (
-        mode == "org_report"
+        mode == RunMode.ORG_REPORT
         and exit_code == 2
         and bool(details.get("thresholds_exceeded"))
         and bool(details.get("fail_on_threshold"))
@@ -661,19 +835,23 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
         return "policy_exit"
 
     # Diff family policy exits (changes found or warn-threshold exit 3)
-    if mode in {"diff", "diff_snapshot", "compare_snapshots"} and operation_success is True and exit_code in (2, 3):
+    if (
+        mode in {RunMode.DIFF, RunMode.DIFF_SNAPSHOT, RunMode.COMPARE_SNAPSHOTS}
+        and operation_success is True
+        and exit_code in (2, 3)
+    ):
         return "policy_exit"
 
     return "error"
 
 
-def _infer_run_mode(args: argparse.Namespace) -> str:
+def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
     """Infer run mode using the same precedence as command dispatch in _main_impl."""
-    mode_checks: tuple[tuple[str, bool], ...] = (
-        ("exit_codes", getattr(args, "exit_codes", False)),
-        ("sample_config", getattr(args, "sample_config", False)),
+    mode_checks: tuple[tuple[RunMode, bool], ...] = (
+        (RunMode.EXIT_CODES, getattr(args, "exit_codes", False)),
+        (RunMode.SAMPLE_CONFIG, getattr(args, "sample_config", False)),
         (
-            "profile_management",
+            RunMode.PROFILE_MANAGEMENT,
             bool(
                 getattr(args, "profile_list", False)
                 or getattr(args, "profile_add", None)
@@ -683,32 +861,40 @@ def _infer_run_mode(args: argparse.Namespace) -> str:
                 or getattr(args, "profile_overwrite", False)
             ),
         ),
-        ("git_init", getattr(args, "git_init", False)),
+        (RunMode.GIT_INIT, getattr(args, "git_init", False)),
         (
-            "discovery",
+            RunMode.DISCOVERY,
             bool(
                 getattr(args, "list_dataviews", False)
                 or getattr(args, "list_connections", False)
                 or getattr(args, "list_datasets", False)
             ),
         ),
-        ("config_status", bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
-        ("validate_config", getattr(args, "validate_config", False)),
-        ("stats", getattr(args, "stats", False)),
-        ("org_report", getattr(args, "org_report", False)),
-        ("list_snapshots", getattr(args, "list_snapshots", False)),
-        ("prune_snapshots", getattr(args, "prune_snapshots", False)),
-        ("compare_snapshots", bool(getattr(args, "compare_snapshots", None))),
-        ("diff", getattr(args, "diff", False)),
-        ("snapshot", bool(getattr(args, "snapshot", None))),
-        ("diff_snapshot", bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None))),
-        ("dry_run", getattr(args, "dry_run", False)),
-        ("inventory_summary", getattr(args, "inventory_summary", False)),
+        (RunMode.CONFIG_STATUS, bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
+        (RunMode.VALIDATE_CONFIG, getattr(args, "validate_config", False)),
+        (RunMode.STATS, getattr(args, "stats", False)),
+        (RunMode.ORG_REPORT, getattr(args, "org_report", False)),
+        (RunMode.LIST_SNAPSHOTS, getattr(args, "list_snapshots", False)),
+        (RunMode.PRUNE_SNAPSHOTS, getattr(args, "prune_snapshots", False)),
+        (RunMode.COMPARE_SNAPSHOTS, bool(getattr(args, "compare_snapshots", None))),
+        (RunMode.DIFF, getattr(args, "diff", False)),
+        (RunMode.SNAPSHOT, bool(getattr(args, "snapshot", None))),
+        (
+            RunMode.DIFF_SNAPSHOT,
+            bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None)),
+        ),
+        (RunMode.DRY_RUN, getattr(args, "dry_run", False)),
+        (RunMode.INVENTORY_SUMMARY, getattr(args, "inventory_summary", False)),
     )
     for mode, is_active in mode_checks:
         if is_active:
             return mode
-    return "sdr"
+    return RunMode.SDR
+
+
+def _infer_run_mode(args: argparse.Namespace) -> str:
+    """Compatibility wrapper that returns the run mode as a string value."""
+    return _infer_run_mode_enum(args).value
 
 
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
@@ -4916,6 +5102,7 @@ def process_single_dataview(
     inventory_only: bool = False,
     inventory_order: list[str] | None = None,
     quality_report_only: bool = False,
+    processing_config: ProcessingConfig | None = None,
 ) -> ProcessingResult:
     """
     Process a single data view and generate SDR in specified format(s)
@@ -4946,6 +5133,61 @@ def process_single_dataview(
         ProcessingResult with processing details including success status, metrics/dimensions count,
         output file path, and any error messages
     """
+    if processing_config is None:
+        processing_config = ProcessingConfig(
+            config_file=config_file,
+            output_dir=output_dir,
+            log_level=log_level,
+            log_format=log_format,
+            output_format=output_format,
+            enable_cache=enable_cache,
+            cache_size=cache_size,
+            cache_ttl=cache_ttl,
+            quiet=quiet,
+            skip_validation=skip_validation,
+            max_issues=max_issues,
+            clear_cache=clear_cache,
+            show_timings=show_timings,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only,
+            profile=profile,
+            shared_cache=shared_cache,
+            api_tuning_config=api_tuning_config,
+            circuit_breaker_config=circuit_breaker_config,
+            include_derived_inventory=include_derived_inventory,
+            include_calculated_metrics=include_calculated_metrics,
+            include_segments_inventory=include_segments_inventory,
+            inventory_only=inventory_only,
+            inventory_order=inventory_order,
+            quality_report_only=quality_report_only,
+        )
+
+    config_file = processing_config.config_file
+    output_dir = processing_config.output_dir
+    log_level = processing_config.log_level
+    log_format = processing_config.log_format
+    output_format = processing_config.output_format
+    enable_cache = processing_config.enable_cache
+    cache_size = processing_config.cache_size
+    cache_ttl = processing_config.cache_ttl
+    quiet = processing_config.quiet
+    skip_validation = processing_config.skip_validation
+    max_issues = processing_config.max_issues
+    clear_cache = processing_config.clear_cache
+    show_timings = processing_config.show_timings
+    metrics_only = processing_config.metrics_only
+    dimensions_only = processing_config.dimensions_only
+    profile = processing_config.profile
+    shared_cache = processing_config.shared_cache
+    api_tuning_config = processing_config.api_tuning_config
+    circuit_breaker_config = processing_config.circuit_breaker_config
+    include_derived_inventory = processing_config.include_derived_inventory
+    include_calculated_metrics = processing_config.include_calculated_metrics
+    include_segments_inventory = processing_config.include_segments_inventory
+    inventory_only = processing_config.inventory_only
+    inventory_order = processing_config.inventory_order
+    quality_report_only = processing_config.quality_report_only
+
     start_time = time.time()
 
     # Setup logging for this data view
@@ -5740,31 +5982,33 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
 
     return process_single_dataview(
         args.data_view_id,
-        args.config_file,
-        args.output_dir,
-        args.log_level,
-        args.log_format,
-        args.output_format,
-        args.enable_cache,
-        args.cache_size,
-        args.cache_ttl,
-        args.quiet,
-        args.skip_validation,
-        args.max_issues,
-        args.clear_cache,
-        args.show_timings,
-        args.metrics_only,
-        args.dimensions_only,
-        profile=args.profile,
-        shared_cache=args.shared_cache,
-        api_tuning_config=args.api_tuning_config,
-        circuit_breaker_config=args.circuit_breaker_config,
-        include_derived_inventory=args.include_derived_inventory,
-        include_calculated_metrics=args.include_calculated_metrics,
-        include_segments_inventory=args.include_segments_inventory,
-        inventory_only=args.inventory_only,
-        inventory_order=args.inventory_order,
-        quality_report_only=args.quality_report_only,
+        processing_config=ProcessingConfig(
+            config_file=args.config_file,
+            output_dir=args.output_dir,
+            log_level=args.log_level,
+            log_format=args.log_format,
+            output_format=args.output_format,
+            enable_cache=args.enable_cache,
+            cache_size=args.cache_size,
+            cache_ttl=args.cache_ttl,
+            quiet=args.quiet,
+            skip_validation=args.skip_validation,
+            max_issues=args.max_issues,
+            clear_cache=args.clear_cache,
+            show_timings=args.show_timings,
+            metrics_only=args.metrics_only,
+            dimensions_only=args.dimensions_only,
+            profile=args.profile,
+            shared_cache=args.shared_cache,
+            api_tuning_config=args.api_tuning_config,
+            circuit_breaker_config=args.circuit_breaker_config,
+            include_derived_inventory=args.include_derived_inventory,
+            include_calculated_metrics=args.include_calculated_metrics,
+            include_segments_inventory=args.include_segments_inventory,
+            inventory_only=args.inventory_only,
+            inventory_order=args.inventory_order,
+            quality_report_only=args.quality_report_only,
+        ),
     )
 
 
@@ -5831,55 +6075,87 @@ class BatchProcessor:
         inventory_only: bool = False,
         inventory_order: list[str] | None = None,
         quality_report_only: bool = False,
+        batch_config: BatchConfig | None = None,
     ):
-        self.config_file = config_file
-        self.output_dir = output_dir
-        self.clear_cache = clear_cache
-        self.show_timings = show_timings
-        self.metrics_only = metrics_only
-        self.dimensions_only = dimensions_only
-        self.workers = workers
-        self.continue_on_error = continue_on_error
-        self.log_level = log_level
-        self.log_format = log_format
-        self.output_format = output_format
-        self.enable_cache = enable_cache
-        self.cache_size = cache_size
-        self.cache_ttl = cache_ttl
-        self.quiet = quiet
-        self.skip_validation = skip_validation
-        self.max_issues = max_issues
-        self.profile = profile
-        self.shared_cache_enabled = shared_cache
-        self.api_tuning_config = api_tuning_config
-        self.circuit_breaker_config = circuit_breaker_config
-        self.include_derived_inventory = include_derived_inventory
-        self.include_calculated_metrics = include_calculated_metrics
-        self.include_segments_inventory = include_segments_inventory
-        self.inventory_only = inventory_only
-        self.inventory_order = inventory_order
-        self.quality_report_only = quality_report_only
+        if batch_config is None:
+            batch_config = BatchConfig(
+                config_file=config_file,
+                output_dir=output_dir,
+                workers=workers,
+                continue_on_error=continue_on_error,
+                log_level=log_level,
+                log_format=log_format,
+                output_format=output_format,
+                enable_cache=enable_cache,
+                cache_size=cache_size,
+                cache_ttl=cache_ttl,
+                quiet=quiet,
+                skip_validation=skip_validation,
+                max_issues=max_issues,
+                clear_cache=clear_cache,
+                show_timings=show_timings,
+                metrics_only=metrics_only,
+                dimensions_only=dimensions_only,
+                profile=profile,
+                shared_cache=shared_cache,
+                api_tuning_config=api_tuning_config,
+                circuit_breaker_config=circuit_breaker_config,
+                include_derived_inventory=include_derived_inventory,
+                include_calculated_metrics=include_calculated_metrics,
+                include_segments_inventory=include_segments_inventory,
+                inventory_only=inventory_only,
+                inventory_order=inventory_order,
+                quality_report_only=quality_report_only,
+            )
+
+        self.config_file = batch_config.config_file
+        self.output_dir = batch_config.output_dir
+        self.clear_cache = batch_config.clear_cache
+        self.show_timings = batch_config.show_timings
+        self.metrics_only = batch_config.metrics_only
+        self.dimensions_only = batch_config.dimensions_only
+        self.workers = batch_config.workers
+        self.continue_on_error = batch_config.continue_on_error
+        self.log_level = batch_config.log_level
+        self.log_format = batch_config.log_format
+        self.output_format = batch_config.output_format
+        self.enable_cache = batch_config.enable_cache
+        self.cache_size = batch_config.cache_size
+        self.cache_ttl = batch_config.cache_ttl
+        self.quiet = batch_config.quiet
+        self.skip_validation = batch_config.skip_validation
+        self.max_issues = batch_config.max_issues
+        self.profile = batch_config.profile
+        self.shared_cache_enabled = batch_config.shared_cache
+        self.api_tuning_config = batch_config.api_tuning_config
+        self.circuit_breaker_config = batch_config.circuit_breaker_config
+        self.include_derived_inventory = batch_config.include_derived_inventory
+        self.include_calculated_metrics = batch_config.include_calculated_metrics
+        self.include_segments_inventory = batch_config.include_segments_inventory
+        self.inventory_only = batch_config.inventory_only
+        self.inventory_order = batch_config.inventory_order
+        self.quality_report_only = batch_config.quality_report_only
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
-        self.logger = setup_logging(batch_mode=True, log_level=log_level, log_format=log_format)
+        self.logger = setup_logging(batch_mode=True, log_level=self.log_level, log_format=self.log_format)
         self.logger.info(f"Batch ID: {self.batch_id}")
 
         # Create shared validation cache if enabled
         self._shared_cache: SharedValidationCache | None = None
-        if shared_cache and enable_cache and not skip_validation:
-            self._shared_cache = SharedValidationCache(max_size=cache_size, ttl_seconds=cache_ttl)
-            self.logger.info(f"[{self.batch_id}] Shared validation cache enabled (max_size={cache_size})")
+        if self.shared_cache_enabled and self.enable_cache and not self.skip_validation:
+            self._shared_cache = SharedValidationCache(max_size=self.cache_size, ttl_seconds=self.cache_ttl)
+            self.logger.info(f"[{self.batch_id}] Shared validation cache enabled (max_size={self.cache_size})")
 
         # Create output directory if it doesn't exist
         try:
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         except PermissionError as e:
             raise OutputError(
-                f"Permission denied creating output directory: {output_dir}. "
+                f"Permission denied creating output directory: {self.output_dir}. "
                 "Check that you have write permissions for the parent directory."
             ) from e
         except OSError as e:
             raise OutputError(
-                f"Cannot create output directory '{output_dir}': {e}. "
+                f"Cannot create output directory '{self.output_dir}': {e}. "
                 "Verify the path is valid and the disk has available space."
             ) from e
 
@@ -6240,8 +6516,8 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if metrics is not None:
                         metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
-                except Exception:
-                    pass  # Count will be 0 if fetch fails
+                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                    logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
 
                 try:
                     dimensions = make_api_call_with_retry(
@@ -6249,8 +6525,8 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if dimensions is not None:
                         dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
-                except Exception:
-                    pass  # Count will be 0 if fetch fails
+                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                    logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
@@ -8066,8 +8342,8 @@ def _to_numeric_sort_value(value: Any) -> float | None:
         try:
             if pd.isna(value):
                 return None
-        except Exception:
-            pass
+        except TypeError, ValueError:
+            return None
         return float(value)
 
     if isinstance(value, str):
@@ -8090,7 +8366,7 @@ def _is_missing_sort_value(value: Any) -> bool:
         return True
     try:
         return bool(pd.isna(value))
-    except Exception:
+    except TypeError, ValueError:
         return False
 
 
@@ -12059,6 +12335,7 @@ def handle_diff_command(
     keep_last_specified: bool = False,
     keep_since_specified: bool = False,
     profile: str | None = None,
+    diff_config: DiffConfig | None = None,
 ) -> tuple[bool, bool, int | None]:
     """
     Handle the --diff command to compare two data views.
@@ -12100,6 +12377,73 @@ def handle_diff_command(
         Tuple of (success, has_changes, exit_code_override)
         exit_code_override is 3 if warn_threshold exceeded, None otherwise
     """
+    if diff_config is None:
+        diff_config = DiffConfig(
+            source_id=source_id,
+            target_id=target_id,
+            config_file=config_file,
+            output_format=output_format,
+            output_dir=output_dir,
+            changes_only=changes_only,
+            summary_only=summary_only,
+            ignore_fields=ignore_fields,
+            labels=labels,
+            quiet=quiet,
+            show_only=show_only,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only,
+            extended_fields=extended_fields,
+            side_by_side=side_by_side,
+            no_color=no_color,
+            quiet_diff=quiet_diff,
+            reverse_diff=reverse_diff,
+            warn_threshold=warn_threshold,
+            group_by_field=group_by_field,
+            group_by_field_limit=group_by_field_limit,
+            diff_output=diff_output,
+            format_pr_comment=format_pr_comment,
+            auto_snapshot=auto_snapshot,
+            auto_prune=auto_prune,
+            snapshot_dir=snapshot_dir,
+            keep_last=keep_last,
+            keep_since=keep_since,
+            keep_last_specified=keep_last_specified,
+            keep_since_specified=keep_since_specified,
+            profile=profile,
+        )
+
+    source_id = diff_config.source_id
+    target_id = diff_config.target_id
+    config_file = diff_config.config_file
+    output_format = diff_config.output_format
+    output_dir = diff_config.output_dir
+    changes_only = diff_config.changes_only
+    summary_only = diff_config.summary_only
+    ignore_fields = diff_config.ignore_fields
+    labels = diff_config.labels
+    quiet = diff_config.quiet
+    show_only = diff_config.show_only
+    metrics_only = diff_config.metrics_only
+    dimensions_only = diff_config.dimensions_only
+    extended_fields = diff_config.extended_fields
+    side_by_side = diff_config.side_by_side
+    no_color = diff_config.no_color
+    quiet_diff = diff_config.quiet_diff
+    reverse_diff = diff_config.reverse_diff
+    warn_threshold = diff_config.warn_threshold
+    group_by_field = diff_config.group_by_field
+    group_by_field_limit = diff_config.group_by_field_limit
+    diff_output = diff_config.diff_output
+    format_pr_comment = diff_config.format_pr_comment
+    auto_snapshot = diff_config.auto_snapshot
+    auto_prune = diff_config.auto_prune
+    snapshot_dir = diff_config.snapshot_dir
+    keep_last = diff_config.keep_last
+    keep_since = diff_config.keep_since
+    keep_last_specified = diff_config.keep_last_specified
+    keep_since_specified = diff_config.keep_since_specified
+    profile = diff_config.profile
+
     try:
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.INFO if not quiet else logging.WARNING)
@@ -12298,6 +12642,7 @@ def handle_diff_snapshot_command(
     profile: str | None = None,
     include_calc_metrics: bool = False,
     include_segments: bool = False,
+    diff_snapshot_config: DiffSnapshotConfig | None = None,
 ) -> tuple[bool, bool, int | None]:
     """
     Handle the --diff-snapshot command to compare a data view against a saved snapshot.
@@ -12340,6 +12685,77 @@ def handle_diff_snapshot_command(
     Returns:
         Tuple of (success, has_changes, exit_code_override)
     """
+    if diff_snapshot_config is None:
+        diff_snapshot_config = DiffSnapshotConfig(
+            data_view_id=data_view_id,
+            snapshot_file=snapshot_file,
+            config_file=config_file,
+            output_format=output_format,
+            output_dir=output_dir,
+            changes_only=changes_only,
+            summary_only=summary_only,
+            ignore_fields=ignore_fields,
+            labels=labels,
+            quiet=quiet,
+            show_only=show_only,
+            metrics_only=metrics_only,
+            dimensions_only=dimensions_only,
+            extended_fields=extended_fields,
+            side_by_side=side_by_side,
+            no_color=no_color,
+            quiet_diff=quiet_diff,
+            reverse_diff=reverse_diff,
+            warn_threshold=warn_threshold,
+            group_by_field=group_by_field,
+            group_by_field_limit=group_by_field_limit,
+            diff_output=diff_output,
+            format_pr_comment=format_pr_comment,
+            auto_snapshot=auto_snapshot,
+            auto_prune=auto_prune,
+            snapshot_dir=snapshot_dir,
+            keep_last=keep_last,
+            keep_since=keep_since,
+            keep_last_specified=keep_last_specified,
+            keep_since_specified=keep_since_specified,
+            profile=profile,
+            include_calc_metrics=include_calc_metrics,
+            include_segments=include_segments,
+        )
+
+    data_view_id = diff_snapshot_config.data_view_id
+    snapshot_file = diff_snapshot_config.snapshot_file
+    config_file = diff_snapshot_config.config_file
+    output_format = diff_snapshot_config.output_format
+    output_dir = diff_snapshot_config.output_dir
+    changes_only = diff_snapshot_config.changes_only
+    summary_only = diff_snapshot_config.summary_only
+    ignore_fields = diff_snapshot_config.ignore_fields
+    labels = diff_snapshot_config.labels
+    quiet = diff_snapshot_config.quiet
+    show_only = diff_snapshot_config.show_only
+    metrics_only = diff_snapshot_config.metrics_only
+    dimensions_only = diff_snapshot_config.dimensions_only
+    extended_fields = diff_snapshot_config.extended_fields
+    side_by_side = diff_snapshot_config.side_by_side
+    no_color = diff_snapshot_config.no_color
+    quiet_diff = diff_snapshot_config.quiet_diff
+    reverse_diff = diff_snapshot_config.reverse_diff
+    warn_threshold = diff_snapshot_config.warn_threshold
+    group_by_field = diff_snapshot_config.group_by_field
+    group_by_field_limit = diff_snapshot_config.group_by_field_limit
+    diff_output = diff_snapshot_config.diff_output
+    format_pr_comment = diff_snapshot_config.format_pr_comment
+    auto_snapshot = diff_snapshot_config.auto_snapshot
+    auto_prune = diff_snapshot_config.auto_prune
+    snapshot_dir = diff_snapshot_config.snapshot_dir
+    keep_last = diff_snapshot_config.keep_last
+    keep_since = diff_snapshot_config.keep_since
+    keep_last_specified = diff_snapshot_config.keep_last_specified
+    keep_since_specified = diff_snapshot_config.keep_since_specified
+    profile = diff_snapshot_config.profile
+    include_calc_metrics = diff_snapshot_config.include_calc_metrics
+    include_segments = diff_snapshot_config.include_segments
+
     try:
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.INFO if not quiet else logging.WARNING)
@@ -12813,9 +13229,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
-    inferred_mode = _infer_run_mode(args)
+    inferred_mode = _infer_run_mode_enum(args)
     if run_state is not None:
-        run_state["mode"] = inferred_mode
+        run_state["mode"] = inferred_mode.value
         run_state["profile"] = getattr(args, "profile", None)
         run_state["config_file"] = getattr(args, "config_file", None)
         run_state["output_format"] = getattr(args, "format", None)
@@ -12838,7 +13254,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             _exit_error(f"Failed to load --quality-policy '{quality_policy_path}': {e}")
         # Only apply quality defaults for SDR generation mode. This keeps
         # shared policy files usable across non-SDR commands.
-        if inferred_mode == "sdr":
+        if inferred_mode == RunMode.SDR:
             applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
         if run_state is not None and isinstance(run_state.get("quality_policy"), dict):
             run_state["quality_policy"]["applied"] = applied_quality_policy
@@ -12881,7 +13297,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     keep_last_specified = _cli_option_specified("--keep-last")
     keep_since_specified = _cli_option_specified("--keep-since")
 
-    non_sdr_mode = inferred_mode != "sdr"
+    non_sdr_mode = inferred_mode != RunMode.SDR
     if getattr(args, "fail_on_quality", None) and non_sdr_mode:
         _exit_error("--fail-on-quality is only supported in SDR generation mode")
 
