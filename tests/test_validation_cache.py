@@ -80,24 +80,39 @@ class TestValidationCache:
         assert result is None
 
     def test_cache_ttl_expiration(self, sample_metrics_df):
-        """Cache entries should expire after TTL"""
-        cache = ValidationCache(max_size=100, ttl_seconds=1)  # 1 second TTL
+        """Cache entries should expire after TTL (deterministic, no sleep)"""
+        from unittest.mock import patch
 
-        # Store result
-        cache.put(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"], [{"test": "issue"}]
-        )
+        fake_now = [1000000.0]
 
-        # Should be cached immediately
-        result, _ = cache.get(sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
-        assert result is not None
+        def mock_time():
+            return fake_now[0]
 
-        # Wait for expiration
-        time.sleep(1.5)
+        with patch("cja_auto_sdr.api.cache.time") as mock_time_module:
+            mock_time_module.time = mock_time
 
-        # Should be expired now
-        result, _ = cache.get(sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
-        assert result is None
+            cache = ValidationCache(max_size=100, ttl_seconds=1)  # 1 second TTL
+
+            # Store result
+            cache.put(
+                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"],
+                [{"test": "issue"}]
+            )
+
+            # Should be cached immediately
+            result, _ = cache.get(
+                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            )
+            assert result is not None
+
+            # Advance time past TTL
+            fake_now[0] += 1.5
+
+            # Should be expired now
+            result, _ = cache.get(
+                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            )
+            assert result is None
 
     def test_lru_eviction(self):
         """Cache should evict least recently used entries when full"""

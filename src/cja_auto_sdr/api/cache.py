@@ -1,5 +1,6 @@
 """Validation caches for CJA Auto SDR."""
 
+import atexit
 import contextlib
 import hashlib
 import logging
@@ -312,6 +313,9 @@ class SharedValidationCache:
 
         # Manager-level lock for cache operations
         self._lock = self._manager.Lock()
+
+        # Ensure cleanup on exit even if shutdown() is never called explicitly
+        atexit.register(self.shutdown)
 
     def _generate_cache_key(
         self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
