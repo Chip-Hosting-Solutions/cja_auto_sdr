@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
 - **1,511 tests** (1,509 passing, 2 skipped) — up from 1,431
 
+### Changed
+- Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient
+
 ## [3.2.1] - 2026-02-06
 
 ### Highlights
