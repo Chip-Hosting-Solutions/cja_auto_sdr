@@ -178,6 +178,26 @@ cja_auto_sdr dv_12345 --max-issues 5
 
 Issues are sorted by severity (CRITICAL first) before limiting.
 
+## Quality Policy File
+
+Load quality defaults from a JSON file with `--quality-policy PATH`. This is useful for standardizing quality settings across teams or CI/CD pipelines:
+
+```bash
+cja_auto_sdr dv_12345 --quality-policy ./quality_policy.json
+```
+
+The policy file supports these keys:
+
+```json
+{
+  "fail_on_quality": "HIGH",
+  "quality_report": "json",
+  "max_issues": 50
+}
+```
+
+Explicit CLI flags (`--fail-on-quality`, `--quality-report`, `--max-issues`) always take precedence over policy file values.
+
 ## Skipping Validation
 
 For faster processing when validation isn't needed:

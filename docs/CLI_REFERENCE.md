@@ -113,6 +113,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--format FORMAT` | Output format (see table below) | excel (SDR), console (diff) |
 | `--stats` | Show quick statistics (metrics/dimensions count) without generating full SDR report | False |
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
+| `--run-summary-json PATH` | Write a machine-readable run summary JSON (all modes). Use `-` or `stdout` for stdout | - |
+| `--name-match MODE` | Data view name matching mode: `exact` (default), `insensitive` (case-insensitive), or `fuzzy` (nearest match) | exact |
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--quality-report FORMAT` | Generate standalone quality issues report only (`json` or `csv`) without SDR files. SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--quality-policy PATH` | Load quality defaults from JSON file (`fail_on_quality`, `quality_report`, `max_issues`). Explicit CLI flags override policy values | - |
@@ -207,6 +209,10 @@ cja_auto_sdr --list-dataviews
 | `--list-dataviews` | List accessible data views and exit. Supports `--format json/csv` and `--output -` for machine-readable output | False |
 | `--list-connections` | List all accessible connections with their datasets. Falls back to connection IDs derived from data views if the service account lacks product-admin privileges. Supports `--format json/csv` and `--output` | False |
 | `--list-datasets` | List all data views with their backing connections and dataset details. Shows connection names when available, IDs when not. Supports `--format json/csv` and `--output` | False |
+| `--filter PATTERN` | Filter discovery results by regex pattern (also applies to `--org-report`) | - |
+| `--exclude PATTERN` | Exclude discovery results matching regex pattern (also applies to `--org-report`) | - |
+| `--limit N` | Limit discovery results to first N items (also applies to `--org-report`) | - |
+| `--sort FIELD` | Sort discovery output by field (prefix `-` for descending), e.g. `--sort name` or `--sort=-id` | - |
 | `-i, --interactive` | Launch interactive mode for guided SDR generation. Walks through: data view selection, output format, and inventory options. Ideal for new users | False |
 | `--sample-config` | Generate sample config file and exit | False |
 
@@ -530,6 +536,19 @@ cja_auto_sdr --list-datasets --format json
 # Save dataset inventory to file
 cja_auto_sdr --list-datasets --format csv --output datasets.csv
 
+# Filter discovery results by name pattern
+cja_auto_sdr --list-dataviews --filter "Prod.*"
+
+# Exclude test/dev data views from listing
+cja_auto_sdr --list-dataviews --exclude "Test|Dev"
+
+# Sort discovery output by name (ascending) or ID (descending)
+cja_auto_sdr --list-dataviews --sort name
+cja_auto_sdr --list-connections --sort=-id
+
+# Limit discovery results
+cja_auto_sdr --list-dataviews --limit 10
+
 # Use a specific profile for discovery
 cja_auto_sdr --profile client-a --list-connections
 
@@ -546,6 +565,8 @@ cja_auto_sdr dv_12345 --dry-run
 > **Note:** `--list-dataviews`, `--list-connections`, and `--list-datasets` are mutually exclusive — only one can be used at a time.
 >
 > **Note:** `--list-connections` requires the API service account to be a CJA Product Admin for full connection details (names, owners, datasets). Without admin privileges, the tool falls back to showing connection IDs derived from data views.
+>
+> **Discovery Filters:** All discovery commands support `--filter`, `--exclude`, `--limit`, and `--sort` for filtering, limiting, and ordering results.
 
 ### Quick Statistics
 

@@ -661,6 +661,8 @@ To minimize API calls during name resolution, data view listings are cached for 
 | `--snapshot-dir DIR` | Directory for auto-saved snapshots (default: ./snapshots). |
 | `--keep-last N` | Retention: keep only last N snapshots per data view (0 = keep all). |
 | `--keep-since PERIOD` | Date-based retention: delete snapshots older than PERIOD (`7d`, `2w`, `1m`, `30`). |
+| `--list-snapshots` | List snapshots from `--snapshot-dir` (optionally filtered by DATA_VIEW_ID positional args). |
+| `--prune-snapshots` | Apply retention policies (`--keep-last`/`--keep-since`) in `--snapshot-dir` without running diff. |
 
 ## Output Formats
 

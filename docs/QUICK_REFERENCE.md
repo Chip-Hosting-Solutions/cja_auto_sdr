@@ -75,6 +75,11 @@ cja_auto_sdr --list-connections
 # List all data views with their backing datasets
 cja_auto_sdr --list-datasets
 
+# Filter, exclude, sort, and limit discovery results
+cja_auto_sdr --list-dataviews --filter "Prod.*"
+cja_auto_sdr --list-dataviews --exclude "Test|Dev" --sort name
+cja_auto_sdr --list-connections --limit 10 --sort=-id
+
 # Interactively select data views from a list
 cja_auto_sdr --interactive
 
@@ -119,6 +124,16 @@ cja_auto_sdr --diff dv_12345 dv_67890 --changes-only
 
 # Custom labels in diff output
 cja_auto_sdr --diff dv_12345 dv_67890 --diff-labels "Before" "After"
+
+# List saved snapshots
+cja_auto_sdr --list-snapshots
+
+# List snapshots for a specific data view
+cja_auto_sdr --list-snapshots dv_12345
+
+# Prune snapshots without running diff
+cja_auto_sdr --prune-snapshots --keep-last 20
+cja_auto_sdr --prune-snapshots --keep-since 30d
 ```
 
 ## Org-Wide Analysis Commands
@@ -245,6 +260,10 @@ cja_auto_sdr -p client-b "Main Data View" --format excel
 # Test profile connectivity
 cja_auto_sdr --profile-test client-a
 
+# Import a profile non-interactively from JSON or .env file
+cja_auto_sdr --profile-import client-c ./client-c.env
+cja_auto_sdr --profile-import client-c ./client-c.json --profile-overwrite
+
 # Set default profile
 export CJA_PROFILE=client-a
 cja_auto_sdr --list-dataviews  # Uses client-a
@@ -269,6 +288,9 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--continue-on-error` | Don't stop on failures in batch mode | SDR only |
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (requires validation; incompatible with `--skip-validation`) | SDR only |
 | `--quality-report FORMAT` | Generate standalone quality issues report (`json` or `csv`) without SDR files (requires validation; incompatible with `--skip-validation`) | SDR only |
+| `--quality-policy PATH` | Load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`); explicit CLI flags take precedence | SDR only |
+| `--run-summary-json PATH` | Write machine-readable run summary JSON; use `-` for stdout | All modes |
+| `--name-match MODE` | Data view name matching: `exact` (default), `insensitive`, or `fuzzy` | All modes |
 | `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
 | `--include-derived` | Add derived field inventory sheet/section | SDR only |
 | `--include-calculated` | Add calculated metrics inventory sheet/section | SDR + Snapshot Diff |
@@ -286,6 +308,8 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 |--------|---------|
 | `--changes-only` | Hide unchanged components, show only differences |
 | `--compare-with-prev` | Compare against most recent snapshot in --snapshot-dir |
+| `--list-snapshots` | List snapshots from `--snapshot-dir` (optionally filtered by data view ID) |
+| `--prune-snapshots` | Apply retention policies (`--keep-last`/`--keep-since`) without running diff |
 | `--diff-labels A B` | Custom labels for comparison columns (default: data view names) |
 | `--auto-snapshot` | Automatically save snapshots during diff for future comparisons |
 | `--auto-prune` | With `--auto-snapshot`, apply default retention (`--keep-last 20` + `--keep-since 30d`) only when both retention flags are omitted |
@@ -346,6 +370,16 @@ cja_auto_sdr dv_12345 --log-format json
 
 # Dry run (validate only, no output)
 cja_auto_sdr dv_12345 --dry-run
+
+# Name matching modes
+cja_auto_sdr "production" --name-match insensitive
+cja_auto_sdr "Prodction" --name-match fuzzy
+
+# Machine-readable run summary (all modes)
+cja_auto_sdr dv_12345 --run-summary-json ./summary.json
+
+# Quality policy from file
+cja_auto_sdr dv_12345 --quality-policy ./quality_policy.json
 
 # Batch with custom parallelism (default: auto-detect)
 cja_auto_sdr dv_* --workers 8 --continue-on-error

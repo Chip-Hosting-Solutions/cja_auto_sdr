@@ -251,6 +251,8 @@ cja_auto_sdr "Production Analytics"
 | List Data Views | `cja_auto_sdr --list-dataviews` |
 | List Connections | `cja_auto_sdr --list-connections` |
 | List Data Views with Datasets | `cja_auto_sdr --list-datasets` |
+| Filter discovery results | `cja_auto_sdr --list-dataviews --filter "Prod.*"` |
+| Sort discovery output | `cja_auto_sdr --list-dataviews --sort name` |
 | List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
 | Interactive Data View selection | `cja_auto_sdr --interactive` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
@@ -266,6 +268,8 @@ cja_auto_sdr "Production Analytics"
 | Auto-save snapshots | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot` |
 | With retention policy | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --keep-last 10` |
 | Auto-prune snapshots (defaults) | `cja_auto_sdr --diff dv_1 dv_2 --auto-snapshot --auto-prune` |
+| List saved snapshots | `cja_auto_sdr --list-snapshots` |
+| Prune snapshots only | `cja_auto_sdr --prune-snapshots --keep-last 20` |
 | **Inventory Diff** (same data view over time) | |
 | Snapshot with inventory | `cja_auto_sdr dv_12345 --snapshot ./baseline.json --include-all-inventory` |
 | Compare with inventory | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json --include-calculated` |
@@ -329,50 +333,87 @@ cja_auto_sdr "Production Analytics"
 ```
 cja_auto_sdr/
 ├── src/
-│   └── cja_auto_sdr/        # Main package (src-layout)
-│       ├── __init__.py      # Package init with version
-│       ├── generator.py     # Main SDR generator
-│       ├── inventory/       # Inventory subpackage
-│       │   ├── __init__.py
-│       │   ├── utils.py
+│   └── cja_auto_sdr/          # Main package (src-layout)
+│       ├── __init__.py        # Package init with version
+│       ├── generator.py       # Main SDR generator (CLI entry point)
+│       ├── api/               # API communication layer
+│       │   ├── cache.py       # Validation result caching
+│       │   ├── client.py      # CJA client initialization
+│       │   ├── fetch.py       # Parallel API data fetching
+│       │   ├── quality.py     # Data quality validation
+│       │   ├── resilience.py  # Retry, circuit breaker
+│       │   ├── tuning.py      # API worker auto-tuning
+│       │   └── validation.py  # Config & input validation
+│       ├── cli/               # CLI parsing and interactive mode
+│       │   ├── commands/      # Subcommand handlers
+│       │   ├── interactive.py # Interactive data view selection
+│       │   ├── main.py        # CLI entry orchestration
+│       │   └── parser.py      # Argument parser definitions
+│       ├── core/              # Shared core utilities
+│       │   ├── colors.py      # ANSI color helpers
+│       │   ├── config.py      # Configuration dataclasses
+│       │   ├── constants.py   # Global constants
+│       │   ├── credentials.py # Credential loading
+│       │   ├── exceptions.py  # Custom exception hierarchy
+│       │   ├── logging.py     # Log setup and formatting
+│       │   ├── profiles.py    # Multi-org profile management
+│       │   └── version.py     # Single-source version string
+│       ├── diff/              # Data view comparison
+│       │   ├── comparator.py  # Diff logic and change detection
+│       │   ├── git.py         # Git snapshot integration
+│       │   ├── models.py      # Snapshot and diff data models
+│       │   ├── snapshot.py    # Snapshot save/load/prune
+│       │   └── writers.py     # Diff output formatters
+│       ├── inventory/         # Component inventory modules
 │       │   ├── calculated_metrics.py
 │       │   ├── derived_fields.py
-│       │   └── segments.py
-│       └── org/             # Org-wide analysis subpackage
-│           ├── __init__.py
-│           ├── models.py    # Data classes for org analysis
-│           ├── cache.py     # Report caching
-│           └── analyzer.py  # OrgComponentAnalyzer
-├── scripts/                 # Utility scripts
-├── pyproject.toml           # Project configuration and dependencies
-├── uv.lock                  # Dependency lock file for reproducible builds
-├── README.md                # This file
-├── CHANGELOG.md             # Version history and release notes
-├── LICENSE                  # License file
-├── config.json              # Your credentials (DO NOT COMMIT)
-├── config.json.example      # Config file template
-├── .env.example             # Environment variable template
-├── docs/                    # Documentation (20+ guides)
-│   ├── QUICKSTART_GUIDE.md  # Getting started guide
-│   ├── CONFIGURATION.md     # Profiles, config.json & env vars
-│   ├── CLI_REFERENCE.md     # Command-line reference
-│   ├── INVENTORY_OVERVIEW.md # Unified inventory guide
-│   ├── DIFF_COMPARISON.md   # Data view comparison guide
-│   ├── GIT_INTEGRATION.md   # Git integration guide
-│   ├── ORG_WIDE_ANALYSIS.md # Org-wide report guide
-│   └── ...                  # Additional guides
-├── tests/                   # Test suite (1,431+ tests)
-├── sample_outputs/          # Example output files
-│   ├── excel/               # Sample Excel SDR
-│   ├── csv/                 # Sample CSV output
-│   ├── json/                # Sample JSON output
-│   ├── html/                # Sample HTML output
-│   ├── markdown/            # Sample Markdown output
-│   ├── diff/                # Sample diff comparison outputs
-│   └── git-snapshots/       # Sample Git integration snapshots
-├── snapshots/               # Saved Data View snapshots
-├── logs/                    # Generated log files
-└── *.xlsx                   # Generated SDR files
+│       │   ├── segments.py
+│       │   ├── summary.py     # Inventory summary stats
+│       │   └── utils.py       # Shared inventory helpers
+│       ├── org/               # Org-wide analysis
+│       │   ├── analyzer.py    # OrgComponentAnalyzer
+│       │   ├── cache.py       # Report caching
+│       │   └── models.py      # Data classes for org analysis
+│       ├── output/            # Output generation
+│       │   ├── excel.py       # Excel formatting
+│       │   ├── protocols.py   # OutputWriter protocol
+│       │   ├── registry.py    # Format registry
+│       │   └── writers/       # CSV, HTML, JSON, Markdown writers
+│       └── pipeline/          # Processing pipeline
+│           ├── batch.py       # Batch processor
+│           ├── dry_run.py     # Dry-run mode
+│           ├── models.py      # Pipeline data models
+│           ├── single.py      # Single data view processing
+│           └── workers.py     # Worker coordination
+├── scripts/                   # Utility scripts
+├── pyproject.toml             # Project configuration and dependencies
+├── uv.lock                   # Dependency lock file for reproducible builds
+├── README.md                  # This file
+├── CHANGELOG.md               # Version history and release notes
+├── LICENSE                    # License file
+├── config.json.example        # Config file template
+├── .env.example               # Environment variable template
+├── docs/                      # Documentation (20+ guides)
+│   ├── QUICKSTART_GUIDE.md    # Getting started guide
+│   ├── CONFIGURATION.md       # Profiles, config.json & env vars
+│   ├── CLI_REFERENCE.md       # Command-line reference
+│   ├── INVENTORY_OVERVIEW.md  # Unified inventory guide
+│   ├── DIFF_COMPARISON.md     # Data view comparison guide
+│   ├── GIT_INTEGRATION.md     # Git integration guide
+│   ├── ORG_WIDE_ANALYSIS.md   # Org-wide report guide
+│   └── ...                    # Additional guides
+├── tests/                     # Test suite (1,431 tests)
+├── sample_outputs/            # Example output files
+│   ├── excel/                 # Sample Excel SDR
+│   ├── csv/                   # Sample CSV output
+│   ├── json/                  # Sample JSON output
+│   ├── html/                  # Sample HTML output
+│   ├── markdown/              # Sample Markdown output
+│   ├── diff/                  # Sample diff comparison outputs
+│   └── git-snapshots/         # Sample Git integration snapshots
+├── snapshots/                 # Saved Data View snapshots
+├── logs/                      # Generated log files
+└── *.xlsx                     # Generated SDR files
 ```
 
 ## License

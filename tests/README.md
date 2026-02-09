@@ -8,34 +8,42 @@ This directory contains automated tests for the CJA SDR Generator.
 tests/
 ├── __init__.py                      # Test package initialization
 ├── conftest.py                      # Pytest fixtures and configuration
+├── test_api_tuning.py               # API worker auto-tuning tests
+├── test_backwards_compat.py         # Backwards compatibility tests
 ├── test_batch_processor.py          # Batch processor tests
+├── test_calculated_metrics_inventory.py  # Calculated metrics inventory tests
+├── test_circuit_breaker.py          # Circuit breaker pattern tests
 ├── test_cja_initialization.py       # CJA initialization and validation tests
 ├── test_cli.py                      # Command-line interface tests
 ├── test_data_quality.py             # Data quality validation tests
+├── test_derived_inventory.py        # Derived fields inventory tests
+├── test_diff_comparison.py          # Data view diff comparison tests
+├── test_discovery_formatters.py     # Discovery formatters and WorkerArgs tests
 ├── test_dry_run.py                  # Dry-run mode tests
 ├── test_early_exit.py               # Early exit optimization tests
+├── test_edge_cases.py               # Edge cases and configuration tests
 ├── test_env_credentials.py          # Environment variable credentials tests
 ├── test_error_messages.py           # Enhanced error message tests
 ├── test_excel_formatting.py         # Excel formatting tests
+├── test_git_integration.py          # Git integration and snapshot tests
+├── test_inventory_utils.py          # Inventory utilities tests
 ├── test_logging_optimization.py     # Logging optimization tests
 ├── test_name_resolution.py          # Data view name resolution tests
 ├── test_optimized_validation.py     # Optimized validation tests
+├── test_org_report.py               # Org-wide analysis tests
+├── test_org_report_integration.py   # Org-wide analysis integration tests
 ├── test_output_formats.py           # Output format tests
 ├── test_parallel_api_fetcher.py     # Parallel API fetcher tests
 ├── test_parallel_validation.py      # Parallel validation tests
 ├── test_process_single_dataview.py  # Single data view processing tests
+├── test_profiles.py                 # Multi-organization profile tests
 ├── test_retry.py                    # Retry with exponential backoff tests
-├── test_utils.py                    # Utility function tests
-├── test_validation_cache.py         # Validation caching tests
-├── test_diff_comparison.py          # Data view diff comparison tests
-├── test_edge_cases.py               # Edge cases and configuration tests
-├── test_ux_features.py              # UX enhancement features tests (--open, --stats, --output)
-├── test_api_tuning.py               # API worker auto-tuning tests
-├── test_circuit_breaker.py          # Circuit breaker pattern tests
+├── test_segments_inventory.py       # Segments inventory tests
 ├── test_shared_cache.py             # Shared validation cache tests
-├── test_inventory_utils.py          # Inventory utilities tests
-├── test_org_report.py               # Org-wide analysis tests
-├── test_org_report_integration.py   # Org-wide analysis integration tests
+├── test_update_test_counts.py       # Test count validation tests
+├── test_utils.py                    # Utility function tests
+├── test_ux_features.py              # UX enhancement features tests
+├── test_validation_cache.py         # Validation caching tests
 └── README.md                        # This file
 ```
 
