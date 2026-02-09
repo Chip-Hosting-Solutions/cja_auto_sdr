@@ -6,6 +6,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -236,6 +237,47 @@ class TestDataViewNameResolution:
         # Another case variation
         ids3, _ = resolve_data_view_names(["PRODUCTION ANALYTICS"], "config.json", self.logger)
         assert len(ids3) == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_case_insensitive_mode(self, mock_cjapy):
+        """Test case-insensitive mode resolves mismatched case names."""
+        mock_cja_instance = MagicMock()
+        mock_cja_instance.getDataViews.return_value = self.mock_dataviews
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map = resolve_data_view_names(
+            ["production analytics"],
+            "config.json",
+            self.logger,
+            match_mode="insensitive",
+        )
+
+        assert ids == ["dv_prod123"]
+        assert name_map == {"production analytics": ["dv_prod123"]}
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_fuzzy_mode(self, mock_cjapy):
+        """Test fuzzy mode resolves near matches."""
+        mock_cja_instance = MagicMock()
+        mock_cja_instance.getDataViews.return_value = self.mock_dataviews
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map = resolve_data_view_names(
+            ["Production Analytic"],
+            "config.json",
+            self.logger,
+            match_mode="fuzzy",
+        )
+
+        assert ids == ["dv_prod123"]
+        assert name_map == {"Production Analytic": ["dv_prod123"]}
+
+    def test_resolve_invalid_match_mode(self):
+        """Invalid match mode should raise ValueError."""
+        with pytest.raises(ValueError):
+            resolve_data_view_names(["Production Analytics"], "config.json", self.logger, match_mode="invalid")
 
     @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_multiple_names_all_duplicate(self, mock_cjapy):

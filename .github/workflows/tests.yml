@@ -9,12 +9,30 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Sync dependencies
         run: uv sync --dev
       - name: Run tests with coverage
         run: uv run pytest tests/ -v --tb=short --cov=cja_auto_sdr --cov-report=term
+
+  run-summary-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sync dependencies
+        run: uv sync --dev
+      - name: Run run-summary JSON contract tests
+        run: uv run pytest -q tests/test_cli.py -k "run_summary and subprocess"

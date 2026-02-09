@@ -7,6 +7,7 @@ import pytest
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.generator import (
     WorkerArgs,
+    _apply_discovery_filters_and_sort,
     _exit_error,
     _format_as_csv,
     _format_as_json,
@@ -231,3 +232,68 @@ class TestBannerWidth:
     def test_type(self):
         """BANNER_WIDTH is an int."""
         assert isinstance(BANNER_WIDTH, int)
+
+
+# ==================== _apply_discovery_filters_and_sort ====================
+
+
+class TestApplyDiscoveryFiltersAndSort:
+    """Tests for discovery filtering/sorting helper behavior."""
+
+    def test_numeric_sort_uses_numeric_order(self):
+        """Numeric values should sort as numbers (2 before 10), not text."""
+        rows = [
+            {"id": "a", "dataview_count": 10},
+            {"id": "b", "dataview_count": 2},
+        ]
+        sorted_rows = _apply_discovery_filters_and_sort(
+            rows,
+            sort_expression="dataview_count",
+            searchable_fields=["id", "dataview_count"],
+            default_sort_field="id",
+        )
+        assert [row["id"] for row in sorted_rows] == ["b", "a"]
+
+    def test_numeric_sort_descending_uses_numeric_order(self):
+        """Descending numeric sort should place larger numbers first."""
+        rows = [
+            {"id": "a", "dataview_count": 10},
+            {"id": "b", "dataview_count": 2},
+        ]
+        sorted_rows = _apply_discovery_filters_and_sort(
+            rows,
+            sort_expression="-dataview_count",
+            searchable_fields=["id", "dataview_count"],
+            default_sort_field="id",
+        )
+        assert [row["id"] for row in sorted_rows] == ["a", "b"]
+
+    def test_numeric_like_strings_sort_numerically_when_column_is_numeric(self):
+        """Numeric-like strings should sort numerically when all values are numeric-like."""
+        rows = [
+            {"id": "a", "count": "10"},
+            {"id": "b", "count": "2"},
+            {"id": "c", "count": "3"},
+        ]
+        sorted_rows = _apply_discovery_filters_and_sort(
+            rows,
+            sort_expression="count",
+            searchable_fields=["id", "count"],
+            default_sort_field="id",
+        )
+        assert [row["id"] for row in sorted_rows] == ["b", "c", "a"]
+
+    def test_mixed_numeric_and_text_values_fall_back_to_text_sort(self):
+        """Mixed value types should use deterministic text sorting instead of numeric coercion."""
+        rows = [
+            {"id": "a", "count": "10"},
+            {"id": "b", "count": "unknown"},
+            {"id": "c", "count": "2"},
+        ]
+        sorted_rows = _apply_discovery_filters_and_sort(
+            rows,
+            sort_expression="count",
+            searchable_fields=["id", "count"],
+            default_sort_field="id",
+        )
+        assert [row["id"] for row in sorted_rows] == ["a", "c", "b"]

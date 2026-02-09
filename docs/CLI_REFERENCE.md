@@ -115,6 +115,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--quality-report FORMAT` | Generate standalone quality issues report only (`json` or `csv`) without SDR files. SDR mode only; cannot be combined with `--skip-validation` | - |
+| `--quality-policy PATH` | Load quality defaults from JSON file (`fail_on_quality`, `quality_report`, `max_issues`). Explicit CLI flags override policy values | - |
 
 > **Quality Gate & Report Constraints:** `--fail-on-quality` and `--quality-report` are only supported in SDR generation mode and cannot be combined with `--skip-validation`.
 >
@@ -159,6 +160,8 @@ Manage credentials for multiple Adobe Organizations. Profiles are stored in `~/.
 | `--profile-add NAME` | Create a new profile interactively | - |
 | `--profile-show NAME` | Show profile configuration (secrets masked) | - |
 | `--profile-test NAME` | Test profile credentials and API connectivity | - |
+| `--profile-import NAME FILE` | Import profile non-interactively from JSON/.env file or a profile directory | - |
+| `--profile-overwrite` | With `--profile-import`, allow replacing an existing profile | False |
 
 **Environment Variables:**
 
@@ -182,6 +185,10 @@ cja_auto_sdr -p client-a "My Data View" --format excel
 
 # Test profile connectivity
 cja_auto_sdr --profile-test client-a
+
+# Import a profile from JSON/.env without prompts
+cja_auto_sdr --profile-import client-b ./client-b.env
+cja_auto_sdr --profile-import client-b ./client-b.json --profile-overwrite
 
 # Set default profile via environment
 export CJA_PROFILE=client-a
@@ -226,6 +233,8 @@ cja_auto_sdr --list-dataviews
 |--------|-------------|---------|
 | `--diff` | Compare two data views. Requires exactly 2 data view IDs/names | False |
 | `--snapshot FILE` | Save a data view snapshot to JSON file | - |
+| `--list-snapshots` | List snapshots from `--snapshot-dir` (optionally filtered by DATA_VIEW_ID positional args) | False |
+| `--prune-snapshots` | Apply retention policies (`--keep-last`/`--keep-since`) in `--snapshot-dir` without running diff | False |
 | `--diff-snapshot FILE` | Compare data view against a saved snapshot | - |
 | `--compare-with-prev` | Compare data view against its most recent snapshot in --snapshot-dir | False |
 | `--compare-snapshots A B` | Compare two snapshot files directly (no API calls) | - |

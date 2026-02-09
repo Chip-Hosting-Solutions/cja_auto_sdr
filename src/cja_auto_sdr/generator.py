@@ -19,6 +19,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
 
@@ -317,9 +318,97 @@ def _exit_error(msg: str) -> NoReturn:
 
 
 def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
-    """Return True if an option was explicitly provided via --flag or --flag=value."""
+    """Return True if an option was explicitly provided via long-form token.
+
+    Accepts canonical forms (`--flag`, `--flag=value`) and argparse-compatible
+    long-option abbreviations (`--fla`, `--fla=value`) for the same option.
+    """
     tokens = argv if argv is not None else sys.argv[1:]
-    return any(token == option_name or token.startswith(f"{option_name}=") for token in tokens)
+
+    known_long_options = _known_long_options() if option_name.startswith("--") else frozenset()
+
+    for token in tokens:
+        if token == option_name or token.startswith(f"{option_name}="):
+            return True
+
+        if option_name.startswith("--") and _resolve_long_option_token(token, known_long_options) == option_name:
+            return True
+
+    return False
+
+
+@lru_cache(maxsize=1)
+def _known_long_options() -> frozenset[str]:
+    """Return canonical long-option strings from the configured parser."""
+    parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    return frozenset(
+        option for action in parser._actions for option in action.option_strings if option.startswith("--")
+    )
+
+
+def _resolve_long_option_token(token: str, known_long_options: frozenset[str]) -> str | None:
+    """Resolve a token to a canonical long option if argparse would accept it.
+
+    Returns None for non-option tokens and ambiguous abbreviations.
+    """
+    token_name = token.split("=", 1)[0]
+    if not token_name.startswith("--") or token_name == "--":
+        return None
+
+    if token_name in known_long_options:
+        return token_name
+
+    matches = [option for option in known_long_options if option.startswith(token_name)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:
+    """Return the last valid value for --option VALUE or --option=VALUE from argv.
+
+    This helper is intentionally conservative: for `--option VALUE` forms it
+    ignores candidates that look like another long/short option (except `-`,
+    which is a valid stdout token for some flags).
+    """
+    tokens = argv if argv is not None else sys.argv[1:]
+    resolved_value: str | None = None
+    known_long_options = _known_long_options() if option_name.startswith("--") else frozenset()
+
+    for index, token in enumerate(tokens):
+        canonical_option: str | None = None
+        inline_value: str | None = None
+
+        if token == option_name:
+            canonical_option = option_name
+        elif token.startswith(f"{option_name}="):
+            canonical_option = option_name
+            inline_value = token.split("=", 1)[1]
+        elif option_name.startswith("--"):
+            resolved_option = _resolve_long_option_token(token, known_long_options)
+            if resolved_option == option_name:
+                canonical_option = option_name
+                if "=" in token:
+                    inline_value = token.split("=", 1)[1]
+
+        if canonical_option != option_name:
+            continue
+
+        if inline_value is not None:
+            if inline_value:
+                resolved_value = inline_value
+            continue
+
+        if index + 1 >= len(tokens):
+            continue
+
+        candidate = tokens[index + 1]
+        if candidate != "-" and candidate.startswith("-"):
+            # Looks like another flag, so treat this occurrence as invalid.
+            continue
+        resolved_value = candidate
+
+    return resolved_value
 
 
 QUALITY_SEVERITY_ORDER: tuple[str, ...] = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
@@ -336,6 +425,91 @@ QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
     "Issue",
     "Details",
 )
+QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset({"fail_on_quality", "quality_report", "max_issues"})
+
+
+def _canonical_quality_policy_key(raw_key: Any) -> str:
+    """Normalize policy keys so `fail-on-quality` and `fail_on_quality` are equivalent."""
+    return str(raw_key).strip().lower().replace("-", "_")
+
+
+def _parse_non_negative_policy_int(value: Any, *, key: str) -> int:
+    """Validate a quality policy integer field.
+
+    Strictly accepts JSON integer values (rejects bool, float, and string
+    coercions) to keep policy contracts explicit and predictable.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"quality policy '{key}' must be an integer >= 0")
+    if value < 0:
+        raise ValueError(f"quality policy '{key}' must be >= 0")
+    return value
+
+
+def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
+    """Load and validate quality policy JSON file."""
+    policy_path = Path(policy_file).expanduser()
+    if not policy_path.exists():
+        raise FileNotFoundError(f"Policy file not found: {policy_path}")
+
+    with open(policy_path, encoding="utf-8") as f:
+        payload = json.load(f)
+
+    if not isinstance(payload, dict):
+        raise ValueError("Quality policy must be a JSON object")
+
+    # Allow either flat policy or nested payloads.
+    if isinstance(payload.get("quality_policy"), dict):
+        payload = payload["quality_policy"]
+    elif isinstance(payload.get("quality"), dict):
+        payload = payload["quality"]
+
+    normalized_payload = {_canonical_quality_policy_key(key): value for key, value in payload.items()}
+    unknown_keys = sorted(set(normalized_payload) - QUALITY_POLICY_ALLOWED_KEYS)
+    if unknown_keys:
+        raise ValueError(f"Unsupported quality policy key(s): {', '.join(unknown_keys)}")
+
+    normalized_policy: dict[str, Any] = {}
+
+    if "fail_on_quality" in normalized_payload:
+        raw_severity = normalized_payload["fail_on_quality"]
+        if raw_severity is None or not str(raw_severity).strip():
+            raise ValueError("quality policy 'fail_on_quality' cannot be empty")
+        normalized_policy["fail_on_quality"] = normalize_quality_severity(str(raw_severity).strip())
+
+    if "quality_report" in normalized_payload:
+        report_format = str(normalized_payload["quality_report"]).strip().lower()
+        if report_format not in ("json", "csv"):
+            raise ValueError("quality policy 'quality_report' must be 'json' or 'csv'")
+        normalized_policy["quality_report"] = report_format
+
+    if "max_issues" in normalized_payload:
+        normalized_policy["max_issues"] = _parse_non_negative_policy_int(
+            normalized_payload["max_issues"], key="max_issues"
+        )
+
+    return normalized_policy
+
+
+def apply_quality_policy_defaults(
+    args: argparse.Namespace, policy: dict[str, Any], argv: list[str] | None = None
+) -> dict[str, Any]:
+    """Apply quality policy values only when the corresponding CLI flags were not explicitly set."""
+    applied: dict[str, Any] = {}
+
+    if "fail_on_quality" in policy and not _cli_option_specified("--fail-on-quality", argv):
+        args.fail_on_quality = policy["fail_on_quality"]
+        applied["fail_on_quality"] = policy["fail_on_quality"]
+
+    if "quality_report" in policy and not _cli_option_specified("--quality-report", argv):
+        args.quality_report = policy["quality_report"]
+        applied["quality_report"] = policy["quality_report"]
+
+    if "max_issues" in policy and not _cli_option_specified("--max-issues", argv):
+        args.max_issues = policy["max_issues"]
+        applied["max_issues"] = policy["max_issues"]
+
+    return applied
 
 
 def normalize_quality_severity(severity: str) -> str:
@@ -450,6 +624,131 @@ def write_quality_report_output(
     else:
         issues_df.to_csv(output_path, index=False)
 
+    return str(output_path)
+
+
+def _normalize_exit_code(code: Any) -> int:
+    """Normalize SystemExit.code or arbitrary values to an integer exit code."""
+    if code is None:
+        return 0
+    if isinstance(code, int):
+        return code
+    if isinstance(code, bool):
+        return int(code)
+    return 1
+
+
+def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
+    """Classify run summary status based on known policy paths, not raw exit code alone."""
+    if exit_code == 0:
+        return "success"
+
+    details = run_state.get("details") or {}
+    mode = run_state.get("mode")
+    operation_success = details.get("operation_success")
+
+    # SDR quality gate
+    if bool(run_state.get("quality_gate_failed", False)) and exit_code == 2:
+        return "policy_exit"
+
+    # Org governance threshold gate
+    if (
+        mode == "org_report"
+        and exit_code == 2
+        and bool(details.get("thresholds_exceeded"))
+        and bool(details.get("fail_on_threshold"))
+    ):
+        return "policy_exit"
+
+    # Diff family policy exits (changes found or warn-threshold exit 3)
+    if mode in {"diff", "diff_snapshot", "compare_snapshots"} and operation_success is True and exit_code in (2, 3):
+        return "policy_exit"
+
+    return "error"
+
+
+def _infer_run_mode(args: argparse.Namespace) -> str:
+    """Infer run mode using the same precedence as command dispatch in _main_impl."""
+    mode_checks: tuple[tuple[str, bool], ...] = (
+        ("exit_codes", getattr(args, "exit_codes", False)),
+        ("sample_config", getattr(args, "sample_config", False)),
+        (
+            "profile_management",
+            bool(
+                getattr(args, "profile_list", False)
+                or getattr(args, "profile_add", None)
+                or getattr(args, "profile_test", None)
+                or getattr(args, "profile_import", None)
+                or getattr(args, "profile_show", None)
+                or getattr(args, "profile_overwrite", False)
+            ),
+        ),
+        ("git_init", getattr(args, "git_init", False)),
+        (
+            "discovery",
+            bool(
+                getattr(args, "list_dataviews", False)
+                or getattr(args, "list_connections", False)
+                or getattr(args, "list_datasets", False)
+            ),
+        ),
+        ("config_status", bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
+        ("validate_config", getattr(args, "validate_config", False)),
+        ("stats", getattr(args, "stats", False)),
+        ("org_report", getattr(args, "org_report", False)),
+        ("list_snapshots", getattr(args, "list_snapshots", False)),
+        ("prune_snapshots", getattr(args, "prune_snapshots", False)),
+        ("compare_snapshots", bool(getattr(args, "compare_snapshots", None))),
+        ("diff", getattr(args, "diff", False)),
+        ("snapshot", bool(getattr(args, "snapshot", None))),
+        ("diff_snapshot", bool(getattr(args, "compare_with_prev", False) or getattr(args, "diff_snapshot", None))),
+        ("dry_run", getattr(args, "dry_run", False)),
+        ("inventory_summary", getattr(args, "inventory_summary", False)),
+    )
+    for mode, is_active in mode_checks:
+        if is_active:
+            return mode
+    return "sdr"
+
+
+def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
+    """Serialize ProcessingResult into run summary shape."""
+    return {
+        "data_view_id": result.data_view_id,
+        "data_view_name": result.data_view_name,
+        "success": result.success,
+        "duration_seconds": round(result.duration, 3),
+        "metrics_count": result.metrics_count,
+        "dimensions_count": result.dimensions_count,
+        "dq_issues_count": result.dq_issues_count,
+        "dq_severity_counts": result.dq_severity_counts,
+        "output_file": result.output_file,
+        "error_message": result.error_message,
+        "file_size_bytes": result.file_size_bytes,
+        "segments_count": result.segments_count,
+        "segments_high_complexity": result.segments_high_complexity,
+        "calculated_metrics_count": result.calculated_metrics_count,
+        "calculated_metrics_high_complexity": result.calculated_metrics_high_complexity,
+        "derived_fields_count": result.derived_fields_count,
+        "derived_fields_high_complexity": result.derived_fields_high_complexity,
+    }
+
+
+def write_run_summary_output(summary: dict[str, Any], output: str, output_dir: str | Path = ".") -> str:
+    """Write structured run summary JSON to file or stdout."""
+    output_to_stdout = output in ("-", "stdout")
+    if output_to_stdout:
+        json.dump(summary, sys.stdout, indent=2, ensure_ascii=False)
+        print()
+        return "stdout"
+
+    output_path = Path(output)
+    if not output_path.is_absolute():
+        output_path = Path(output_dir) / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+        f.write("\n")
     return str(output_path)
 
 
@@ -972,6 +1271,168 @@ def add_profile_interactive(profile_name: str) -> bool:
     print(f"  cja_auto_sdr --profile {profile_name} --list-dataviews")
     print()
 
+    return True
+
+
+def _normalize_import_credentials(raw_credentials: dict[str, Any]) -> dict[str, str]:
+    """Normalize imported credential keys/values to canonical config field names."""
+    env_to_config_key = {env_name.lower(): config_key for config_key, env_name in ENV_VAR_MAPPING.items()}
+    alias_map = {
+        "organization_id": "org_id",
+        "orgid": "org_id",
+        "clientid": "client_id",
+        "client_secret": "secret",
+        "clientsecret": "secret",
+    }
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_value in raw_credentials.items():
+        if raw_value is None:
+            continue
+        key = _canonical_quality_policy_key(raw_key)
+        key = env_to_config_key.get(key, key)
+        key = alias_map.get(key, key)
+        if key not in CREDENTIAL_FIELDS["all"]:
+            continue
+        value = str(raw_value).strip().strip('"').strip("'")
+        if value:
+            normalized[key] = value
+
+    return normalized
+
+
+def _parse_env_credentials_content(content: str) -> dict[str, str]:
+    """Parse .env-formatted credentials content."""
+    credentials: dict[str, str] = {}
+    for line_number, raw_line in enumerate(content.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            raise ValueError(f"Invalid .env content at line {line_number}: expected KEY=VALUE")
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValueError(f"Invalid .env content at line {line_number}: empty key")
+        normalized = _normalize_import_credentials({key: value})
+        credentials.update(normalized)
+
+    return credentials
+
+
+def load_profile_import_source(source_file: str | Path) -> dict[str, str]:
+    """Load credentials from a JSON/.env file or from a directory containing profile files."""
+    source_path = Path(source_file).expanduser()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source not found: {source_path}")
+
+    if source_path.is_dir():
+        config_json_path = source_path / "config.json"
+        dotenv_path = source_path / ".env"
+        merged_credentials: dict[str, str] = {}
+
+        if config_json_path.exists():
+            with open(config_json_path, encoding="utf-8") as f:
+                config_payload = json.load(f)
+            if not isinstance(config_payload, dict):
+                raise ValueError(f"Invalid profile config in {config_json_path}: expected JSON object")
+            if isinstance(config_payload.get("credentials"), dict):
+                config_payload = config_payload["credentials"]
+            merged_credentials.update(_normalize_import_credentials(config_payload))
+
+        if dotenv_path.exists():
+            env_credentials = _parse_env_credentials_content(dotenv_path.read_text(encoding="utf-8"))
+            merged_credentials.update(env_credentials)
+
+        if not merged_credentials:
+            raise ValueError(f"No credentials found in directory: {source_path}")
+        return merged_credentials
+
+    if source_path.suffix.lower() == ".json":
+        with open(source_path, encoding="utf-8") as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            raise ValueError("Profile import JSON must be an object")
+        if isinstance(payload.get("credentials"), dict):
+            payload = payload["credentials"]
+        credentials = _normalize_import_credentials(payload)
+    else:
+        credentials = _parse_env_credentials_content(source_path.read_text(encoding="utf-8"))
+
+    if not credentials:
+        raise ValueError("No supported credential fields were found in import source")
+    return credentials
+
+
+def import_profile_non_interactive(profile_name: str, source_file: str | Path, overwrite: bool = False) -> bool:
+    """Import a profile from JSON/.env without interactive prompts."""
+    is_valid_name, error_msg = validate_profile_name(profile_name)
+    if not is_valid_name:
+        print(f"Error: {error_msg}")
+        return False
+
+    profile_path = get_profile_path(profile_name)
+    profile_exists = profile_path.exists()
+    if profile_exists and not overwrite:
+        print(f"Profile '{profile_name}' already exists at: {profile_path}")
+        print("Use --profile-overwrite with --profile-import to replace it.")
+        return False
+
+    try:
+        credentials = load_profile_import_source(source_file)
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error loading profile import source '{source_file}': {e}")
+        return False
+
+    validation_logger = logging.getLogger("profile_import")
+    validation_logger.setLevel(logging.WARNING)
+    is_usable, issues = validate_credentials(
+        credentials,
+        validation_logger,
+        strict=False,
+        source=f"profile import ({source_file})",
+    )
+    if not is_usable:
+        print("Error: Imported credentials are missing required fields:")
+        required_field_issues = [
+            issue for issue in issues if "Missing required field" in issue or "Empty value for required field" in issue
+        ]
+        for issue in required_field_issues:
+            print(f"  - {issue}")
+        return False
+
+    config_payload = {
+        key: value for key in ("org_id", "client_id", "secret", "scopes", "sandbox") if (value := credentials.get(key))
+    }
+
+    try:
+        profile_path.mkdir(parents=True, exist_ok=True)
+        config_path = profile_path / "config.json"
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_payload, f, indent=2)
+            f.write("\n")
+        config_path.chmod(0o600)
+    except OSError as e:
+        print(f"Error writing profile config: {e}")
+        return False
+
+    if profile_exists and (profile_path / ".env").exists():
+        print(
+            "Warning: Existing .env file was kept and may override imported config.json values when this profile is used."
+        )
+
+    print()
+    print(f"Profile '{profile_name}' imported successfully.")
+    print(f"  Source: {Path(source_file).expanduser()}")
+    print(f"  Location: {profile_path}")
+    print()
+    print("Next steps:")
+    print(f"  cja_auto_sdr --profile-test {profile_name}")
+    print(f"  cja_auto_sdr --profile {profile_name} --list-dataviews")
+    print()
     return True
 
 
@@ -5864,8 +6325,16 @@ def _bounded_float(min_val: float, max_val: float):
     return _type
 
 
-def parse_arguments() -> argparse.Namespace:
-    """Parse command-line arguments"""
+def parse_arguments(
+    argv: list[str] | None = None, *, return_parser: bool = False, enable_autocomplete: bool = True
+) -> argparse.Namespace | argparse.ArgumentParser:
+    """Build and parse CLI arguments.
+
+    Args:
+        argv: Optional argv list to parse. Defaults to sys.argv when None.
+        return_parser: When True, return the configured parser without parsing.
+        enable_autocomplete: Enable argcomplete integration when available.
+    """
     parser = argparse.ArgumentParser(
         description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5930,6 +6399,9 @@ Examples:
 
   # Limit data quality issues to top 10 by severity
   cja_auto_sdr dv_12345 --max-issues 10
+
+  # Apply reusable quality policy defaults from file
+  cja_auto_sdr dv_12345 --quality-policy ./quality_policy.json
 
   # Validate only (alias for --dry-run)
   cja_auto_sdr dv_12345 --validate-only
@@ -6006,12 +6478,16 @@ Examples:
   # Show profile configuration (secrets masked)
   cja_auto_sdr --profile-show client-a
 
+  # Import profile non-interactively from JSON/.env file
+  cja_auto_sdr --profile-import client-d ./client-d.env
+  cja_auto_sdr --profile-import client-d ./client-d.json --profile-overwrite
+
   # Use profile via environment variable
   export CJA_PROFILE=client-a
   cja_auto_sdr --list-dataviews
 
 Note:
-  At least one data view ID must be provided (except for --list-dataviews, --list-connections, --list-datasets, --sample-config, --stats).
+  At least one data view ID or name is required for SDR, stats, and diff comparison modes.
   Use 'cja_auto_sdr --help' to see all options.
 
 Exit Codes:
@@ -6235,6 +6711,14 @@ Requirements:
     )
 
     parser.add_argument(
+        "--sort",
+        type=str,
+        dest="discovery_sort",
+        metavar="FIELD",
+        help='Sort discovery output by field (prefix "-" for descending), e.g. --sort name or --sort=-id',
+    )
+
+    parser.add_argument(
         "--skip-validation",
         action="store_true",
         help="Skip data quality validation for faster processing (20-30%% faster)",
@@ -6293,6 +6777,14 @@ Requirements:
         help="Generate standalone quality issues report only (json or csv) without SDR files",
     )
 
+    parser.add_argument(
+        "--quality-policy",
+        type=str,
+        metavar="PATH",
+        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, max_issues). "
+        "Explicit CLI flags take precedence.",
+    )
+
     # ==================== UX ENHANCEMENT ARGUMENTS ====================
 
     parser.add_argument(
@@ -6323,11 +6815,26 @@ Requirements:
     )
 
     parser.add_argument(
+        "--name-match",
+        type=str,
+        choices=["exact", "insensitive", "fuzzy"],
+        default="exact",
+        help="Data view name matching mode: exact (default), case-insensitive, or fuzzy nearest match",
+    )
+
+    parser.add_argument(
         "--output",
         type=str,
         metavar="PATH",
         help='Output file path. Use "-" or "stdout" to write to standard output (JSON/CSV only). '
         "For stdout, implies --quiet to suppress other output",
+    )
+
+    parser.add_argument(
+        "--run-summary-json",
+        type=str,
+        metavar="PATH",
+        help='Write a machine-readable run summary JSON (all modes). Use "-" or "stdout" for stdout.',
     )
 
     # ==================== DIFF COMPARISON ARGUMENTS ====================
@@ -6345,6 +6852,18 @@ Requirements:
         type=str,
         metavar="FILE",
         help="Save a snapshot of the data view to a JSON file (use with single data view)",
+    )
+
+    diff_group.add_argument(
+        "--list-snapshots",
+        action="store_true",
+        help="List snapshots from --snapshot-dir (optional DATA_VIEW_ID filters via positional args)",
+    )
+
+    diff_group.add_argument(
+        "--prune-snapshots",
+        action="store_true",
+        help="Apply retention policies to snapshots in --snapshot-dir without running a diff",
     )
 
     diff_group.add_argument(
@@ -6535,6 +7054,19 @@ Requirements:
 
     profile_group.add_argument(
         "--profile-show", type=str, metavar="NAME", help="Show profile configuration (with masked secrets)"
+    )
+
+    profile_group.add_argument(
+        "--profile-import",
+        nargs=2,
+        metavar=("NAME", "FILE"),
+        help="Import profile credentials from JSON/.env file (or profile directory) without prompts",
+    )
+
+    profile_group.add_argument(
+        "--profile-overwrite",
+        action="store_true",
+        help="Allow --profile-import to overwrite an existing profile",
     )
 
     # ==================== GIT INTEGRATION ARGUMENTS ====================
@@ -6939,10 +7471,13 @@ Requirements:
     )
 
     # Enable shell tab-completion if argcomplete is installed
-    if _ARGCOMPLETE_AVAILABLE:
+    if enable_autocomplete and _ARGCOMPLETE_AVAILABLE:
         argcomplete.autocomplete(parser)
 
-    return parser.parse_args()
+    if return_parser:
+        return parser
+
+    return parser.parse_args(argv)
 
 
 # ==================== DATA VIEW NAME RESOLUTION ====================
@@ -7191,10 +7726,11 @@ def resolve_data_view_names(
     logger: logging.Logger | None = None,
     suggest_similar: bool = True,
     profile: str | None = None,
+    match_mode: str = "exact",
 ) -> tuple[list[str], dict[str, list[str]]]:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
-    If it's a name, look up all data views with that exact name.
+    If it's a name, match based on ``match_mode``.
 
     Features:
     - Caches API calls for performance when resolving multiple names
@@ -7206,6 +7742,7 @@ def resolve_data_view_names(
         logger: Logger instance for logging
         suggest_similar: If True, suggest similar names when exact match fails
         profile: Optional profile name to use for credentials
+        match_mode: Name matching strategy: exact, insensitive, or fuzzy
 
     Returns:
         Tuple of (resolved_ids, name_to_ids_map)
@@ -7214,6 +7751,10 @@ def resolve_data_view_names(
     """
     if logger is None:
         logger = logging.getLogger(__name__)
+
+    match_mode = (match_mode or "exact").strip().lower()
+    if match_mode not in {"exact", "insensitive", "fuzzy"}:
+        raise ValueError(f"Invalid match_mode: {match_mode}")
 
     resolved_ids = []
     name_to_ids_map = {}
@@ -7237,6 +7778,7 @@ def resolve_data_view_names(
 
         # Build a lookup map: name -> list of IDs
         name_to_id_lookup = {}
+        name_to_id_lookup_ci = {}
         id_to_name_lookup = {}
 
         for dv in available_dvs:
@@ -7249,6 +7791,10 @@ def resolve_data_view_names(
                     if dv_name not in name_to_id_lookup:
                         name_to_id_lookup[dv_name] = []
                     name_to_id_lookup[dv_name].append(dv_id)
+                    dv_name_ci = dv_name.lower()
+                    if dv_name_ci not in name_to_id_lookup_ci:
+                        name_to_id_lookup_ci[dv_name_ci] = []
+                    name_to_id_lookup_ci[dv_name_ci].append(dv_id)
 
         logger.debug(f"Built lookup map with {len(name_to_id_lookup)} unique names and {len(id_to_name_lookup)} IDs")
 
@@ -7264,9 +7810,26 @@ def resolve_data_view_names(
                     # Still add it - will fail during processing with proper error message
                     resolved_ids.append(identifier)
             else:
-                # It's a name - look up all matching IDs
-                if identifier in name_to_id_lookup:
-                    matching_ids = name_to_id_lookup[identifier]
+                matching_ids: list[str] | None = None
+
+                # It's a name - resolve based on selected match mode
+                if match_mode == "exact":
+                    matching_ids = name_to_id_lookup.get(identifier)
+                elif match_mode == "insensitive":
+                    matching_ids = name_to_id_lookup_ci.get(identifier.lower())
+                elif match_mode == "fuzzy":
+                    # Fuzzy mode prefers exact, then case-insensitive, then nearest name.
+                    matching_ids = name_to_id_lookup.get(identifier) or name_to_id_lookup_ci.get(identifier.lower())
+                    if matching_ids is None:
+                        similar = find_similar_names(identifier, list(name_to_id_lookup.keys()), max_suggestions=1)
+                        if similar:
+                            best_name, best_distance = similar[0]
+                            matching_ids = name_to_id_lookup.get(best_name)
+                            logger.warning(
+                                f"Name '{identifier}' fuzzy-matched to '{best_name}' (distance: {best_distance})"
+                            )
+
+                if matching_ids:
                     resolved_ids.extend(matching_ids)
                     name_to_ids_map[identifier] = matching_ids
 
@@ -7275,13 +7838,11 @@ def resolve_data_view_names(
                     else:
                         logger.info(f"Name '{identifier}' matched {len(matching_ids)} data views: {matching_ids}")
                 else:
-                    # Name not found - try to find similar names for helpful error message
                     logger.error(f"Data view name '{identifier}' not found in accessible data views")
 
                     if suggest_similar:
                         similar = find_similar_names(identifier, list(name_to_id_lookup.keys()))
                         if similar:
-                            # Check for case-insensitive match first
                             case_match = [s for s in similar if s[1] == 0]
                             if case_match:
                                 logger.error(f"  → Did you mean '{case_match[0][0]}'? (case mismatch)")
@@ -7289,9 +7850,13 @@ def resolve_data_view_names(
                                 suggestions = [f"'{s[0]}'" for s in similar]
                                 logger.error(f"  → Did you mean: {', '.join(suggestions)}?")
 
-                    logger.error("  → Name matching is CASE-SENSITIVE and requires EXACT match")
+                    if match_mode == "exact":
+                        logger.error("  → Name matching is CASE-SENSITIVE and requires EXACT match")
+                    elif match_mode == "insensitive":
+                        logger.error("  → Name matching is case-insensitive exact match")
+                    else:
+                        logger.error("  → Name matching uses fuzzy nearest-match mode")
                     logger.error("  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
-                    # Don't add to resolved_ids - this is an error
 
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
         return resolved_ids, name_to_ids_map
@@ -7472,6 +8037,158 @@ def _extract_connections_list(raw_connections: Any) -> list:
     return []
 
 
+def _to_searchable_text(value: Any) -> str:
+    """Convert nested values to text for filter/exclude matching."""
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return str(value)
+
+
+class DiscoveryArgumentError(ValueError):
+    """Raised when discovery filter/sort arguments are invalid."""
+
+
+_NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
+
+
+def _to_numeric_sort_value(value: Any) -> float | None:
+    """Convert a sortable value to float when it is numerically representable."""
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+        return float(value)
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or not _NUMERIC_SORT_VALUE_RE.fullmatch(stripped):
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _is_missing_sort_value(value: Any) -> bool:
+    """Return True for values that should be sorted after concrete values."""
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    try:
+        return bool(pd.isna(value))
+    except Exception:
+        return False
+
+
+def _compile_discovery_pattern(pattern: str | None, *, option_name: str) -> re.Pattern[str] | None:
+    """Compile a discovery regex and raise a user-facing validation error on failure."""
+    if not pattern:
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as exc:
+        raise DiscoveryArgumentError(f"Invalid {option_name} regex '{pattern}': {exc!s}") from exc
+
+
+def _validate_discovery_query_inputs(
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+) -> None:
+    """Validate discovery query flags before executing API calls."""
+    _compile_discovery_pattern(filter_pattern, option_name="--filter")
+    _compile_discovery_pattern(exclude_pattern, option_name="--exclude")
+    if limit is not None and limit < 0:
+        raise DiscoveryArgumentError("--limit cannot be negative")
+
+
+def _apply_discovery_filters_and_sort(
+    rows: list[dict[str, Any]],
+    *,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+    searchable_fields: list[str] | None = None,
+    default_sort_field: str = "name",
+) -> list[dict[str, Any]]:
+    """Apply filter/exclude/sort/limit to discovery rows."""
+    filtered_rows = list(rows)
+    fields = searchable_fields or list(rows[0].keys()) if rows else []
+
+    _validate_discovery_query_inputs(filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit)
+    filter_re = _compile_discovery_pattern(filter_pattern, option_name="--filter")
+    exclude_re = _compile_discovery_pattern(exclude_pattern, option_name="--exclude")
+
+    if filter_re:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if filter_re.search(" ".join(_to_searchable_text(row.get(field, "")) for field in fields))
+        ]
+    if exclude_re:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if not exclude_re.search(" ".join(_to_searchable_text(row.get(field, "")) for field in fields))
+        ]
+
+    sort_field = default_sort_field
+    reverse = False
+    if sort_expression:
+        sort_expr = sort_expression.strip()
+        if sort_expr.startswith("-"):
+            reverse = True
+            sort_field = sort_expr[1:]
+        else:
+            sort_field = sort_expr
+
+    non_missing_values = [
+        row.get(sort_field) for row in filtered_rows if not _is_missing_sort_value(row.get(sort_field))
+    ]
+    use_numeric_sort = bool(non_missing_values) and all(
+        _to_numeric_sort_value(value) is not None for value in non_missing_values
+    )
+
+    concrete_rows: list[tuple[float | str, dict[str, Any]]] = []
+    missing_rows: list[dict[str, Any]] = []
+    for row in filtered_rows:
+        raw_value = row.get(sort_field)
+        if _is_missing_sort_value(raw_value):
+            missing_rows.append(row)
+            continue
+
+        if use_numeric_sort:
+            numeric_value = _to_numeric_sort_value(raw_value)
+            if numeric_value is None:
+                missing_rows.append(row)
+                continue
+            concrete_rows.append((numeric_value, row))
+        else:
+            concrete_rows.append((_to_searchable_text(raw_value).casefold(), row))
+
+    concrete_rows.sort(key=lambda item: item[0], reverse=reverse)
+    filtered_rows = [row for _, row in concrete_rows] + missing_rows
+
+    if limit is not None:
+        filtered_rows = filtered_rows[:limit]
+
+    return filtered_rows
+
+
 def _run_list_command(
     banner_text: str,
     command_name: str,
@@ -7480,6 +8197,7 @@ def _run_list_command(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    validate_inputs: Callable[[], None] | None = None,
 ) -> bool:
     """Shared boilerplate for list-* discovery commands.
 
@@ -7503,6 +8221,7 @@ def _run_list_command(
         output_format: "table", "json", or "csv".
         output_file: File path, "-" for stdout pipe, or None.
         profile: Optional profile name.
+        validate_inputs: Optional callback to validate local discovery arguments.
 
     Returns:
         True if successful, False otherwise.
@@ -7525,6 +8244,9 @@ def _run_list_command(
         print()
 
     try:
+        if validate_inputs:
+            validate_inputs()
+
         logger = logging.getLogger(command_name)
         logger.setLevel(logging.WARNING)
         success, source, _ = configure_cjapy(profile=active_profile, config_file=config_file, logger=logger)
@@ -7544,6 +8266,13 @@ def _run_list_command(
             _emit_output(output_data, output_file, is_stdout)
 
         return True
+
+    except DiscoveryArgumentError as e:
+        if is_machine_readable:
+            print(json.dumps({"error": str(e), "error_type": "invalid_arguments"}), file=sys.stderr)
+        else:
+            print(ConsoleColors.error(f"ERROR: {e}"))
+        return False
 
     except FileNotFoundError:
         if is_machine_readable:
@@ -7572,7 +8301,13 @@ def _run_list_command(
 # ==================== LIST DATA VIEWS ====================
 
 
-def _fetch_dataviews(output_format: str) -> Callable:
+def _fetch_dataviews(
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
     """Return a fetch_and_format callback for list_dataviews."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
@@ -7595,6 +8330,16 @@ def _fetch_dataviews(output_format: str) -> Callable:
                 dv_name = dv.get("name", "N/A")
                 owner_name = _extract_owner_name(dv.get("owner"))
                 display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
+
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "owner"],
+            default_sort_field="name",
+        )
 
         if output_format == "json":
             return _format_as_json({"dataViews": display_data, "count": len(display_data)})
@@ -7634,23 +8379,42 @@ def list_dataviews(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
 ) -> bool:
     """List all accessible data views and exit."""
     return _run_list_command(
         banner_text="LISTING ACCESSIBLE DATA VIEWS",
         command_name="list_dataviews",
-        fetch_and_format=_fetch_dataviews(output_format),
+        fetch_and_format=_fetch_dataviews(
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
         config_file=config_file,
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 
 # ==================== LIST CONNECTIONS ====================
 
 
-def _fetch_connections(output_format: str) -> Callable:
+def _fetch_connections(
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
     """Return a fetch_and_format callback for list_connections."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
@@ -7683,6 +8447,15 @@ def _fetch_connections(output_format: str) -> Callable:
                     {"id": cid, "name": None, "owner": None, "datasets": [], "dataview_count": cnt}
                     for cid, cnt in sorted(conn_ids_from_dvs.items())
                 ]
+                derived = _apply_discovery_filters_and_sort(
+                    derived,
+                    filter_pattern=filter_pattern,
+                    exclude_pattern=exclude_pattern,
+                    limit=limit,
+                    sort_expression=sort_expression,
+                    searchable_fields=["id", "name", "owner", "dataview_count"],
+                    default_sort_field="id",
+                )
 
                 if output_format == "json":
                     return _format_as_json(
@@ -7748,6 +8521,16 @@ def _fetch_connections(output_format: str) -> Callable:
                 }
             )
 
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "owner", "datasets"],
+            default_sort_field="name",
+        )
+
         if output_format == "json":
             return _format_as_json({"connections": display_data, "count": len(display_data)})
         elif output_format == "csv":
@@ -7803,23 +8586,42 @@ def list_connections(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
 ) -> bool:
     """List all accessible connections with their datasets and exit."""
     return _run_list_command(
         banner_text="LISTING ACCESSIBLE CONNECTIONS",
         command_name="list_connections",
-        fetch_and_format=_fetch_connections(output_format),
+        fetch_and_format=_fetch_connections(
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
         config_file=config_file,
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 
 # ==================== LIST DATASETS ====================
 
 
-def _fetch_datasets(output_format: str) -> Callable:
+def _fetch_datasets(
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
     """Return a fetch_and_format callback for list_datasets."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
@@ -7893,6 +8695,16 @@ def _fetch_datasets(output_format: str) -> Callable:
                     "datasets": datasets,
                 }
             )
+
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "connection", "datasets"],
+            default_sort_field="name",
+        )
 
         if not is_machine_readable:
             # Clear progress line with ANSI erase-line escape
@@ -7974,16 +8786,29 @@ def list_datasets(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
 ) -> bool:
     """List all data views with their backing connections and underlying datasets."""
     return _run_list_command(
         banner_text="LISTING DATA VIEWS WITH DATASETS",
         command_name="list_datasets",
-        fetch_and_format=_fetch_datasets(output_format),
+        fetch_and_format=_fetch_datasets(
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
         config_file=config_file,
         output_format=output_format,
         output_file=output_file,
         profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern, exclude_pattern=exclude_pattern, limit=limit
+        ),
     )
 
 
@@ -11982,11 +12807,40 @@ def handle_compare_snapshots_command(
 # ==================== MAIN FUNCTION ====================
 
 
-def main():
-    """Main entry point for the script"""
+def _main_impl(run_state: dict[str, Any] | None = None):
+    """Main CLI implementation."""
 
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
+    inferred_mode = _infer_run_mode(args)
+    if run_state is not None:
+        run_state["mode"] = inferred_mode
+        run_state["profile"] = getattr(args, "profile", None)
+        run_state["config_file"] = getattr(args, "config_file", None)
+        run_state["output_format"] = getattr(args, "format", None)
+        run_state["output_dir"] = getattr(args, "output_dir", ".")
+        run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
+        run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+
+    run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
+    quality_policy_path = getattr(args, "quality_policy", None)
+    applied_quality_policy: dict[str, Any] = {}
+    if quality_policy_path:
+        if run_state is not None:
+            run_state["quality_policy"] = {
+                "path": str(Path(quality_policy_path).expanduser()),
+                "applied": {},
+            }
+        try:
+            quality_policy = load_quality_policy(quality_policy_path)
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            _exit_error(f"Failed to load --quality-policy '{quality_policy_path}': {e}")
+        # Only apply quality defaults for SDR generation mode. This keeps
+        # shared policy files usable across non-SDR commands.
+        if inferred_mode == "sdr":
+            applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
+        if run_state is not None and isinstance(run_state.get("quality_policy"), dict):
+            run_state["quality_policy"]["applied"] = applied_quality_policy
 
     # Configure global color policy for all ConsoleColors call sites.
     ConsoleColors.configure(no_color=getattr(args, "no_color", False))
@@ -12026,42 +12880,27 @@ def main():
     keep_last_specified = _cli_option_specified("--keep-last")
     keep_since_specified = _cli_option_specified("--keep-since")
 
-    non_sdr_modes_for_quality_options = (
-        getattr(args, "diff", False)
-        or getattr(args, "snapshot", None)
-        or getattr(args, "diff_snapshot", None)
-        or getattr(args, "compare_with_prev", False)
-        or getattr(args, "compare_snapshots", None)
-        or getattr(args, "org_report", False)
-        or getattr(args, "inventory_summary", False)
-        or getattr(args, "list_dataviews", False)
-        or getattr(args, "list_connections", False)
-        or getattr(args, "list_datasets", False)
-        or getattr(args, "validate_config", False)
-        or getattr(args, "config_status", False)
-        or getattr(args, "config_json", False)
-        or getattr(args, "sample_config", False)
-        or getattr(args, "exit_codes", False)
-        or getattr(args, "profile_list", False)
-        or getattr(args, "profile_add", None)
-        or getattr(args, "profile_test", None)
-        or getattr(args, "profile_show", None)
-        or getattr(args, "git_init", False)
-        or getattr(args, "org_compare_report", None)
-        or getattr(args, "stats", False)
-        or getattr(args, "dry_run", False)
-    )
-    if getattr(args, "fail_on_quality", None) and non_sdr_modes_for_quality_options:
+    non_sdr_mode = inferred_mode != "sdr"
+    if getattr(args, "fail_on_quality", None) and non_sdr_mode:
         _exit_error("--fail-on-quality is only supported in SDR generation mode")
 
-    if getattr(args, "auto_prune", False) and not getattr(args, "auto_snapshot", False):
-        _exit_error("--auto-prune requires --auto-snapshot")
+    if (
+        getattr(args, "auto_prune", False)
+        and not getattr(args, "auto_snapshot", False)
+        and not getattr(args, "prune_snapshots", False)
+    ):
+        _exit_error("--auto-prune requires --auto-snapshot or --prune-snapshots")
     if getattr(args, "fail_on_quality", None) and args.skip_validation:
         _exit_error("--fail-on-quality cannot be used with --skip-validation")
     if getattr(args, "quality_report", None) and args.skip_validation:
         _exit_error("--quality-report cannot be used with --skip-validation")
-    if getattr(args, "quality_report", None) and non_sdr_modes_for_quality_options:
+    if getattr(args, "quality_report", None) and non_sdr_mode:
         _exit_error("--quality-report is only supported in SDR generation mode")
+
+    if getattr(args, "list_snapshots", False) and getattr(args, "prune_snapshots", False):
+        _exit_error("Use either --list-snapshots or --prune-snapshots, not both")
+    if getattr(args, "profile_overwrite", False) and not getattr(args, "profile_import", None):
+        _exit_error("--profile-overwrite requires --profile-import")
 
     # Propagate retry config via env vars so both the current process
     # (read by _effective_retry_config in resilience.py) and child
@@ -12072,7 +12911,9 @@ def main():
 
     # Handle --output for stdout - implies quiet mode
     output_to_stdout = getattr(args, "output", None) in ("-", "stdout")
-    if output_to_stdout:
+    if run_summary_to_stdout and output_to_stdout:
+        _exit_error("--run-summary-json stdout cannot be combined with --output stdout")
+    if output_to_stdout or run_summary_to_stdout:
         args.quiet = True
 
     # Auto-detect format from output file extension if --format not explicitly set
@@ -12083,6 +12924,8 @@ def main():
             args.format = inferred_format
             if not args.quiet:
                 print(f"Auto-detected format '{inferred_format}' from output file extension")
+    if run_state is not None:
+        run_state["output_format"] = getattr(args, "format", None)
 
     # Set color theme for diff output (accessible accessibility)
     color_theme = getattr(args, "color_theme", "default")
@@ -12134,6 +12977,8 @@ def main():
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
         success = generate_sample_config()
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # ==================== PROFILE MANAGEMENT COMMANDS ====================
@@ -12142,21 +12987,41 @@ def main():
     if getattr(args, "profile_list", False):
         list_format = "json" if args.format == "json" else "table"
         success = list_profiles(output_format=list_format)
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
+        sys.exit(0 if success else 1)
+
+    # Handle --profile-import mode (no data view required)
+    if getattr(args, "profile_import", None):
+        profile_name, source_file = args.profile_import
+        success = import_profile_non_interactive(
+            profile_name,
+            source_file,
+            overwrite=getattr(args, "profile_overwrite", False),
+        )
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --profile-add mode (no data view required)
     if getattr(args, "profile_add", None):
         success = add_profile_interactive(args.profile_add)
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --profile-test mode (no data view required)
     if getattr(args, "profile_test", None):
         success = test_profile(args.profile_test)
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --profile-show mode (no data view required)
     if getattr(args, "profile_show", None):
         success = show_profile(args.profile_show)
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --git-init mode (no data view required)
@@ -12174,6 +13039,8 @@ def main():
             print("  3. Use --git-push to push commits to remote")
         else:
             print(ConsoleColors.error(f"FAILED: {message}"))
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Validate Git argument combinations
@@ -12207,7 +13074,14 @@ def main():
                 output_format=list_format,
                 output_file=getattr(args, "output", None),
                 profile=getattr(args, "profile", None),
+                filter_pattern=getattr(args, "org_filter", None),
+                exclude_pattern=getattr(args, "org_exclude", None),
+                limit=getattr(args, "org_limit", None),
+                sort_expression=getattr(args, "discovery_sort", None),
             )
+            if run_state is not None:
+                run_state["output_format"] = list_format
+                run_state["details"] = {"operation_success": success, "discovery_command": attr}
             sys.exit(0 if success else 1)
 
     # Handle --config-status mode (no data view required, no API call)
@@ -12215,15 +13089,21 @@ def main():
     if getattr(args, "config_status", False) or getattr(args, "config_json", False):
         output_json = getattr(args, "config_json", False)
         success = show_config_status(args.config_file, profile=getattr(args, "profile", None), output_json=output_json)
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --validate-config mode (no data view required)
     if args.validate_config:
         success = validate_config_only(args.config_file, profile=getattr(args, "profile", None))
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Get data views from arguments
     data_view_inputs = args.data_views
+    if run_state is not None:
+        run_state["data_view_inputs"] = list(data_view_inputs)
 
     # Handle --interactive mode (full wizard for guided SDR generation)
     if getattr(args, "interactive", False):
@@ -12242,6 +13122,8 @@ def main():
         args.include_calculated_metrics = wizard_config.include_calculated
         args.include_derived_inventory = wizard_config.include_derived
         args.inventory_only = wizard_config.inventory_only
+        if run_state is not None:
+            run_state["data_view_inputs"] = list(data_view_inputs)
 
         print()
         print("=" * BANNER_WIDTH)
@@ -12259,12 +13141,18 @@ def main():
         temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            data_view_inputs,
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
 
         if not resolved_ids:
             print(ConsoleColors.error("ERROR: No valid data views found"), file=sys.stderr)
             sys.exit(1)
+        if run_state is not None:
+            run_state["resolved_data_views"] = list(resolved_ids)
 
         # Determine format for stats output
         stats_format = "table"
@@ -12281,6 +13169,9 @@ def main():
             quiet=args.quiet,
             profile=getattr(args, "profile", None),
         )
+        if run_state is not None:
+            run_state["output_format"] = stats_format
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --org-report mode (no data views required)
@@ -12344,6 +13235,13 @@ def main():
             profile=getattr(args, "profile", None),
             quiet=args.quiet,
         )
+        if run_state is not None:
+            run_state["output_format"] = output_format
+            run_state["details"] = {
+                "operation_success": success,
+                "thresholds_exceeded": thresholds_exceeded,
+                "fail_on_threshold": org_config.fail_on_threshold,
+            }
 
         # Exit code: 0 = success, 1 = error, 2 = thresholds exceeded (with --fail-on-threshold)
         if success:
@@ -12399,6 +13297,164 @@ def main():
                 enabled.append("--include-derived")
             print(ConsoleColors.info(f"--include-all-inventory enabled: {', '.join(enabled)}"))
 
+    # Handle --list-snapshots mode (list snapshot files from snapshot directory)
+    if getattr(args, "list_snapshots", False):
+        if data_view_inputs and any(not is_data_view_id(dv) for dv in data_view_inputs):
+            _exit_error("--list-snapshots filters only support DATA_VIEW_ID values (e.g., dv_12345)")
+
+        snapshot_manager = SnapshotManager()
+        snapshots = snapshot_manager.list_snapshots(getattr(args, "snapshot_dir", "./snapshots"))
+        if data_view_inputs:
+            selected_ids = set(data_view_inputs)
+            snapshots = [s for s in snapshots if s.get("data_view_id") in selected_ids]
+
+        list_output_format = args.format if args.format in ("json", "csv") else "table"
+        if output_to_stdout and list_output_format == "table":
+            list_output_format = "json"
+
+        if list_output_format == "json":
+            payload = {
+                "snapshot_dir": str(getattr(args, "snapshot_dir", "./snapshots")),
+                "count": len(snapshots),
+                "snapshots": snapshots,
+            }
+            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+        elif list_output_format == "csv":
+            rows = [
+                {
+                    "data_view_id": s.get("data_view_id", ""),
+                    "data_view_name": s.get("data_view_name", ""),
+                    "created_at": s.get("created_at", ""),
+                    "metrics_count": s.get("metrics_count", 0),
+                    "dimensions_count": s.get("dimensions_count", 0),
+                    "filepath": s.get("filepath", ""),
+                }
+                for s in snapshots
+            ]
+            _emit_output(
+                _format_as_csv(
+                    ["data_view_id", "data_view_name", "created_at", "metrics_count", "dimensions_count", "filepath"],
+                    rows,
+                ),
+                getattr(args, "output", None),
+                output_to_stdout,
+            )
+        else:
+            if snapshots:
+                table_rows = [
+                    {
+                        "data_view_id": s.get("data_view_id", ""),
+                        "data_view_name": s.get("data_view_name", ""),
+                        "created_at": s.get("created_at", ""),
+                        "filepath": Path(str(s.get("filepath", ""))).name,
+                    }
+                    for s in snapshots
+                ]
+                table_text = _format_as_table(
+                    f"Found {len(table_rows)} snapshot(s) in {getattr(args, 'snapshot_dir', './snapshots')}:",
+                    table_rows,
+                    columns=["data_view_id", "data_view_name", "created_at", "filepath"],
+                    col_labels=["Data View ID", "Data View Name", "Created", "File"],
+                )
+            else:
+                table_text = f"\nNo snapshots found in {getattr(args, 'snapshot_dir', './snapshots')}.\n"
+            _emit_output(table_text, getattr(args, "output", None), output_to_stdout)
+
+        if run_state is not None:
+            run_state["output_format"] = list_output_format
+            run_state["details"] = {"operation_success": True, "snapshot_count": len(snapshots)}
+            if data_view_inputs:
+                run_state["resolved_data_views"] = list(data_view_inputs)
+        sys.exit(0)
+
+    # Handle --prune-snapshots mode (retention-only maintenance operation)
+    if getattr(args, "prune_snapshots", False):
+        if data_view_inputs and any(not is_data_view_id(dv) for dv in data_view_inputs):
+            _exit_error("--prune-snapshots filters only support DATA_VIEW_ID values (e.g., dv_12345)")
+
+        snapshot_dir = getattr(args, "snapshot_dir", "./snapshots")
+        snapshot_manager = SnapshotManager()
+        existing_snapshots = snapshot_manager.list_snapshots(snapshot_dir)
+        available_ids = sorted({s.get("data_view_id", "") for s in existing_snapshots if s.get("data_view_id")})
+        target_ids = list(data_view_inputs) if data_view_inputs else available_ids
+
+        effective_keep_last, effective_keep_since = resolve_auto_prune_retention(
+            keep_last=getattr(args, "keep_last", 0),
+            keep_since=getattr(args, "keep_since", None),
+            auto_prune=getattr(args, "auto_prune", False),
+            keep_last_specified=keep_last_specified,
+            keep_since_specified=keep_since_specified,
+        )
+        if effective_keep_last <= 0 and not effective_keep_since:
+            _exit_error("--prune-snapshots requires --keep-last and/or --keep-since (or use --auto-prune for defaults)")
+
+        keep_since_days = None
+        if effective_keep_since:
+            keep_since_days = parse_retention_period(effective_keep_since)
+            if keep_since_days is None:
+                _exit_error(f"Invalid --keep-since value: {effective_keep_since}")
+
+        deleted_paths: list[str] = []
+        if effective_keep_last > 0:
+            for dv_id in target_ids:
+                deleted_paths.extend(snapshot_manager.apply_retention_policy(snapshot_dir, dv_id, effective_keep_last))
+
+        if keep_since_days is not None:
+            if target_ids:
+                for dv_id in target_ids:
+                    deleted_paths.extend(
+                        snapshot_manager.apply_date_retention_policy(
+                            snapshot_dir, dv_id, keep_since_days=keep_since_days
+                        )
+                    )
+            else:
+                deleted_paths.extend(
+                    snapshot_manager.apply_date_retention_policy(snapshot_dir, "*", keep_since_days=keep_since_days)
+                )
+
+        unique_deleted = sorted(set(deleted_paths))
+        prune_output_format = args.format if args.format in ("json", "csv") else "table"
+        if output_to_stdout and prune_output_format == "table":
+            prune_output_format = "json"
+
+        if prune_output_format == "json":
+            payload = {
+                "snapshot_dir": str(snapshot_dir),
+                "deleted_count": len(unique_deleted),
+                "deleted_files": unique_deleted,
+                "target_data_view_ids": target_ids,
+                "retention": {"keep_last": effective_keep_last, "keep_since": effective_keep_since},
+            }
+            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+        elif prune_output_format == "csv":
+            rows = [{"filepath": path} for path in unique_deleted]
+            _emit_output(_format_as_csv(["filepath"], rows), getattr(args, "output", None), output_to_stdout)
+        else:
+            lines = [
+                "",
+                f"Snapshot prune complete for {snapshot_dir}",
+                f"Deleted files: {len(unique_deleted)}",
+                f"Retention keep_last: {effective_keep_last}",
+                f"Retention keep_since: {effective_keep_since or '-'}",
+            ]
+            if target_ids:
+                lines.append(f"Target data views: {', '.join(target_ids)}")
+            if unique_deleted:
+                lines.extend(["", "Deleted files:"])
+                lines.extend([f"  - {Path(path).name}" for path in unique_deleted])
+            lines.append("")
+            _emit_output("\n".join(lines), getattr(args, "output", None), output_to_stdout)
+
+        if run_state is not None:
+            run_state["output_format"] = prune_output_format
+            run_state["details"] = {
+                "operation_success": True,
+                "deleted_count": len(unique_deleted),
+                "retention": {"keep_last": effective_keep_last, "keep_since": effective_keep_since},
+            }
+            run_state["resolved_data_views"] = list(target_ids)
+        sys.exit(0)
+
     # Handle --compare-snapshots mode (compare two snapshot files directly)
     if hasattr(args, "compare_snapshots") and args.compare_snapshots:
         source_file, target_file = args.compare_snapshots
@@ -12446,6 +13502,13 @@ def main():
             include_calc_metrics=getattr(args, "include_calculated_metrics", False),
             include_segments=getattr(args, "include_segments_inventory", False),
         )
+        if run_state is not None:
+            run_state["output_format"] = diff_format
+            run_state["details"] = {
+                "operation_success": success,
+                "has_changes": has_changes,
+                "warn_threshold_exit_code": exit_code_override,
+            }
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
         if success:
@@ -12529,7 +13592,11 @@ def main():
 
         # Resolve source identifier
         source_resolved, _source_map = resolve_data_view_names(
-            [source_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            [source_input],
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
         if not source_resolved:
             print(ConsoleColors.error(f"ERROR: Could not resolve source data view: '{source_input}'"), file=sys.stderr)
@@ -12557,7 +13624,11 @@ def main():
 
         # Resolve target identifier
         target_resolved, _target_map = resolve_data_view_names(
-            [target_input], args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            [target_input],
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
         if not target_resolved:
             print(ConsoleColors.error(f"ERROR: Could not resolve target data view: '{target_input}'"), file=sys.stderr)
@@ -12584,6 +13655,8 @@ def main():
                 sys.exit(1)
 
         resolved_ids = [source_resolved[0], target_resolved[0]]
+        if run_state is not None:
+            run_state["resolved_data_views"] = list(resolved_ids)
 
         # Default to console for diff commands
         diff_format = args.format if args.format else "console"
@@ -12620,6 +13693,13 @@ def main():
             keep_since_specified=keep_since_specified,
             profile=getattr(args, "profile", None),
         )
+        if run_state is not None:
+            run_state["output_format"] = diff_format
+            run_state["details"] = {
+                "operation_success": success,
+                "has_changes": has_changes,
+                "warn_threshold_exit_code": exit_code_override,
+            }
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
         if success:
@@ -12648,7 +13728,11 @@ def main():
         temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            data_view_inputs,
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
 
         if not resolved_ids:
@@ -12684,6 +13768,9 @@ def main():
             include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
             include_segments=getattr(args, "include_segments_inventory", False),
         )
+        if run_state is not None:
+            run_state["resolved_data_views"] = list(resolved_ids)
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     # Handle --compare-with-prev mode (find most recent snapshot and compare)
@@ -12710,7 +13797,11 @@ def main():
         temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            data_view_inputs,
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
 
         if not resolved_ids:
@@ -12795,7 +13886,11 @@ def main():
         temp_logger = logging.getLogger("name_resolution")
         temp_logger.setLevel(logging.WARNING)
         resolved_ids, _ = resolve_data_view_names(
-            data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
+            data_view_inputs,
+            args.config_file,
+            temp_logger,
+            profile=getattr(args, "profile", None),
+            match_mode=getattr(args, "name_match", "exact"),
         )
 
         if not resolved_ids:
@@ -12859,6 +13954,14 @@ def main():
             include_calc_metrics=include_calc_metrics,
             include_segments=include_segments,
         )
+        if run_state is not None:
+            run_state["output_format"] = diff_format
+            run_state["resolved_data_views"] = list(resolved_ids)
+            run_state["details"] = {
+                "operation_success": success,
+                "has_changes": has_changes,
+                "warn_threshold_exit_code": exit_code_override,
+            }
 
         # Exit with code 3 if threshold exceeded, 2 if differences found, 0 if no changes
         if success:
@@ -12892,7 +13995,11 @@ def main():
         print(ConsoleColors.info(f"Resolving {len(names_provided)} data view name(s)..."))
 
     data_views, name_to_ids_map = resolve_data_view_names(
-        data_view_inputs, args.config_file, temp_logger, profile=getattr(args, "profile", None)
+        data_view_inputs,
+        args.config_file,
+        temp_logger,
+        profile=getattr(args, "profile", None),
+        match_mode=getattr(args, "name_match", "exact"),
     )
 
     # Remove the temporary handler
@@ -12948,6 +14055,8 @@ def main():
         print()
 
     data_views = unique_data_views
+    if run_state is not None:
+        run_state["resolved_data_views"] = list(data_views)
 
     # Large batch confirmation (unless --yes or --quiet)
     LARGE_BATCH_THRESHOLD = 20
@@ -12997,6 +14106,8 @@ def main():
     if args.dry_run:
         logger = setup_logging(batch_mode=True, log_level="WARNING", log_format=args.log_format)
         success = run_dry_run(data_views, args.config_file, logger, profile=getattr(args, "profile", None))
+        if run_state is not None:
+            run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
 
     quality_report_format = getattr(args, "quality_report", None)
@@ -13006,6 +14117,8 @@ def main():
     sdr_format = args.format if args.format else "excel"
     if quality_report_only:
         sdr_format = "json"
+    if run_state is not None:
+        run_state["output_format"] = quality_report_format if quality_report_only else sdr_format
 
     # Validate format - console is only supported for diff comparison
     if sdr_format == "console" and not quality_report_only:
@@ -13148,6 +14261,9 @@ def main():
     if getattr(args, "inventory_summary", False):
         # Determine output format for summary
         summary_format = args.format if args.format in ("json", "all") else "console"
+        if run_state is not None:
+            run_state["output_format"] = summary_format
+            run_state["details"] = {"operation_success": True}
 
         if len(data_views) > 1:
             # Process multiple data views in summary mode
@@ -13517,6 +14633,9 @@ def main():
         print(ConsoleColors.bold(f"Total runtime: {total_runtime:.1f}s"))
 
     all_quality_issues = aggregate_quality_issues(successful_results)
+    if run_state is not None:
+        run_state["processed_results"] = [*processed_results]
+        run_state["quality_issues_count"] = len(all_quality_issues)
 
     if quality_report_only:
         summary_results = quality_report_results
@@ -13564,6 +14683,9 @@ def main():
                 if count > 0:
                     print(f"  {severity}: {count}", file=sys.stderr)
 
+    if run_state is not None:
+        run_state["quality_gate_failed"] = quality_gate_failed
+
     if quality_gate_failed:
         # Exit code 1 has precedence when processing failed.
         if processing_failures_detected or overall_failure:
@@ -13572,6 +14694,101 @@ def main():
 
     if overall_failure:
         sys.exit(1)
+
+
+def main():
+    """Main entry point with optional run summary emission."""
+
+    summary_start = datetime.now().isoformat()
+    summary_start_perf = time.time()
+    run_state: dict[str, Any] = {
+        "mode": "unknown",
+        "data_view_inputs": [],
+        "resolved_data_views": [],
+        "processed_results": [],
+        "quality_issues_count": 0,
+        "quality_gate_failed": False,
+        "details": {},
+        "run_summary_output": _cli_option_value("--run-summary-json"),
+        "profile": None,
+        "config_file": None,
+        "output_format": None,
+        "quality_policy": None,
+    }
+    exit_code = 0
+
+    class _CapturedMainExit(Exception):
+        def __init__(self, code: Any = 0):
+            self.code = code
+
+    original_sys_exit = sys.exit
+    original_sys_stdout = sys.stdout
+    redirect_stdout_for_run_summary = run_state.get("run_summary_output") in ("-", "stdout")
+
+    def _captured_sys_exit(code: Any = 0) -> NoReturn:
+        raise _CapturedMainExit(code)
+
+    sys.exit = _captured_sys_exit
+    if redirect_stdout_for_run_summary:
+        sys.stdout = sys.stderr
+    try:
+        _main_impl(run_state=run_state)
+    except _CapturedMainExit as exc:
+        exit_code = _normalize_exit_code(exc.code)
+        raise SystemExit(exc.code) from exc
+    except KeyboardInterrupt:
+        exit_code = 130
+        raise
+    except SystemExit as exc:
+        exit_code = _normalize_exit_code(exc.code)
+        raise
+    except Exception:
+        exit_code = 1
+        raise
+    finally:
+        sys.exit = original_sys_exit
+        sys.stdout = original_sys_stdout
+        run_summary_output = run_state.get("run_summary_output")
+        if run_summary_output:
+            serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]
+            success_count = sum(1 for r in serialized_results if r.get("success"))
+            failure_count = len(serialized_results) - success_count
+            summary_payload = {
+                "summary_version": "1.0",
+                "tool_version": __version__,
+                "started_at": summary_start,
+                "ended_at": datetime.now().isoformat(),
+                "duration_seconds": round(time.time() - summary_start_perf, 3),
+                "exit_code": exit_code,
+                "status": _infer_run_status(exit_code, run_state),
+                "mode": run_state.get("mode", "unknown"),
+                "profile": run_state.get("profile"),
+                "config_file": run_state.get("config_file"),
+                "output_format": run_state.get("output_format"),
+                "command": {"argv": list(sys.argv), "cwd": str(Path.cwd())},
+                "inputs": {
+                    "data_view_inputs": run_state.get("data_view_inputs", []),
+                    "resolved_data_views": run_state.get("resolved_data_views", []),
+                },
+                "results": serialized_results,
+                "result_counts": {
+                    "total": len(serialized_results),
+                    "successful": success_count,
+                    "failed": failure_count,
+                    "quality_issues": int(run_state.get("quality_issues_count", 0) or 0),
+                },
+                "quality_gate_failed": bool(run_state.get("quality_gate_failed", False)),
+                "quality_policy": run_state.get("quality_policy"),
+                "details": run_state.get("details", {}),
+            }
+            output_dir = run_state.get("output_dir") or "."
+            try:
+                write_run_summary_output(summary_payload, run_summary_output, output_dir=output_dir)
+            except Exception as e:
+                print(
+                    ConsoleColors.warning(f"Warning: Failed to write run summary to '{run_summary_output}': {e!s}"),
+                    file=sys.stderr,
+                )
 
 
 if __name__ == "__main__":
