@@ -51,7 +51,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,511 comprehensive tests**
+**Total: 1,522 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -59,16 +59,16 @@ tests/
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 162 | Data view diff comparison feature with inventory support |
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
-| `test_org_report.py` | 144 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
+| `test_org_report.py` | 146 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 229 | Command-line interface and argument parsing |
+| `test_cli.py` | 232 | Command-line interface and argument parsing |
 | `test_profiles.py` | 47 | Multi-organization profile support |
 | `test_derived_inventory.py` | 43 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 41 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 41 | Segments inventory feature |
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
 | `test_calculated_metrics_inventory.py` | 36 | Calculated metrics inventory feature |
-| `test_git_integration.py` | 33 | Git integration, snapshot management, inventory snapshots |
+| `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 36 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 33 | CJA connection and configuration validation |
 | `test_utils.py` | 27 | Utility functions and helpers |
@@ -77,8 +77,8 @@ tests/
 | `test_api_tuning.py` | 23 | API worker auto-tuning |
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
-| `test_retry.py` | 21 | Retry with exponential backoff |
-| `test_batch_processor.py` | 20 | Batch processing of multiple data views |
+| `test_retry.py` | 22 | Retry with exponential backoff |
+| `test_batch_processor.py` | 22 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
 | `test_process_single_dataview.py` | 20 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
@@ -95,7 +95,7 @@ tests/
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| **Total** | **1,511** | **Collected via pytest --collect-only** |
+| **Total** | **1,522** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -499,8 +499,8 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,511 tests total)
-- [x] Org-wide analysis tests (test_org_report.py) - 144 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
+- [x] Comprehensive test coverage (1,522 tests total)
+- [x] Org-wide analysis tests (test_org_report.py) - 146 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 47 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
@@ -510,7 +510,7 @@ Check for drift (CI-friendly):
 - [x] Segments inventory tests (test_segments_inventory.py) - 41 tests
 - [x] Derived fields inventory tests (test_derived_inventory.py) - 43 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 41 tests
-- [x] Git integration tests (test_git_integration.py) - 33 tests
+- [x] Git integration tests (test_git_integration.py) - 36 tests
 - [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 162 tests
 - [x] Inventory summary and include-all-inventory tests (test_ux_features.py) - 123 tests
 - [x] Parallel validation tests (test_parallel_validation.py)

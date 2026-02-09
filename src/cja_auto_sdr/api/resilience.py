@@ -24,7 +24,7 @@ def _parse_env_numeric(value: str | None, cast: Callable[[str], Any]) -> Any | N
         return None
     try:
         return cast(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -60,8 +60,7 @@ def _effective_retry_config() -> dict[str, Any]:
         cfg["max_delay"] = parsed_max_delay
     elif "RETRY_MAX_DELAY" in os.environ:
         logger.warning(
-            f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; "
-            f"using default {cfg['max_delay']}"
+            f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; using default {cfg['max_delay']}"
         )
 
     return cfg
