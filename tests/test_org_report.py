@@ -6,6 +6,8 @@ import json
 import os
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -38,6 +40,23 @@ from cja_auto_sdr.generator import (
     write_org_report_markdown,
 )
 from cja_auto_sdr.org.cache import OrgReportLock
+
+XLSX_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def _get_excel_shared_strings(file_path: str) -> list[str]:
+    """Extract shared strings from an XLSX file without openpyxl."""
+    with zipfile.ZipFile(file_path) as archive:
+        if "xl/sharedStrings.xml" not in archive.namelist():
+            return []
+        shared_strings_xml = archive.read("xl/sharedStrings.xml")
+
+    root = ET.fromstring(shared_strings_xml)
+    shared_strings: list[str] = []
+    for entry in root.findall("x:si", XLSX_NS):
+        fragments = [fragment.text or "" for fragment in entry.findall(".//x:t", XLSX_NS)]
+        shared_strings.append("".join(fragments))
+    return shared_strings
 
 
 class TestOrgReportLock:
@@ -1017,6 +1036,180 @@ class TestOutputWriters:
             comp_df = pd.read_csv(os.path.join(csv_dir, "org_report_components.csv"))
             assert len(comp_df) == 4  # 4 components in sample
             assert "m1" in comp_df["Component ID"].values
+
+    def test_html_recommendations_include_context_details(self, sample_result):
+        """HTML recommendations should include full data-view and pair context."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": "review_isolated",
+                "severity": "MEDIUM",
+                "reason": "Investigate isolated components.",
+                "data_view": "dv_1",
+                "data_view_name": "Prod <Main>",
+                "isolated_count": 42,
+            },
+            {
+                "type": "review_overlap",
+                "severity": "high",
+                "reason": "Potential duplicate pair.",
+                "data_view_1": "dv_1",
+                "data_view_1_name": "Prod | Main",
+                "data_view_2": "dv_2",
+                "data_view_2_name": "Staging `Copy`",
+                "similarity": 0.95,
+                "drift_count": 7,
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = write_org_report_html(sample_result, None, tmpdir, logger)
+            with open(output_path, encoding="utf-8") as f:
+                content = f.read()
+
+        assert "<strong>Data View:</strong> Prod &lt;Main&gt; (dv_1)" in content
+        assert "<strong>Pair:</strong> Prod | Main (dv_1) ↔ Staging `Copy` (dv_2)" in content
+        assert "<strong>Similarity:</strong> 95.0%" in content
+        assert "<strong>Isolated Count:</strong> 42" in content
+        assert "<strong>Drift Count:</strong> 7" in content
+
+    def test_markdown_recommendations_include_context_details(self, sample_result):
+        """Markdown recommendations should include IDs and escaped context values."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": "review_overlap",
+                "severity": "high",
+                "reason": "Potential duplicate pair.",
+                "data_view_1": "dv_1",
+                "data_view_1_name": "Prod | Main",
+                "data_view_2": "dv_2",
+                "data_view_2_name": "Staging `Copy`",
+                "similarity": 0.95,
+                "drift_count": 7,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = write_org_report_markdown(sample_result, None, tmpdir, logger)
+            with open(output_path, encoding="utf-8") as f:
+                content = f.read()
+
+        assert "- **Pair:** Prod \\| Main (dv_1) ↔ Staging \\`Copy\\` (dv_2)" in content
+        assert "- **Similarity:** 95.0%" in content
+        assert "- **Drift Count:** 7" in content
+
+    def test_json_recommendations_include_context_payload(self, sample_result):
+        """JSON recommendations should preserve structured context metadata."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": "review_isolated",
+                "severity": "MEDIUM",
+                "reason": "Investigate isolated components.",
+                "data_view": "dv_1",
+                "data_view_name": "Prod Main",
+                "isolated_count": 42,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = write_org_report_json(sample_result, None, tmpdir, logger)
+            with open(output_path, encoding="utf-8") as f:
+                payload = json.load(f)
+
+        rec = payload["recommendations"][0]
+        assert rec["severity"] == "medium"
+        labels = {entry["label"]: entry["value"] for entry in rec.get("context", [])}
+        assert labels["Data View"] == "Prod Main (dv_1)"
+        assert labels["Isolated Count"] == "42"
+
+    def test_json_recommendations_coerce_non_serializable_values(self, sample_result):
+        """JSON recommendations should serialize odd value types safely."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": None,
+                "severity": "CRITICAL",
+                "reason": "Includes non-serializable value",
+                "extra_timestamp": datetime(2024, 1, 15, 12, 0, 0),
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = write_org_report_json(sample_result, None, tmpdir, logger)
+            with open(output_path, encoding="utf-8") as f:
+                payload = json.load(f)
+
+        rec = payload["recommendations"][0]
+        assert rec["severity"] == "low"
+        assert rec["type"] is None
+        assert isinstance(rec["extra_timestamp"], str)
+
+    def test_csv_recommendations_include_pair_columns(self, sample_result):
+        """CSV recommendation export should include full pair context columns."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": "review_overlap",
+                "severity": "high",
+                "reason": "Potential duplicate pair.",
+                "data_view_1": "dv_1",
+                "data_view_1_name": "Production",
+                "data_view_2": "dv_2",
+                "data_view_2_name": "Staging",
+                "similarity": 0.95,
+                "drift_count": 7,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_dir = write_org_report_csv(sample_result, None, tmpdir, logger)
+            rec_df = pd.read_csv(Path(csv_dir) / "org_report_recommendations.csv")
+
+        assert "Data View 1 ID" in rec_df.columns
+        assert "Data View 2 ID" in rec_df.columns
+        assert "Extra Details" in rec_df.columns
+        assert rec_df.iloc[0]["Data View 1 ID"] == "dv_1"
+        assert rec_df.iloc[0]["Data View 2 ID"] == "dv_2"
+        assert rec_df.iloc[0]["Drift Count"] == 7
+
+    def test_excel_recommendations_include_context_headers(self, sample_result):
+        """Excel recommendations sheet should include pair/context columns."""
+        import logging
+
+        logger = logging.getLogger("test")
+        sample_result.recommendations = [
+            {
+                "type": "review_overlap",
+                "severity": "high",
+                "reason": "Potential duplicate pair.",
+                "data_view_1": "dv_1",
+                "data_view_1_name": "Production",
+                "data_view_2": "dv_2",
+                "data_view_2_name": "Staging",
+                "similarity": 0.95,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = write_org_report_excel(sample_result, None, tmpdir, logger)
+            shared_strings = _get_excel_shared_strings(output_path)
+
+        assert "Data View 1 ID" in shared_strings
+        assert "Data View 2 ID" in shared_strings
+        assert "Similarity" in shared_strings
+        assert "Extra Details" in shared_strings
 
 
 class TestIncludeNames:
@@ -2123,7 +2316,76 @@ class TestOrgReportOutputHandling:
 
             assert success is False
             captured = capsys.readouterr()
-            assert "cannot be sent to stdout" in captured.out
+            assert "only supported for --format json" in captured.out
+
+    def test_markdown_output_to_stdout_errors(self, sample_result, capsys):
+        """Markdown org-report should fail fast when stdout is requested."""
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
+            mock_analyzer.return_value.run_analysis.return_value = sample_result
+
+            success, _ = run_org_report(
+                config_file="config.json",
+                output_format="markdown",
+                output_path="-",
+                output_dir=".",
+                org_config=OrgReportConfig(),
+                profile=None,
+                quiet=True,
+            )
+
+            assert success is False
+            captured = capsys.readouterr()
+            assert "only supported for --format json" in captured.out
+
+    def test_alias_output_to_stdout_errors(self, sample_result, capsys):
+        """Format aliases should fail fast when stdout is requested."""
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
+            mock_analyzer.return_value.run_analysis.return_value = sample_result
+
+            success, _ = run_org_report(
+                config_file="config.json",
+                output_format="data",
+                output_path="-",
+                output_dir=".",
+                org_config=OrgReportConfig(),
+                profile=None,
+                quiet=True,
+            )
+
+            assert success is False
+            captured = capsys.readouterr()
+            assert "only supported for --format json" in captured.out
+
+    def test_all_output_to_stdout_errors(self, sample_result, capsys):
+        """--format all should fail fast when stdout is requested."""
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
+            mock_analyzer.return_value.run_analysis.return_value = sample_result
+
+            success, _ = run_org_report(
+                config_file="config.json",
+                output_format="all",
+                output_path="-",
+                output_dir=".",
+                org_config=OrgReportConfig(),
+                profile=None,
+                quiet=True,
+            )
+
+            assert success is False
+            captured = capsys.readouterr()
+            assert "only supported for --format json" in captured.out
 
 
 # ==================== NEW FEATURE TESTS ====================

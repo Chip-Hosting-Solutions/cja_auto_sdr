@@ -51,7 +51,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,529 comprehensive tests**
+**Total: 1,538 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -59,7 +59,7 @@ tests/
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 162 | Data view diff comparison feature with inventory support |
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
-| `test_org_report.py` | 147 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
+| `test_org_report.py` | 156 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 233 | Command-line interface and argument parsing |
 | `test_profiles.py` | 48 | Multi-organization profile support |
@@ -95,7 +95,7 @@ tests/
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| **Total** | **1,529** | **Collected via pytest --collect-only** |
+| **Total** | **1,538** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -499,8 +499,8 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,529 tests total)
-- [x] Org-wide analysis tests (test_org_report.py) - 147 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
+- [x] Comprehensive test coverage (1,538 tests total)
+- [x] Org-wide analysis tests (test_org_report.py) - 156 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
