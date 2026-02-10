@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data view cache isolation by credential context**: Data view name-resolution cache keys now include credential/profile context, preventing stale cache reuse across different profiles using the same config path
 - **Org-report sample bound validation**: `--sample` now requires values of at least `1` with fast validation in both CLI argument handling and analyzer execution
 - **Strict profile import validation**: Non-interactive `--profile-import` now enforces strict credential format checks and reports full validation issues before writing profile config
+- **Org-report recommendation output fidelity**: Recommendation context is now normalized and preserved across HTML, Markdown, JSON, CSV, and Excel outputs, including data view pair details and non-primitive context values
+- **Org-report stdout preflight validation**: Unsupported `--org-report --output -` format combinations and unknown formats are now rejected before org analysis starts, preventing expensive fail-late execution
 
 ### Tests
 - Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)
@@ -58,7 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--org-report --sample` negative value rejection in both CLI and analyzer paths
   - Strict non-interactive profile import rejection for invalid credential formats
   - Retry config guards for negative env values and invalid delay windows
-- **1,529 tests** (1,527 passing, 2 skipped) — up from 1,431
+  - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
+  - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
+- **1,539 tests** (1,537 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient
