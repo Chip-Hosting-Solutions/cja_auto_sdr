@@ -315,6 +315,23 @@ class TestSegmentsInventoryBuilder:
 
         assert inventory.total_segments == 0
 
+    def test_nan_id_skipped(self):
+        """Segments with NaN IDs should be skipped."""
+        segment_nan_id = {
+            "id": float("nan"),
+            "name": "NaN ID Segment",
+            "description": "",
+            "owner": {"name": "Test"},
+            "definition": {"func": "segment", "container": {}},
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment_nan_id]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 0
+
 
 # ==================== INVENTORY TESTS ====================
 

@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
@@ -19,6 +20,7 @@ sys.path.insert(0, ".")
 
 import time
 
+import cja_auto_sdr.org.cache as org_cache_module
 from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 from cja_auto_sdr.generator import (
     ComponentDistribution,
@@ -146,6 +148,43 @@ class TestOrgReportLock:
         """PermissionError should be treated as process alive (EPERM semantics)."""
         with patch("os.kill", side_effect=PermissionError):
             assert OrgReportLock._is_process_running(12345) is True
+
+    def test_partial_write_not_treated_as_corrupt_lock(self):
+        """A partially written fresh lock must not be deleted/taken over by a contender."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock1 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            lock2 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+
+            first_write_started = threading.Event()
+            allow_first_write = threading.Event()
+            write_calls = {"count": 0}
+            original_write = org_cache_module.os.write
+
+            def delayed_first_write(fd, payload):
+                write_calls["count"] += 1
+                if write_calls["count"] == 1:
+                    first_write_started.set()
+                    allow_first_write.wait(timeout=2)
+                return original_write(fd, payload)
+
+            results: dict[str, bool] = {}
+
+            with patch("cja_auto_sdr.org.cache.os.write", side_effect=delayed_first_write):
+                t1 = threading.Thread(target=lambda: results.update(first=lock1._try_acquire()))
+                t1.start()
+                assert first_write_started.wait(timeout=2), "first lock did not reach delayed write"
+
+                t2 = threading.Thread(target=lambda: results.update(second=lock2._try_acquire()))
+                t2.start()
+                t2.join(timeout=2)
+
+                allow_first_write.set()
+                t1.join(timeout=2)
+
+            assert not t1.is_alive()
+            assert not t2.is_alive()
+            assert results["first"] is True
+            assert results["second"] is False
 
 
 class TestConcurrentOrgReportError:

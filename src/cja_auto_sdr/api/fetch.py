@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from typing import Any
 
 import cjapy
@@ -17,6 +18,7 @@ from cja_auto_sdr.core.exceptions import CircuitBreakerOpen
 from cja_auto_sdr.core.perf import PerformanceTracker
 
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
+API_FETCH_TASK_COUNT = 3  # metrics + dimensions + dataview
 
 
 class ParallelAPIFetcher:
@@ -54,7 +56,19 @@ class ParallelAPIFetcher:
         # Initialize API tuner if config provided
         self.tuner: APIWorkerTuner | None = None
         if tuning_config is not None:
-            self.tuner = APIWorkerTuner(config=tuning_config, initial_workers=max_workers, logger=logger)
+            # Each fetch cycle emits one timing per API task. Clamp the window so
+            # auto-tuning can make at least one decision per data view run.
+            effective_window = max(1, min(tuning_config.sample_window, API_FETCH_TASK_COUNT))
+            effective_config = tuning_config
+            if effective_window != tuning_config.sample_window:
+                effective_config = replace(tuning_config, sample_window=effective_window)
+                self.logger.debug(
+                    "API tuner sample_window clamped from %s to %s for per-data-view fetch cycle",
+                    tuning_config.sample_window,
+                    effective_window,
+                )
+
+            self.tuner = APIWorkerTuner(config=effective_config, initial_workers=max_workers, logger=logger)
             # Use tuner's worker count as effective max
             self.max_workers = self.tuner.current_workers
 

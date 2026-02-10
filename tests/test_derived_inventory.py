@@ -762,6 +762,46 @@ class TestEdgeCases:
         # Neither should be included - only sourceFieldType="derived" counts
         assert inventory.total_derived_fields == 0
 
+    def test_non_string_field_references_do_not_crash(self):
+        """Numeric field reference IDs should be normalized without crashing."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test_numeric_ref",
+                    "name": "Numeric Ref",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": 123, "label": "num_field"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        result_df = inventory.get_dataframe()
+        assert result_df.iloc[0]["schema_field_list"] == "123"
+
+    def test_nan_component_id_is_skipped(self):
+        """Rows with NaN component IDs should be rejected as invalid IDs."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": float("nan"),
+                    "name": "Bad ID Metric",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "x", "label": "field"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 0
+
 
 # ==================== DESCRIPTION EXTRACTION TESTS ====================
 

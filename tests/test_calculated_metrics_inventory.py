@@ -291,6 +291,23 @@ class TestCalculatedMetricsInventoryBuilder:
 
         assert inventory.total_calculated_metrics == 0
 
+    def test_nan_id_skipped(self):
+        """Calculated metrics with NaN IDs should be skipped."""
+        metric_nan_id = {
+            "id": float("nan"),
+            "name": "NaN ID Metric",
+            "description": "",
+            "owner": {"name": "Test"},
+            "definition": {"formula": {"func": "metric", "name": "metrics/revenue"}},
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric_nan_id]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 0
+
 
 # ==================== INVENTORY TESTS ====================
 

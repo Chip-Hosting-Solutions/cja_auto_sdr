@@ -65,6 +65,33 @@ class OrgReportLock:
         if self.acquired:
             self._release()
 
+    def _create_lock_file(self, lock_payload: str) -> bool:
+        """Create lock file atomically and write payload."""
+        try:
+            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return False
+        except OSError:
+            return False
+
+        try:
+            os.write(fd, lock_payload.encode())
+            # Ensure payload reaches disk before contenders read lock metadata.
+            with contextlib.suppress(OSError):
+                os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        return True
+
+    def _lock_file_is_stale_by_mtime(self) -> bool:
+        """Check staleness using file mtime when payload can't be parsed safely."""
+        try:
+            age_seconds = time.time() - self.lock_file.stat().st_mtime
+        except OSError:
+            return False
+        return age_seconds > self.stale_threshold
+
     def _try_acquire(self) -> bool:
         """Attempt to acquire the lock.
 
@@ -83,29 +110,52 @@ class OrgReportLock:
             }
         )
 
-        # First, try atomic exclusive creation (no race condition)
-        try:
-            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(fd, lock_payload.encode())
-            finally:
-                os.close(fd)
+        # First, try atomic exclusive creation (no race condition).
+        if self._create_lock_file(lock_payload):
             return True
-        except FileExistsError:
-            pass  # Lock file exists, check if stale below
-        except OSError:
-            return False
 
         # Lock file exists — check if stale or held by a dead process
-        try:
-            with open(self.lock_file) as f:
-                lock_data = json.load(f)
+        lock_data = None
 
+        # Retry briefly for partially-written lock files to avoid deleting an active lock.
+        for attempt in range(3):
+            try:
+                with open(self.lock_file) as f:
+                    lock_data = json.load(f)
+                break
+            except FileNotFoundError:
+                # Lock file disappeared (concurrent release); retry acquisition.
+                return self._create_lock_file(lock_payload)
+            except json.JSONDecodeError:
+                if attempt < 2:
+                    time.sleep(0.05)
+                    continue
+            except OSError:
+                return False
+
+        # If payload is still unreadable after retries, only take over if file is stale.
+        if lock_data is None:
+            if not self._lock_file_is_stale_by_mtime():
+                return False
+            with contextlib.suppress(OSError):
+                os.unlink(str(self.lock_file))
+            return self._create_lock_file(lock_payload)
+
+        try:
             lock_pid = lock_data.get("pid")
             lock_time = lock_data.get("timestamp", 0)
 
-            age_seconds = time.time() - lock_time
-            if age_seconds <= self.stale_threshold and lock_pid and self._is_process_running(lock_pid):
+            try:
+                age_seconds = time.time() - float(lock_time)
+            except (TypeError, ValueError):
+                age_seconds = self.stale_threshold + 1
+
+            try:
+                lock_pid_int = int(lock_pid) if lock_pid is not None else None
+            except (TypeError, ValueError):
+                lock_pid_int = None
+
+            if age_seconds <= self.stale_threshold and lock_pid_int and self._is_process_running(lock_pid_int):
                 # Process is still running and lock is fresh — cannot acquire
                 return False
 
@@ -113,32 +163,9 @@ class OrgReportLock:
             with contextlib.suppress(OSError):
                 os.unlink(str(self.lock_file))
 
-            try:
-                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, lock_payload.encode())
-                finally:
-                    os.close(fd)
-                return True
-            except FileExistsError:
-                # Another process beat us to it after we removed the stale lock
-                return False
-            except OSError:
-                return False
-
-        except OSError, json.JSONDecodeError, KeyError:
-            # Corrupted lock file — remove and retry
-            with contextlib.suppress(OSError):
-                os.unlink(str(self.lock_file))
-            try:
-                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, lock_payload.encode())
-                finally:
-                    os.close(fd)
-                return True
-            except OSError, FileExistsError:
-                return False
+            return self._create_lock_file(lock_payload)
+        except Exception:
+            return False
 
     def _release(self) -> None:
         """Release the lock."""
@@ -150,9 +177,8 @@ class OrgReportLock:
                 if lock_data.get("pid") == self._pid:
                     self.lock_file.unlink()
         except OSError, json.JSONDecodeError, KeyError:
-            # Best effort removal
-            with contextlib.suppress(Exception):
-                self.lock_file.unlink(missing_ok=True)
+            # Avoid deleting lock files when ownership cannot be verified.
+            return
 
     @staticmethod
     def _is_process_running(pid: int) -> bool:

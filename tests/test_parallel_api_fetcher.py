@@ -11,6 +11,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from cja_auto_sdr.core.config import APITuningConfig
 from cja_auto_sdr.generator import ParallelAPIFetcher, PerformanceTracker
 
 
@@ -92,6 +93,59 @@ class TestParallelAPIFetcherInit:
         fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker, max_workers=1)
 
         assert fetcher.max_workers == 1
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    @patch("cja_auto_sdr.api.fetch.tqdm")
+    def test_auto_tune_adjusts_with_default_window_per_fetch_cycle(
+        self,
+        mock_tqdm,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+        sample_metrics_data,
+        sample_dimensions_data,
+        sample_dataview_info,
+    ):
+        """Auto-tuning should be able to adjust within a single 3-call fetch cycle."""
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        def api_side_effect(func, *args, **kwargs):
+            op_name = kwargs.get("operation_name", "")
+            if "getMetrics" in op_name:
+                return sample_metrics_data
+            if "getDimensions" in op_name:
+                return sample_dimensions_data
+            if "getDataView" in op_name:
+                return sample_dataview_info
+            return None
+
+        mock_api_call.side_effect = api_side_effect
+
+        tuning_config = APITuningConfig(
+            min_workers=1,
+            max_workers=2,
+            scale_up_threshold_ms=1_000_000.0,
+            sample_window=5,  # larger than one fetch cycle (3 calls)
+            cooldown_seconds=0.0,
+        )
+        fetcher = ParallelAPIFetcher(
+            mock_cja,
+            mock_logger,
+            mock_perf_tracker,
+            max_workers=1,
+            tuning_config=tuning_config,
+            quiet=True,
+        )
+
+        fetcher.fetch_all_data("dv_test_12345")
+        stats = fetcher.get_tuner_statistics()
+
+        assert stats is not None
+        assert stats["scale_ups"] >= 1
+        assert fetcher.max_workers == 2
 
 
 class TestParallelAPIFetcherFetchAllData:

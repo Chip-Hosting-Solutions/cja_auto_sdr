@@ -29,6 +29,7 @@ import pandas as pd
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
     extract_short_name,
+    validate_required_id,
 )
 
 # ==================== VERSION ====================
@@ -399,16 +400,13 @@ class DerivedFieldInventoryBuilder:
         if not isinstance(functions, list) or len(functions) == 0:
             return None  # Empty function list is not an error, just nothing to document
 
-        # Extract component info - validate ID
-        component_id = str(row.get("id", ""))
+        component_name = str(row.get("name", "Unknown"))
+        component_id = validate_required_id({"id": row.get("id"), "name": component_name}, logger=self.logger)
         if not component_id:
-            component_name = str(row.get("name", "Unknown"))
-            self.logger.warning(f"Derived field '{component_name}' has no ID - skipping")
             if stats:
                 stats.record_skip("missing ID", component_name)
             return None
 
-        component_name = str(row.get("name", "Unknown"))
         component_description = str(row.get("description", "")) if not pd.isna(row.get("description")) else ""
 
         # Parse the definition
@@ -485,15 +483,22 @@ class DerivedFieldInventoryBuilder:
             # Extract field references
             if func_type == "raw-field":
                 field_id = func_obj.get("id", "")
-                if field_id and field_id not in schema_fields:
-                    schema_fields.append(field_id)
+                field_id_normalized = str(field_id).strip() if field_id is not None else ""
+                if (
+                    field_id_normalized
+                    and field_id_normalized.lower() not in {"nan", "none", "null"}
+                    and field_id_normalized not in schema_fields
+                ):
+                    schema_fields.append(field_id_normalized)
 
             # Extract component references
             elif func_type == "field-def-reference":
                 ref_id = func_obj.get("id", "")
                 namespace = func_obj.get("namespace", "")
-                if ref_id:
-                    full_ref = f"{namespace}/{ref_id}" if namespace else ref_id
+                ref_id_normalized = str(ref_id).strip() if ref_id is not None else ""
+                namespace_normalized = str(namespace).strip() if namespace is not None else ""
+                if ref_id_normalized and ref_id_normalized.lower() not in {"nan", "none", "null"}:
+                    full_ref = f"{namespace_normalized}/{ref_id_normalized}" if namespace_normalized else ref_id_normalized
                     if full_ref not in component_references:
                         component_references.append(full_ref)
 
@@ -502,8 +507,13 @@ class DerivedFieldInventoryBuilder:
                 mapping = func_obj.get("mapping", {})
                 if isinstance(mapping, dict):
                     key_field = mapping.get("key-field", "")
-                    if key_field and key_field not in lookup_references:
-                        lookup_references.append(key_field)
+                    key_field_normalized = str(key_field).strip() if key_field is not None else ""
+                    if (
+                        key_field_normalized
+                        and key_field_normalized.lower() not in {"nan", "none", "null"}
+                        and key_field_normalized not in lookup_references
+                    ):
+                        lookup_references.append(key_field_normalized)
 
             # Extract regex patterns
             elif func_type == "regex-replace":
