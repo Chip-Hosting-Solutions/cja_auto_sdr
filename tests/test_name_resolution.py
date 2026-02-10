@@ -170,6 +170,49 @@ class TestDataViewNameResolution:
         assert name_map == {"Production Analytics": ["dv_prod123"]}
 
     @patch("cja_auto_sdr.generator.cjapy")
+    def test_cache_isolated_by_credential_context(self, mock_cjapy):
+        """Cache should not leak data views across different credential contexts."""
+        mock_cja_profile_a = MagicMock()
+        mock_cja_profile_a.getDataViews.return_value = [{"id": "dv_alpha", "name": "Alpha View"}]
+
+        mock_cja_profile_b = MagicMock()
+        mock_cja_profile_b.getDataViews.return_value = [{"id": "dv_beta", "name": "Beta View"}]
+
+        mock_cjapy.CJA.side_effect = [mock_cja_profile_a, mock_cja_profile_b]
+        mock_cjapy.importConfigFile.return_value = None
+
+        with patch(
+            "cja_auto_sdr.generator.configure_cjapy",
+            side_effect=[
+                (
+                    True,
+                    "Profile: alpha",
+                    {
+                        "org_id": "alpha@AdobeOrg",
+                        "client_id": "alpha_client_1234567890",
+                        "secret": "alpha_secret_1234567890",
+                    },
+                ),
+                (
+                    True,
+                    "Profile: beta",
+                    {
+                        "org_id": "beta@AdobeOrg",
+                        "client_id": "beta_client_1234567890",
+                        "secret": "beta_secret_1234567890",
+                    },
+                ),
+            ],
+        ):
+            ids_a, _ = resolve_data_view_names(["Alpha View"], "config.json", self.logger, profile="alpha")
+            ids_b, _ = resolve_data_view_names(["Beta View"], "config.json", self.logger, profile="beta")
+
+        assert ids_a == ["dv_alpha"]
+        assert ids_b == ["dv_beta"]
+        assert mock_cja_profile_a.getDataViews.call_count == 1
+        assert mock_cja_profile_b.getDataViews.call_count == 1
+
+    @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_with_empty_response(self, mock_cjapy):
         """Test resolving when no data views are available"""
         mock_cja_instance = MagicMock()

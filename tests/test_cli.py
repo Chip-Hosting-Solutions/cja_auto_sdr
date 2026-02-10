@@ -3446,6 +3446,22 @@ class TestRunModeInference:
         assert _infer_run_mode(args) == expected_mode
 
 
+class TestOrgReportArgumentValidation:
+    """Tests for org-report-specific numeric validation in main()."""
+
+    @patch("cja_auto_sdr.generator.run_org_report")
+    def test_org_report_rejects_negative_sample_size(self, mock_run_org_report):
+        """--sample should fail fast for negative values before org-report execution."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--org-report", "--sample", "-1"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_run_org_report.assert_not_called()
+
+
 class TestProfileImportCLI:
     """Tests for non-interactive --profile-import CLI flow."""
 

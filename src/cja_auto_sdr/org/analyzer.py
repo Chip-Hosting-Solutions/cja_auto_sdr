@@ -330,6 +330,9 @@ class OrgComponentAnalyzer:
         Returns:
             Tuple of (data_view_list, is_sampled, total_available_count)
         """
+        if self.config.sample_size is not None and self.config.sample_size < 1:
+            raise ValueError("--sample must be at least 1")
+
         try:
             all_data_views = self.cja.getDataViews()
         except Exception as e:
