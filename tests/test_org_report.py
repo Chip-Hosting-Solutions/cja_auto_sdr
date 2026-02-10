@@ -2298,7 +2298,9 @@ class TestOrgReportOutputHandling:
     def test_csv_output_to_stdout_errors(self, sample_result, capsys):
         """CSV org-report should error on stdout since it writes multiple files."""
         with (
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+            ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
         ):
@@ -2317,11 +2319,15 @@ class TestOrgReportOutputHandling:
             assert success is False
             captured = capsys.readouterr()
             assert "only supported for --format json" in captured.out
+            mock_configure.assert_not_called()
+            mock_analyzer.assert_not_called()
 
     def test_markdown_output_to_stdout_errors(self, sample_result, capsys):
         """Markdown org-report should fail fast when stdout is requested."""
         with (
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+            ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
         ):
@@ -2340,11 +2346,15 @@ class TestOrgReportOutputHandling:
             assert success is False
             captured = capsys.readouterr()
             assert "only supported for --format json" in captured.out
+            mock_configure.assert_not_called()
+            mock_analyzer.assert_not_called()
 
     def test_alias_output_to_stdout_errors(self, sample_result, capsys):
         """Format aliases should fail fast when stdout is requested."""
         with (
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+            ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
         ):
@@ -2363,11 +2373,15 @@ class TestOrgReportOutputHandling:
             assert success is False
             captured = capsys.readouterr()
             assert "only supported for --format json" in captured.out
+            mock_configure.assert_not_called()
+            mock_analyzer.assert_not_called()
 
     def test_all_output_to_stdout_errors(self, sample_result, capsys):
         """--format all should fail fast when stdout is requested."""
         with (
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})),
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+            ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
         ):
@@ -2386,6 +2400,35 @@ class TestOrgReportOutputHandling:
             assert success is False
             captured = capsys.readouterr()
             assert "only supported for --format json" in captured.out
+            mock_configure.assert_not_called()
+            mock_analyzer.assert_not_called()
+
+    def test_unknown_format_fails_before_analysis(self, sample_result, capsys):
+        """Unknown org-report format should fail before any API/configuration work."""
+        with (
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+            ) as mock_configure,
+            patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
+            patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
+        ):
+            mock_analyzer.return_value.run_analysis.return_value = sample_result
+
+            success, _ = run_org_report(
+                config_file="config.json",
+                output_format="not-a-format",
+                output_path=None,
+                output_dir=".",
+                org_config=OrgReportConfig(),
+                profile=None,
+                quiet=True,
+            )
+
+            assert success is False
+            captured = capsys.readouterr()
+            assert "Unknown format" in captured.out
+            mock_configure.assert_not_called()
+            mock_analyzer.assert_not_called()
 
 
 # ==================== NEW FEATURE TESTS ====================

@@ -12152,6 +12152,34 @@ def write_org_report_csv(
     return str(csv_dir)
 
 
+def _normalize_org_report_output_format(output_format: str | None) -> str:
+    """Normalize org-report output format to a canonical lowercase value."""
+    return (output_format or "console").strip().lower()
+
+
+def _validate_org_report_output_request(
+    output_format: str, output_to_stdout: bool, status_print: Callable[..., None]
+) -> bool:
+    """Validate org-report output arguments before expensive analysis starts."""
+    valid_formats = {"console", "json", "excel", "markdown", "html", "csv", "all", *FORMAT_ALIASES}
+    if output_format not in valid_formats:
+        status_print(
+            ConsoleColors.error(
+                f"ERROR: Unknown format '{output_format}'. Valid formats: "
+                "console, json, excel, markdown, html, csv, all, reports, data, ci"
+            )
+        )
+        return False
+
+    if output_to_stdout and output_format not in {"json", "console"}:
+        status_print(
+            ConsoleColors.error("ERROR: --output stdout is only supported for --format json in org-report mode.")
+        )
+        return False
+
+    return True
+
+
 def run_org_report(
     config_file: str,
     output_format: str,
@@ -12179,6 +12207,7 @@ def run_org_report(
     logger = logging.getLogger("org_report")
     logger.setLevel(logging.INFO if not quiet else logging.WARNING)
 
+    output_format = _normalize_org_report_output_format(output_format)
     output_to_stdout = output_path in ("-", "stdout")
     status_to_stderr = output_to_stdout and output_format == "json"
     status_stream = sys.stderr if status_to_stderr else sys.stdout
@@ -12186,6 +12215,9 @@ def run_org_report(
     def _status_print(*args, **kwargs) -> None:
         kwargs.setdefault("file", status_stream)
         print(*args, **kwargs)
+
+    if not _validate_org_report_output_request(output_format, output_to_stdout, _status_print):
+        return False, False
 
     if not quiet:
         _status_print()
@@ -12245,14 +12277,6 @@ def run_org_report(
 
         # Generate output based on format
         output_path_obj = Path(output_path) if output_path and not output_to_stdout else None
-
-        if output_to_stdout and output_format not in {"json", "console", None}:
-            _status_print(
-                ConsoleColors.error(
-                    "ERROR: --output stdout is only supported for --format json in org-report mode."
-                )
-            )
-            return False, False
 
         # Handle org-stats mode (Feature 2) - minimal output
         if org_config.org_stats_only:
@@ -12345,12 +12369,8 @@ def run_org_report(
                 _status_print(f"  - HTML: {html_path}")
                 _status_print(f"  - CSV: {csv_dir}")
         else:
-            # Unknown format - raise clear error instead of silent fallback
-            _status_print(
-                ConsoleColors.error(
-                    f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"
-                )
-            )
+            # Defensive fallback. This should be unreachable due to early validation.
+            _status_print(ConsoleColors.error(f"ERROR: Unsupported format '{output_format}'"))
             return False, False
 
         if not quiet:
