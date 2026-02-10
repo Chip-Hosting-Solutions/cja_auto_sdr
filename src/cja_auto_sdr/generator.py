@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import csv
+import hashlib
 import html
 import io
 import json
@@ -1578,15 +1579,12 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     is_usable, issues = validate_credentials(
         credentials,
         validation_logger,
-        strict=False,
+        strict=True,
         source=f"profile import ({source_file})",
     )
     if not is_usable:
-        print("Error: Imported credentials are missing required fields:")
-        required_field_issues = [
-            issue for issue in issues if "Missing required field" in issue or "Empty value for required field" in issue
-        ]
-        for issue in required_field_issues:
+        print("Error: Imported credentials failed validation:")
+        for issue in issues:
             print(f"  - {issue}")
         return False
 
@@ -7889,35 +7887,35 @@ class DataViewCache:
         self._ttl_seconds = 300  # 5 minute default TTL
         self._initialized = True
 
-    def get(self, config_file: str) -> list[dict] | None:
+    def get(self, cache_key: str) -> list[dict] | None:
         """
-        Get cached data views for a config file.
+        Get cached data views for a context key.
 
         Args:
-            config_file: The config file key
+            cache_key: Cache key representing the credential/config context
 
         Returns:
             List of data view dicts if cached and not expired, None otherwise
         """
         with self._lock:
-            if config_file in self._cache:
-                data, timestamp = self._cache[config_file]
+            if cache_key in self._cache:
+                data, timestamp = self._cache[cache_key]
                 if time.time() - timestamp < self._ttl_seconds:
                     return data
                 # Expired - remove from cache
-                del self._cache[config_file]
+                del self._cache[cache_key]
             return None
 
-    def set(self, config_file: str, data: list[dict]) -> None:
+    def set(self, cache_key: str, data: list[dict]) -> None:
         """
-        Cache data views for a config file.
+        Cache data views for a context key.
 
         Args:
-            config_file: The config file key
+            cache_key: Cache key representing the credential/config context
             data: List of data view dicts to cache
         """
         with self._lock:
-            self._cache[config_file] = (data, time.time())
+            self._cache[cache_key] = (data, time.time())
 
     def clear(self) -> None:
         """Clear all cached data."""
@@ -7933,20 +7931,54 @@ class DataViewCache:
 _data_view_cache = DataViewCache()
 
 
-def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> list[dict]:
+def _build_data_view_cache_key(
+    config_file: str,
+    credential_source: str,
+    credentials: dict[str, str] | None = None,
+    profile: str | None = None,
+) -> str:
+    """Build a stable cache key for data-view listings.
+
+    Includes credential context so multiple profiles/credential sources using
+    the same config path do not share stale cache entries.
+    """
+    config_path = str(Path(config_file).expanduser())
+    with contextlib.suppress(OSError):
+        config_path = str(Path(config_file).expanduser().resolve())
+
+    normalized_credentials: dict[str, str] = {}
+    if credentials:
+        normalized_credentials = {
+            key: str(value).strip() for key, value in credentials.items() if value is not None and str(value).strip()
+        }
+    credentials_fingerprint = hashlib.sha256(
+        json.dumps(normalized_credentials, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+
+    return "|".join(
+        [
+            config_path,
+            str(profile or ""),
+            str(credential_source or ""),
+            credentials_fingerprint,
+        ]
+    )
+
+
+def get_cached_data_views(cja, cache_key: str, logger: logging.Logger) -> list[dict]:
     """
     Get data views with caching support.
 
     Args:
         cja: CJA API instance
-        config_file: Config file path (used as cache key)
+        cache_key: Cache key for the current credential/config context
         logger: Logger instance
 
     Returns:
         List of data view dicts
     """
     # Check cache first
-    cached = _data_view_cache.get(config_file)
+    cached = _data_view_cache.get(cache_key)
     if cached is not None:
         logger.debug(f"Using cached data views ({len(cached)} entries)")
         return cached
@@ -7963,7 +7995,7 @@ def get_cached_data_views(cja, config_file: str, logger: logging.Logger) -> list
         available_dvs = available_dvs.to_dict("records")
 
     # Cache the result
-    _data_view_cache.set(config_file, available_dvs)
+    _data_view_cache.set(cache_key, available_dvs)
     logger.debug(f"Cached {len(available_dvs)} data views")
 
     return available_dvs
@@ -8054,7 +8086,7 @@ def resolve_data_view_names(
     try:
         # Initialize CJA connection
         logger.info(f"Resolving data view identifiers: {identifiers}")
-        success, source, _ = configure_cjapy(profile, config_file, logger)
+        success, source, credentials = configure_cjapy(profile, config_file, logger)
         if not success:
             logger.error(f"Failed to configure credentials: {source}")
             return [], {}
@@ -8062,7 +8094,13 @@ def resolve_data_view_names(
 
         # Get all available data views (with caching)
         logger.debug("Fetching all data views for name resolution")
-        available_dvs = get_cached_data_views(cja, config_file, logger)
+        cache_key = _build_data_view_cache_key(
+            config_file=config_file,
+            credential_source=source,
+            credentials=credentials,
+            profile=profile,
+        )
+        available_dvs = get_cached_data_views(cja, cache_key, logger)
 
         if not available_dvs:
             logger.error("No data views found or no access to any data views")
@@ -13306,6 +13344,8 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         _exit_error("--retry-base-delay cannot be negative")
     if args.retry_max_delay < args.retry_base_delay:
         _exit_error("--retry-max-delay must be >= --retry-base-delay")
+    if getattr(args, "org_sample_size", None) is not None and args.org_sample_size < 1:
+        _exit_error("--sample must be at least 1")
 
     # Track whether retention flags were explicitly provided so auto-prune
     # defaults don't override intentional values like --keep-last 0.

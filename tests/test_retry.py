@@ -218,6 +218,21 @@ class TestMakeApiCallWithRetry:
         # Should have logged a warning for the failed attempt
         mock_logger.warning.assert_called()
 
+    def test_api_call_with_invalid_negative_env_does_not_skip_attempts(self):
+        """Invalid negative retry env values should not skip calls or crash."""
+        mock_api = Mock(side_effect=[ConnectionError("Transient"), {"data": "ok"}])
+
+        with patch.dict(
+            os.environ,
+            {"MAX_RETRIES": "-1", "RETRY_BASE_DELAY": "-2", "RETRY_MAX_DELAY": "-3"},
+            clear=False,
+        ):
+            with patch("time.sleep"):
+                result = make_api_call_with_retry(mock_api, operation_name="test_api")
+
+        assert result == {"data": "ok"}
+        assert mock_api.call_count == 2
+
 
 class TestDefaultConfig:
     """Test default configuration values"""
@@ -300,3 +315,28 @@ class TestRetryEnvOverrides:
         assert cfg["max_retries"] == DEFAULT_RETRY_CONFIG["max_retries"]
         assert cfg["base_delay"] == DEFAULT_RETRY_CONFIG["base_delay"]
         assert cfg["max_delay"] == DEFAULT_RETRY_CONFIG["max_delay"]
+
+    def test_effective_retry_config_ignores_negative_env(self):
+        """Negative env values should be treated as invalid and keep defaults."""
+        with patch.dict(
+            os.environ,
+            {"MAX_RETRIES": "-1", "RETRY_BASE_DELAY": "-0.5", "RETRY_MAX_DELAY": "-4"},
+            clear=False,
+        ):
+            cfg = _effective_retry_config()
+
+        assert cfg["max_retries"] == DEFAULT_RETRY_CONFIG["max_retries"]
+        assert cfg["base_delay"] == DEFAULT_RETRY_CONFIG["base_delay"]
+        assert cfg["max_delay"] == DEFAULT_RETRY_CONFIG["max_delay"]
+
+    def test_effective_retry_config_clamps_max_delay_to_base_delay(self):
+        """max_delay lower than base_delay should be corrected to avoid negative windows."""
+        with patch.dict(
+            os.environ,
+            {"RETRY_BASE_DELAY": "5", "RETRY_MAX_DELAY": "2"},
+            clear=False,
+        ):
+            cfg = _effective_retry_config()
+
+        assert cfg["base_delay"] == 5.0
+        assert cfg["max_delay"] == 5.0

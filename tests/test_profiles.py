@@ -534,6 +534,27 @@ class TestProfileImport:
         assert result is False
         assert json.loads(existing_config.read_text())["org_id"] == "existing@AdobeOrg"
 
+    def test_import_profile_non_interactive_rejects_invalid_credential_format(self, tmp_path):
+        """Import should fail when credentials fail strict format validation."""
+        source = tmp_path / "credentials.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "org_id": "not_adobe_org",
+                    "client_id": "1234567890abcdef1234567890abcdef",
+                    "secret": "abcdefghijklmnop1234567890",
+                    "scopes": "openid,AdobeID",
+                }
+            )
+        )
+
+        profile_dir = tmp_path / "orgs" / "client-a"
+        with patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir):
+            result = import_profile_non_interactive("client-a", source)
+
+        assert result is False
+        assert not (profile_dir / "config.json").exists()
+
 
 class TestProfileExceptions:
     """Test profile exception classes"""

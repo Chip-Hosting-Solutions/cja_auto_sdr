@@ -6,6 +6,7 @@ for robust API communication.
 
 import functools
 import logging
+import math
 import os
 import random
 import threading
@@ -23,9 +24,12 @@ def _parse_env_numeric(value: str | None, cast: Callable[[str], Any]) -> Any | N
     if value is None:
         return None
     try:
-        return cast(value)
+        parsed = cast(value)
     except TypeError, ValueError:
         return None
+    if isinstance(parsed, float) and not math.isfinite(parsed):
+        return None
+    return parsed
 
 
 def _effective_retry_config() -> dict[str, Any]:
@@ -39,7 +43,7 @@ def _effective_retry_config() -> dict[str, Any]:
     logger = logging.getLogger(__name__)
 
     parsed_max_retries = _parse_env_numeric(os.environ.get("MAX_RETRIES"), int)
-    if parsed_max_retries is not None:
+    if parsed_max_retries is not None and parsed_max_retries >= 0:
         cfg["max_retries"] = parsed_max_retries
     elif "MAX_RETRIES" in os.environ:
         logger.warning(
@@ -47,7 +51,7 @@ def _effective_retry_config() -> dict[str, Any]:
         )
 
     parsed_base_delay = _parse_env_numeric(os.environ.get("RETRY_BASE_DELAY"), float)
-    if parsed_base_delay is not None:
+    if parsed_base_delay is not None and parsed_base_delay >= 0:
         cfg["base_delay"] = parsed_base_delay
     elif "RETRY_BASE_DELAY" in os.environ:
         logger.warning(
@@ -56,12 +60,20 @@ def _effective_retry_config() -> dict[str, Any]:
         )
 
     parsed_max_delay = _parse_env_numeric(os.environ.get("RETRY_MAX_DELAY"), float)
-    if parsed_max_delay is not None:
+    if parsed_max_delay is not None and parsed_max_delay >= 0:
         cfg["max_delay"] = parsed_max_delay
     elif "RETRY_MAX_DELAY" in os.environ:
         logger.warning(
             f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; using default {cfg['max_delay']}"
         )
+
+    # Guard against invalid windows that can otherwise cause negative sleep.
+    if cfg["max_delay"] < cfg["base_delay"]:
+        logger.warning(
+            f"Ignoring invalid retry delay window (max_delay={cfg['max_delay']} < base_delay={cfg['base_delay']}); "
+            f"using max_delay={cfg['base_delay']}"
+        )
+        cfg["max_delay"] = cfg["base_delay"]
 
     return cfg
 

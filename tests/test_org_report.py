@@ -1372,6 +1372,16 @@ class TestSampling:
         assert len(result) == 3
         assert is_sampled is False
 
+    def test_negative_sample_size_rejected(self, mock_cja, mock_logger):
+        """Sample size must be positive to avoid random.sample runtime errors."""
+        mock_cja.getDataViews.return_value = pd.DataFrame([{"id": f"dv_{i}", "name": f"DV {i}"} for i in range(3)])
+
+        config = OrgReportConfig(sample_size=-1, sample_seed=42)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        with pytest.raises(ValueError, match="--sample must be at least 1"):
+            analyzer._list_and_filter_data_views()
+
 
 class TestOrgReportCache:
     """Test OrgReportCache functionality"""
