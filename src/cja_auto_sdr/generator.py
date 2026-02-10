@@ -10804,6 +10804,119 @@ def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: 
     print()
 
 
+def _normalize_recommendation_severity(severity: Any) -> str:
+    """Normalize recommendation severity to supported output classes."""
+    value = str(severity or "low").strip().lower()
+    return value if value in {"high", "medium", "low"} else "low"
+
+
+def _format_recommendation_context_entries(rec: dict[str, Any]) -> list[tuple[str, str]]:
+    """Build human-readable recommendation context entries for output renderers."""
+
+    def _fmt_data_view(name: Any, dv_id: Any) -> str:
+        name_text = str(name).strip() if name is not None else ""
+        id_text = str(dv_id).strip() if dv_id is not None else ""
+        if name_text and id_text:
+            return f"{name_text} ({id_text})"
+        return name_text or id_text
+
+    context_entries: list[tuple[str, str]] = []
+
+    data_view_text = _fmt_data_view(rec.get("data_view_name"), rec.get("data_view"))
+    if data_view_text:
+        context_entries.append(("Data View", data_view_text))
+
+    pair_left = _fmt_data_view(rec.get("data_view_1_name"), rec.get("data_view_1"))
+    pair_right = _fmt_data_view(rec.get("data_view_2_name"), rec.get("data_view_2"))
+    if pair_left or pair_right:
+        if pair_left and pair_right:
+            context_entries.append(("Pair", f"{pair_left} ↔ {pair_right}"))
+        else:
+            context_entries.append(("Pair", pair_left or pair_right))
+
+    similarity = rec.get("similarity")
+    if isinstance(similarity, (int, float)) and not isinstance(similarity, bool):
+        context_entries.append(("Similarity", f"{similarity * 100:.1f}%"))
+
+    for label, key in (
+        ("Isolated Count", "isolated_count"),
+        ("Derived Count", "derived_count"),
+        ("Total Count", "total_count"),
+        ("Count", "count"),
+        ("Drift Count", "drift_count"),
+    ):
+        if key in rec and rec.get(key) is not None:
+            context_entries.append((label, str(rec.get(key))))
+
+    ratio = rec.get("ratio")
+    if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
+        context_entries.append(("Ratio", f"{ratio * 100:.1f}%"))
+
+    modified = rec.get("modified")
+    if modified:
+        context_entries.append(("Last Modified", str(modified)))
+
+    return context_entries
+
+
+def _normalize_recommendation_for_json(raw_rec: Any) -> dict[str, Any]:
+    """Normalize recommendation payload for JSON serialization and output parity."""
+    rec = dict(raw_rec) if isinstance(raw_rec, dict) else {"type": "unknown", "reason": str(raw_rec)}
+    rec["severity"] = _normalize_recommendation_severity(rec.get("severity", "low"))
+    context_entries = _format_recommendation_context_entries(rec)
+    if context_entries:
+        rec["context"] = [{"label": label, "value": value} for label, value in context_entries]
+    # Ensure output is JSON-serializable even if recommendations include odd values.
+    normalized = json.loads(json.dumps(rec, ensure_ascii=False, default=str))
+    return normalized if isinstance(normalized, dict) else {"type": "unknown", "reason": str(normalized)}
+
+
+def _flatten_recommendation_for_tabular(rec: dict[str, Any]) -> dict[str, Any]:
+    """Flatten recommendation fields for CSV/Excel exports with full context columns."""
+    known_keys = {
+        "type",
+        "severity",
+        "reason",
+        "data_view",
+        "data_view_name",
+        "data_view_1",
+        "data_view_1_name",
+        "data_view_2",
+        "data_view_2_name",
+        "similarity",
+        "isolated_count",
+        "derived_count",
+        "total_count",
+        "ratio",
+        "count",
+        "drift_count",
+        "modified",
+        "context",
+    }
+    extra_details = {k: v for k, v in rec.items() if k not in known_keys}
+
+    return {
+        "Type": rec.get("type", ""),
+        "Severity": _normalize_recommendation_severity(rec.get("severity", "low")),
+        "Description": rec.get("reason", ""),
+        "Data View ID": rec.get("data_view", ""),
+        "Data View Name": rec.get("data_view_name", ""),
+        "Data View 1 ID": rec.get("data_view_1", ""),
+        "Data View 1 Name": rec.get("data_view_1_name", ""),
+        "Data View 2 ID": rec.get("data_view_2", ""),
+        "Data View 2 Name": rec.get("data_view_2_name", ""),
+        "Similarity": rec.get("similarity", ""),
+        "Isolated Count": rec.get("isolated_count", ""),
+        "Derived Count": rec.get("derived_count", ""),
+        "Total Count": rec.get("total_count", ""),
+        "Ratio": rec.get("ratio", ""),
+        "Count": rec.get("count", ""),
+        "Drift Count": rec.get("drift_count", ""),
+        "Modified": rec.get("modified", ""),
+        "Extra Details": json.dumps(extra_details, sort_keys=True, default=str) if extra_details else "",
+    }
+
+
 def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
     """Build org report JSON payload."""
     effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
@@ -10940,7 +11053,7 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
         ]
         if result.clusters
         else None,
-        "recommendations": result.recommendations,
+        "recommendations": [_normalize_recommendation_for_json(rec) for rec in result.recommendations],
         # New features
         "governance_violations": result.governance_violations,
         "thresholds_exceeded": result.thresholds_exceeded,
@@ -11293,19 +11406,7 @@ def write_org_report_excel(
         # Sheet 6: Recommendations
         if result.recommendations:
             rec_data = [
-                {
-                    "Type": rec.get("type", ""),
-                    "Severity": rec.get("severity", ""),
-                    "Description": rec.get("reason", ""),
-                    "Data View": rec.get("data_view", rec.get("data_view_1", "")),
-                    "Details": json.dumps(
-                        {
-                            k: v
-                            for k, v in rec.items()
-                            if k not in ["type", "severity", "reason", "data_view", "data_view_1"]
-                        }
-                    ),
-                }
+                _flatten_recommendation_for_tabular(_normalize_recommendation_for_json(rec))
                 for rec in result.recommendations
             ]
             rec_df = pd.DataFrame(rec_data)
@@ -11313,7 +11414,9 @@ def write_org_report_excel(
             worksheet = writer.sheets["Recommendations"]
             worksheet.set_column("A:B", 20)
             worksheet.set_column("C:C", 60)
-            worksheet.set_column("D:E", 25)
+            worksheet.set_column("D:I", 24)
+            worksheet.set_column("J:Q", 14)
+            worksheet.set_column("R:R", 40)
 
     logger.info(f"Excel report written to {file_path}")
     return str(file_path)
@@ -11506,18 +11609,20 @@ def write_org_report_markdown(
         lines.append("## Recommendations")
         lines.append("")
 
-        for i, rec in enumerate(result.recommendations, 1):
+        for i, raw_rec in enumerate(result.recommendations, 1):
+            rec = _normalize_recommendation_for_json(raw_rec)
             severity = rec.get("severity", "low")
             severity_badge = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(severity, "⚪")
-            lines.append(f"### {i}. {severity_badge} {rec.get('type', 'Unknown').replace('_', ' ').title()}")
+            rec_type = str(rec.get("type", "Unknown")).replace("_", " ").title()
+            lines.append(f"### {i}. {severity_badge} {rec_type}")
             lines.append("")
-            lines.append(rec.get("reason", "No details provided."))
+            reason = str(rec.get("reason", "No details provided.")).replace("|", "\\|").replace("`", "\\`")
+            lines.append(reason)
             lines.append("")
 
-            if rec.get("data_view"):
-                lines.append(f"- **Data View:** {rec.get('data_view_name', '')} (`{rec.get('data_view')}`)")
-            if rec.get("data_view_1"):
-                lines.append(f"- **Pair:** {rec.get('data_view_1_name', '')} ↔ {rec.get('data_view_2_name', '')}")
+            for label, value in _format_recommendation_context_entries(rec):
+                value_text = str(value).replace("|", "\\|").replace("`", "\\`")
+                lines.append(f"- **{label}:** {value_text}")
             lines.append("")
 
     # Footer
@@ -11661,6 +11766,8 @@ def write_org_report_html(
         .recommendation {{ padding: 1rem; border-left: 4px solid var(--primary); margin: 1rem 0; background: #f8f9fa; }}
         .recommendation.high {{ border-color: var(--danger); }}
         .recommendation.medium {{ border-color: var(--warning); }}
+        .rec-context {{ margin: 0.6rem 0 0 1.2rem; color: var(--text-secondary); }}
+        .rec-context li {{ margin: 0.2rem 0; }}
     </style>
 </head>
 <body>
@@ -11823,13 +11930,24 @@ def write_org_report_html(
         html_out += """
         <h2>Recommendations</h2>
 """
-        for rec in result.recommendations:
+        for raw_rec in result.recommendations:
+            rec = _normalize_recommendation_for_json(raw_rec)
             severity = rec.get("severity", "low")
-            rec_type = html.escape(rec.get("type", "Unknown").replace("_", " ").title())
+            rec_type = html.escape(str(rec.get("type", "Unknown")).replace("_", " ").title())
             rec_reason = html.escape(rec.get("reason", "No details provided."))
+            context_entries = _format_recommendation_context_entries(rec)
+            context_html = ""
+            if context_entries:
+                context_html = '            <ul class="rec-context">\n'
+                for label, value in context_entries:
+                    label_escaped = html.escape(str(label))
+                    value_escaped = html.escape(str(value))
+                    context_html += f"                <li><strong>{label_escaped}:</strong> {value_escaped}</li>\n"
+                context_html += "            </ul>\n"
             html_out += f"""        <div class="recommendation {severity}">
             <strong><span class="badge badge-{severity}">{severity.upper()}</span> {rec_type}</strong>
             <p>{rec_reason}</p>
+{context_html}
         </div>
 """
 
@@ -12023,13 +12141,7 @@ def write_org_report_csv(
     # 6. Recommendations CSV (if any)
     if result.recommendations:
         rec_data = [
-            {
-                "Type": rec.get("type", ""),
-                "Severity": rec.get("severity", ""),
-                "Description": rec.get("reason", ""),
-                "Data View": rec.get("data_view", rec.get("data_view_1", "")),
-                "Data View Name": rec.get("data_view_name", rec.get("data_view_1_name", "")),
-            }
+            _flatten_recommendation_for_tabular(_normalize_recommendation_for_json(rec))
             for rec in result.recommendations
         ]
         rec_df = pd.DataFrame(rec_data)
@@ -12038,6 +12150,34 @@ def write_org_report_csv(
 
     logger.info(f"CSV reports written to {csv_dir}")
     return str(csv_dir)
+
+
+def _normalize_org_report_output_format(output_format: str | None) -> str:
+    """Normalize org-report output format to a canonical lowercase value."""
+    return (output_format or "console").strip().lower()
+
+
+def _validate_org_report_output_request(
+    output_format: str, output_to_stdout: bool, status_print: Callable[..., None]
+) -> bool:
+    """Validate org-report output arguments before expensive analysis starts."""
+    valid_formats = {"console", "json", "excel", "markdown", "html", "csv", "all", *FORMAT_ALIASES}
+    if output_format not in valid_formats:
+        status_print(
+            ConsoleColors.error(
+                f"ERROR: Unknown format '{output_format}'. Valid formats: "
+                "console, json, excel, markdown, html, csv, all, reports, data, ci"
+            )
+        )
+        return False
+
+    if output_to_stdout and output_format not in {"json", "console"}:
+        status_print(
+            ConsoleColors.error("ERROR: --output stdout is only supported for --format json in org-report mode.")
+        )
+        return False
+
+    return True
 
 
 def run_org_report(
@@ -12067,6 +12207,7 @@ def run_org_report(
     logger = logging.getLogger("org_report")
     logger.setLevel(logging.INFO if not quiet else logging.WARNING)
 
+    output_format = _normalize_org_report_output_format(output_format)
     output_to_stdout = output_path in ("-", "stdout")
     status_to_stderr = output_to_stdout and output_format == "json"
     status_stream = sys.stderr if status_to_stderr else sys.stdout
@@ -12074,6 +12215,9 @@ def run_org_report(
     def _status_print(*args, **kwargs) -> None:
         kwargs.setdefault("file", status_stream)
         print(*args, **kwargs)
+
+    if not _validate_org_report_output_request(output_format, output_to_stdout, _status_print):
+        return False, False
 
     if not quiet:
         _status_print()
@@ -12225,12 +12369,8 @@ def run_org_report(
                 _status_print(f"  - HTML: {html_path}")
                 _status_print(f"  - CSV: {csv_dir}")
         else:
-            # Unknown format - raise clear error instead of silent fallback
-            _status_print(
-                ConsoleColors.error(
-                    f"ERROR: Unknown format '{output_format}'. Valid formats: console, json, excel, markdown, html, csv, all, reports, data, ci"
-                )
-            )
+            # Defensive fallback. This should be unreachable due to early validation.
+            _status_print(ConsoleColors.error(f"ERROR: Unsupported format '{output_format}'"))
             return False, False
 
         if not quiet:
