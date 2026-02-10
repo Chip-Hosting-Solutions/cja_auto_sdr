@@ -34,10 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Git init false-success path**: `git_init_snapshot_repo()` now checks and propagates `git add` / `git commit` failures instead of reporting initialization success when either command fails
 - **Org-report lock liveness**: `OrgReportLock._is_process_running()` now treats `PermissionError`/EPERM as process-alive to avoid stale-lock takeover of active runs
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
-- **Retry env parsing hard-failures**: Invalid `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults in both CLI parsing and runtime retry configuration
+- **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
 - **Org cache observability**: `OrgReportCache` now logs warnings on cache load/save failures instead of silently swallowing I/O errors
 - **Snapshot diff guidance typo**: Corrected invalid remediation command shown for missing inventory snapshot data (removed nonexistent `--sdr` flag)
+- **Data view cache isolation by credential context**: Data view name-resolution cache keys now include credential/profile context, preventing stale cache reuse across different profiles using the same config path
+- **Org-report sample bound validation**: `--sample` now requires values of at least `1` with fast validation in both CLI argument handling and analyzer execution
+- **Strict profile import validation**: Non-interactive `--profile-import` now enforces strict credential format checks and reports full validation issues before writing profile config
 
 ### Tests
 - Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)
@@ -51,7 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Org cache save warning visibility
   - Invalid retry env var fallback behavior (CLI + runtime)
   - Batch cancellation/shutdown behavior on exception and interrupt paths
-- **1,522 tests** (1,520 passing, 2 skipped) — up from 1,431
+  - Data view cache isolation by credential context during name resolution
+  - `--org-report --sample` negative value rejection in both CLI and analyzer paths
+  - Strict non-interactive profile import rejection for invalid credential formats
+  - Retry config guards for negative env values and invalid delay windows
+- **1,529 tests** (1,527 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient
