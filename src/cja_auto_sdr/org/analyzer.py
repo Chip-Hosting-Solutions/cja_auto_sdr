@@ -101,11 +101,11 @@ class OrgComponentAnalyzer:
             from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 
             lock = OrgReportLock(self.org_id)
-            lock_info = lock.get_lock_info()
 
             # Try to acquire the lock before starting
             with lock:
                 if not lock.acquired:
+                    lock_info = lock.get_lock_info()
                     raise ConcurrentOrgReportError(
                         org_id=self.org_id,
                         lock_holder_pid=lock_info.get("pid") if lock_info else None,

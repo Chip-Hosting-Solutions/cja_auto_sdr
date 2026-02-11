@@ -3,10 +3,10 @@ Tests for org-wide component analysis report functionality
 """
 
 import json
+import multiprocessing
 import os
 import sys
 import tempfile
-import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
@@ -20,7 +20,6 @@ sys.path.insert(0, ".")
 
 import time
 
-import cja_auto_sdr.org.cache as org_cache_module
 from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 from cja_auto_sdr.generator import (
     ComponentDistribution,
@@ -44,6 +43,49 @@ from cja_auto_sdr.generator import (
 from cja_auto_sdr.org.cache import OrgReportLock
 
 XLSX_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def _write_signal(path: str, value: str) -> None:
+    Path(path).write_text(value, encoding="utf-8")
+
+
+def _read_signal(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _org_lock_hold_worker(
+    lock_dir: str,
+    org_id: str,
+    signal_file: str,
+    hold_seconds: float,
+    lock_backend: str | None = None,
+) -> None:
+    lock = OrgReportLock(org_id, lock_dir=Path(lock_dir), lock_backend=lock_backend)
+    acquired = lock._try_acquire()
+    _write_signal(signal_file, "1" if acquired else "0")
+    if not acquired:
+        return
+
+    try:
+        time.sleep(hold_seconds)
+    finally:
+        lock._release()
+
+
+def _org_lock_crash_worker(
+    lock_dir: str,
+    org_id: str,
+    signal_file: str,
+    lock_backend: str | None = None,
+) -> None:
+    lock = OrgReportLock(org_id, lock_dir=Path(lock_dir), lock_backend=lock_backend)
+    acquired = lock._try_acquire()
+    _write_signal(signal_file, "1" if acquired else "0")
+    if acquired:
+        os._exit(1)
+    os._exit(2)
 
 
 def _get_excel_shared_strings(file_path: str) -> list[str]:
@@ -72,8 +114,8 @@ class TestOrgReportLock:
                 assert lock.acquired is True
                 # Lock file should exist
                 assert lock.lock_file.exists()
-            # Lock file should be removed after context exit
-            assert not lock.lock_file.exists()
+            # File remains for metadata observability after release.
+            assert lock.lock_file.exists()
 
     def test_lock_blocks_second_acquisition(self):
         """Test that second lock acquisition fails when first holds lock"""
@@ -149,42 +191,116 @@ class TestOrgReportLock:
         with patch("os.kill", side_effect=PermissionError):
             assert OrgReportLock._is_process_running(12345) is True
 
-    def test_partial_write_not_treated_as_corrupt_lock(self):
-        """A partially written fresh lock must not be deleted/taken over by a contender."""
+    def test_corrupt_unlocked_lock_file_reclaimed_immediately(self):
+        """Unreadable metadata must not block acquisition when no lock is held."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            lock1 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
-            lock2 = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            lock_dir = Path(tmpdir)
+            lock_file = lock_dir / "org_report_test_org_AdobeOrg.lock"
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            lock_file.write_text("{bad json", encoding="utf-8")
 
-            first_write_started = threading.Event()
-            allow_first_write = threading.Event()
-            write_calls = {"count": 0}
-            original_write = org_cache_module.os.write
+            lock = OrgReportLock("test_org@AdobeOrg", lock_dir=lock_dir, lock_backend="lease")
+            with lock:
+                assert lock.acquired is True
 
-            def delayed_first_write(fd, payload):
-                write_calls["count"] += 1
-                if write_calls["count"] == 1:
-                    first_write_started.set()
-                    allow_first_write.wait(timeout=2)
-                return original_write(fd, payload)
+    def test_lock_contention_multi_process(self):
+        """Second process should fail acquisition while first process holds lock."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_hold_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), 1.5),
+            )
+            proc.start()
 
-            results: dict[str, bool] = {}
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
 
-            with patch("cja_auto_sdr.org.cache.os.write", side_effect=delayed_first_write):
-                t1 = threading.Thread(target=lambda: results.update(first=lock1._try_acquire()))
-                t1.start()
-                assert first_write_started.wait(timeout=2), "first lock did not reach delayed write"
+            assert _read_signal(ready_file) == "1"
 
-                t2 = threading.Thread(target=lambda: results.update(second=lock2._try_acquire()))
-                t2.start()
-                t2.join(timeout=2)
+            contender = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with contender:
+                assert contender.acquired is False
 
-                allow_first_write.set()
-                t1.join(timeout=2)
+            proc.join(timeout=4)
+            assert not proc.is_alive()
 
-            assert not t1.is_alive()
-            assert not t2.is_alive()
-            assert results["first"] is True
-            assert results["second"] is False
+            # Once holder exits, acquisition should succeed immediately.
+            follow_up = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with follow_up:
+                assert follow_up.acquired is True
+
+    def test_crash_recovery_is_immediate(self):
+        """Crash of lock holder should release lock without stale-threshold waiting."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "crash_ready.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_crash_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file)),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+            proc.join(timeout=3)
+            assert not proc.is_alive()
+
+            recovered = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with recovered:
+                assert recovered.acquired is True
+
+    def test_lock_contention_multi_process_lease_backend(self):
+        """Lease backend should block contenders while holder is alive."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready_lease.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_hold_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), 1.5, "lease"),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+
+            contender = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with contender:
+                assert contender.acquired is False
+
+            proc.join(timeout=4)
+            assert not proc.is_alive()
+
+            follow_up = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with follow_up:
+                assert follow_up.acquired is True
+
+    def test_crash_recovery_is_immediate_lease_backend(self):
+        """Lease backend should reclaim lock after holder crash without stale wait."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "crash_ready_lease.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_crash_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), "lease"),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+            proc.join(timeout=3)
+            assert not proc.is_alive()
+
+            recovered = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with recovered:
+                assert recovered.acquired is True
 
 
 class TestConcurrentOrgReportError:

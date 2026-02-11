@@ -7,24 +7,24 @@ repeat analysis runs, and a lock mechanism to prevent concurrent runs.
 
 from __future__ import annotations
 
-import contextlib
 import errno
 import json
 import logging
 import os
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cja_auto_sdr.core.locks.manager import LockManager
 from cja_auto_sdr.org.models import DataViewSummary
 
 
 class OrgReportLock:
-    """File-based lock to prevent concurrent org-report runs for the same org.
+    """Cross-process lock to prevent concurrent org-report runs for one org.
 
-    Uses a lock file with PID and timestamp to detect stale locks from
-    crashed processes. Lock is automatically released when context exits.
+    Ownership is determined by backend lock primitives (OS advisory lock
+    by default). File metadata is diagnostic only and does not decide lock
+    ownership.
 
     Usage:
         with OrgReportLock(org_id) as lock:
@@ -36,7 +36,8 @@ class OrgReportLock:
     Args:
         org_id: Organization ID to lock
         lock_dir: Directory for lock files. Defaults to ~/.cja_auto_sdr/locks/
-        stale_threshold_seconds: Consider lock stale after this many seconds (default: 1 hour)
+        stale_threshold_seconds: Lease staleness for fallback backend heartbeat/recovery.
+        lock_backend: Optional backend override ("auto", "fcntl", "lease")
     """
 
     def __init__(
@@ -44,6 +45,7 @@ class OrgReportLock:
         org_id: str,
         lock_dir: Path | None = None,
         stale_threshold_seconds: int = 3600,
+        lock_backend: str | None = None,
     ):
         if lock_dir is None:
             lock_dir = Path.home() / ".cja_auto_sdr" / "locks"
@@ -55,7 +57,12 @@ class OrgReportLock:
         self.lock_file = lock_dir / f"org_report_{safe_org_id}.lock"
         self.stale_threshold = stale_threshold_seconds
         self.acquired = False
-        self._pid = os.getpid()
+        self._manager = LockManager(
+            lock_path=self.lock_file,
+            owner=org_id,
+            stale_threshold_seconds=stale_threshold_seconds,
+            backend_name=lock_backend,
+        )
 
     def __enter__(self) -> OrgReportLock:
         self.acquired = self._try_acquire()
@@ -65,124 +72,17 @@ class OrgReportLock:
         if self.acquired:
             self._release()
 
-    def _create_lock_file(self, lock_payload: str) -> bool:
-        """Create lock file atomically and write payload."""
-        try:
-            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return False
-        except OSError:
-            return False
-
-        try:
-            os.write(fd, lock_payload.encode())
-            # Ensure payload reaches disk before contenders read lock metadata.
-            with contextlib.suppress(OSError):
-                os.fsync(fd)
-        finally:
-            os.close(fd)
-
-        return True
-
-    def _lock_file_is_stale_by_mtime(self) -> bool:
-        """Check staleness using file mtime when payload can't be parsed safely."""
-        try:
-            age_seconds = time.time() - self.lock_file.stat().st_mtime
-        except OSError:
-            return False
-        return age_seconds > self.stale_threshold
-
     def _try_acquire(self) -> bool:
-        """Attempt to acquire the lock.
-
-        Uses atomic file creation (O_CREAT|O_EXCL) to prevent TOCTOU races.
-
-        Returns:
-            True if lock acquired, False if another process holds it
-        """
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
-
-        lock_payload = json.dumps(
-            {
-                "pid": self._pid,
-                "timestamp": time.time(),
-                "started_at": datetime.now().isoformat(),
-            }
-        )
-
-        # First, try atomic exclusive creation (no race condition).
-        if self._create_lock_file(lock_payload):
-            return True
-
-        # Lock file exists — check if stale or held by a dead process
-        lock_data = None
-
-        # Retry briefly for partially-written lock files to avoid deleting an active lock.
-        for attempt in range(3):
-            try:
-                with open(self.lock_file) as f:
-                    lock_data = json.load(f)
-                break
-            except FileNotFoundError:
-                # Lock file disappeared (concurrent release); retry acquisition.
-                return self._create_lock_file(lock_payload)
-            except json.JSONDecodeError:
-                if attempt < 2:
-                    time.sleep(0.05)
-                    continue
-            except OSError:
-                return False
-
-        # If payload is still unreadable after retries, only take over if file is stale.
-        if lock_data is None:
-            if not self._lock_file_is_stale_by_mtime():
-                return False
-            with contextlib.suppress(OSError):
-                os.unlink(str(self.lock_file))
-            return self._create_lock_file(lock_payload)
-
-        try:
-            lock_pid = lock_data.get("pid")
-            lock_time = lock_data.get("timestamp", 0)
-
-            try:
-                age_seconds = time.time() - float(lock_time)
-            except (TypeError, ValueError):
-                age_seconds = self.stale_threshold + 1
-
-            try:
-                lock_pid_int = int(lock_pid) if lock_pid is not None else None
-            except (TypeError, ValueError):
-                lock_pid_int = None
-
-            if age_seconds <= self.stale_threshold and lock_pid_int and self._is_process_running(lock_pid_int):
-                # Process is still running and lock is fresh — cannot acquire
-                return False
-
-            # Lock is stale or holder is dead — remove and retry atomically
-            with contextlib.suppress(OSError):
-                os.unlink(str(self.lock_file))
-
-            return self._create_lock_file(lock_payload)
-        except Exception:
-            return False
+        """Attempt to acquire lock non-blocking."""
+        return self._manager.acquire()
 
     def _release(self) -> None:
-        """Release the lock."""
-        try:
-            if self.lock_file.exists():
-                # Only remove if we own it
-                with open(self.lock_file) as f:
-                    lock_data = json.load(f)
-                if lock_data.get("pid") == self._pid:
-                    self.lock_file.unlink()
-        except OSError, json.JSONDecodeError, KeyError:
-            # Avoid deleting lock files when ownership cannot be verified.
-            return
+        """Release lock if currently held by this process."""
+        self._manager.release()
 
     @staticmethod
     def _is_process_running(pid: int) -> bool:
-        """Check if a process with the given PID is running."""
+        """Legacy helper kept for compatibility with existing tests."""
         try:
             os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
             return True
@@ -200,13 +100,7 @@ class OrgReportLock:
         Returns:
             Dict with pid, timestamp, started_at or None if no lock
         """
-        if not self.lock_file.exists():
-            return None
-        try:
-            with open(self.lock_file) as f:
-                return json.load(f)
-        except OSError, json.JSONDecodeError:
-            return None
+        return self._manager.read_info()
 
 
 class OrgReportCache:
