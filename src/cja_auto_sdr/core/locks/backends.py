@@ -170,6 +170,7 @@ class FcntlFileLockBackend:
 
     name = "fcntl"
     requires_heartbeat = False
+    acquire_attempts = 3
     metadata_read_retry_attempts = 3
     metadata_read_retry_sleep_seconds = 0.02
 
@@ -179,47 +180,56 @@ class FcntlFileLockBackend:
 
     def acquire(self, lock_path: Path, stale_threshold_seconds: int) -> _FcntlLockHandle | None:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, created_exclusively = self._open_lock_file(lock_path)
-        if fd is None:
-            return None
-
-        try:
-            assert fcntl is not None  # For type checkers.
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            return None
-        except OSError as e:
-            os.close(fd)
-            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+        for _ in range(self.acquire_attempts):
+            fd, created_exclusively = self._open_lock_file(lock_path)
+            if fd is None:
                 return None
-            if e.errno in _FLOCK_UNSUPPORTED_ERRNOS:
-                raise LockBackendUnavailableError(
-                    f"flock is unsupported for lock path '{lock_path}'"
-                ) from e
-            raise
 
-        if not created_exclusively:
-            existing_info, lock_file_exists = self._read_info_with_retries(lock_path)
-            if existing_info is not None:
-                # Mixed-backend safeguard: honor active non-fcntl owner metadata.
-                if existing_info.backend != self.name and not _is_lock_info_stale(existing_info, stale_threshold_seconds):
-                    with contextlib.suppress(OSError):
-                        assert fcntl is not None
-                        fcntl.flock(fd, fcntl.LOCK_UN)
-                    with contextlib.suppress(OSError):
-                        os.close(fd)
+            try:
+                assert fcntl is not None  # For type checkers.
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                return None
+            except OSError as e:
+                os.close(fd)
+                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
                     return None
-            elif lock_file_exists and not self._is_lock_file_stale_by_mtime(lock_path, stale_threshold_seconds):
-                # Conservatively treat fresh unreadable metadata as an active lock.
-                with contextlib.suppress(OSError):
-                    assert fcntl is not None
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                with contextlib.suppress(OSError):
-                    os.close(fd)
-                return None
+                if e.errno in _FLOCK_UNSUPPORTED_ERRNOS:
+                    raise LockBackendUnavailableError(
+                        f"flock is unsupported for lock path '{lock_path}'"
+                    ) from e
+                raise
 
-        return _FcntlLockHandle(lock_path=lock_path, fd=fd, lock_id=str(uuid.uuid4()))
+            # If lock path no longer points to this inode, reacquire from scratch.
+            if not self._fd_matches_path(fd, lock_path):
+                self._unlock_close_fd(fd)
+                continue
+
+            if not created_exclusively:
+                existing_info, lock_file_exists = self._read_info_with_retries(lock_path)
+                if existing_info is not None:
+                    # Mixed-backend safeguard: honor active non-fcntl owner metadata.
+                    if existing_info.backend != self.name and not _is_lock_info_stale(existing_info, stale_threshold_seconds):
+                        self._unlock_close_fd(fd)
+                        return None
+                elif lock_file_exists and not self._is_lock_file_stale_by_mtime(lock_path, stale_threshold_seconds):
+                    # Conservatively treat fresh unreadable metadata as an active lock.
+                    self._unlock_close_fd(fd)
+                    return None
+                else:
+                    # Lock path disappeared during read/validation; retry acquisition.
+                    self._unlock_close_fd(fd)
+                    continue
+
+            # Re-check path identity after metadata read to catch replacement races.
+            if not self._fd_matches_path(fd, lock_path):
+                self._unlock_close_fd(fd)
+                continue
+
+            return _FcntlLockHandle(lock_path=lock_path, fd=fd, lock_id=str(uuid.uuid4()))
+
+        return None
 
     @staticmethod
     def _open_lock_file(lock_path: Path) -> tuple[int | None, bool]:
@@ -239,6 +249,28 @@ class FcntlFileLockBackend:
             except OSError:
                 return None, False
         return None, False
+
+    @staticmethod
+    def _fd_matches_path(fd: int, lock_path: Path) -> bool:
+        try:
+            fd_stat = os.fstat(fd)
+        except OSError:
+            return False
+        if fd_stat.st_nlink == 0:
+            return False
+        try:
+            path_stat = lock_path.stat()
+        except OSError:
+            return False
+        return fd_stat.st_dev == path_stat.st_dev and fd_stat.st_ino == path_stat.st_ino
+
+    @staticmethod
+    def _unlock_close_fd(fd: int) -> None:
+        with contextlib.suppress(OSError):
+            assert fcntl is not None
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            os.close(fd)
 
     def release(self, handle: _FcntlLockHandle) -> None:
         if handle.closed:

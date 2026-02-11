@@ -121,8 +121,9 @@ class LockManager:
             self.backend.write_info(handle, lock_info)
         except OSError:
             # If metadata write fails, release lock and report acquisition failure.
+            failed_inode = self._capture_handle_inode(handle)
             self.backend.release(handle)
-            self._cleanup_failed_metadata_write()
+            self._cleanup_failed_metadata_write(failed_inode)
             return False
 
         self._handle = handle
@@ -180,10 +181,26 @@ class LockManager:
                 # Metadata heartbeat failure should not automatically drop lock ownership.
                 self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
 
-    def _cleanup_failed_metadata_write(self) -> None:
+    @staticmethod
+    def _capture_handle_inode(handle: LockHandle) -> tuple[int, int] | None:
+        fd = getattr(handle, "fd", None)
+        if not isinstance(fd, int):
+            return None
+        try:
+            stat_result = os.fstat(fd)
+            return stat_result.st_dev, stat_result.st_ino
+        except OSError:
+            return None
+
+    def _cleanup_failed_metadata_write(self, failed_inode: tuple[int, int] | None) -> None:
         """Best-effort cleanup to avoid false lockouts after write_info failures."""
-        # Lease backend handles are path-bound via O_EXCL and release removes lock file
-        # when ownership matches. For fcntl, a failed metadata write can leave a fresh,
-        # unreadable file that contenders may interpret as active contention.
+        if failed_inode is None:
+            return
+        try:
+            stat_result = self.lock_path.stat()
+        except OSError:
+            return
+        if (stat_result.st_dev, stat_result.st_ino) != failed_inode:
+            return
         with suppress(OSError):
             self.lock_path.unlink()

@@ -256,6 +256,50 @@ def test_fcntl_backend_blocks_when_lease_lock_created_after_path_check() -> None
         lease_manager.release()
 
 
+def test_fcntl_backend_retries_when_lock_path_disappears_mid_acquire(monkeypatch: pytest.MonkeyPatch) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lock_path.touch()
+        backend = FcntlFileLockBackend()
+
+        first_fd = os.open(lock_path, os.O_RDWR)
+        second_fd = os.open(lock_path, os.O_RDWR)
+        open_count = {"count": 0}
+
+        def _open_side_effect(path: Path) -> tuple[int, bool]:
+            assert path == lock_path
+            open_count["count"] += 1
+            if open_count["count"] == 1:
+                return first_fd, False
+            return second_fd, False
+
+        read_count = {"count": 0}
+
+        def _read_side_effect(path: Path) -> tuple[LockInfo | None, bool]:
+            assert path == lock_path
+            read_count["count"] += 1
+            if read_count["count"] == 1:
+                # Simulate lock path disappearing mid-acquire.
+                return None, False
+            return _build_lock_info("stable-owner", backend="fcntl"), True
+
+        monkeypatch.setattr(backend, "_open_lock_file", _open_side_effect)
+        monkeypatch.setattr(backend, "_read_info_with_retries", _read_side_effect)
+        monkeypatch.setattr(backend, "_fd_matches_path", lambda fd, path: True)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+        assert open_count["count"] == 2
+        assert handle.fd == second_fd
+        backend.release(handle)
+
+        with pytest.raises(OSError):
+            os.fstat(first_fd)
+
+
 def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lease.lock"
@@ -308,6 +352,27 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
         # Cleanup should prevent stale fresh-file lockout; second attempt should succeed.
         assert manager.acquire() is True
         manager.release()
+
+
+def test_failed_write_cleanup_skips_unlink_when_inode_changed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+
+        lock_path.write_text("old", encoding="utf-8")
+        old_stat = lock_path.stat()
+        old_inode = (old_stat.st_dev, old_stat.st_ino)
+
+        lock_path.unlink()
+        lock_path.write_text("new", encoding="utf-8")
+
+        manager._cleanup_failed_metadata_write(old_inode)
+        assert lock_path.exists()
 
 
 def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> None:
