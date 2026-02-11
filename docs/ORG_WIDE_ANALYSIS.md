@@ -580,6 +580,7 @@ If you see this error:
 2. Wait for the existing run to complete
 3. If the previous run crashed, the lock is reclaimed automatically:
    - Default backend (`fcntl` on POSIX): lock is released by the OS when the process exits
+   - If `flock` is unsupported on the lock filesystem at runtime, lock handling automatically falls back to the lease backend
    - Fallback backend (`lease`): same-host dead PIDs are reclaimed immediately; otherwise stale leases expire based on threshold
 
 The lock file is stored in:

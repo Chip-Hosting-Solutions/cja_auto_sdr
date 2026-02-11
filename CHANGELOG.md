@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Org-report lock ownership model**: moved lock ownership semantics to backend primitives (OS advisory lock or lease ownership) instead of JSON parse state
 - **Lease fallback race handling**: fresh unreadable lock files now use bounded retry + immediate reclamation, avoiding long stale-timeout blocks while preventing takeover during transient write windows
 - **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
+- **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
+- **Lease heartbeat split-brain protection**: lease metadata updates are now file-descriptor-bound to the original lock inode, preventing stale holders from overwriting a newer owner’s lock metadata after reclamation
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -55,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `test_output_content_validation.py` — 26 tests validating output file content across CSV, JSON, HTML, Excel, and Markdown formats (roundtrip correctness, escaping, cross-format consistency)
 - Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
 - Added `tests/test_lock_backends.py` coverage for lease bootstrap metadata, transient unreadable-file handling, persistent corrupt-file recovery, and heartbeat refresh behavior
+- Added lock regression coverage for runtime `flock` unsupported fallback and stale-holder metadata overwrite prevention in lease mode
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior

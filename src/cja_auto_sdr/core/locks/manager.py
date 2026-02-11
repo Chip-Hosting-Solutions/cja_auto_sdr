@@ -15,6 +15,7 @@ from cja_auto_sdr.core.locks.backends import (
     FcntlFileLockBackend,
     LeaseFileLockBackend,
     LockBackend,
+    LockBackendUnavailableError,
     LockHandle,
     LockInfo,
 )
@@ -87,7 +88,20 @@ class LockManager:
         if self._handle is not None:
             return True
 
-        handle = self.backend.acquire(self.lock_path, self.stale_threshold_seconds)
+        handle: LockHandle | None
+        try:
+            handle = self.backend.acquire(self.lock_path, self.stale_threshold_seconds)
+        except LockBackendUnavailableError as e:
+            if isinstance(self.backend, FcntlFileLockBackend):
+                self.logger.warning(
+                    "fcntl backend unavailable for '%s' (%s); falling back to lease backend",
+                    self.lock_path,
+                    e,
+                )
+                self.backend = LeaseFileLockBackend()
+                handle = self.backend.acquire(self.lock_path, self.stale_threshold_seconds)
+            else:
+                raise
         if handle is None:
             return False
 
@@ -163,4 +177,3 @@ class LockManager:
             except OSError:
                 # Metadata heartbeat failure should not automatically drop lock ownership.
                 self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
-

@@ -2,30 +2,39 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import tempfile
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from cja_auto_sdr.core.locks.backends import LeaseFileLockBackend, LockInfo
+import pytest
+
+import cja_auto_sdr.core.locks.backends as backends_module
+from cja_auto_sdr.core.locks.backends import FcntlFileLockBackend, LeaseFileLockBackend, LockInfo
 from cja_auto_sdr.core.locks.manager import LockManager
 
 
-def _write_lock_info(lock_path: Path, lock_id: str) -> None:
+def _build_lock_info(lock_id: str, owner: str = "test-owner") -> LockInfo:
     now = datetime.now(UTC).isoformat()
-    info = LockInfo(
+    return LockInfo(
         lock_id=lock_id,
         pid=os.getpid(),
         host="test-host",
-        owner="test-owner",
+        owner=owner,
         started_at=now,
         updated_at=now,
         backend="lease",
         version=1,
     )
+
+
+def _write_lock_info(lock_path: Path, lock_id: str) -> None:
+    info = _build_lock_info(lock_id)
     lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
 
 
@@ -115,3 +124,60 @@ def test_lock_manager_heartbeat_updates_lease_metadata() -> None:
 
         manager.release()
         assert refreshed is True
+
+
+def test_lock_manager_falls_back_to_lease_when_flock_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    def _unsupported_flock(fd: int, operation: int) -> None:
+        del fd, operation
+        raise OSError(errno.EOPNOTSUPP, "flock unsupported")
+
+    monkeypatch.setattr(backends_module.fcntl, "flock", _unsupported_flock)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=10,
+            backend_name="auto",
+        )
+        assert isinstance(manager.backend, FcntlFileLockBackend)
+
+        assert manager.acquire() is True
+        assert isinstance(manager.backend, LeaseFileLockBackend)
+        info = manager.read_info()
+        assert info is not None
+        assert info["backend"] == "lease"
+        manager.release()
+
+
+def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        backend = LeaseFileLockBackend()
+
+        stale_handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert stale_handle is not None
+        stale_info = _build_lock_info(stale_handle.lock_id, owner="stale-owner")
+        backend.write_info(stale_handle, stale_info)
+
+        # Simulate lease takeover: stale lock path is removed and recreated by a new owner.
+        assert backend._safe_unlink(lock_path) is True
+
+        active_handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert active_handle is not None
+        active_info = _build_lock_info(active_handle.lock_id, owner="active-owner")
+        backend.write_info(active_handle, active_info)
+
+        # Late heartbeat/write from stale holder must not clobber active owner metadata.
+        backend.write_info(stale_handle, replace(stale_info, updated_at=datetime.now(UTC).isoformat()))
+        current = backend.read_info(lock_path)
+        assert current is not None
+        assert current.lock_id == active_handle.lock_id
+        assert current.owner == "active-owner"
+
+        backend.release(active_handle)
+        backend.release(stale_handle)

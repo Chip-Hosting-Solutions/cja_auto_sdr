@@ -26,6 +26,16 @@ try:
 except ImportError:  # pragma: no cover - exercised on non-POSIX only
     fcntl = None
 
+_FLOCK_UNSUPPORTED_ERRNOS = {
+    err_no
+    for err_no in (
+        getattr(errno, "ENOTSUP", None),
+        getattr(errno, "EOPNOTSUPP", None),
+        getattr(errno, "ENOSYS", None),
+    )
+    if err_no is not None
+}
+
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -39,6 +49,18 @@ def _write_all(fd: int, payload: bytes) -> None:
         if written <= 0:
             raise OSError("short write while persisting lock metadata")
         total_written += written
+
+
+def _write_info_fd(fd: int, info: LockInfo) -> None:
+    payload = (json.dumps(info.to_dict(), sort_keys=True) + "\n").encode("utf-8")
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.ftruncate(fd, 0)
+    _write_all(fd, payload)
+    os.fsync(fd)
+
+
+class LockBackendUnavailableError(OSError):
+    """Raised when a backend exists but is unusable for the target lock path."""
 
 
 @dataclass
@@ -133,9 +155,15 @@ class FcntlFileLockBackend:
         except BlockingIOError:
             os.close(fd)
             return None
-        except OSError:
+        except OSError as e:
             os.close(fd)
-            return None
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return None
+            if e.errno in _FLOCK_UNSUPPORTED_ERRNOS:
+                raise LockBackendUnavailableError(
+                    f"flock is unsupported for lock path '{lock_path}'"
+                ) from e
+            raise
 
         return _FcntlLockHandle(lock_path=lock_path, fd=fd, lock_id=str(uuid.uuid4()))
 
@@ -153,11 +181,7 @@ class FcntlFileLockBackend:
             handle.closed = True
 
     def write_info(self, handle: _FcntlLockHandle, info: LockInfo) -> None:
-        payload = (json.dumps(info.to_dict(), sort_keys=True) + "\n").encode("utf-8")
-        os.lseek(handle.fd, 0, os.SEEK_SET)
-        os.ftruncate(handle.fd, 0)
-        _write_all(handle.fd, payload)
-        os.fsync(handle.fd)
+        _write_info_fd(handle.fd, info)
 
     def read_info(self, lock_path: Path) -> LockInfo | None:
         if not lock_path.exists():
@@ -176,7 +200,9 @@ class FcntlFileLockBackend:
 @dataclass
 class _LeaseLockHandle:
     lock_path: Path
+    fd: int
     lock_id: str
+    closed: bool = False
 
 
 class LeaseFileLockBackend:
@@ -198,19 +224,16 @@ class LeaseFileLockBackend:
 
         for _ in range(self.acquire_attempts):
             try:
-                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
                 try:
                     bootstrap_info = self._build_bootstrap_info(lock_id)
-                    payload = (json.dumps(bootstrap_info.to_dict(), sort_keys=True) + "\n").encode("utf-8")
-                    _write_all(fd, payload)
-                    os.fsync(fd)
+                    _write_info_fd(fd, bootstrap_info)
                 except OSError:
-                    self._safe_unlink(lock_path)
-                    return None
-                finally:
                     with contextlib.suppress(OSError):
                         os.close(fd)
-                return _LeaseLockHandle(lock_path=lock_path, lock_id=lock_id)
+                    self._safe_unlink(lock_path)
+                    return None
+                return _LeaseLockHandle(lock_path=lock_path, fd=fd, lock_id=lock_id)
             except FileExistsError:
                 lock_info = self._read_info_with_retries(lock_path)
                 if lock_info is None:
@@ -256,25 +279,24 @@ class LeaseFileLockBackend:
         return None
 
     def release(self, handle: _LeaseLockHandle) -> None:
-        lock_info = self.read_info(handle.lock_path)
-        if lock_info is None:
+        if handle.closed:
             return
-        if lock_info.lock_id != handle.lock_id:
-            return
-        self._safe_unlink(handle.lock_path)
-
-    def write_info(self, handle: _LeaseLockHandle, info: LockInfo) -> None:
-        payload = json.dumps(info.to_dict(), sort_keys=True) + "\n"
-        tmp_path = handle.lock_path.with_name(f"{handle.lock_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                f.write(payload)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, handle.lock_path)
+            lock_info = self.read_info(handle.lock_path)
+            if lock_info is None:
+                return
+            if lock_info.lock_id != handle.lock_id:
+                return
+            self._safe_unlink(handle.lock_path)
         finally:
             with contextlib.suppress(OSError):
-                tmp_path.unlink()
+                os.close(handle.fd)
+            handle.closed = True
+
+    def write_info(self, handle: _LeaseLockHandle, info: LockInfo) -> None:
+        if handle.closed:
+            raise OSError("lock handle is closed")
+        _write_info_fd(handle.fd, info)
 
     def read_info(self, lock_path: Path) -> LockInfo | None:
         if not lock_path.exists():
