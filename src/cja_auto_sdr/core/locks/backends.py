@@ -425,8 +425,8 @@ class FcntlFileLockBackend:
                     if created_exclusively:
                         with contextlib.suppress(OSError):
                             lock_path.unlink()
-                        with contextlib.suppress(OSError):
-                            _metadata_path(lock_path).unlink()
+                        # Do not unlink sidecar metadata here: a contender may
+                        # acquire/recreate immediately after path unlink.
                     return AcquireResult(
                         status=AcquireStatus.BACKEND_UNAVAILABLE,
                         error=LockBackendUnavailableError(

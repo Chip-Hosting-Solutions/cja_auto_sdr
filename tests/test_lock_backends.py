@@ -19,6 +19,7 @@ import pytest
 
 import cja_auto_sdr.core.locks.backends as backends_module
 from cja_auto_sdr.core.locks.backends import (
+    AcquireStatus,
     FcntlFileLockBackend,
     LeaseFileLockBackend,
     LockInfo,
@@ -234,6 +235,36 @@ def test_lock_manager_surfaces_non_contention_flock_errors(monkeypatch: pytest.M
         with pytest.raises(OSError, match="flock I/O error"):
             manager.acquire()
         assert isinstance(manager.backend, FcntlFileLockBackend)
+
+
+def test_fcntl_unsupported_path_does_not_unlink_existing_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+        existing = _build_lock_info("existing-owner-id", owner="existing-owner", backend="lease")
+        metadata_path.write_text(json.dumps(existing.to_dict()) + "\n", encoding="utf-8")
+
+        backend = FcntlFileLockBackend()
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+
+        def _unsupported_flock(fd_: int, operation: int) -> None:
+            del fd_, operation
+            raise OSError(errno.EOPNOTSUPP, "flock unsupported")
+
+        monkeypatch.setattr(backend, "_open_lock_file", lambda path: (fd, True))
+        monkeypatch.setattr(backends_module.fcntl, "flock", _unsupported_flock)
+
+        result = backend.acquire_result(lock_path, stale_threshold_seconds=10)
+        assert result.status == AcquireStatus.BACKEND_UNAVAILABLE
+        assert metadata_path.exists()
+        current = backend.read_info(lock_path)
+        assert current is not None
+        assert current.lock_id == "existing-owner-id"
 
 
 def test_fcntl_backend_blocks_when_active_lease_lock_exists() -> None:
