@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lease heartbeat split-brain protection**: lease metadata updates are now file-descriptor-bound to the original lock inode, preventing stale holders from overwriting a newer owner’s lock metadata after reclamation
 - **Cross-backend lock exclusivity**: `fcntl` acquisition now honors active non-`fcntl` lock metadata (including `lease` holders), preventing concurrent takeover when processes use different lock backends
 - **Local PID stale-age protection**: same-host live PIDs no longer expire solely due age thresholds, preventing active lock takeover when timestamps become old
+- **Mixed-backend open-race hardening**: `fcntl` lock acquisition now uses atomic create/open semantics and always validates pre-existing lock metadata after open, preventing `lease`/`fcntl` concurrent holders under create-time races
+- **Metadata-write failure lockout prevention**: failed lock metadata writes now trigger best-effort lock-file cleanup to avoid leaving fresh unreadable artifacts that cause long false lock contention windows
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -61,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `tests/test_lock_backends.py` coverage for lease bootstrap metadata, transient unreadable-file handling, persistent corrupt-file recovery, and heartbeat refresh behavior
 - Added lock regression coverage for runtime `flock` unsupported fallback and stale-holder metadata overwrite prevention in lease mode
 - Added lock regression coverage for mixed-backend contention (`lease` vs `fcntl`) and same-host live-PID stale-age protection
+- Added lock regression coverage for mixed-backend create-time race handling and metadata-write failure cleanup behavior
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior

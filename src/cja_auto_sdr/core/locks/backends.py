@@ -179,11 +179,8 @@ class FcntlFileLockBackend:
 
     def acquire(self, lock_path: Path, stale_threshold_seconds: int) -> _FcntlLockHandle | None:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        file_preexisting = lock_path.exists()
-
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-        except OSError:
+        fd, created_exclusively = self._open_lock_file(lock_path)
+        if fd is None:
             return None
 
         try:
@@ -202,7 +199,7 @@ class FcntlFileLockBackend:
                 ) from e
             raise
 
-        if file_preexisting:
+        if not created_exclusively:
             existing_info, lock_file_exists = self._read_info_with_retries(lock_path)
             if existing_info is not None:
                 # Mixed-backend safeguard: honor active non-fcntl owner metadata.
@@ -223,6 +220,25 @@ class FcntlFileLockBackend:
                 return None
 
         return _FcntlLockHandle(lock_path=lock_path, fd=fd, lock_id=str(uuid.uuid4()))
+
+    @staticmethod
+    def _open_lock_file(lock_path: Path) -> tuple[int | None, bool]:
+        for _ in range(3):
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+                return fd, True
+            except FileExistsError:
+                try:
+                    fd = os.open(str(lock_path), os.O_RDWR)
+                    return fd, False
+                except FileNotFoundError:
+                    # File disappeared between checks; retry exclusive create.
+                    continue
+                except OSError:
+                    return None, False
+            except OSError:
+                return None, False
+        return None, False
 
     def release(self, handle: _FcntlLockHandle) -> None:
         if handle.closed:

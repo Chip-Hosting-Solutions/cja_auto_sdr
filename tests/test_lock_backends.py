@@ -12,11 +12,16 @@ import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 import cja_auto_sdr.core.locks.backends as backends_module
-from cja_auto_sdr.core.locks.backends import FcntlFileLockBackend, LeaseFileLockBackend, LockInfo
+from cja_auto_sdr.core.locks.backends import (
+    FcntlFileLockBackend,
+    LeaseFileLockBackend,
+    LockInfo,
+)
 from cja_auto_sdr.core.locks.manager import LockManager
 
 
@@ -216,6 +221,41 @@ def test_fcntl_backend_blocks_when_active_lease_lock_exists() -> None:
         fcntl_manager.release()
 
 
+def test_fcntl_backend_blocks_when_lease_lock_created_after_path_check() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lease_manager = LockManager(
+            lock_path=lock_path,
+            owner="lease-owner",
+            stale_threshold_seconds=3600,
+            backend_name="lease",
+        )
+        assert lease_manager.acquire() is True
+
+        # Simulate the race condition by forcing the fcntl open path to report
+        # "not created exclusively", which requires metadata validation.
+        preopened_fd = os.open(lock_path, os.O_RDWR)
+        try:
+            with patch.object(FcntlFileLockBackend, "_open_lock_file", return_value=(preopened_fd, False)):
+                fcntl_manager = LockManager(
+                    lock_path=lock_path,
+                    owner="fcntl-owner",
+                    stale_threshold_seconds=3600,
+                    backend_name="fcntl",
+                )
+                assert fcntl_manager.acquire() is False
+        finally:
+            try:
+                os.close(preopened_fd)
+            except OSError:
+                pass
+
+        lease_manager.release()
+
+
 def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lease.lock"
@@ -238,6 +278,36 @@ def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
         current = backend.read_info(lock_path)
         assert current is not None
         assert current.lock_id == "live-local-pid"
+
+
+def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+
+        write_calls = {"count": 0}
+        original_write = FcntlFileLockBackend.write_info
+
+        def _fail_first_write(self: FcntlFileLockBackend, handle, info):  # type: ignore[no-untyped-def]
+            write_calls["count"] += 1
+            if write_calls["count"] == 1:
+                raise OSError(errno.EIO, "simulated write failure")
+            return original_write(self, handle, info)
+
+        with patch.object(FcntlFileLockBackend, "write_info", _fail_first_write):
+            assert manager.acquire() is False
+
+        # Cleanup should prevent stale fresh-file lockout; second attempt should succeed.
+        assert manager.acquire() is True
+        manager.release()
 
 
 def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> None:

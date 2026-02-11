@@ -7,6 +7,7 @@ import os
 import socket
 import threading
 import uuid
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -121,6 +122,7 @@ class LockManager:
         except OSError:
             # If metadata write fails, release lock and report acquisition failure.
             self.backend.release(handle)
+            self._cleanup_failed_metadata_write()
             return False
 
         self._handle = handle
@@ -177,3 +179,11 @@ class LockManager:
             except OSError:
                 # Metadata heartbeat failure should not automatically drop lock ownership.
                 self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
+
+    def _cleanup_failed_metadata_write(self) -> None:
+        """Best-effort cleanup to avoid false lockouts after write_info failures."""
+        # Lease backend handles are path-bound via O_EXCL and release removes lock file
+        # when ownership matches. For fcntl, a failed metadata write can leave a fresh,
+        # unreadable file that contenders may interpret as active contention.
+        with suppress(OSError):
+            self.lock_path.unlink()
