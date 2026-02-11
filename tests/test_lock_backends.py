@@ -541,6 +541,49 @@ def test_lease_backend_reclaims_stale_remote_fcntl_metadata_when_unlock_observed
         backend.release(handle)
 
 
+def test_lease_release_closes_fd_before_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+
+        events: list[str] = []
+        original_close = backends_module.os.close
+
+        def _close_wrapper(fd: int) -> None:
+            events.append("close")
+            original_close(fd)
+
+        def _unlink_wrapper(path: Path) -> bool:
+            events.append("unlink")
+            return True
+
+        monkeypatch.setattr(backends_module.os, "close", _close_wrapper)
+        monkeypatch.setattr(backend, "_safe_unlink", _unlink_wrapper)
+
+        backend.release(handle)
+        assert events[0] == "close"
+        assert "unlink" in events
+
+
+def test_lease_release_writes_tombstone_when_unlink_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+
+        monkeypatch.setattr(backend, "_safe_unlink", lambda path: False)
+        backend.release(handle)
+
+        info = backend.read_info(lock_path)
+        assert info is not None
+        assert info.lock_id == handle.lock_id
+        assert info.pid == -1
+        assert info.host == "released"
+
+
 def test_failed_write_cleanup_skips_unlink_when_inode_changed() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lock.lock"

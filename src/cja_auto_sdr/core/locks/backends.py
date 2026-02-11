@@ -447,6 +447,8 @@ class LeaseFileLockBackend:
     acquire_attempts = 3
     unreadable_retry_attempts = 10
     unreadable_retry_sleep_seconds = 0.05
+    release_unlink_attempts = 5
+    release_unlink_retry_sleep_seconds = 0.02
 
     def acquire(self, lock_path: Path, stale_threshold_seconds: int) -> _LeaseLockHandle | None:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -511,17 +513,34 @@ class LeaseFileLockBackend:
     def release(self, handle: _LeaseLockHandle) -> None:
         if handle.closed:
             return
-        try:
+
+        held_inode = self._fstat_inode(handle.fd)
+        with contextlib.suppress(OSError):
+            os.close(handle.fd)
+        handle.closed = True
+
+        if held_inode is None:
+            return
+
+        for attempt in range(self.release_unlink_attempts):
             lock_info = self.read_info(handle.lock_path)
             if lock_info is None:
                 return
             if lock_info.lock_id != handle.lock_id:
                 return
-            self._safe_unlink(handle.lock_path)
-        finally:
-            with contextlib.suppress(OSError):
-                os.close(handle.fd)
-            handle.closed = True
+
+            path_inode = self._stat_inode(handle.lock_path)
+            if path_inode is None or path_inode != held_inode:
+                return
+
+            if self._safe_unlink(handle.lock_path):
+                return
+            if attempt < self.release_unlink_attempts - 1:
+                time.sleep(self.release_unlink_retry_sleep_seconds)
+
+        # Last-resort fallback: if unlink consistently fails (e.g. platform-specific
+        # file-handle contention), write stale metadata so contenders can recover.
+        self._write_stale_tombstone(handle.lock_path, handle.lock_id, held_inode)
 
     def write_info(self, handle: _LeaseLockHandle, info: LockInfo) -> None:
         if handle.closed:
@@ -550,3 +569,48 @@ class LeaseFileLockBackend:
             return True
         except OSError:
             return False
+
+    @staticmethod
+    def _fstat_inode(fd: int) -> tuple[int, int] | None:
+        try:
+            stat_result = os.fstat(fd)
+            return stat_result.st_dev, stat_result.st_ino
+        except OSError:
+            return None
+
+    @staticmethod
+    def _stat_inode(lock_path: Path) -> tuple[int, int] | None:
+        try:
+            stat_result = lock_path.stat()
+            return stat_result.st_dev, stat_result.st_ino
+        except OSError:
+            return None
+
+    def _write_stale_tombstone(self, lock_path: Path, lock_id: str, held_inode: tuple[int, int]) -> None:
+        fd: int | None = None
+        try:
+            fd = os.open(str(lock_path), os.O_RDWR)
+        except OSError:
+            return
+
+        try:
+            current_inode = self._fstat_inode(fd)
+            if current_inode != held_inode:
+                return
+            stale_info = LockInfo(
+                lock_id=lock_id,
+                pid=-1,
+                host="released",
+                owner="",
+                started_at="1970-01-01T00:00:00+00:00",
+                updated_at="1970-01-01T00:00:00+00:00",
+                backend=self.name,
+                version=1,
+            )
+            _write_info_fd(fd, stale_info)
+        except OSError:
+            return
+        finally:
+            with contextlib.suppress(OSError):
+                if fd is not None:
+                    os.close(fd)
