@@ -81,6 +81,13 @@ class LockInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
+        modern = cls._from_modern_dict(data)
+        if modern is not None:
+            return modern
+        return cls._from_legacy_dict(data)
+
+    @classmethod
+    def _from_modern_dict(cls, data: dict[str, Any]) -> LockInfo | None:
         try:
             return cls(
                 lock_id=str(data["lock_id"]),
@@ -94,6 +101,45 @@ class LockInfo:
             )
         except (KeyError, TypeError, ValueError):
             return None
+
+    @classmethod
+    def _from_legacy_dict(cls, data: dict[str, Any]) -> LockInfo | None:
+        # Legacy format: {"pid": int, "timestamp": float, "started_at": str}
+        # Keep compatibility for stale-lock recovery after upgrades.
+        if "pid" not in data:
+            return None
+
+        try:
+            pid = int(data["pid"])
+        except (TypeError, ValueError):
+            return None
+
+        started_at = cls._coerce_legacy_time(data.get("started_at"), data.get("timestamp"))
+        updated_at = cls._coerce_legacy_time(data.get("updated_at"), data.get("timestamp")) or started_at
+        host = str(data.get("host") or socket.gethostname())
+        backend = str(data.get("backend") or "legacy")
+        lock_id = str(data.get("lock_id") or f"legacy-{pid}-{uuid.uuid4().hex}")
+
+        return cls(
+            lock_id=lock_id,
+            pid=pid,
+            host=host,
+            owner=str(data.get("owner", "")),
+            started_at=started_at,
+            updated_at=updated_at,
+            backend=backend,
+            version=int(data.get("version", 0) or 0),
+        )
+
+    @staticmethod
+    def _coerce_legacy_time(primary: Any, fallback_epoch: Any) -> str:
+        if isinstance(primary, str) and primary:
+            return primary
+        if isinstance(primary, (int, float)):
+            return datetime.fromtimestamp(float(primary), UTC).isoformat()
+        if isinstance(fallback_epoch, (int, float)):
+            return datetime.fromtimestamp(float(fallback_epoch), UTC).isoformat()
+        return _utcnow_iso()
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -146,18 +192,22 @@ def _is_fcntl_lock_active(lock_path: Path) -> bool | None:
 
 
 def _is_lock_info_stale(info: LockInfo, stale_threshold_seconds: int, *, lock_path: Path | None = None) -> bool:
-    if info.host == socket.gethostname():
-        # Never expire a same-host lock while its PID is still alive.
-        return not _is_process_running(info.pid)
-
     if info.backend == "fcntl":
         if lock_path is None:
+            # Without lock path we cannot probe flock state. Fall back to pid-liveness
+            # only for same-host metadata; otherwise be conservative.
+            if info.host == socket.gethostname():
+                return not _is_process_running(info.pid)
             return False
         lock_active = _is_fcntl_lock_active(lock_path)
         if lock_active is None:
             # If we cannot determine lock state safely, do not force takeover.
             return False
         return not lock_active
+
+    if info.host == socket.gethostname():
+        # Never expire a same-host non-fcntl lock while its PID is still alive.
+        return not _is_process_running(info.pid)
 
     reference = _parse_iso(info.updated_at) or _parse_iso(info.started_at)
     if reference is None:

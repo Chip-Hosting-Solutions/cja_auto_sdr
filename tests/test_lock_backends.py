@@ -333,7 +333,7 @@ def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
             host=socket.gethostname(),
             started_at=old,
             updated_at=old,
-            backend="fcntl",
+            backend="lease",
         )
         lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
 
@@ -344,6 +344,27 @@ def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
         current = backend.read_info(lock_path)
         assert current is not None
         assert current.lock_id == "live-local-pid"
+
+
+def test_lease_backend_reclaims_local_fcntl_metadata_when_no_flock_held() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        info = _build_lock_info(
+            "local-fcntl-holder",
+            owner="local-owner",
+            pid=os.getpid(),
+            host=socket.gethostname(),
+            backend="fcntl",
+        )
+        lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+        backend.release(handle)
 
 
 def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
@@ -390,6 +411,34 @@ def test_fcntl_backend_reclaims_stale_unreadable_metadata_file() -> None:
             lock_path=lock_path,
             owner="test-owner",
             stale_threshold_seconds=1,
+            backend_name="fcntl",
+        )
+        assert manager.acquire() is True
+        info = manager.read_info()
+        assert info is not None
+        assert info["backend"] == "fcntl"
+        manager.release()
+
+
+def test_legacy_lock_metadata_is_parsed_for_staleness_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        legacy_payload = {
+            "pid": 12345,
+            "timestamp": time.time(),
+            "started_at": datetime.now(UTC).isoformat(),
+        }
+        lock_path.write_text(json.dumps(legacy_payload) + "\n", encoding="utf-8")
+
+        monkeypatch.setattr(backends_module, "_is_process_running", lambda pid: False)
+
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
             backend_name="fcntl",
         )
         assert manager.acquire() is True
