@@ -154,6 +154,29 @@ def test_lock_manager_falls_back_to_lease_when_flock_unsupported(monkeypatch: py
         manager.release()
 
 
+def test_lock_manager_surfaces_non_contention_flock_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    def _broken_flock(fd: int, operation: int) -> None:
+        del fd, operation
+        raise OSError(errno.EIO, "flock I/O error")
+
+    monkeypatch.setattr(backends_module.fcntl, "flock", _broken_flock)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=10,
+            backend_name="auto",
+        )
+        with pytest.raises(OSError, match="flock I/O error"):
+            manager.acquire()
+        assert isinstance(manager.backend, FcntlFileLockBackend)
+
+
 def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lease.lock"
