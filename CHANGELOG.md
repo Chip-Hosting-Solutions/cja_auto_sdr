@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Org-report lock liveness**: `OrgReportLock._is_process_running()` now treats `PermissionError`/EPERM as process-alive to avoid stale-lock takeover of active runs
 - **Org-report lock architecture hardening**: lock coordination now routes through `cja_auto_sdr.core.locks` with `LockManager`/`LockInfo` backend orchestration (`fcntl` preferred, `lease` fallback) and optional backend override via `CJA_LOCK_BACKEND`
 - **Org-report lock ownership model**: moved lock ownership semantics to backend primitives (OS advisory lock or lease ownership) instead of JSON parse state
+- **Scoped lock refactor (v3.2.2 hardening)**: lock primitive state and metadata persistence are now separated (`*.lock` + atomic `*.lock.info` sidecar), preventing metadata corruption/write failures from changing lock ownership semantics
+- **Typed acquisition outcomes**: backend acquisition now uses explicit outcomes (`acquired`, `contended`, `backend_unavailable`, `metadata_error`) to prevent non-contention runtime failures from being misreported as lock contention
+- **Manager write-failure safety**: removed lock-path unlink cleanup from metadata write-failure handling; manager now releases backend handles without mutating ownership path state, avoiding cross-process unlink races
 - **Lease fallback race handling**: fresh unreadable lock files now use bounded retry + immediate reclamation, avoiding long stale-timeout blocks while preventing takeover during transient write windows
 - **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
 - **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
@@ -76,8 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage for mid-acquire path disappearance retries and inode-safe cleanup guards after metadata write failures
 - Added lock regression coverage for stale unreadable `fcntl` metadata reclamation and remote active-`fcntl` takeover prevention in lease mode
 - Added lock regression coverage for same-host `fcntl` handoff to lease and legacy lock-metadata stale recovery
-- Added lock regression coverage for write-failure cleanup ordering (cleanup before release) and malformed legacy-version parsing
+- Added lock regression coverage for malformed legacy-version parsing and write-failure release safety
 - Added lock regression coverage for lease release close-before-unlink ordering and unlink-failure recovery behavior
+- Added lock refactor coverage for sidecar metadata semantics and release-on-write-failure behavior without manager unlink cleanup
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior
@@ -91,7 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,539 tests** (1,537 passing, 2 skipped) — up from 1,431
+- **1,577 tests** (1,575 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient

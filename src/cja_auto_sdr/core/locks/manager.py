@@ -7,12 +7,13 @@ import os
 import socket
 import threading
 import uuid
-from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from cja_auto_sdr.core.locks.backends import (
+    AcquireResult,
+    AcquireStatus,
     FcntlFileLockBackend,
     LeaseFileLockBackend,
     LockBackend,
@@ -89,21 +90,27 @@ class LockManager:
         if self._handle is not None:
             return True
 
-        handle: LockHandle | None
-        try:
-            handle = self.backend.acquire(self.lock_path, self.stale_threshold_seconds)
-        except LockBackendUnavailableError as e:
-            if isinstance(self.backend, FcntlFileLockBackend):
-                self.logger.warning(
-                    "fcntl backend unavailable for '%s' (%s); falling back to lease backend",
-                    self.lock_path,
-                    e,
-                )
-                self.backend = LeaseFileLockBackend()
-                handle = self.backend.acquire(self.lock_path, self.stale_threshold_seconds)
-            else:
-                raise
-        if handle is None:
+        result = self._acquire_with_result(self.backend, self.lock_path, self.stale_threshold_seconds)
+        if result.status == AcquireStatus.BACKEND_UNAVAILABLE and isinstance(self.backend, FcntlFileLockBackend):
+            self.logger.warning(
+                "fcntl backend unavailable for '%s'; falling back to lease backend",
+                self.lock_path,
+            )
+            self.backend = LeaseFileLockBackend()
+            result = self._acquire_with_result(self.backend, self.lock_path, self.stale_threshold_seconds)
+
+        if result.status == AcquireStatus.BACKEND_UNAVAILABLE:
+            if result.error is not None:
+                raise result.error
+            raise LockBackendUnavailableError(f"lock backend unavailable for '{self.lock_path}'")
+
+        if result.status == AcquireStatus.METADATA_ERROR:
+            if result.error is not None:
+                raise result.error
+            return False
+
+        handle = result.handle
+        if result.status != AcquireStatus.ACQUIRED or handle is None:
             return False
 
         lock_info = LockInfo(
@@ -120,9 +127,8 @@ class LockManager:
         try:
             self.backend.write_info(handle, lock_info)
         except OSError:
-            # If metadata write fails, release lock and report acquisition failure.
-            failed_inode = self._capture_handle_inode(handle)
-            self._cleanup_failed_metadata_write(failed_inode, handle=handle)
+            # Metadata persistence is sidecar-based. Release primitive lock and fail,
+            # but never mutate lock-path ownership in manager cleanup.
             self.backend.release(handle)
             return False
 
@@ -182,40 +188,20 @@ class LockManager:
                 self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
 
     @staticmethod
-    def _capture_handle_inode(handle: LockHandle) -> tuple[int, int] | None:
-        fd = getattr(handle, "fd", None)
-        if not isinstance(fd, int):
-            return None
+    def _acquire_with_result(
+        backend: LockBackend,
+        lock_path: Path,
+        stale_threshold_seconds: int,
+    ) -> AcquireResult:
         try:
-            stat_result = os.fstat(fd)
-            return stat_result.st_dev, stat_result.st_ino
-        except OSError:
-            return None
-
-    def _cleanup_failed_metadata_write(
-        self,
-        failed_inode: tuple[int, int] | None,
-        *,
-        handle: LockHandle | None = None,
-    ) -> None:
-        """Best-effort cleanup to avoid false lockouts after write_info failures."""
-        if failed_inode is None:
-            return
-        if handle is not None:
-            fd = getattr(handle, "fd", None)
-            if not isinstance(fd, int):
-                return
+            return backend.acquire_result(lock_path, stale_threshold_seconds)
+        except AttributeError:
             try:
-                fd_stat = os.fstat(fd)
-            except OSError:
-                return
-            if (fd_stat.st_dev, fd_stat.st_ino) != failed_inode:
-                return
-        try:
-            stat_result = self.lock_path.stat()
-        except OSError:
-            return
-        if (stat_result.st_dev, stat_result.st_ino) != failed_inode:
-            return
-        with suppress(OSError):
-            self.lock_path.unlink()
+                handle = backend.acquire(lock_path, stale_threshold_seconds)  # pragma: no cover
+            except LockBackendUnavailableError as e:
+                return AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=e)
+            except OSError as e:
+                return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
+            if handle is None:
+                return AcquireResult(status=AcquireStatus.CONTENDED)
+            return AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle)

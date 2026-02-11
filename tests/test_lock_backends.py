@@ -51,7 +51,8 @@ def _build_lock_info(
 
 def _write_lock_info(lock_path: Path, lock_id: str) -> None:
     info = _build_lock_info(lock_id)
-    lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+    metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+    metadata_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
 
 
 def _flock_holder_worker(lock_path: str, ready_path: str, hold_seconds: float) -> None:
@@ -96,7 +97,9 @@ def test_lease_backend_acquire_writes_bootstrap_metadata() -> None:
 def test_lease_backend_waits_for_transient_unreadable_lock_file() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lease.lock"
-        lock_path.write_text("", encoding="utf-8")
+        lock_path.write_text("marker\n", encoding="utf-8")
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+        metadata_path.write_text("", encoding="utf-8")
         backend = LeaseFileLockBackend()
 
         lock_id = "delayed-lock-id"
@@ -161,6 +164,25 @@ def test_lock_manager_heartbeat_updates_lease_metadata() -> None:
 
         manager.release()
         assert refreshed is True
+
+
+def test_lock_manager_writes_metadata_to_sidecar_file() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        sidecar_path = lock_path.with_name(f"{lock_path.name}.info")
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="lease",
+        )
+
+        assert manager.acquire() is True
+        assert sidecar_path.exists()
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        assert payload["backend"] == "lease"
+        assert payload["owner"] == "test-owner"
+        manager.release()
 
 
 def test_lock_manager_falls_back_to_lease_when_flock_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -397,7 +419,24 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
         manager.release()
 
 
-def test_write_failure_cleanup_runs_before_release(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fcntl_acquires_with_preexisting_lock_file_without_sidecar() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lock_path.touch()
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+        assert manager.acquire() is True
+        manager.release()
+
+
+def test_write_failure_path_releases_without_manager_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
     if backends_module.fcntl is None:
         pytest.skip("fcntl not available on this platform")
 
@@ -415,23 +454,17 @@ def test_write_failure_cleanup_runs_before_release(monkeypatch: pytest.MonkeyPat
             del handle, info
             raise OSError(errno.EIO, "simulated write failure")
 
-        original_cleanup = manager._cleanup_failed_metadata_write
         original_release = manager.backend.release
-
-        def _cleanup_wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
-            events.append("cleanup")
-            return original_cleanup(*args, **kwargs)
 
         def _release_wrapper(handle):  # type: ignore[no-untyped-def]
             events.append("release")
             return original_release(handle)
 
         monkeypatch.setattr(manager.backend, "write_info", _fail_write)
-        monkeypatch.setattr(manager, "_cleanup_failed_metadata_write", _cleanup_wrapper)
         monkeypatch.setattr(manager.backend, "release", _release_wrapper)
 
         assert manager.acquire() is False
-        assert events[:2] == ["cleanup", "release"]
+        assert events == ["release"]
 
 
 def test_fcntl_backend_reclaims_stale_unreadable_metadata_file() -> None:
@@ -584,7 +617,7 @@ def test_lease_release_writes_tombstone_when_unlink_fails(monkeypatch: pytest.Mo
         assert info.host == "released"
 
 
-def test_failed_write_cleanup_skips_unlink_when_inode_changed() -> None:
+def test_failed_metadata_write_does_not_unlink_lock_path() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lock.lock"
         manager = LockManager(
@@ -594,14 +627,15 @@ def test_failed_write_cleanup_skips_unlink_when_inode_changed() -> None:
             backend_name="fcntl",
         )
 
-        lock_path.write_text("old", encoding="utf-8")
-        old_stat = lock_path.stat()
-        old_inode = (old_stat.st_dev, old_stat.st_ino)
+        lock_path.write_text("preexisting", encoding="utf-8")
 
-        lock_path.unlink()
-        lock_path.write_text("new", encoding="utf-8")
+        def _fail_write(handle, info):  # type: ignore[no-untyped-def]
+            del handle, info
+            raise OSError(errno.EIO, "simulated write failure")
 
-        manager._cleanup_failed_metadata_write(old_inode)
+        with patch.object(FcntlFileLockBackend, "write_info", _fail_write):
+            assert manager.acquire() is False
+
         assert lock_path.exists()
 
 
@@ -624,7 +658,8 @@ def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> Non
         backend.write_info(active_handle, active_info)
 
         # Late heartbeat/write from stale holder must not clobber active owner metadata.
-        backend.write_info(stale_handle, replace(stale_info, updated_at=datetime.now(UTC).isoformat()))
+        with pytest.raises(OSError):
+            backend.write_info(stale_handle, replace(stale_info, updated_at=datetime.now(UTC).isoformat()))
         current = backend.read_info(lock_path)
         assert current is not None
         assert current.lock_id == active_handle.lock_id
