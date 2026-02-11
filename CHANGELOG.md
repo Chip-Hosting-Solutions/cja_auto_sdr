@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
 - **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
 - **Lease heartbeat split-brain protection**: lease metadata updates are now file-descriptor-bound to the original lock inode, preventing stale holders from overwriting a newer owner’s lock metadata after reclamation
+- **Cross-backend lock exclusivity**: `fcntl` acquisition now honors active non-`fcntl` lock metadata (including `lease` holders), preventing concurrent takeover when processes use different lock backends
+- **Local PID stale-age protection**: same-host live PIDs no longer expire solely due age thresholds, preventing active lock takeover when timestamps become old
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -58,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
 - Added `tests/test_lock_backends.py` coverage for lease bootstrap metadata, transient unreadable-file handling, persistent corrupt-file recovery, and heartbeat refresh behavior
 - Added lock regression coverage for runtime `flock` unsupported fallback and stale-holder metadata overwrite prevention in lease mode
+- Added lock regression coverage for mixed-backend contention (`lease` vs `fcntl`) and same-host live-PID stale-age protection
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior

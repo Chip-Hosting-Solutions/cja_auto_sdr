@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -19,16 +20,25 @@ from cja_auto_sdr.core.locks.backends import FcntlFileLockBackend, LeaseFileLock
 from cja_auto_sdr.core.locks.manager import LockManager
 
 
-def _build_lock_info(lock_id: str, owner: str = "test-owner") -> LockInfo:
+def _build_lock_info(
+    lock_id: str,
+    owner: str = "test-owner",
+    *,
+    pid: int | None = None,
+    host: str | None = None,
+    started_at: str | None = None,
+    updated_at: str | None = None,
+    backend: str = "lease",
+) -> LockInfo:
     now = datetime.now(UTC).isoformat()
     return LockInfo(
         lock_id=lock_id,
-        pid=os.getpid(),
-        host="test-host",
+        pid=os.getpid() if pid is None else pid,
+        host=socket.gethostname() if host is None else host,
         owner=owner,
-        started_at=now,
-        updated_at=now,
-        backend="lease",
+        started_at=now if started_at is None else started_at,
+        updated_at=now if updated_at is None else updated_at,
+        backend=backend,
         version=1,
     )
 
@@ -175,6 +185,59 @@ def test_lock_manager_surfaces_non_contention_flock_errors(monkeypatch: pytest.M
         with pytest.raises(OSError, match="flock I/O error"):
             manager.acquire()
         assert isinstance(manager.backend, FcntlFileLockBackend)
+
+
+def test_fcntl_backend_blocks_when_active_lease_lock_exists() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lease_manager = LockManager(
+            lock_path=lock_path,
+            owner="lease-owner",
+            stale_threshold_seconds=3600,
+            backend_name="lease",
+        )
+        assert lease_manager.acquire() is True
+
+        fcntl_manager = LockManager(
+            lock_path=lock_path,
+            owner="fcntl-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+        try:
+            assert fcntl_manager.acquire() is False
+        finally:
+            lease_manager.release()
+
+        assert fcntl_manager.acquire() is True
+        fcntl_manager.release()
+
+
+def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        old = datetime(2000, 1, 1, tzinfo=UTC).isoformat()
+        info = _build_lock_info(
+            "live-local-pid",
+            owner="live-owner",
+            pid=os.getpid(),
+            host=socket.gethostname(),
+            started_at=old,
+            updated_at=old,
+            backend="fcntl",
+        )
+        lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+        assert handle is None
+
+        current = backend.read_info(lock_path)
+        assert current is not None
+        assert current.lock_id == "live-local-pid"
 
 
 def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> None:

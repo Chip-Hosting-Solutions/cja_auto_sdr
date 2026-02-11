@@ -96,6 +96,41 @@ class LockInfo:
             return None
 
 
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _is_process_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as e:
+        return e.errno == errno.EPERM
+
+
+def _is_lock_info_stale(info: LockInfo, stale_threshold_seconds: int) -> bool:
+    if info.host == socket.gethostname():
+        # Never expire a same-host lock while its PID is still alive.
+        return not _is_process_running(info.pid)
+
+    reference = _parse_iso(info.updated_at) or _parse_iso(info.started_at)
+    if reference is None:
+        return True
+
+    now = datetime.now(UTC)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+
+    return (now - reference).total_seconds() > max(1, stale_threshold_seconds)
+
+
 class LockHandle(Protocol):
     """Opaque backend-specific lock handle."""
 
@@ -135,14 +170,16 @@ class FcntlFileLockBackend:
 
     name = "fcntl"
     requires_heartbeat = False
+    metadata_read_retry_attempts = 3
+    metadata_read_retry_sleep_seconds = 0.02
 
     @staticmethod
     def is_supported() -> bool:
         return fcntl is not None
 
     def acquire(self, lock_path: Path, stale_threshold_seconds: int) -> _FcntlLockHandle | None:
-        del stale_threshold_seconds  # Not needed with OS-managed lock lifetime.
         lock_path.parent.mkdir(parents=True, exist_ok=True)
+        file_preexisting = lock_path.exists()
 
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
@@ -164,6 +201,26 @@ class FcntlFileLockBackend:
                     f"flock is unsupported for lock path '{lock_path}'"
                 ) from e
             raise
+
+        if file_preexisting:
+            existing_info, lock_file_exists = self._read_info_with_retries(lock_path)
+            if existing_info is not None:
+                # Mixed-backend safeguard: honor active non-fcntl owner metadata.
+                if existing_info.backend != self.name and not _is_lock_info_stale(existing_info, stale_threshold_seconds):
+                    with contextlib.suppress(OSError):
+                        assert fcntl is not None
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                    return None
+            elif lock_file_exists and not self._is_lock_file_stale_by_mtime(lock_path, stale_threshold_seconds):
+                # Conservatively treat fresh unreadable metadata as an active lock.
+                with contextlib.suppress(OSError):
+                    assert fcntl is not None
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                return None
 
         return _FcntlLockHandle(lock_path=lock_path, fd=fd, lock_id=str(uuid.uuid4()))
 
@@ -195,6 +252,27 @@ class FcntlFileLockBackend:
         if not isinstance(data, dict):
             return None
         return LockInfo.from_dict(data)
+
+    def _read_info_with_retries(self, lock_path: Path) -> tuple[LockInfo | None, bool]:
+        lock_file_exists = lock_path.exists()
+        for attempt in range(self.metadata_read_retry_attempts + 1):
+            info = self.read_info(lock_path)
+            if info is not None:
+                return info, True
+            lock_file_exists = lock_path.exists()
+            if not lock_file_exists:
+                return None, False
+            if attempt < self.metadata_read_retry_attempts:
+                time.sleep(self.metadata_read_retry_sleep_seconds)
+        return None, lock_file_exists
+
+    @staticmethod
+    def _is_lock_file_stale_by_mtime(lock_path: Path, stale_threshold_seconds: int) -> bool:
+        try:
+            age_seconds = time.time() - lock_path.stat().st_mtime
+        except OSError:
+            return False
+        return age_seconds > max(1, stale_threshold_seconds)
 
 
 @dataclass
@@ -242,7 +320,7 @@ class LeaseFileLockBackend:
                         return None
                     continue
 
-                if self._is_stale(lock_info, stale_threshold_seconds):
+                if _is_lock_info_stale(lock_info, stale_threshold_seconds):
                     if not self._safe_unlink(lock_path):
                         return None
                     continue
@@ -320,36 +398,3 @@ class LeaseFileLockBackend:
             return True
         except OSError:
             return False
-
-    @staticmethod
-    def _parse_iso(value: str) -> datetime | None:
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-
-    def _is_stale(self, info: LockInfo, stale_threshold_seconds: int) -> bool:
-        if info.host == socket.gethostname() and not self._is_process_running(info.pid):
-            return True
-
-        reference = self._parse_iso(info.updated_at) or self._parse_iso(info.started_at)
-        if reference is None:
-            return True
-
-        now = datetime.now(UTC)
-        if reference.tzinfo is None:
-            reference = reference.replace(tzinfo=UTC)
-
-        return (now - reference).total_seconds() > max(1, stale_threshold_seconds)
-
-    @staticmethod
-    def _is_process_running(pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        except OSError as e:
-            return e.errno == errno.EPERM
