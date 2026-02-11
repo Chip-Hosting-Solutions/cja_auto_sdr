@@ -129,6 +129,7 @@ class LockManager:
         except OSError:
             # Metadata persistence is sidecar-based. Release primitive lock and fail,
             # but never mutate lock-path ownership in manager cleanup.
+            self._write_failure_tombstone_best_effort(handle, lock_info)
             self.backend.release(handle)
             return False
 
@@ -186,6 +187,16 @@ class LockManager:
             except OSError:
                 # Metadata heartbeat failure should not automatically drop lock ownership.
                 self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
+
+    def _write_failure_tombstone_best_effort(self, handle: LockHandle, lock_info: LockInfo) -> None:
+        writer = getattr(self.backend, "write_failure_tombstone", None)
+        if writer is None:
+            return
+        try:
+            writer(handle, lock_info)
+        except Exception:
+            # Best effort only; release path remains authoritative.
+            return
 
     @staticmethod
     def _acquire_with_result(

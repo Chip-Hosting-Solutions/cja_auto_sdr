@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lease unknown-probe stale recovery**: when `flock` probing is unavailable (e.g., non-`fcntl` platforms), lease acquisition now allows stale marker recovery for missing metadata instead of permanent contention lockout
 - **Legacy metadata parse safety**: lock parsing now guards non-finite/out-of-range legacy timestamps and integer coercions (`pid`/`version`), preventing malformed lock payloads from crashing acquisition
 - **Ownership-guarded sidecar cleanup**: sidecar deletion now requires lock-id and inode consistency checks in lease release/reclaim paths, and fcntl unsupported fallback no longer unlinks sidecars opportunistically
+- **Missing-metadata race hardening**: both `lease` and `fcntl` now treat fresh metadata-missing lock files as transient contention and only reclaim after a bounded stale grace window, preventing startup races from creating concurrent owners
+- **Lease bootstrap ownership verification**: lease acquire now verifies lock-path inode identity after marker+sidecar writes and retries when ownership changed mid-bootstrap, ensuring only one contender can complete acquisition
+- **Fcntl write-failure recovery marker**: failed initial metadata writes now emit a best-effort stale tombstone sidecar before release to avoid prolonged false contention from fresh metadata-missing residues
 - **Lease fallback race handling**: fresh unreadable lock files now use bounded retry + immediate reclamation, avoiding long stale-timeout blocks while preventing takeover during transient write windows
 - **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
 - **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
@@ -89,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage for malformed legacy numeric metadata (`NaN`/`Infinity`/out-of-range epochs) to ensure acquisition fails safe instead of raising
 - Added lock regression coverage for release/reclaim sidecar cleanup races to verify new-owner metadata is preserved under contention
 - Added lock regression coverage to ensure fcntl unsupported fallback preserves pre-existing sidecar metadata
+- Added lock regression coverage for fresh-vs-stale missing-metadata behavior in both `lease` and `fcntl` acquisition paths
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior
@@ -102,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,586 tests** (1,584 passing, 2 skipped) — up from 1,431
+- **1,589 tests** (1,587 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient

@@ -38,6 +38,8 @@ _FLOCK_UNSUPPORTED_ERRNOS = {
     if err_no is not None
 }
 
+_MISSING_METADATA_RECLAIM_MAX_AGE_SECONDS = 5.0
+
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -91,13 +93,6 @@ def _read_info_path(path: Path) -> LockInfo | None:
     return LockInfo.from_dict(data)
 
 
-def _path_has_nonempty_content(path: Path) -> bool:
-    try:
-        return path.stat().st_size > 0
-    except OSError:
-        return False
-
-
 def _path_looks_like_json(path: Path) -> bool:
     """Best-effort hint for legacy metadata files."""
     try:
@@ -116,6 +111,19 @@ def _is_path_stale_by_mtime(path: Path, stale_threshold_seconds: int) -> bool:
     except OSError:
         return False
     return age_seconds > max(1, stale_threshold_seconds)
+
+
+def _is_missing_metadata_stale(lock_path: Path, stale_threshold_seconds: int) -> bool:
+    """Treat metadata-missing states as stale only after a bounded grace window."""
+    try:
+        age_seconds = time.time() - lock_path.stat().st_mtime
+    except OSError:
+        return False
+    reclaim_after_seconds = min(
+        float(max(1, stale_threshold_seconds)),
+        _MISSING_METADATA_RECLAIM_MAX_AGE_SECONDS,
+    )
+    return age_seconds >= reclaim_after_seconds
 
 
 def _write_info_fd(fd: int, info: LockInfo) -> None:
@@ -464,7 +472,11 @@ class FcntlFileLockBackend:
                         # Lock path disappeared during validation; retry acquisition.
                         self._unlock_close_fd(fd)
                         continue
-                    # No metadata sidecar/legacy payload: treat as stale fcntl residue.
+                    if not _is_missing_metadata_stale(lock_path, stale_threshold_seconds):
+                        # Fresh missing metadata is typically a bootstrap race; do not steal.
+                        self._unlock_close_fd(fd)
+                        return AcquireResult(status=AcquireStatus.CONTENDED)
+                    # Stale missing metadata can be reclaimed by this fcntl holder.
                 elif info_outcome.state == "unreadable":
                     stale_ref = info_outcome.source_path or _metadata_path(lock_path)
                     if not _is_path_stale_by_mtime(stale_ref, stale_threshold_seconds):
@@ -546,6 +558,21 @@ class FcntlFileLockBackend:
             raise OSError(errno.ESTALE, "lock path changed while writing metadata")
         _write_info_path(_metadata_path(handle.lock_path), info)
 
+    def write_failure_tombstone(self, handle: _FcntlLockHandle, info: LockInfo) -> None:
+        if handle.closed or not self._fd_matches_path(handle.fd, handle.lock_path):
+            return
+        stale_info = LockInfo(
+            lock_id=info.lock_id,
+            pid=-1,
+            host="released",
+            owner="",
+            started_at="1970-01-01T00:00:00+00:00",
+            updated_at="1970-01-01T00:00:00+00:00",
+            backend=self.name,
+            version=1,
+        )
+        _write_info_path(_metadata_path(handle.lock_path), stale_info)
+
     def read_info(self, lock_path: Path) -> LockInfo | None:
         metadata = _read_info_path(_metadata_path(lock_path))
         if metadata is not None:
@@ -562,7 +589,7 @@ class FcntlFileLockBackend:
                 return _ReadInfoOutcome(info=info, state="valid", source_path=source)
 
             metadata_exists = metadata_path.exists()
-            legacy_candidate = metadata_path != lock_path and _path_has_nonempty_content(lock_path)
+            legacy_candidate = metadata_path != lock_path and _path_looks_like_json(lock_path)
 
             if not metadata_exists and not legacy_candidate:
                 return _ReadInfoOutcome(info=None, state="missing", source_path=None)
@@ -619,6 +646,13 @@ class LeaseFileLockBackend:
                     self._safe_unlink(lock_path)
                     self._safe_unlink_sidecar_if_owned(lock_path, expected_lock_id=lock_id)
                     return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
+                held_inode = self._fstat_inode(fd)
+                current_inode = self._stat_inode(lock_path)
+                if held_inode is None or current_inode != held_inode:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                    self._safe_unlink_sidecar_if_owned(lock_path, expected_lock_id=lock_id)
+                    continue
                 return AcquireResult(
                     status=AcquireStatus.ACQUIRED,
                     handle=_LeaseLockHandle(lock_path=lock_path, fd=fd, lock_id=lock_id),
@@ -647,13 +681,10 @@ class LeaseFileLockBackend:
                 lock_active = _is_fcntl_lock_active(lock_path)
                 if lock_active is True:
                     return AcquireResult(status=AcquireStatus.CONTENDED)
-                if (
-                    info_outcome.state == "missing"
-                    and lock_active is None
-                    and not _is_path_stale_by_mtime(lock_path, stale_threshold_seconds)
+                if info_outcome.state == "missing" and not _is_missing_metadata_stale(
+                    lock_path, stale_threshold_seconds
                 ):
-                    # On platforms/filesystems where flock probing is unavailable,
-                    # allow reclaim only after stale age to avoid permanent lockout.
+                    # Fresh missing metadata is usually a transient bootstrap window.
                     return AcquireResult(status=AcquireStatus.CONTENDED)
 
                 if info_outcome.state == "unreadable":
@@ -711,7 +742,7 @@ class LeaseFileLockBackend:
                 return _ReadInfoOutcome(info=info, state="valid", source_path=source)
 
             metadata_exists = metadata_path.exists()
-            legacy_candidate = metadata_path != lock_path and _path_has_nonempty_content(lock_path)
+            legacy_candidate = metadata_path != lock_path and _path_looks_like_json(lock_path)
             if not metadata_exists and not legacy_candidate:
                 return _ReadInfoOutcome(info=None, state="missing", source_path=None)
             if attempt < self.unreadable_retry_attempts:

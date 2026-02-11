@@ -426,6 +426,7 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lock.lock"
+        sidecar_path = lock_path.with_name(f"{lock_path.name}.info")
         manager = LockManager(
             lock_path=lock_path,
             owner="test-owner",
@@ -445,18 +446,41 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
         with patch.object(FcntlFileLockBackend, "write_info", _fail_first_write):
             assert manager.acquire() is False
 
-        # Cleanup should prevent stale fresh-file lockout; second attempt should succeed.
+        # Failure path writes a tombstone sidecar to avoid fresh missing-metadata lockout.
+        tombstone = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        assert tombstone["pid"] == -1
+        assert tombstone["host"] == "released"
+
+        # Recovery should not wait for stale_threshold; immediate retry succeeds.
         assert manager.acquire() is True
         manager.release()
 
 
-def test_fcntl_acquires_with_preexisting_lock_file_without_sidecar() -> None:
+def test_fcntl_blocks_fresh_preexisting_lock_file_without_sidecar() -> None:
     if backends_module.fcntl is None:
         pytest.skip("fcntl not available on this platform")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lock.lock"
-        lock_path.touch()
+        lock_path.write_text("lease-marker\n", encoding="utf-8")
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+        assert manager.acquire() is False
+
+
+def test_fcntl_reclaims_stale_preexisting_lock_file_without_sidecar() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lock_path.write_text("lease-marker\n", encoding="utf-8")
+        old = time.time() - 10
+        os.utime(lock_path, (old, old))
         manager = LockManager(
             lock_path=lock_path,
             owner="test-owner",
@@ -661,6 +685,37 @@ def test_lease_backend_reclaims_stale_missing_metadata_when_flock_probe_unavaila
         monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: None)
 
         handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+        assert handle is not None
+        backend.release(handle)
+
+
+def test_lease_backend_blocks_fresh_missing_metadata_when_flock_probe_reports_unlocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("marker\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: False)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is None
+
+
+def test_lease_backend_reclaims_stale_missing_metadata_when_flock_probe_reports_unlocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("marker\n", encoding="utf-8")
+        old = time.time() - 10
+        os.utime(lock_path, (old, old))
+
+        backend = LeaseFileLockBackend()
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: False)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
         assert handle is not None
         backend.release(handle)
 
