@@ -617,8 +617,7 @@ class LeaseFileLockBackend:
                     with contextlib.suppress(OSError):
                         os.close(fd)
                     self._safe_unlink(lock_path)
-                    with contextlib.suppress(OSError):
-                        _metadata_path(lock_path).unlink()
+                    self._safe_unlink_sidecar_if_owned(lock_path, expected_lock_id=lock_id)
                     return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
                 return AcquireResult(
                     status=AcquireStatus.ACQUIRED,
@@ -638,8 +637,10 @@ class LeaseFileLockBackend:
                     ):
                         if not self._safe_unlink_if_inode(lock_path, path_inode):
                             return AcquireResult(status=AcquireStatus.CONTENDED)
-                        with contextlib.suppress(OSError):
-                            _metadata_path(lock_path).unlink()
+                        self._safe_unlink_sidecar_if_owned(
+                            lock_path,
+                            expected_lock_id=info_outcome.info.lock_id,
+                        )
                         continue
                     return AcquireResult(status=AcquireStatus.CONTENDED)
 
@@ -668,8 +669,9 @@ class LeaseFileLockBackend:
 
                 if not self._safe_unlink_if_inode(lock_path, path_inode):
                     return AcquireResult(status=AcquireStatus.CONTENDED)
-                with contextlib.suppress(OSError):
-                    _metadata_path(lock_path).unlink()
+                # For missing/unreadable metadata we cannot prove ownership, so
+                # sidecar cleanup is intentionally skipped to avoid deleting a
+                # just-acquired contender's metadata.
                 continue
             except OSError as e:
                 return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
@@ -739,8 +741,7 @@ class LeaseFileLockBackend:
                 return
 
             if self._safe_unlink_if_inode(handle.lock_path, held_inode):
-                with contextlib.suppress(OSError):
-                    _metadata_path(handle.lock_path).unlink()
+                self._safe_unlink_sidecar_if_owned(handle.lock_path, expected_lock_id=handle.lock_id)
                 return
             if attempt < self.release_unlink_attempts - 1:
                 time.sleep(self.release_unlink_retry_sleep_seconds)
@@ -787,6 +788,25 @@ class LeaseFileLockBackend:
         if current != expected_inode:
             return False
         return self._safe_unlink(lock_path)
+
+    def _safe_unlink_sidecar_if_owned(self, lock_path: Path, *, expected_lock_id: str) -> bool:
+        """Best-effort sidecar cleanup guarded against new-owner races."""
+        metadata_path = _metadata_path(lock_path)
+        inode_before = self._stat_inode(metadata_path)
+        if inode_before is None:
+            return True
+
+        metadata = _read_info_path(metadata_path)
+        if metadata is None or metadata.lock_id != expected_lock_id:
+            return False
+
+        inode_after = self._stat_inode(metadata_path)
+        if inode_after is None:
+            return True
+        if inode_after != inode_before:
+            return False
+
+        return self._safe_unlink_if_inode(metadata_path, inode_after)
 
     @staticmethod
     def _fstat_inode(fd: int) -> tuple[int, int] | None:

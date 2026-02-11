@@ -691,6 +691,36 @@ def test_lease_release_writes_tombstone_when_unlink_fails(monkeypatch: pytest.Mo
         assert info.host == "released"
 
 
+def test_lease_release_does_not_unlink_new_owner_sidecar_on_race(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+
+        original_unlink_if_inode = backend._safe_unlink_if_inode
+        injected = {"done": False}
+        new_lock_id = "new-owner-lock-id"
+
+        def _unlink_with_race(path: Path, expected_inode: tuple[int, int]) -> bool:
+            result = original_unlink_if_inode(path, expected_inode)
+            if path == lock_path and result and not injected["done"]:
+                injected["done"] = True
+                lock_path.write_text("marker\n", encoding="utf-8")
+                new_info = _build_lock_info(new_lock_id, owner="new-owner", backend="lease")
+                metadata_path.write_text(json.dumps(new_info.to_dict()) + "\n", encoding="utf-8")
+            return result
+
+        monkeypatch.setattr(backend, "_safe_unlink_if_inode", _unlink_with_race)
+
+        backend.release(handle)
+        current = backend.read_info(lock_path)
+        assert current is not None
+        assert current.lock_id == new_lock_id
+        assert metadata_path.exists()
+
+
 def test_failed_metadata_write_does_not_unlink_lock_path() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lock.lock"
@@ -741,3 +771,46 @@ def test_lease_backend_stale_holder_cannot_overwrite_new_owner_metadata() -> Non
 
         backend.release(active_handle)
         backend.release(stale_handle)
+
+
+def test_lease_stale_reclaim_does_not_unlink_new_owner_sidecar_on_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+
+        lock_path.write_text("marker\n", encoding="utf-8")
+        stale = _build_lock_info(
+            "stale-owner-id",
+            owner="stale-owner",
+            pid=999999999,
+            host=socket.gethostname(),
+            started_at=datetime(2000, 1, 1, tzinfo=UTC).isoformat(),
+            updated_at=datetime(2000, 1, 1, tzinfo=UTC).isoformat(),
+            backend="lease",
+        )
+        metadata_path.write_text(json.dumps(stale.to_dict()) + "\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        original_unlink_if_inode = backend._safe_unlink_if_inode
+        injected = {"done": False}
+        new_lock_id = "contender-owner-id"
+
+        def _unlink_with_race(path: Path, expected_inode: tuple[int, int]) -> bool:
+            result = original_unlink_if_inode(path, expected_inode)
+            if path == lock_path and result and not injected["done"]:
+                injected["done"] = True
+                lock_path.write_text("marker\n", encoding="utf-8")
+                new_info = _build_lock_info(new_lock_id, owner="new-owner", backend="lease")
+                metadata_path.write_text(json.dumps(new_info.to_dict()) + "\n", encoding="utf-8")
+            return result
+
+        monkeypatch.setattr(backend, "_safe_unlink_if_inode", _unlink_with_race)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+        assert handle is None
+        current = backend.read_info(lock_path)
+        assert current is not None
+        assert current.lock_id == new_lock_id
+        assert metadata_path.exists()
