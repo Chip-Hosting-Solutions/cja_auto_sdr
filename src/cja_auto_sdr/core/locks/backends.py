@@ -119,6 +119,7 @@ class LockInfo:
         host = str(data.get("host") or socket.gethostname())
         backend = str(data.get("backend") or "legacy")
         lock_id = str(data.get("lock_id") or f"legacy-{pid}-{uuid.uuid4().hex}")
+        version = cls._coerce_legacy_int(data.get("version"), default=0)
 
         return cls(
             lock_id=lock_id,
@@ -128,7 +129,7 @@ class LockInfo:
             started_at=started_at,
             updated_at=updated_at,
             backend=backend,
-            version=int(data.get("version", 0) or 0),
+            version=version,
         )
 
     @staticmethod
@@ -140,6 +141,15 @@ class LockInfo:
         if isinstance(fallback_epoch, (int, float)):
             return datetime.fromtimestamp(float(fallback_epoch), UTC).isoformat()
         return _utcnow_iso()
+
+    @staticmethod
+    def _coerce_legacy_int(value: Any, *, default: int) -> int:
+        try:
+            if value in (None, ""):
+                return default
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
 
 def _parse_iso(value: str) -> datetime | None:

@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Remote fcntl takeover protection in lease mode**: lease staleness checks now probe active `flock` state for remote `fcntl` owners, blocking takeover while an active remote lock is still held
 - **Local fcntl-to-lease handoff correctness**: staleness checks now evaluate `fcntl` lock state before same-host PID liveness so released `fcntl` metadata from long-lived processes does not block lease acquisition indefinitely
 - **Legacy lock metadata compatibility**: lock-file parsing now accepts legacy `{pid,timestamp,started_at}` payloads, preserving stale-lock recovery behavior after upgrade
+- **Legacy metadata parse hardening**: malformed legacy `version` values are now safely defaulted instead of raising parsing exceptions during lock acquisition
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -73,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage for mid-acquire path disappearance retries and inode-safe cleanup guards after metadata write failures
 - Added lock regression coverage for stale unreadable `fcntl` metadata reclamation and remote active-`fcntl` takeover prevention in lease mode
 - Added lock regression coverage for same-host `fcntl` handoff to lease and legacy lock-metadata stale recovery
+- Added lock regression coverage for write-failure cleanup ordering (cleanup before release) and malformed legacy-version parsing
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior

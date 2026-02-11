@@ -122,8 +122,8 @@ class LockManager:
         except OSError:
             # If metadata write fails, release lock and report acquisition failure.
             failed_inode = self._capture_handle_inode(handle)
+            self._cleanup_failed_metadata_write(failed_inode, handle=handle)
             self.backend.release(handle)
-            self._cleanup_failed_metadata_write(failed_inode)
             return False
 
         self._handle = handle
@@ -192,10 +192,25 @@ class LockManager:
         except OSError:
             return None
 
-    def _cleanup_failed_metadata_write(self, failed_inode: tuple[int, int] | None) -> None:
+    def _cleanup_failed_metadata_write(
+        self,
+        failed_inode: tuple[int, int] | None,
+        *,
+        handle: LockHandle | None = None,
+    ) -> None:
         """Best-effort cleanup to avoid false lockouts after write_info failures."""
         if failed_inode is None:
             return
+        if handle is not None:
+            fd = getattr(handle, "fd", None)
+            if not isinstance(fd, int):
+                return
+            try:
+                fd_stat = os.fstat(fd)
+            except OSError:
+                return
+            if (fd_stat.st_dev, fd_stat.st_ino) != failed_inode:
+                return
         try:
             stat_result = self.lock_path.stat()
         except OSError:

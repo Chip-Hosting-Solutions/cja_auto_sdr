@@ -397,6 +397,43 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
         manager.release()
 
 
+def test_write_failure_cleanup_runs_before_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = LockManager(
+            lock_path=Path(tmpdir) / "lock.lock",
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+
+        events: list[str] = []
+
+        def _fail_write(handle, info):  # type: ignore[no-untyped-def]
+            del handle, info
+            raise OSError(errno.EIO, "simulated write failure")
+
+        original_cleanup = manager._cleanup_failed_metadata_write
+        original_release = manager.backend.release
+
+        def _cleanup_wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
+            events.append("cleanup")
+            return original_cleanup(*args, **kwargs)
+
+        def _release_wrapper(handle):  # type: ignore[no-untyped-def]
+            events.append("release")
+            return original_release(handle)
+
+        monkeypatch.setattr(manager.backend, "write_info", _fail_write)
+        monkeypatch.setattr(manager, "_cleanup_failed_metadata_write", _cleanup_wrapper)
+        monkeypatch.setattr(manager.backend, "release", _release_wrapper)
+
+        assert manager.acquire() is False
+        assert events[:2] == ["cleanup", "release"]
+
+
 def test_fcntl_backend_reclaims_stale_unreadable_metadata_file() -> None:
     if backends_module.fcntl is None:
         pytest.skip("fcntl not available on this platform")
@@ -430,6 +467,7 @@ def test_legacy_lock_metadata_is_parsed_for_staleness_recovery(monkeypatch: pyte
             "pid": 12345,
             "timestamp": time.time(),
             "started_at": datetime.now(UTC).isoformat(),
+            "version": "bad",
         }
         lock_path.write_text(json.dumps(legacy_payload) + "\n", encoding="utf-8")
 
