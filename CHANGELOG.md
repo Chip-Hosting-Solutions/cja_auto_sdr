@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typed acquisition outcomes**: backend acquisition now uses explicit outcomes (`acquired`, `contended`, `backend_unavailable`, `metadata_error`) to prevent non-contention runtime failures from being misreported as lock contention
 - **Manager write-failure safety**: removed lock-path unlink cleanup from metadata write-failure handling; manager now releases backend handles without mutating ownership path state, avoiding cross-process unlink races
 - **Lease unknown-probe stale recovery**: when `flock` probing is unavailable (e.g., non-`fcntl` platforms), lease acquisition now allows stale marker recovery for missing metadata instead of permanent contention lockout
+- **Legacy metadata parse safety**: lock parsing now guards non-finite/out-of-range legacy timestamps and integer coercions (`pid`/`version`), preventing malformed lock payloads from crashing acquisition
 - **Lease fallback race handling**: fresh unreadable lock files now use bounded retry + immediate reclamation, avoiding long stale-timeout blocks while preventing takeover during transient write windows
 - **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
 - **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
@@ -84,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage for lease release close-before-unlink ordering and unlink-failure recovery behavior
 - Added lock refactor coverage for sidecar metadata semantics and release-on-write-failure behavior without manager unlink cleanup
 - Added lock regression coverage for stale/fresh missing-metadata behavior when flock probing is unavailable in lease mode
+- Added lock regression coverage for malformed legacy numeric metadata (`NaN`/`Infinity`/out-of-range epochs) to ensure acquisition fails safe instead of raising
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior
@@ -97,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,579 tests** (1,577 passing, 2 skipped) — up from 1,431
+- **1,583 tests** (1,581 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient

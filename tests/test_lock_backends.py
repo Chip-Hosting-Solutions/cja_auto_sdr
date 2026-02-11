@@ -519,6 +519,49 @@ def test_legacy_lock_metadata_is_parsed_for_staleness_recovery(monkeypatch: pyte
         manager.release()
 
 
+@pytest.mark.parametrize(
+    ("legacy_timestamp", "legacy_version"),
+    [
+        (float("nan"), "bad"),
+        (float("inf"), float("inf")),
+        (-float("inf"), -float("inf")),
+        (10**20, 10**40),
+    ],
+)
+def test_legacy_lock_metadata_malformed_numeric_fields_do_not_crash_acquire(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_timestamp: float,
+    legacy_version: float | str | int,
+) -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        legacy_payload = {
+            "pid": 12345,
+            "timestamp": legacy_timestamp,
+            "started_at": legacy_timestamp,
+            "updated_at": legacy_timestamp,
+            "version": legacy_version,
+        }
+        lock_path.write_text(json.dumps(legacy_payload) + "\n", encoding="utf-8")
+
+        monkeypatch.setattr(backends_module, "_is_process_running", lambda pid: False)
+
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=3600,
+            backend_name="fcntl",
+        )
+        assert manager.acquire() is True
+        info = manager.read_info()
+        assert info is not None
+        assert info["backend"] == "fcntl"
+        manager.release()
+
+
 def test_lease_backend_blocks_takeover_of_active_remote_fcntl_holder() -> None:
     if backends_module.fcntl is None:
         pytest.skip("fcntl not available on this platform")

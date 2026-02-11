@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import json
+import math
 import os
 import socket
 import time
@@ -170,10 +171,16 @@ class LockInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
-        modern = cls._from_modern_dict(data)
+        try:
+            modern = cls._from_modern_dict(data)
+        except Exception:
+            modern = None
         if modern is not None:
             return modern
-        return cls._from_legacy_dict(data)
+        try:
+            return cls._from_legacy_dict(data)
+        except Exception:
+            return None
 
     @classmethod
     def _from_modern_dict(cls, data: dict[str, Any]) -> LockInfo | None:
@@ -188,7 +195,7 @@ class LockInfo:
                 backend=str(data.get("backend", "")),
                 version=int(data.get("version", 1)),
             )
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             return None
 
     @classmethod
@@ -200,7 +207,7 @@ class LockInfo:
 
         try:
             pid = int(data["pid"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
         started_at = cls._coerce_legacy_time(data.get("started_at"), data.get("timestamp"))
@@ -225,11 +232,29 @@ class LockInfo:
     def _coerce_legacy_time(primary: Any, fallback_epoch: Any) -> str:
         if isinstance(primary, str) and primary:
             return primary
-        if isinstance(primary, (int, float)):
-            return datetime.fromtimestamp(float(primary), UTC).isoformat()
-        if isinstance(fallback_epoch, (int, float)):
-            return datetime.fromtimestamp(float(fallback_epoch), UTC).isoformat()
+        for candidate in (primary, fallback_epoch):
+            epoch = LockInfo._coerce_legacy_epoch(candidate)
+            if epoch is None:
+                continue
+            try:
+                return datetime.fromtimestamp(epoch, UTC).isoformat()
+            except (OverflowError, OSError, ValueError):
+                continue
         return _utcnow_iso()
+
+    @staticmethod
+    def _coerce_legacy_epoch(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        if not isinstance(value, (int, float)):
+            return None
+        try:
+            epoch = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(epoch):
+            return None
+        return epoch
 
     @staticmethod
     def _coerce_legacy_int(value: Any, *, default: int) -> int:
@@ -237,7 +262,7 @@ class LockInfo:
             if value in (None, ""):
                 return default
             return int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return default
 
 
