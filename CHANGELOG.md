@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Metadata-write failure lockout prevention**: failed lock metadata writes now trigger best-effort lock-file cleanup to avoid leaving fresh unreadable artifacts that cause long false lock contention windows
 - **Path-disappearance race hardening**: `fcntl` acquisition now verifies lock-path/inode identity and retries when the lock path disappears or is replaced mid-acquire, preventing handles on unlinked inodes
 - **Inode-safe write-failure cleanup**: lock-file cleanup after metadata write failure now only unlinks when the path still matches the failed handle’s inode, preventing deletion of a new owner’s lock file
+- **Stale unreadable fcntl lock recovery**: stale/unreadable pre-existing lock files are now reclaimed in-place by the current holder instead of looping into persistent false contention
+- **Remote fcntl takeover protection in lease mode**: lease staleness checks now probe active `flock` state for remote `fcntl` owners, blocking takeover while an active remote lock is still held
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -67,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage for mixed-backend contention (`lease` vs `fcntl`) and same-host live-PID stale-age protection
 - Added lock regression coverage for mixed-backend create-time race handling and metadata-write failure cleanup behavior
 - Added lock regression coverage for mid-acquire path disappearance retries and inode-safe cleanup guards after metadata write failures
+- Added lock regression coverage for stale unreadable `fcntl` metadata reclamation and remote active-`fcntl` takeover prevention in lease mode
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import json
+import multiprocessing
 import os
 import socket
 import tempfile
@@ -51,6 +52,27 @@ def _build_lock_info(
 def _write_lock_info(lock_path: Path, lock_id: str) -> None:
     info = _build_lock_info(lock_id)
     lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+
+def _flock_holder_worker(lock_path: str, ready_path: str, hold_seconds: float) -> None:
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if backends_module.fcntl is None:
+            return
+        backends_module.fcntl.flock(fd, backends_module.fcntl.LOCK_EX)
+        Path(ready_path).write_text("1", encoding="utf-8")
+        time.sleep(hold_seconds)
+    finally:
+        os.close(fd)
+
+
+def _wait_for_ready(path: Path, timeout_seconds: float = 3.0) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if path.exists() and path.read_text(encoding="utf-8").strip() == "1":
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"Timed out waiting for ready signal: {path}")
 
 
 def test_lease_backend_acquire_writes_bootstrap_metadata() -> None:
@@ -352,6 +374,84 @@ def test_metadata_write_failure_does_not_leave_fresh_false_lockout() -> None:
         # Cleanup should prevent stale fresh-file lockout; second attempt should succeed.
         assert manager.acquire() is True
         manager.release()
+
+
+def test_fcntl_backend_reclaims_stale_unreadable_metadata_file() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        lock_path.write_text("{legacy-corrupt", encoding="utf-8")
+        old = time.time() - 7200
+        os.utime(lock_path, (old, old))
+
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=1,
+            backend_name="fcntl",
+        )
+        assert manager.acquire() is True
+        info = manager.read_info()
+        assert info is not None
+        assert info["backend"] == "fcntl"
+        manager.release()
+
+
+def test_lease_backend_blocks_takeover_of_active_remote_fcntl_holder() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        old = datetime(2000, 1, 1, tzinfo=UTC).isoformat()
+        info = _build_lock_info(
+            "remote-fcntl-holder",
+            owner="remote-owner",
+            host="remote-host",
+            started_at=old,
+            updated_at=old,
+            backend="fcntl",
+        )
+        lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+        ready_path = Path(tmpdir) / "ready.txt"
+        proc = multiprocessing.Process(
+            target=_flock_holder_worker,
+            args=(str(lock_path), str(ready_path), 1.5),
+        )
+        proc.start()
+        try:
+            _wait_for_ready(ready_path)
+            backend = LeaseFileLockBackend()
+            assert backend.acquire(lock_path, stale_threshold_seconds=1) is None
+        finally:
+            proc.join(timeout=3)
+            assert not proc.is_alive()
+
+
+def test_lease_backend_reclaims_stale_remote_fcntl_metadata_when_unlock_observed() -> None:
+    if backends_module.fcntl is None:
+        pytest.skip("fcntl not available on this platform")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lock.lock"
+        old = datetime(2000, 1, 1, tzinfo=UTC).isoformat()
+        info = _build_lock_info(
+            "remote-fcntl-holder",
+            owner="remote-owner",
+            host="remote-host",
+            started_at=old,
+            updated_at=old,
+            backend="fcntl",
+        )
+        lock_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+        assert handle is not None
+        backend.release(handle)
 
 
 def test_failed_write_cleanup_skips_unlink_when_inode_changed() -> None:

@@ -115,10 +115,49 @@ def _is_process_running(pid: int) -> bool:
         return e.errno == errno.EPERM
 
 
-def _is_lock_info_stale(info: LockInfo, stale_threshold_seconds: int) -> bool:
+def _is_fcntl_lock_active(lock_path: Path) -> bool | None:
+    """Return True if a flock holder is active, False if not, None if unknown."""
+    if fcntl is None:
+        return None
+    try:
+        probe_fd = os.open(str(lock_path), os.O_RDWR)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return None
+
+    try:
+        assert fcntl is not None  # For type checkers.
+        fcntl.flock(probe_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError as e:
+        if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+            return True
+        return None
+    else:
+        with contextlib.suppress(OSError):
+            assert fcntl is not None
+            fcntl.flock(probe_fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(probe_fd)
+
+
+def _is_lock_info_stale(info: LockInfo, stale_threshold_seconds: int, *, lock_path: Path | None = None) -> bool:
     if info.host == socket.gethostname():
         # Never expire a same-host lock while its PID is still alive.
         return not _is_process_running(info.pid)
+
+    if info.backend == "fcntl":
+        if lock_path is None:
+            return False
+        lock_active = _is_fcntl_lock_active(lock_path)
+        if lock_active is None:
+            # If we cannot determine lock state safely, do not force takeover.
+            return False
+        return not lock_active
 
     reference = _parse_iso(info.updated_at) or _parse_iso(info.started_at)
     if reference is None:
@@ -210,17 +249,22 @@ class FcntlFileLockBackend:
                 existing_info, lock_file_exists = self._read_info_with_retries(lock_path)
                 if existing_info is not None:
                     # Mixed-backend safeguard: honor active non-fcntl owner metadata.
-                    if existing_info.backend != self.name and not _is_lock_info_stale(existing_info, stale_threshold_seconds):
+                    if existing_info.backend != self.name and not _is_lock_info_stale(
+                        existing_info,
+                        stale_threshold_seconds,
+                        lock_path=lock_path,
+                    ):
                         self._unlock_close_fd(fd)
                         return None
-                elif lock_file_exists and not self._is_lock_file_stale_by_mtime(lock_path, stale_threshold_seconds):
-                    # Conservatively treat fresh unreadable metadata as an active lock.
-                    self._unlock_close_fd(fd)
-                    return None
-                else:
+                elif not lock_file_exists:
                     # Lock path disappeared during read/validation; retry acquisition.
                     self._unlock_close_fd(fd)
                     continue
+                elif not self._is_lock_file_stale_by_mtime(lock_path, stale_threshold_seconds):
+                    # Conservatively treat fresh unreadable metadata as an active lock.
+                    self._unlock_close_fd(fd)
+                    return None
+                # Stale unreadable metadata is reclaimed in-place by this holder.
 
             # Re-check path identity after metadata read to catch replacement races.
             if not self._fd_matches_path(fd, lock_path):
@@ -368,7 +412,7 @@ class LeaseFileLockBackend:
                         return None
                     continue
 
-                if _is_lock_info_stale(lock_info, stale_threshold_seconds):
+                if _is_lock_info_stale(lock_info, stale_threshold_seconds, lock_path=lock_path):
                     if not self._safe_unlink(lock_path):
                         return None
                     continue
