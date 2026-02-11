@@ -574,6 +574,37 @@ def test_lease_backend_reclaims_stale_remote_fcntl_metadata_when_unlock_observed
         backend.release(handle)
 
 
+def test_lease_backend_reclaims_stale_missing_metadata_when_flock_probe_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("marker\n", encoding="utf-8")
+        old = time.time() - 7200
+        os.utime(lock_path, (old, old))
+
+        backend = LeaseFileLockBackend()
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: None)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+        assert handle is not None
+        backend.release(handle)
+
+
+def test_lease_backend_blocks_fresh_missing_metadata_when_flock_probe_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("marker\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: None)
+
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is None
+
+
 def test_lease_release_closes_fd_before_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_path = Path(tmpdir) / "lease.lock"

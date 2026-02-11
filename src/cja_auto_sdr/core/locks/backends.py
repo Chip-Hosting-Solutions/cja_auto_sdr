@@ -621,8 +621,13 @@ class LeaseFileLockBackend:
                 lock_active = _is_fcntl_lock_active(lock_path)
                 if lock_active is True:
                     return AcquireResult(status=AcquireStatus.CONTENDED)
-                if lock_active is None:
-                    # Unknown lock primitive state: fail safe to contention.
+                if (
+                    info_outcome.state == "missing"
+                    and lock_active is None
+                    and not _is_path_stale_by_mtime(lock_path, stale_threshold_seconds)
+                ):
+                    # On platforms/filesystems where flock probing is unavailable,
+                    # allow reclaim only after stale age to avoid permanent lockout.
                     return AcquireResult(status=AcquireStatus.CONTENDED)
 
                 if info_outcome.state == "unreadable":
