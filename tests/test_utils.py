@@ -8,7 +8,7 @@ import sys
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.core.logging import flush_logging_handlers
+from cja_auto_sdr.core.logging import flush_logging_handlers, with_log_context
 from cja_auto_sdr.generator import (
     VALIDATION_SCHEMA,
     JSONFormatter,
@@ -75,6 +75,31 @@ class TestLoggingSetup:
             root_logger.removeHandler(tracking_handler)
             for handler in original_handlers:
                 root_logger.addHandler(handler)
+
+    def test_with_log_context_includes_fields_in_json_output(self):
+        """with_log_context should emit adapter context as JSON fields."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.context.adapter")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(JSONFormatter())
+        logger.addHandler(handler)
+
+        try:
+            contextual_logger = with_log_context(logger, batch_id="batch-ctx", run_mode="batch")
+            contextual_logger.info("context message", extra={"data_view_id": "dv_ctx"})
+            payload = json.loads(stream.getvalue().strip())
+            assert payload["batch_id"] == "batch-ctx"
+            assert payload["run_mode"] == "batch"
+            assert payload["data_view_id"] == "dv_ctx"
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
 
     def test_logging_creates_log_directory(self, tmp_path, monkeypatch):
         """Test that logging creates the logs directory"""

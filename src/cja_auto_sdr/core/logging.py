@@ -67,13 +67,57 @@ _current_log_file = None
 _atexit_registered = False
 
 
-def flush_logging_handlers(logger: logging.Logger | None = None) -> None:
+class ContextLoggerAdapter(logging.LoggerAdapter):
+    """LoggerAdapter that merges contextual fields into record extras."""
+
+    def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:
+        extra = kwargs.get("extra")
+        merged_extra = dict(self.extra)
+        if isinstance(extra, dict):
+            merged_extra.update(extra)
+        kwargs["extra"] = merged_extra
+        return msg, kwargs
+
+
+def _unwrap_logger(logger: logging.Logger | logging.LoggerAdapter | None) -> logging.Logger | None:
+    current = logger
+    while isinstance(current, logging.LoggerAdapter):
+        current = current.logger
+    if isinstance(current, logging.Logger):
+        return current
+    return None
+
+
+def with_log_context(
+    logger: logging.Logger | logging.LoggerAdapter | object, **context: object
+) -> logging.Logger | logging.LoggerAdapter | object:
+    """Return a logger enriched with persistent contextual fields."""
+    if not isinstance(logger, (logging.Logger, logging.LoggerAdapter)):
+        # Preserve test doubles/mocks that may not satisfy logging interfaces.
+        return logger
+
+    base_logger = _unwrap_logger(logger)
+    if base_logger is None:
+        return logger
+
+    normalized_context = {k: v for k, v in context.items() if v is not None}
+    existing_context = {}
+    if isinstance(logger, logging.LoggerAdapter):
+        existing_context = dict(getattr(logger, "extra", {}))
+
+    existing_context.update(normalized_context)
+    return ContextLoggerAdapter(base_logger, existing_context)
+
+
+def flush_logging_handlers(logger: logging.Logger | logging.LoggerAdapter | None = None) -> None:
     """Flush logger handlers, including propagated root handlers."""
     handlers: list[logging.Handler] = []
     seen: set[int] = set()
 
-    if logger is not None:
-        current: logging.Logger | None = logger
+    unwrapped_logger = _unwrap_logger(logger)
+
+    if unwrapped_logger is not None:
+        current: logging.Logger | None = unwrapped_logger
         while current is not None:
             handlers.extend(current.handlers)
             if not current.propagate:
