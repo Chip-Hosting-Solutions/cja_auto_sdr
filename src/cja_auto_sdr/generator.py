@@ -1054,7 +1054,7 @@ from cja_auto_sdr.api.tuning import APIWorkerTuner
 
 # ==================== LOGGING SETUP ====================
 # ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, setup_logging
+from cja_auto_sdr.core.logging import JSONFormatter, flush_logging_handlers, setup_logging
 
 # ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
 from cja_auto_sdr.core.perf import PerformanceTracker
@@ -4985,6 +4985,7 @@ def process_inventory_summary(
     config_file: str = "config.json",
     output_dir: str | Path = ".",
     log_level: str = "INFO",
+    log_format: str = "text",
     output_format: str = "console",
     quiet: bool = False,
     profile: str | None = None,
@@ -5001,6 +5002,7 @@ def process_inventory_summary(
         config_file: Path to CJA config file
         output_dir: Directory for JSON output
         log_level: Logging level
+        log_format: Log output format - "text" (default) or "json"
         output_format: Output format - "console" or "json"
         quiet: Suppress console output
         profile: Config profile name
@@ -5012,7 +5014,7 @@ def process_inventory_summary(
     Returns:
         Dictionary with summary statistics
     """
-    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level)
+    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level, log_format=log_format)
 
     # Initialize CJA
     cja = initialize_cja(config_file, logger, profile=profile)
@@ -5298,8 +5300,7 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             # Flush handlers to ensure log is written
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5935,8 +5936,7 @@ def process_single_dataview(
             logger.info("Error: Permission denied")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5954,8 +5954,7 @@ def process_single_dataview(
             logger.info(f"Error: {e!s}")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5974,8 +5973,7 @@ def process_single_dataview(
         logger.info(f"Error: {e!s}")
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
         logger.info("=" * BANNER_WIDTH)
-        for handler in logger.handlers:
-            handler.flush()
+        flush_logging_handlers(logger)
         return ProcessingResult(
             data_view_id=data_view_id,
             data_view_name="Unknown",
@@ -14906,6 +14904,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     config_file=args.config_file,
                     output_dir=args.output_dir,
                     log_level=effective_log_level,
+                    log_format=args.log_format,
                     output_format=summary_format,
                     quiet=args.quiet,
                     profile=getattr(args, "profile", None),
@@ -14922,6 +14921,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 config_file=args.config_file,
                 output_dir=args.output_dir,
                 log_level=effective_log_level,
+                log_format=args.log_format,
                 output_format=summary_format,
                 quiet=args.quiet,
                 profile=getattr(args, "profile", None),

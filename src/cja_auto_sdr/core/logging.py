@@ -1,6 +1,7 @@
 """Logging helpers for CJA Auto SDR."""
 
 import atexit
+import contextlib
 import json
 import logging
 import os
@@ -10,6 +11,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
+
+_LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
 
 
 class JSONFormatter(logging.Formatter):
@@ -30,15 +33,30 @@ class JSONFormatter(logging.Formatter):
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
+            "process": record.process,
+            "process_name": record.processName,
+            "thread": record.thread,
+            "thread_name": record.threadName,
         }
 
         # Add exception info if present
         if record.exc_info:
             log_entry["exception"] = self.formatException(record.exc_info)
 
-        # Add any extra fields passed to the logger
-        if hasattr(record, "extra_fields"):
-            log_entry.update(record.extra_fields)
+        # Add any explicit extra fields passed to the logger.
+        extra_fields = {}
+        record_extra_fields = getattr(record, "extra_fields", None)
+        if isinstance(record_extra_fields, dict):
+            extra_fields.update(record_extra_fields)
+
+        # Also include custom LogRecord attributes set via logging's `extra`.
+        for key, value in record.__dict__.items():
+            if key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_"):
+                continue
+            extra_fields.setdefault(key, value)
+
+        if extra_fields:
+            log_entry.update(extra_fields)
 
         return json.dumps(log_entry, default=str)
 
@@ -47,6 +65,31 @@ class JSONFormatter(logging.Formatter):
 _logging_initialized = False
 _current_log_file = None
 _atexit_registered = False
+
+
+def flush_logging_handlers(logger: logging.Logger | None = None) -> None:
+    """Flush logger handlers, including propagated root handlers."""
+    handlers: list[logging.Handler] = []
+    seen: set[int] = set()
+
+    if logger is not None:
+        current: logging.Logger | None = logger
+        while current is not None:
+            handlers.extend(current.handlers)
+            if not current.propagate:
+                break
+            current = current.parent
+
+    if not handlers:
+        handlers.extend(logging.root.handlers)
+
+    for handler in handlers:
+        handler_id = id(handler)
+        if handler_id in seen:
+            continue
+        seen.add(handler_id)
+        with contextlib.suppress(Exception):
+            handler.flush()
 
 
 def setup_logging(

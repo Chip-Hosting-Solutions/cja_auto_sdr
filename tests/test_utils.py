@@ -1,5 +1,6 @@
-"""Tests for utility functions"""
+"""Tests for utility functions."""
 
+import io
 import json
 import logging
 import os
@@ -7,8 +8,10 @@ import sys
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.core.logging import flush_logging_handlers
 from cja_auto_sdr.generator import (
     VALIDATION_SCHEMA,
+    JSONFormatter,
     PerformanceTracker,
     _format_error_msg,
     setup_logging,
@@ -18,6 +21,60 @@ from cja_auto_sdr.generator import (
 
 class TestLoggingSetup:
     """Test logging configuration"""
+
+    def test_json_formatter_includes_custom_record_fields(self):
+        """JSONFormatter should include custom fields from logging extra."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="hello",
+            args=(),
+            exc_info=None,
+        )
+        record.batch_id = "batch-123"
+        record.extra_fields = {"mode": "batch"}
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["message"] == "hello"
+        assert payload["mode"] == "batch"
+        assert payload["batch_id"] == "batch-123"
+        assert "process" in payload
+        assert "thread" in payload
+
+    def test_flush_logging_handlers_flushes_propagated_root_handlers(self):
+        """flush_logging_handlers should flush root handlers when logger has none."""
+
+        class _FlushTrackingHandler(logging.StreamHandler):
+            def __init__(self):
+                super().__init__(stream=io.StringIO())
+                self.flush_count = 0
+
+            def flush(self):
+                self.flush_count += 1
+                super().flush()
+
+        root_logger = logging.getLogger()
+        original_handlers = list(root_logger.handlers)
+
+        for handler in original_handlers:
+            root_logger.removeHandler(handler)
+
+        tracking_handler = _FlushTrackingHandler()
+        root_logger.addHandler(tracking_handler)
+
+        try:
+            test_logger = logging.getLogger("test.flush")
+            test_logger.handlers.clear()
+            flush_logging_handlers(test_logger)
+            assert tracking_handler.flush_count >= 1
+        finally:
+            root_logger.removeHandler(tracking_handler)
+            for handler in original_handlers:
+                root_logger.addHandler(handler)
 
     def test_logging_creates_log_directory(self, tmp_path, monkeypatch):
         """Test that logging creates the logs directory"""
