@@ -189,7 +189,7 @@ class TestLoggingSetup:
             lineno=42,
             msg=(
                 'payload={"access_token":"abc","client_secret":"def","authorization":"Bearer jwt-123"} '
-                'py={\'refreshToken\': \'ghi\', "apiKey": "jkl"}'
+                "py={'refreshToken': 'ghi', \"apiKey\": \"jkl\"}"
             ),
             args=(),
             exc_info=None,
