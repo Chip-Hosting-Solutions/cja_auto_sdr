@@ -1300,11 +1300,7 @@ class OrgComponentAnalyzer:
             # Missing descriptions
             successful_summaries = [s for s in summaries if not s.error]
             no_desc_count = len([s for s in successful_summaries if not s.has_description])
-            if (
-                successful_summaries
-                and no_desc_count > 0
-                and no_desc_count >= len(successful_summaries) * 0.3
-            ):
+            if successful_summaries and no_desc_count > 0 and no_desc_count >= len(successful_summaries) * 0.3:
                 recommendations.append(
                     {
                         "type": "missing_descriptions",
