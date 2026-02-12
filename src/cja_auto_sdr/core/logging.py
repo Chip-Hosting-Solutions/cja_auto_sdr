@@ -31,33 +31,90 @@ _SENSITIVE_FIELD_NAMES = {
     "private_key",
 }
 _REDACTED_VALUE = "[REDACTED]"
-_MESSAGE_REDACTION_PATTERNS = (
-    re.compile(
-        r"(?i)\b(client_secret|secret|password|token|access_token|refresh_token|api[_-]?key|authorization)\s*[:=]\s*([^\s,;]+)"
-    ),
-    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
+_SENSITIVE_KEY_REGEX = (
+    r"client[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|api[_-]?key|apikey|"
+    r"auth[_-]?header|private[_-]?key|password|passwd|pwd|secret|token"
+)
+_AUTHORIZATION_SCHEME_PATTERN = re.compile(
+    r"(?i)\b(authorization\s*[:=]\s*)([A-Za-z]+)\s+([A-Za-z0-9._~+/=-]+)"
+)
+_AUTHORIZATION_VALUE_PATTERN = re.compile(
+    r"""(?ix)
+    \b(authorization\s*[:=]\s*)
+    (?![A-Za-z]+\s+[A-Za-z0-9._~+/=\-\[\]]+)
+    (
+        "(?:[^"\\]|\\.)*" |
+        '(?:[^'\\]|\\.)*' |
+        [^,\s;]+
+    )
+    """
+)
+_GENERIC_BEARER_PATTERN = re.compile(r"(?i)\b(bearer)\s+([A-Za-z0-9._~+/=-]+)")
+_SENSITIVE_KEY_VALUE_PATTERN = re.compile(
+    rf"""(?ix)
+    \b({_SENSITIVE_KEY_REGEX})\b
+    (\s*[:=]\s*)
+    (
+        [A-Za-z]+\s+[A-Za-z0-9._~+/=-]+ |
+        "(?:[^"\\]|\\.)*" |
+        '(?:[^'\\]|\\.)*' |
+        [^,\s;]+
+    )
+    """
 )
 
 
 def _normalize_field_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name.strip())
+    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", separated)
+    return re.sub(r"[^a-z0-9]+", "_", separated.lower()).strip("_")
 
 
 def _is_sensitive_field(name: str) -> bool:
     normalized = _normalize_field_name(name)
+    if not normalized:
+        return False
     if normalized in _SENSITIVE_FIELD_NAMES:
         return True
-    return normalized.endswith("_token") or normalized.endswith("_secret")
+    parts = [part for part in normalized.split("_") if part]
+    if not parts:
+        return False
+
+    if "password" in parts or "passwd" in parts or "pwd" in parts:
+        return True
+    if "secret" in parts or "token" in parts:
+        return True
+    if "authorization" in parts:
+        return True
+    return (
+        parts[-2:] == ["auth", "header"]
+        or parts[-2:] == ["api", "key"]
+        or parts[-2:] == ["private", "key"]
+        or parts[-1] == "apikey"
+    )
+
+
+def _redact_bearer_match(match: re.Match[str]) -> str:
+    return f"{match.group(1)} {_REDACTED_VALUE}"
+
+
+def _redact_authorization_scheme_match(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{match.group(2)} {_REDACTED_VALUE}"
+
+
+def _redact_authorization_value_match(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{_REDACTED_VALUE}"
+
+
+def _redact_key_value_match(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{match.group(2)}{_REDACTED_VALUE}"
 
 
 def _redact_message(message: str) -> str:
-    redacted = message
-    for pattern in _MESSAGE_REDACTION_PATTERNS:
-        if "Bearer" in pattern.pattern:
-            redacted = pattern.sub(f"Bearer {_REDACTED_VALUE}", redacted)
-            continue
-        redacted = pattern.sub(lambda m: f"{m.group(1)}={_REDACTED_VALUE}", redacted)
-    return redacted
+    redacted = _AUTHORIZATION_VALUE_PATTERN.sub(_redact_authorization_value_match, message)
+    redacted = _AUTHORIZATION_SCHEME_PATTERN.sub(_redact_authorization_scheme_match, redacted)
+    redacted = _SENSITIVE_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
+    return _GENERIC_BEARER_PATTERN.sub(_redact_bearer_match, redacted)
 
 
 def _redact_value(value: object) -> object:
@@ -86,9 +143,8 @@ class SensitiveDataFilter(logging.Filter):
     """Best-effort redaction for sensitive values in log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = _redact_message(record.getMessage())
-            record.args = ()
+        record.msg = _redact_message(record.getMessage())
+        record.args = ()
 
         record_extra_fields = getattr(record, "extra_fields", None)
         if isinstance(record_extra_fields, dict):

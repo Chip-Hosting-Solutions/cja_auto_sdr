@@ -131,6 +131,54 @@ class TestLoggingSetup:
         assert payload["authorization"] == "[REDACTED]"
         assert payload["session_token"] == "[REDACTED]"
 
+    def test_json_formatter_redacts_authorization_bearer_header(self):
+        """Authorization: Bearer <token> should redact the full credential."""
+        formatter = JSONFormatter()
+        secret = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.signature"
+        record = logging.LogRecord(
+            name="test.redaction.authorization",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg=f"Request failed Authorization: Bearer {secret} and authorization=Bearer {secret}",
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+
+        assert secret not in payload["message"]
+        assert "Authorization: Bearer [REDACTED]" in payload["message"]
+        assert "authorization=Bearer [REDACTED]" in payload["message"]
+
+    def test_json_formatter_redacts_camelcase_sensitive_fields(self):
+        """camelCase token/secret keys should be treated as sensitive."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.camelcase",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="payload includes accessToken=abc123",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "clientSecret": "top-secret",
+            "accessToken": "access-123",
+            "refreshToken": "refresh-456",
+            "nested": {"authHeader": "Bearer nested-secret", "apiKey": "api-xyz"},
+        }
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["clientSecret"] == "[REDACTED]"
+        assert payload["accessToken"] == "[REDACTED]"
+        assert payload["refreshToken"] == "[REDACTED]"
+        assert payload["nested"]["authHeader"] == "[REDACTED]"
+        assert payload["nested"]["apiKey"] == "[REDACTED]"
+        assert "abc123" not in payload["message"]
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -156,6 +204,35 @@ class TestLoggingSetup:
             assert "hunter2" not in output
             assert "secret-value" not in output
             assert "token-value" not in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_camelcase_extras(self):
+        """SensitiveDataFilter should redact camelCase credential fields."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.camelcase")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(clientSecret)s | %(accessToken)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "Authorization: Bearer should-redact",
+                extra={"clientSecret": "secret-value", "accessToken": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "should-redact" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
+            assert "Authorization: Bearer [REDACTED]" in output
         finally:
             logger.removeHandler(handler)
             for existing in original_handlers:
