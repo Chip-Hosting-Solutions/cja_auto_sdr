@@ -784,8 +784,7 @@ class TestOrgComponentAnalyzer:
     @pytest.fixture
     def mock_cja(self):
         """Create mock CJA client"""
-        mock = Mock()
-        return mock
+        return Mock()
 
     @pytest.fixture
     def mock_logger(self):
@@ -1245,6 +1244,33 @@ class TestOrgComponentAnalyzer:
         overlap_rec = [r for r in recommendations if r["type"] == "review_overlap"]
         assert len(overlap_rec) == 1
         assert overlap_rec[0]["similarity"] == 0.95
+
+    def test_generate_recommendations_stale_data_view_with_metadata(self, mock_cja, mock_logger):
+        """Stale recommendation should be generated for old metadata timestamps."""
+        config = OrgReportConfig(include_metadata=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_stale",
+                "Legacy DV",
+                metric_count=10,
+                dimension_count=5,
+                modified="2000-01-01T00:00:00Z",
+                has_description=True,
+            )
+        ]
+
+        recommendations = analyzer._generate_recommendations(
+            summaries,
+            {},
+            ComponentDistribution(),
+            None,
+        )
+
+        stale_recs = [rec for rec in recommendations if rec.get("type") == "stale_data_view"]
+        assert len(stale_recs) == 1
+        assert stale_recs[0]["data_view"] == "dv_stale"
 
 
 class TestOutputWriters:

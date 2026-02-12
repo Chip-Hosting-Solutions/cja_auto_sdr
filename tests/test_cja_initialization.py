@@ -323,6 +323,40 @@ class TestConfigureCjapy:
         assert call_order[:2] == ["dotenv", "resolve"]
         mock_config_from_env.assert_called_once()
 
+    @patch("cja_auto_sdr.api.client._bootstrap_dotenv")
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client._config_from_env")
+    def test_configure_uses_profile_from_env_after_dotenv(
+        self,
+        mock_config_from_env,
+        mock_resolver_class,
+        mock_bootstrap_dotenv,
+        mock_logger,
+    ):
+        """CJA_PROFILE from dotenv should be used when profile arg is omitted."""
+        mock_resolver = Mock()
+        mock_resolver.resolve.return_value = (
+            {
+                "org_id": "test_org@AdobeOrg",
+                "client_id": "test_client",
+                "secret": "test_secret",
+                "scopes": "openid",
+            },
+            "profile:dotenv-profile",
+        )
+        mock_resolver_class.return_value = mock_resolver
+
+        with patch.dict(os.environ, {}, clear=True):
+            mock_bootstrap_dotenv.side_effect = lambda logger: os.environ.__setitem__("CJA_PROFILE", "dotenv-profile")
+
+            success, source, credentials = configure_cjapy(profile=None, logger=mock_logger)
+
+        assert success is True
+        assert source == "Profile: dotenv-profile"
+        assert credentials is not None
+        mock_resolver.resolve.assert_called_once_with(profile="dotenv-profile", config_file="config.json")
+        mock_config_from_env.assert_called_once()
+
 
 class TestInitializeCjaConnectionTest:
     """Tests for connection testing during initialization"""

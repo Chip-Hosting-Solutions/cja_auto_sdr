@@ -100,9 +100,17 @@ def configure_cjapy(
         # Ensure direct api.client consumers get .env loading parity with generator path.
         _bootstrap_dotenv(logger)
 
+        # Resolve active profile after dotenv bootstrap so CJA_PROFILE values coming
+        # from .env are available to all callers, including those passing profile=None.
+        active_profile = profile.strip() if isinstance(profile, str) and profile.strip() else None
+        if active_profile is None:
+            env_profile = os.environ.get("CJA_PROFILE")
+            if env_profile and env_profile.strip():
+                active_profile = env_profile.strip()
+
         # Use CredentialResolver for unified credential resolution
         resolver = CredentialResolver(logger)
-        credentials, source = resolver.resolve(profile=profile, config_file=config_file)
+        credentials, source = resolver.resolve(profile=active_profile, config_file=config_file)
 
         # Configure cjapy with the resolved credentials
         # Source format from resolver: "profile:name", "environment", "config:filename"

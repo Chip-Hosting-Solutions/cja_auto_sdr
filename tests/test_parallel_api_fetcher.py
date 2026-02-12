@@ -38,8 +38,7 @@ def mock_perf_tracker(mock_logger):
 @pytest.fixture
 def mock_cja():
     """Create a mock CJA instance"""
-    cja = Mock()
-    return cja
+    return Mock()
 
 
 @pytest.fixture
@@ -174,9 +173,9 @@ class TestParallelAPIFetcherFetchAllData:
         def api_side_effect(func, *args, **kwargs):
             if "getMetrics" in kwargs.get("operation_name", ""):
                 return sample_metrics_data
-            elif "getDimensions" in kwargs.get("operation_name", ""):
+            if "getDimensions" in kwargs.get("operation_name", ""):
                 return sample_dimensions_data
-            elif "getDataView" in kwargs.get("operation_name", ""):
+            if "getDataView" in kwargs.get("operation_name", ""):
                 return sample_dataview_info
             return None
 
@@ -214,9 +213,9 @@ class TestParallelAPIFetcherFetchAllData:
         def api_side_effect(func, *args, **kwargs):
             if "getMetrics" in kwargs.get("operation_name", ""):
                 return None
-            elif "getDimensions" in kwargs.get("operation_name", ""):
+            if "getDimensions" in kwargs.get("operation_name", ""):
                 return sample_dimensions_data
-            elif "getDataView" in kwargs.get("operation_name", ""):
+            if "getDataView" in kwargs.get("operation_name", ""):
                 return sample_dataview_info
             return None
 
@@ -249,9 +248,9 @@ class TestParallelAPIFetcherFetchAllData:
         def api_side_effect(func, *args, **kwargs):
             if "getMetrics" in kwargs.get("operation_name", ""):
                 return sample_metrics_data
-            elif "getDimensions" in kwargs.get("operation_name", ""):
+            if "getDimensions" in kwargs.get("operation_name", ""):
                 return pd.DataFrame()
-            elif "getDataView" in kwargs.get("operation_name", ""):
+            if "getDataView" in kwargs.get("operation_name", ""):
                 return sample_dataview_info
             return None
 
@@ -284,9 +283,9 @@ class TestParallelAPIFetcherFetchAllData:
         def api_side_effect(func, *args, **kwargs):
             if "getMetrics" in kwargs.get("operation_name", ""):
                 return sample_metrics_data
-            elif "getDimensions" in kwargs.get("operation_name", ""):
+            if "getDimensions" in kwargs.get("operation_name", ""):
                 return sample_dimensions_data
-            elif "getDataView" in kwargs.get("operation_name", ""):
+            if "getDataView" in kwargs.get("operation_name", ""):
                 return None
             return None
 
@@ -488,9 +487,9 @@ class TestParallelAPIFetcherErrorHandling:
             op_name = kwargs.get("operation_name", "")
             if "getMetrics" in op_name:
                 raise Exception("Metrics fetch failed")
-            elif "getDimensions" in op_name:
+            if "getDimensions" in op_name:
                 return sample_dimensions_data
-            elif "getDataView" in op_name:
+            if "getDataView" in op_name:
                 return sample_dataview_info
             return None
 

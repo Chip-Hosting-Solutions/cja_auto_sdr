@@ -152,26 +152,24 @@ class TestOrgReportIntegration:
         def get_metrics(dv_id, **kwargs):
             if dv_id == "dv_00001":
                 return create_mock_metrics(dv_id, 15, core_metrics + common_metrics)
-            elif dv_id == "dv_00002":
+            if dv_id == "dv_00002":
                 return create_mock_metrics(dv_id, 12, core_metrics + common_metrics)
-            elif dv_id == "dv_00003":
+            if dv_id == "dv_00003":
                 return create_mock_metrics(dv_id, 10, core_metrics + common_metrics)
-            elif dv_id == "dv_00004":
+            if dv_id == "dv_00004":
                 return create_mock_metrics(dv_id, 8, core_metrics)
-            else:
-                return create_mock_metrics(dv_id, 6, core_metrics)
+            return create_mock_metrics(dv_id, 6, core_metrics)
 
         def get_dimensions(dv_id, **kwargs):
             if dv_id == "dv_00001":
                 return create_mock_dimensions(dv_id, 10, [*core_dims, common_dims[0]])
-            elif dv_id == "dv_00002":
+            if dv_id == "dv_00002":
                 return create_mock_dimensions(dv_id, 8, [*core_dims, common_dims[0]])
-            elif dv_id == "dv_00003":
+            if dv_id == "dv_00003":
                 return create_mock_dimensions(dv_id, 7, [*core_dims, common_dims[0]])
-            elif dv_id == "dv_00004":
+            if dv_id == "dv_00004":
                 return create_mock_dimensions(dv_id, 6, core_dims)
-            else:
-                return create_mock_dimensions(dv_id, 5, core_dims)
+            return create_mock_dimensions(dv_id, 5, core_dims)
 
         mock.getMetrics.side_effect = get_metrics
         mock.getDimensions.side_effect = get_dimensions
@@ -197,21 +195,17 @@ class TestOrgReportIntegration:
         def get_metrics(dv_id, **kwargs):
             if dv_id == "dv_00001":
                 # Production: 19 shared + 1 unique
-                df = create_mock_metrics(dv_id, 20, shared_metrics)
-                return df
-            elif dv_id == "dv_00002":
+                return create_mock_metrics(dv_id, 20, shared_metrics)
+            if dv_id == "dv_00002":
                 # Staging: 19 shared + 1 unique (different unique)
-                df = create_mock_metrics(dv_id, 20, shared_metrics)
-                return df
-            else:
-                # Test: only 5 shared
-                return create_mock_metrics(dv_id, 10, shared_metrics[:5])
+                return create_mock_metrics(dv_id, 20, shared_metrics)
+            # Test: only 5 shared
+            return create_mock_metrics(dv_id, 10, shared_metrics[:5])
 
         def get_dimensions(dv_id, **kwargs):
             if dv_id in ["dv_00001", "dv_00002"]:
                 return create_mock_dimensions(dv_id, 10, shared_dims)
-            else:
-                return create_mock_dimensions(dv_id, 6, shared_dims[:3])
+            return create_mock_dimensions(dv_id, 6, shared_dims[:3])
 
         mock.getMetrics.side_effect = get_metrics
         mock.getDimensions.side_effect = get_dimensions
@@ -533,14 +527,12 @@ class TestOrgReportIntegration:
         def get_metrics(dv_id, **kwargs):
             if dv_id == "dv_00001":
                 return create_mock_metrics(dv_id, 5)
-            else:
-                raise Exception("API Error")
+            raise Exception("API Error")
 
         def get_dimensions(dv_id, **kwargs):
             if dv_id == "dv_00001":
                 return create_mock_dimensions(dv_id, 5)
-            else:
-                raise Exception("API Error")
+            raise Exception("API Error")
 
         mock_cja.getMetrics.side_effect = get_metrics
         mock_cja.getDimensions.side_effect = get_dimensions

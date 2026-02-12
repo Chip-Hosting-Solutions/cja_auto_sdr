@@ -1280,7 +1280,9 @@ class OrgComponentAnalyzer:
                     continue
                 try:
                     modified_date = datetime.fromisoformat(summary.modified.replace("Z", "+00:00"))
-                    if modified_date.replace(tzinfo=None) < six_months_ago:
+                    if modified_date.tzinfo is None:
+                        modified_date = modified_date.replace(tzinfo=UTC)
+                    if modified_date < six_months_ago:
                         recommendations.append(
                             {
                                 "type": "stale_data_view",
