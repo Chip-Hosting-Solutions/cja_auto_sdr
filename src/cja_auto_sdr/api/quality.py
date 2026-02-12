@@ -27,7 +27,7 @@ class DataQualityChecker:
 
     def add_issue(
         self, severity: str, category: str, item_type: str, item_name: str, description: str, details: str = ""
-    ):
+    ) -> dict[str, str]:
         """Add a data quality issue to the tracker (thread-safe)"""
         issue = {
             "Severity": severity,
@@ -49,6 +49,7 @@ class DataQualityChecker:
         elif severity in ["CRITICAL", "HIGH"] and self.logger.isEnabledFor(logging.WARNING):
             # In non-DEBUG modes, only log CRITICAL/HIGH severity issues
             self.logger.warning(f"DQ Issue [{severity}] - {item_type}: {description}")
+        return issue
 
     def check_duplicates(self, df: pd.DataFrame, item_type: str):
         """Check for duplicate names in metrics or dimensions"""
@@ -202,6 +203,22 @@ class DataQualityChecker:
         try:
             # Check cache first (before any processing)
             cache_key = None
+            local_issues: list[dict[str, str]] = []
+
+            def _record_issue(
+                severity: str, category: str, item_name: str, description: str, details: str = ""
+            ) -> None:
+                issue = self.add_issue(
+                    severity=severity,
+                    category=category,
+                    item_type=item_type,
+                    item_name=item_name,
+                    description=description,
+                    details=details,
+                )
+                # Keep a per-call copy so cache writes cannot bleed across concurrent threads.
+                local_issues.append(issue.copy())
+
             if self.validation_cache is not None:
                 cached_issues, cache_key = self.validation_cache.get(df, item_type, required_fields, critical_fields)
                 if cached_issues is not None:
@@ -210,37 +227,31 @@ class DataQualityChecker:
                     self.logger.debug(f"Using cached validation results for {item_type}")
                     return
 
-            issues_start_index = len(self.issues)
-
             # Check 1: Empty DataFrame (quick exit)
             if df.empty:
-                self.add_issue(
+                _record_issue(
                     severity="CRITICAL",
                     category="Empty Data",
-                    item_type=item_type,
                     item_name="N/A",
                     description=f"No {item_type.lower()} found in data view",
                     details=f"The API returned an empty dataset for {item_type.lower()}",
                 )
                 if self.validation_cache is not None:
-                    new_issues = self.issues[issues_start_index:]
-                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
+                    self.validation_cache.put(df, item_type, required_fields, critical_fields, local_issues, cache_key)
                 return
 
             # Check 2: Required fields validation
             missing_fields = [field for field in required_fields if field not in df.columns]
             if missing_fields:
-                self.add_issue(
+                _record_issue(
                     severity="CRITICAL",
                     category="Missing Fields",
-                    item_type=item_type,
                     item_name="N/A",
                     description="Required fields missing from API response",
                     details=f"Missing fields: {', '.join(missing_fields)}",
                 )
                 if self.validation_cache is not None:
-                    new_issues = self.issues[issues_start_index:]
-                    self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
+                    self.validation_cache.put(df, item_type, required_fields, critical_fields, local_issues, cache_key)
                 return
 
             # Check 3: Vectorized duplicate detection
@@ -248,10 +259,9 @@ class DataQualityChecker:
                 duplicates = df["name"].value_counts()
                 duplicates = duplicates[duplicates > 1]
                 for name, count in duplicates.items():
-                    self.add_issue(
+                    _record_issue(
                         severity="HIGH",
                         category="Duplicates",
-                        item_type=item_type,
                         item_name=str(name),
                         description=f"Duplicate name found {count} times",
                         details=f"This {item_type.lower()} name appears {count} times in the data view",
@@ -263,10 +273,9 @@ class DataQualityChecker:
                 null_counts = df[available_critical_fields].isna().sum()
                 for field, null_count in null_counts[null_counts > 0].items():
                     null_items = df[df[field].isna()]["name"].tolist() if "name" in df.columns else []
-                    self.add_issue(
+                    _record_issue(
                         severity="MEDIUM",
                         category="Null Values",
-                        item_type=item_type,
                         item_name=", ".join(str(x) for x in null_items),
                         description=f'Null values in "{field}" field',
                         details=f"{null_count} item(s) missing {field}. Items: {', '.join(str(x) for x in null_items)}",
@@ -277,10 +286,9 @@ class DataQualityChecker:
                 missing_desc = df[df["description"].isna() | (df["description"] == "")]
                 if len(missing_desc) > 0:
                     item_names = missing_desc["name"].tolist() if "name" in missing_desc.columns else []
-                    self.add_issue(
+                    _record_issue(
                         severity="LOW",
                         category="Missing Descriptions",
-                        item_type=item_type,
                         item_name=f"{len(missing_desc)} items",
                         description=f"{len(missing_desc)} items without descriptions",
                         details=f"Items: {', '.join(str(x) for x in item_names)}",
@@ -290,10 +298,9 @@ class DataQualityChecker:
             if "id" in df.columns:
                 missing_ids = df[df["id"].isna() | (df["id"] == "")]
                 if len(missing_ids) > 0:
-                    self.add_issue(
+                    _record_issue(
                         severity="HIGH",
                         category="Invalid IDs",
-                        item_type=item_type,
                         item_name=f"{len(missing_ids)} items",
                         description=f"{len(missing_ids)} items with missing or invalid IDs",
                         details="Items without valid IDs may cause issues in reporting",
@@ -303,8 +310,7 @@ class DataQualityChecker:
                 self.logger.debug(f"Optimized validation complete for {item_type}: {len(df)} items checked")
 
             if self.validation_cache is not None:
-                new_issues = self.issues[issues_start_index:]
-                self.validation_cache.put(df, item_type, required_fields, critical_fields, new_issues, cache_key)
+                self.validation_cache.put(df, item_type, required_fields, critical_fields, local_issues, cache_key)
 
         except Exception as e:
             self.logger.error(_format_error_msg("in optimized validation", item_type, e))

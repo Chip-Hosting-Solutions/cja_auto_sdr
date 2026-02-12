@@ -188,6 +188,19 @@ class TestDataViewSnapshot:
         assert snapshot.owner == ""
         assert snapshot.description == ""
 
+    def test_snapshot_version_upgrades_when_inventory_fields_present_but_empty(self):
+        """Explicitly including empty inventory arrays should use snapshot v2.0."""
+        snapshot = DataViewSnapshot(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            calculated_metrics_inventory=[],
+            segments_inventory=[],
+        )
+
+        assert snapshot.snapshot_version == "2.0"
+        assert snapshot.has_calculated_metrics_inventory is True
+        assert snapshot.has_segments_inventory is True
+
 
 # ==================== SnapshotManager Tests ====================
 
@@ -1024,6 +1037,61 @@ class TestExtendedFieldComparison:
 
         assert result.summary.metrics_modified == 1
         assert "attribution" in result.metric_diffs[0].changed_fields
+
+    def test_calc_inventory_list_order_does_not_create_false_modifications(self, logger):
+        """List-only ordering differences should not be treated as semantic changes."""
+        source = DataViewSnapshot(
+            data_view_id="dv_1",
+            data_view_name="Source",
+            metrics=[],
+            dimensions=[],
+            calculated_metrics_inventory=[
+                {
+                    "metric_id": "calc_1",
+                    "metric_name": "Calc 1",
+                    "description": "desc",
+                    "owner": "owner@example.com",
+                    "complexity_score": 1.0,
+                    "approved": True,
+                    "functions_used": ["Division", "Multiply"],
+                    "formula_summary": "formula",
+                    "metric_references": ["metrics/a", "metrics/b"],
+                    "segment_references": ["segments/x", "segments/y"],
+                    "nesting_depth": 1,
+                    "tags": ["Finance", "KPI"],
+                }
+            ],
+        )
+        target = DataViewSnapshot(
+            data_view_id="dv_2",
+            data_view_name="Target",
+            metrics=[],
+            dimensions=[],
+            calculated_metrics_inventory=[
+                {
+                    "metric_id": "calc_1",
+                    "metric_name": "Calc 1",
+                    "description": "desc",
+                    "owner": "owner@example.com",
+                    "complexity_score": 1.0,
+                    "approved": True,
+                    "functions_used": ["Multiply", "Division"],  # Reordered only
+                    "formula_summary": "formula",
+                    "metric_references": ["metrics/b", "metrics/a"],  # Reordered only
+                    "segment_references": ["segments/y", "segments/x"],  # Reordered only
+                    "nesting_depth": 1,
+                    "tags": ["KPI", "Finance"],  # Reordered only
+                }
+            ],
+        )
+
+        comparator = DataViewComparator(logger, include_calc_metrics=True)
+        result = comparator.compare(source, target)
+
+        assert result.summary.calc_metrics_modified == 0
+        assert result.calc_metrics_diffs is not None
+        assert result.calc_metrics_diffs[0].change_type == ChangeType.UNCHANGED
+        assert result.calc_metrics_diffs[0].changed_fields == {}
 
 
 class TestShowOnlyFilter:

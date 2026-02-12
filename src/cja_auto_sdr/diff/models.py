@@ -332,8 +332,9 @@ class DataViewSnapshot:
                 "metrics_count": len(self.metrics) if self.metrics else 0,
                 "dimensions_count": len(self.dimensions) if self.dimensions else 0,
             }
-        # Auto-upgrade version if inventory data is present
-        if any([self.calculated_metrics_inventory, self.segments_inventory]):
+        # Auto-upgrade version when inventory fields are explicitly included,
+        # even when those arrays are empty.
+        if self.calculated_metrics_inventory is not None or self.segments_inventory is not None:
             self.snapshot_version = "2.0"
 
     @property
