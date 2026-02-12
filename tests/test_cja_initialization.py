@@ -144,6 +144,50 @@ class TestInitializeCjaSuccess:
         calls = [str(c) for c in mock_logger.info.call_args_list]
         assert any("success" in c.lower() for c in calls)
 
+    @patch("cja_auto_sdr.api.client._bootstrap_dotenv")
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_init_bootstraps_dotenv_before_resolve(
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_bootstrap_dotenv,
+        mock_logger,
+        mock_config_file,
+    ):
+        """Ensure initialize_cja loads dotenv before credential resolution."""
+        call_order = []
+
+        def bootstrap_side_effect(logger):
+            call_order.append("dotenv")
+
+        def resolve_side_effect(*args, **kwargs):
+            call_order.append("resolve")
+            return (
+                {
+                    "org_id": "test_org@AdobeOrg",
+                    "client_id": "test_client",
+                    "secret": "test_secret",
+                    "scopes": "openid",
+                },
+                f"config:{Path(mock_config_file).name}",
+            )
+
+        mock_bootstrap_dotenv.side_effect = bootstrap_side_effect
+        mock_resolver = Mock()
+        mock_resolver.resolve.side_effect = resolve_side_effect
+        mock_resolver_class.return_value = mock_resolver
+
+        mock_cjapy.CJA.return_value = Mock()
+        mock_api_call.return_value = []
+
+        result = initialize_cja(mock_config_file, mock_logger)
+
+        assert result is not None
+        assert call_order[:2] == ["dotenv", "resolve"]
+
 
 class TestInitializeCjaFailures:
     """Tests for CJA initialization failures"""

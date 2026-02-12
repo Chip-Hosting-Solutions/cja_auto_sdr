@@ -155,12 +155,8 @@ def initialize_cja(
         ConfigurationError: If credentials are invalid or missing
         APIError: If API connection fails
     """
-    # Import here to avoid circular dependency — these are still in generator.py
-    from cja_auto_sdr.generator import (
-        _DOTENV_AVAILABLE,
-        _DOTENV_LOADED,
-        resolve_active_profile,
-    )
+    # Import here to avoid circular dependency — this helper still lives in generator.py
+    from cja_auto_sdr.generator import resolve_active_profile
 
     logger = logger or logging.getLogger(__name__)
     try:
@@ -168,14 +164,8 @@ def initialize_cja(
         logger.info("INITIALIZING CJA CONNECTION")
         logger.info("=" * BANNER_WIDTH)
 
-        # Log dotenv status for debugging
-        if _DOTENV_AVAILABLE:
-            if _DOTENV_LOADED:
-                logger.debug(".env file found and loaded")
-            else:
-                logger.debug(".env file not found (python-dotenv available but no .env file)")
-        else:
-            logger.debug("python-dotenv not installed (.env files will not be auto-loaded)")
+        # Ensure initialize_cja() path loads .env before credential resolution.
+        _bootstrap_dotenv(logger)
 
         # Resolve active profile (--profile > CJA_PROFILE > None)
         active_profile = resolve_active_profile(profile)

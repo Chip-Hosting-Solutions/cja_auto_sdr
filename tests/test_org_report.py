@@ -822,6 +822,32 @@ class TestOrgComponentAnalyzer:
         assert "m_isolated" in distribution.isolated_metrics
         assert "d_isolated" in distribution.isolated_dimensions
 
+    def test_fetch_components_counts_derived_without_type_column(self, mock_cja, mock_logger):
+        """sourceFieldType must still drive derived counts when type column is absent."""
+        config = OrgReportConfig(include_component_types=True, cja_per_thread=False)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {"id": "m_derived", "name": "Derived Metric", "sourceFieldType": "derived"},
+                {"id": "m_standard", "name": "Standard Metric", "sourceFieldType": "field"},
+            ]
+        )
+        mock_cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {"id": "d_derived", "name": "Derived Dimension", "sourceFieldType": "derived"},
+                {"id": "d_standard", "name": "Standard Dimension", "sourceFieldType": "custom"},
+            ]
+        )
+
+        summary = analyzer._fetch_data_view_components({"id": "dv_1", "name": "DV 1"})
+
+        assert summary.error is None
+        assert summary.derived_metric_count == 1
+        assert summary.standard_metric_count == 1
+        assert summary.derived_dimension_count == 1
+        assert summary.standard_dimension_count == 1
+
     def test_compute_distribution_with_min_count(self, mock_cja, mock_logger):
         """Test core_min_count overrides threshold"""
         config = OrgReportConfig(core_threshold=0.5, core_min_count=3)

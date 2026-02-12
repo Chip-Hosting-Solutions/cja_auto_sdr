@@ -637,10 +637,14 @@ class OrgComponentAnalyzer:
                     metric_names = dict(zip(valid["id"].astype(str), valid["name"].astype(str), strict=False))
                 # Count standard vs derived metrics (vectorized)
                 if self.config.include_component_types:
-                    type_col = metrics_df.get("type", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
-                    source_col = (
-                        metrics_df.get("sourceFieldType", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
-                    )
+                    type_col = metrics_df.get(
+                        "type",
+                        pd.Series("", index=metrics_df.index, dtype=object),
+                    ).fillna("").astype(str).str.lower()
+                    source_col = metrics_df.get(
+                        "sourceFieldType",
+                        pd.Series("", index=metrics_df.index, dtype=object),
+                    ).fillna("").astype(str).str.lower()
                     is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
                         "derived", na=False
                     )
@@ -662,10 +666,14 @@ class OrgComponentAnalyzer:
                     dimension_names = dict(zip(valid["id"].astype(str), valid["name"].astype(str), strict=False))
                 # Count standard vs derived dimensions (vectorized)
                 if self.config.include_component_types:
-                    type_col = dimensions_df.get("type", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
-                    source_col = (
-                        dimensions_df.get("sourceFieldType", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
-                    )
+                    type_col = dimensions_df.get(
+                        "type",
+                        pd.Series("", index=dimensions_df.index, dtype=object),
+                    ).fillna("").astype(str).str.lower()
+                    source_col = dimensions_df.get(
+                        "sourceFieldType",
+                        pd.Series("", index=dimensions_df.index, dtype=object),
+                    ).fillna("").astype(str).str.lower()
                     is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
                         "derived", na=False
                     )

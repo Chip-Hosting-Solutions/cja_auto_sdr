@@ -2672,24 +2672,42 @@ def write_html_output(
 
             # Add severity-based row classes for Data Quality sheet
             if sheet_name == "Data Quality" and "Severity" in df.columns:
-                rows = df_html.split("<tr>")
-                styled_rows = [rows[0]]  # Keep preamble
+                valid_severities = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
+                # Convert through pandas StringDtype first so categorical Severity columns
+                # can be normalized without fillna() category-assignment errors.
+                severities = df["Severity"].astype("string").fillna("").str.upper().tolist()
 
-                if len(rows) > 1:
-                    styled_rows.append("<tr>" + rows[1])  # Header row unchanged
+                # Apply classes only to tbody rows so header <tr ...> formatting does not shift alignment.
+                tbody_match = re.search(r"(<tbody>)(.*?)(</tbody>)", df_html, flags=re.DOTALL)
+                if tbody_match:
+                    row_idx = 0
 
-                for i, row in enumerate(rows[2:]):
-                    if i < len(df):
-                        severity = df.iloc[i]["Severity"]
-                        if severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
-                            row = f'<tr class="severity-{severity}">' + row.split(">", 1)[1]
-                        else:
-                            row = "<tr>" + row
-                    else:
-                        row = "<tr>" + row
-                    styled_rows.append(row)
+                    def _add_severity_class(
+                        match: re.Match[str],
+                        _severities: list[str] = severities,
+                        _valid_severities: set[str] = valid_severities,
+                    ) -> str:
+                        nonlocal row_idx
+                        row_open = match.group(0)
+                        if row_idx >= len(_severities):
+                            return row_open
 
-                df_html = "".join(styled_rows)
+                        severity = _severities[row_idx]
+                        row_idx += 1
+                        if severity not in _valid_severities:
+                            return row_open
+
+                        if 'class="' in row_open:
+                            return re.sub(
+                                r'class="([^"]*)"',
+                                f'class="\\1 severity-{severity}"',
+                                row_open,
+                                count=1,
+                            )
+                        return row_open.replace("<tr", f'<tr class="severity-{severity}"', 1)
+
+                    styled_tbody = re.sub(r"<tr(?:\s[^>]*)?>", _add_severity_class, tbody_match.group(2))
+                    df_html = df_html[: tbody_match.start(2)] + styled_tbody + df_html[tbody_match.end(2) :]
 
             html_parts.append(df_html)
             html_parts.append("</div>")

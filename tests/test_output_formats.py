@@ -7,6 +7,7 @@ and contain the expected data structures.
 import json
 import logging
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -299,6 +300,39 @@ class TestHTMLOutput:
         assert "severity-CRITICAL" in html_content
         assert "severity-HIGH" in html_content
         assert "severity-MEDIUM" in html_content
+
+    def test_html_severity_styling_aligns_with_first_data_row(self, tmp_path, sample_metadata_dict):
+        """Severity classes should align with the matching issue row from the first tbody row."""
+        logger = logging.getLogger("test")
+
+        data_dict = {
+            "Data Quality": pd.DataFrame(
+                [
+                    {"Severity": "CRITICAL", "Issue": "Critical issue", "Details": "Test"},
+                    {"Severity": "HIGH", "Issue": "High issue", "Details": "Test"},
+                ]
+            )
+        }
+
+        output_path = write_html_output(data_dict, sample_metadata_dict, "test", str(tmp_path), logger)
+
+        with open(output_path, encoding="utf-8") as f:
+            html_content = f.read()
+
+        critical_row = re.search(
+            r'<tr[^>]*severity-CRITICAL[^>]*>.*?<td>CRITICAL</td>.*?<td>Critical issue</td>',
+            html_content,
+            re.DOTALL,
+        )
+        high_row = re.search(
+            r'<tr[^>]*severity-HIGH[^>]*>.*?<td>HIGH</td>.*?<td>High issue</td>',
+            html_content,
+            re.DOTALL,
+        )
+
+        assert critical_row is not None
+        assert high_row is not None
+        assert critical_row.start() < high_row.start()
 
 
 class TestExcelOutput:
