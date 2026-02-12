@@ -126,7 +126,7 @@ def normalize_api_response(
 # ==================== REFERENCE NAME EXTRACTION ====================
 
 
-def extract_short_name(full_id: str, separator: str = "/") -> str:
+def extract_short_name(full_id: Any, separator: str = "/") -> str:
     """Extract short name from full path-like ID.
 
     Examples:
@@ -142,6 +142,19 @@ def extract_short_name(full_id: str, separator: str = "/") -> str:
     Returns:
         Short name extracted from the path
     """
+    if full_id is None:
+        return ""
+    try:
+        is_na = pd.isna(full_id)
+        if isinstance(is_na, bool):
+            if is_na:
+                return ""
+        elif hasattr(is_na, "all") and bool(is_na.all()):
+            return ""
+    except TypeError, ValueError:
+        pass
+
+    full_id = str(full_id).strip()
     if not full_id:
         return ""
     if separator in full_id:
@@ -278,15 +291,27 @@ def validate_required_id(
         logger: Optional logger instance
 
     Returns:
-        The ID value if valid, None if missing/empty
+        The normalized ID value if valid, None if missing/empty/NaN-like
     """
-    item_id = item_data.get(id_field, "")
-    if not item_id:
+    raw_item_id = item_data.get(id_field, "")
+
+    missing_id = False
+    try:
+        is_na = pd.isna(raw_item_id)
+        if isinstance(is_na, bool):
+            missing_id = is_na
+        elif hasattr(is_na, "all"):
+            missing_id = bool(is_na.all())
+    except TypeError, ValueError:
+        missing_id = False
+
+    item_id = "" if missing_id else str(raw_item_id).strip()
+    if item_id.lower() in {"", "nan", "none", "null"}:
         log = logger or logging.getLogger(__name__)
         item_name = item_data.get(name_field, "Unknown")
         log.warning(f"Item '{item_name}' has no {id_field} - skipping")
         return None
-    return str(item_id)
+    return item_id
 
 
 # ==================== MODULE EXPORTS ====================

@@ -33,6 +33,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Git snapshot commit safety**: `git_commit_snapshot()` now stages only snapshot paths for the targeted data view ID instead of `git add .`, preventing unrelated repository changes from being committed
 - **Git init false-success path**: `git_init_snapshot_repo()` now checks and propagates `git add` / `git commit` failures instead of reporting initialization success when either command fails
 - **Org-report lock liveness**: `OrgReportLock._is_process_running()` now treats `PermissionError`/EPERM as process-alive to avoid stale-lock takeover of active runs
+- **Org-report lock architecture hardening**: lock coordination now routes through `cja_auto_sdr.core.locks` with `LockManager`/`LockInfo` backend orchestration (`fcntl` preferred, `lease` fallback) and optional backend override via `CJA_LOCK_BACKEND`
+- **Org-report lock ownership model**: moved lock ownership semantics to backend primitives (OS advisory lock or lease ownership) instead of JSON parse state
+- **Scoped lock refactor (v3.2.2 hardening)**: lock primitive state and metadata persistence are now separated (`*.lock` + atomic `*.lock.info` sidecar), preventing metadata corruption/write failures from changing lock ownership semantics
+- **Typed acquisition outcomes**: backend acquisition now uses explicit outcomes (`acquired`, `contended`, `backend_unavailable`, `metadata_error`) to prevent non-contention runtime failures from being misreported as lock contention
+- **Manager write-failure safety**: removed lock-path unlink cleanup from metadata write-failure handling; manager now releases backend handles without mutating ownership path state, avoiding cross-process unlink races
+- **Lease unknown-probe stale recovery**: when `flock` probing is unavailable (e.g., non-`fcntl` platforms), lease acquisition now allows stale marker recovery for missing metadata instead of permanent contention lockout
+- **Legacy metadata parse safety**: lock parsing now guards non-finite/out-of-range legacy timestamps and integer coercions (`pid`/`version`), preventing malformed lock payloads from crashing acquisition
+- **Ownership-guarded sidecar cleanup**: sidecar deletion now requires lock-id and inode consistency checks in lease release/reclaim paths, and fcntl unsupported fallback no longer unlinks sidecars opportunistically
+- **Missing-metadata race hardening**: both `lease` and `fcntl` now treat fresh metadata-missing lock files as transient contention and only reclaim after a bounded stale grace window, preventing startup races from creating concurrent owners
+- **Lease bootstrap ownership verification**: lease acquire now verifies lock-path inode identity after marker+sidecar writes and retries when ownership changed mid-bootstrap, ensuring only one contender can complete acquisition
+- **Fcntl write-failure recovery marker**: failed initial metadata writes now emit a best-effort stale tombstone sidecar before release to avoid prolonged false contention from fresh metadata-missing residues
+- **Lease fallback race handling**: fresh unreadable lock files now use bounded retry + immediate reclamation, avoiding long stale-timeout blocks while preventing takeover during transient write windows
+- **Lease fallback crash recovery**: same-host dead PID detection now reclaims stale holders immediately instead of waiting full stale timeout
+- **Runtime flock compatibility fallback**: when `fcntl.flock()` is available at import time but unsupported by the target filesystem at runtime (`ENOTSUP` / `EOPNOTSUPP` / `ENOSYS`), lock acquisition now downgrades to the lease backend instead of being misreported as active contention
+- **Lease heartbeat split-brain protection**: lease metadata updates are now file-descriptor-bound to the original lock inode, preventing stale holders from overwriting a newer owner’s lock metadata after reclamation
+- **Fail-closed lock ownership handling**: heartbeat metadata write failures now mark lock ownership as lost and force backend release, preventing long-running local work from continuing after remote contenders can legally reclaim
+- **Analyzer lock-health enforcement**: org-report analysis now performs lock-health checks between major phases and during parallel fetch completion, aborting immediately if ownership is lost mid-run
+- **Fail-closed parallel fetch shutdown**: when lock ownership is lost during org-report DV fetch, pending executor futures are cancelled and the pool is torn down with `wait=False, cancel_futures=True` to stop unlocked work promptly
+- **Lock-loss wait polling**: org-report parallel fetch now polls lock health on timed future waits (`wait(..., FIRST_COMPLETED)`) so ownership loss is detected even when no futures have completed yet
+- **PID liveness probe hardening**: same-host stale checks now reject invalid/special PID values (`<=0`, bools, overflow cases) before probing, preventing malformed lock metadata from causing crashes or false contention
+- **Boolean PID parse hardening**: lock metadata parsing now rejects boolean `pid` values in both modern and legacy payloads, avoiding accidental coercion to `0/1` that can create false non-reclaimable lock ownership
+- **Cross-backend lock exclusivity**: `fcntl` acquisition now honors active non-`fcntl` lock metadata (including `lease` holders), preventing concurrent takeover when processes use different lock backends
+- **Local PID stale-age protection**: same-host live PIDs no longer expire solely due age thresholds, preventing active lock takeover when timestamps become old
+- **Mixed-backend open-race hardening**: `fcntl` lock acquisition now uses atomic create/open semantics and always validates pre-existing lock metadata after open, preventing `lease`/`fcntl` concurrent holders under create-time races
+- **Metadata-write failure lockout prevention**: failed lock metadata writes now trigger best-effort lock-file cleanup to avoid leaving fresh unreadable artifacts that cause long false lock contention windows
+- **Path-disappearance race hardening**: `fcntl` acquisition now verifies lock-path/inode identity and retries when the lock path disappears or is replaced mid-acquire, preventing handles on unlinked inodes
+- **Inode-safe write-failure cleanup**: lock-file cleanup after metadata write failure now only unlinks when the path still matches the failed handle’s inode, preventing deletion of a new owner’s lock file
+- **Stale unreadable fcntl lock recovery**: stale/unreadable pre-existing lock files are now reclaimed in-place by the current holder instead of looping into persistent false contention
+- **Remote fcntl takeover protection in lease mode**: lease staleness checks now probe active `flock` state for remote `fcntl` owners, blocking takeover while an active remote lock is still held
+- **Local fcntl-to-lease handoff correctness**: staleness checks now evaluate `fcntl` lock state before same-host PID liveness so released `fcntl` metadata from long-lived processes does not block lease acquisition indefinitely
+- **Legacy lock metadata compatibility**: lock-file parsing now accepts legacy `{pid,timestamp,started_at}` payloads, preserving stale-lock recovery behavior after upgrade
+- **Legacy metadata parse hardening**: malformed legacy `version` values are now safely defaulted instead of raising parsing exceptions during lock acquisition
+- **Windows lease release reliability**: lease release now closes file descriptors before unlink attempts and retries path removal, preventing stuck lock files on platforms that disallow unlink of open files
+- **Lease release recovery fallback**: if path unlink repeatedly fails, release writes an explicit stale tombstone marker so contenders can recover without waiting for process exit
 - **Main entrypoint global side effects**: Removed global `sys.exit` monkeypatching in `main()` while preserving `--run-summary-json stdout` JSON-only output behavior
 - **Retry env parsing and backoff bounds**: Invalid, negative, or non-finite `MAX_RETRIES` / `RETRY_BASE_DELAY` / `RETRY_MAX_DELAY` values now safely fall back to defaults, and invalid delay windows are clamped to prevent negative sleep durations or skipped retries
 - **Batch early-stop cleanup**: Batch processor now cancels remaining futures on exception stop paths and guarantees shared-cache shutdown via `finally`
@@ -43,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Strict profile import validation**: Non-interactive `--profile-import` now enforces strict credential format checks and reports full validation issues before writing profile config
 - **Org-report recommendation output fidelity**: Recommendation context is now normalized and preserved across HTML, Markdown, JSON, CSV, and Excel outputs, including data view pair details and non-primitive context values
 - **Org-report stdout preflight validation**: Unsupported `--org-report --output -` format combinations and unknown formats are now rejected before org analysis starts, preventing expensive fail-late execution
+- **Derived field depth logic summary**: `_describe_depth_logic` now includes the delimiter in its output instead of silently discarding the fetched value
+- **Lock metadata retry safety**: `_read_info_with_retries` now initializes `legacy_candidate` before the retry loop, preventing a potential `UnboundLocalError` if the loop body is refactored
+- **Lock backend fallback AttributeError masking**: `LockManager._acquire_with_result` now uses `hasattr` instead of a broad `except AttributeError`, preventing internal backend bugs from being silently swallowed as missing-method fallback
+- **Lock backend swap thread safety**: `LockManager.acquire()` now assigns the fallback backend under `_state_lock`, preventing concurrent readers from seeing a partially swapped backend reference
+- **Lock sidecar atomic-write cleanup**: `_write_info_path` now cleans up the temp file when `os.replace` fails, preventing orphaned temp files on cross-device or permission errors
+- **Org cache atomic write**: `OrgReportCache._save_cache` now writes to a temp file and atomically renames, preventing truncated/corrupt cache files from mid-write crashes
 
 ### Tests
 - Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)
@@ -50,6 +90,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `test_malformed_api_responses.py` — 19 negative tests for malformed API data (wrong types, missing columns, exceptions, partial responses)
 - Added `test_output_content_validation.py` — 26 tests validating output file content across CSV, JSON, HTML, Excel, and Markdown formats (roundtrip correctness, escaping, cross-format consistency)
 - Fixed flaky `test_cache_ttl_expiration` — replaced `time.sleep(1.5)` with mocked `time.time()` for deterministic TTL testing
+- Added `tests/test_lock_backends.py` coverage for lease bootstrap metadata, transient unreadable-file handling, persistent corrupt-file recovery, and heartbeat refresh behavior
+- Added lock regression coverage for runtime `flock` unsupported fallback and stale-holder metadata overwrite prevention in lease mode
+- Added lock regression coverage for mixed-backend contention (`lease` vs `fcntl`) and same-host live-PID stale-age protection
+- Added lock regression coverage for mixed-backend create-time race handling and metadata-write failure cleanup behavior
+- Added lock regression coverage for mid-acquire path disappearance retries and inode-safe cleanup guards after metadata write failures
+- Added lock regression coverage for stale unreadable `fcntl` metadata reclamation and remote active-`fcntl` takeover prevention in lease mode
+- Added lock regression coverage for same-host `fcntl` handoff to lease and legacy lock-metadata stale recovery
+- Added lock regression coverage for malformed legacy-version parsing and write-failure release safety
+- Added lock regression coverage for lease release close-before-unlink ordering and unlink-failure recovery behavior
+- Added lock refactor coverage for sidecar metadata semantics and release-on-write-failure behavior without manager unlink cleanup
+- Added lock regression coverage for stale/fresh missing-metadata behavior when flock probing is unavailable in lease mode
+- Added lock regression coverage for malformed legacy numeric metadata (`NaN`/`Infinity`/out-of-range epochs) to ensure acquisition fails safe instead of raising
+- Added lock regression coverage for release/reclaim sidecar cleanup races to verify new-owner metadata is preserved under contention
+- Added lock regression coverage to ensure fcntl unsupported fallback preserves pre-existing sidecar metadata
+- Added lock regression coverage for fresh-vs-stale missing-metadata behavior in both `lease` and `fcntl` acquisition paths
+- Added lock regression coverage for fail-closed heartbeat ownership loss in `LockManager` and analyzer-level abort-on-lock-loss behavior
+- Added lock regression coverage for immediate executor cancellation when lock ownership is lost during parallel DV fetch loops
+- Added lock regression coverage for invalid/special PID metadata handling to ensure stale-lock recovery remains safe and reclaimable
+- Added lock regression coverage for timeout-based lock-loss detection while fetch futures are still running (no-completion window)
+- Added lock regression coverage for rejecting boolean `pid` lock metadata and reclaiming stale malformed sidecars safely
+- Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior
   - Org lock PermissionError liveness semantics
@@ -62,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,539 tests** (1,537 passing, 2 skipped) — up from 1,431
+- **1,607 tests** (1,605 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient

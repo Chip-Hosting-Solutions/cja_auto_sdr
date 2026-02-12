@@ -162,6 +162,12 @@ class TestExtractShortName:
     def test_none_returns_empty(self):
         assert extract_short_name(None) == ""
 
+    def test_non_string_id_is_coerced(self):
+        assert extract_short_name(12345) == "12345"
+
+    def test_nan_returns_empty(self):
+        assert extract_short_name(float("nan")) == ""
+
 
 class TestComputeComplexityScore:
     """Tests for compute_complexity_score function."""
@@ -259,3 +265,24 @@ class TestValidateRequiredId:
         data = {"metric_id": "met123", "name": "Test"}
         result = validate_required_id(data, id_field="metric_id")
         assert result == "met123"
+
+    def test_nan_id_returns_none(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            data = {"id": float("nan"), "name": "NaN Item"}
+            result = validate_required_id(data)
+        assert result is None
+        assert "NaN Item" in caplog.text
+
+    def test_pandas_na_id_returns_none(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            data = {"id": pd.NA, "name": "Pandas NA Item"}
+            result = validate_required_id(data)
+        assert result is None
+        assert "Pandas NA Item" in caplog.text
+
+    def test_literal_nan_string_returns_none(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            data = {"id": " NaN ", "name": "Literal NaN"}
+            result = validate_required_id(data)
+        assert result is None
+        assert "Literal NaN" in caplog.text

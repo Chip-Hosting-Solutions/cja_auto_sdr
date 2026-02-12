@@ -12,19 +12,21 @@ import errno
 import json
 import logging
 import os
-import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cja_auto_sdr.core.locks.manager import LockManager
 from cja_auto_sdr.org.models import DataViewSummary
 
 
 class OrgReportLock:
-    """File-based lock to prevent concurrent org-report runs for the same org.
+    """Cross-process lock to prevent concurrent org-report runs for one org.
 
-    Uses a lock file with PID and timestamp to detect stale locks from
-    crashed processes. Lock is automatically released when context exits.
+    Ownership is determined by backend lock primitives (OS advisory lock
+    by default). File metadata is diagnostic only and does not decide lock
+    ownership.
 
     Usage:
         with OrgReportLock(org_id) as lock:
@@ -36,7 +38,8 @@ class OrgReportLock:
     Args:
         org_id: Organization ID to lock
         lock_dir: Directory for lock files. Defaults to ~/.cja_auto_sdr/locks/
-        stale_threshold_seconds: Consider lock stale after this many seconds (default: 1 hour)
+        stale_threshold_seconds: Lease staleness for fallback backend heartbeat/recovery.
+        lock_backend: Optional backend override ("auto", "fcntl", "lease")
     """
 
     def __init__(
@@ -44,6 +47,7 @@ class OrgReportLock:
         org_id: str,
         lock_dir: Path | None = None,
         stale_threshold_seconds: int = 3600,
+        lock_backend: str | None = None,
     ):
         if lock_dir is None:
             lock_dir = Path.home() / ".cja_auto_sdr" / "locks"
@@ -55,7 +59,12 @@ class OrgReportLock:
         self.lock_file = lock_dir / f"org_report_{safe_org_id}.lock"
         self.stale_threshold = stale_threshold_seconds
         self.acquired = False
-        self._pid = os.getpid()
+        self._manager = LockManager(
+            lock_path=self.lock_file,
+            owner=org_id,
+            stale_threshold_seconds=stale_threshold_seconds,
+            backend_name=lock_backend,
+        )
 
     def __enter__(self) -> OrgReportLock:
         self.acquired = self._try_acquire()
@@ -66,105 +75,42 @@ class OrgReportLock:
             self._release()
 
     def _try_acquire(self) -> bool:
-        """Attempt to acquire the lock.
-
-        Uses atomic file creation (O_CREAT|O_EXCL) to prevent TOCTOU races.
-
-        Returns:
-            True if lock acquired, False if another process holds it
-        """
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
-
-        lock_payload = json.dumps(
-            {
-                "pid": self._pid,
-                "timestamp": time.time(),
-                "started_at": datetime.now().isoformat(),
-            }
-        )
-
-        # First, try atomic exclusive creation (no race condition)
-        try:
-            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(fd, lock_payload.encode())
-            finally:
-                os.close(fd)
-            return True
-        except FileExistsError:
-            pass  # Lock file exists, check if stale below
-        except OSError:
-            return False
-
-        # Lock file exists — check if stale or held by a dead process
-        try:
-            with open(self.lock_file) as f:
-                lock_data = json.load(f)
-
-            lock_pid = lock_data.get("pid")
-            lock_time = lock_data.get("timestamp", 0)
-
-            age_seconds = time.time() - lock_time
-            if age_seconds <= self.stale_threshold and lock_pid and self._is_process_running(lock_pid):
-                # Process is still running and lock is fresh — cannot acquire
-                return False
-
-            # Lock is stale or holder is dead — remove and retry atomically
-            with contextlib.suppress(OSError):
-                os.unlink(str(self.lock_file))
-
-            try:
-                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, lock_payload.encode())
-                finally:
-                    os.close(fd)
-                return True
-            except FileExistsError:
-                # Another process beat us to it after we removed the stale lock
-                return False
-            except OSError:
-                return False
-
-        except OSError, json.JSONDecodeError, KeyError:
-            # Corrupted lock file — remove and retry
-            with contextlib.suppress(OSError):
-                os.unlink(str(self.lock_file))
-            try:
-                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, lock_payload.encode())
-                finally:
-                    os.close(fd)
-                return True
-            except OSError, FileExistsError:
-                return False
+        """Attempt to acquire lock non-blocking."""
+        return self._manager.acquire()
 
     def _release(self) -> None:
-        """Release the lock."""
-        try:
-            if self.lock_file.exists():
-                # Only remove if we own it
-                with open(self.lock_file) as f:
-                    lock_data = json.load(f)
-                if lock_data.get("pid") == self._pid:
-                    self.lock_file.unlink()
-        except OSError, json.JSONDecodeError, KeyError:
-            # Best effort removal
-            with contextlib.suppress(Exception):
-                self.lock_file.unlink(missing_ok=True)
+        """Release lock if currently held by this process."""
+        self._manager.release()
+
+    @property
+    def lock_lost(self) -> bool:
+        return self._manager.lock_lost
+
+    def ensure_healthy(self) -> None:
+        """Raise if lock ownership has been lost during execution."""
+        self._manager.ensure_held()
 
     @staticmethod
     def _is_process_running(pid: int) -> bool:
-        """Check if a process with the given PID is running."""
+        """Legacy helper kept for compatibility with existing tests."""
+        if isinstance(pid, bool):
+            return False
         try:
-            os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
+            normalized_pid = int(pid)
+        except TypeError, ValueError, OverflowError:
+            return False
+        if normalized_pid <= 0:
+            return False
+        try:
+            os.kill(normalized_pid, 0)  # Signal 0 doesn't kill, just checks
             return True
         except ProcessLookupError:
             return False
         except PermissionError:
             # EPERM means the process exists but we do not have permission to signal it.
             return True
+        except OverflowError:
+            return False
         except OSError as e:
             return e.errno == errno.EPERM
 
@@ -174,13 +120,7 @@ class OrgReportLock:
         Returns:
             Dict with pid, timestamp, started_at or None if no lock
         """
-        if not self.lock_file.exists():
-            return None
-        try:
-            with open(self.lock_file) as f:
-                return json.load(f)
-        except OSError, json.JSONDecodeError:
-            return None
+        return self._manager.read_info()
 
 
 class OrgReportCache:
@@ -216,13 +156,17 @@ class OrgReportCache:
                 self._cache = {}
 
     def _save_cache(self) -> None:
-        """Save cache to disk."""
+        """Save cache to disk via atomic write-then-rename."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.cache_file.with_name(f".{self.cache_file.name}.{uuid.uuid4().hex}.tmp")
         try:
-            with open(self.cache_file, "w", encoding="utf-8") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f, indent=2, default=str)
+            os.replace(tmp_path, self.cache_file)
         except OSError as e:
             self.logger.warning(f"Failed to save org report cache to {self.cache_file}: {e}")
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
 
     def get(
         self,

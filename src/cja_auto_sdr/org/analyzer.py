@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +24,7 @@ from cja_auto_sdr.core.constants import (
     DEFAULT_ORG_REPORT_WORKERS,
     GOVERNANCE_MAX_OVERLAP_THRESHOLD,
 )
+from cja_auto_sdr.core.exceptions import LockOwnershipLostError
 from cja_auto_sdr.inventory.utils import extract_owner
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
@@ -67,6 +68,8 @@ class OrgComponentAnalyzer:
         cache: Optional OrgReportCache for incremental analysis
     """
 
+    _lock_health_poll_seconds = 0.25
+
     def __init__(
         self,
         cja: cjapy.CJA,
@@ -81,6 +84,7 @@ class OrgComponentAnalyzer:
         self.org_id = org_id
         self.cache = cache
         self._thread_local = threading.local()
+        self._active_lock: OrgReportLock | None = None
 
         # Handle cache clear option
         if config.clear_cache and self.cache:
@@ -101,24 +105,42 @@ class OrgComponentAnalyzer:
             from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
 
             lock = OrgReportLock(self.org_id)
-            lock_info = lock.get_lock_info()
 
             # Try to acquire the lock before starting
             with lock:
                 if not lock.acquired:
+                    lock_info = lock.get_lock_info()
                     raise ConcurrentOrgReportError(
                         org_id=self.org_id,
                         lock_holder_pid=lock_info.get("pid") if lock_info else None,
                         started_at=lock_info.get("started_at") if lock_info else None,
                     )
-                quick_check_result = self._quick_check_empty_org()
-                if quick_check_result is not None:
-                    return quick_check_result
-                # Run the analysis while holding the lock
-                return self._run_analysis_impl()
+                self._active_lock = lock
+                try:
+                    self._assert_lock_healthy()
+                    quick_check_result = self._quick_check_empty_org()
+                    if quick_check_result is not None:
+                        return quick_check_result
+                    # Run the analysis while holding the lock
+                    return self._run_analysis_impl()
+                finally:
+                    self._active_lock = None
         else:
             # Skip lock (for testing)
             return self._run_analysis_impl()
+
+    def _assert_lock_healthy(self) -> None:
+        if self._active_lock is None:
+            return
+        self._active_lock.ensure_healthy()
+
+    @staticmethod
+    def _cancel_futures_best_effort(futures: dict[Any, Any]) -> None:
+        for future in futures:
+            try:
+                future.cancel()
+            except Exception:
+                continue
 
     def _quick_check_empty_org(self) -> OrgReportResult | None:
         """Return an empty-org result if no data views exist, otherwise None."""
@@ -148,10 +170,12 @@ class OrgComponentAnalyzer:
         """Internal implementation of org-wide analysis (called within lock)."""
         start_time = time.time()
         timestamp = datetime.now().isoformat()
+        self._assert_lock_healthy()
 
         # 1. List and filter data views
         self.logger.info("Fetching data view list...")
         data_views, is_sampled, total_available = self._list_and_filter_data_views()
+        self._assert_lock_healthy()
 
         if not data_views:
             self.logger.warning("No data views found matching criteria")
@@ -177,10 +201,12 @@ class OrgComponentAnalyzer:
         # 2. Fetch components for each data view in parallel
         self.logger.info("Fetching components from all data views...")
         summaries = self._fetch_all_data_views(data_views)
+        self._assert_lock_healthy()
 
         # 3. Build component index
         self.logger.info("Building component index...")
         component_index = self._build_component_index(summaries)
+        self._assert_lock_healthy()
         self.logger.info(f"Indexed {len(component_index)} unique components")
 
         # 3.5. Check memory warning
@@ -190,6 +216,7 @@ class OrgComponentAnalyzer:
         self.logger.info("Computing distribution buckets...")
         successful_summaries = [summary for summary in summaries if not summary.error]
         distribution = self._compute_distribution(component_index, len(successful_summaries))
+        self._assert_lock_healthy()
 
         # 5. Compute pairwise Jaccard distances (shared by similarity & clustering)
         # Computed once to avoid duplicate O(n²) work.
@@ -213,6 +240,7 @@ class OrgComponentAnalyzer:
         if (need_similarity and not similarity_guardrail_blocked) or need_clustering:
             self.logger.info("Computing pairwise Jaccard distances...")
             pairwise_data = self._compute_pairwise_jaccard(summaries)
+            self._assert_lock_healthy()
 
         if need_similarity and not similarity_guardrail_blocked:
             self.logger.info("Computing similarity matrix...")
@@ -235,6 +263,7 @@ class OrgComponentAnalyzer:
         # 7. Generate recommendations
         self.logger.info("Generating recommendations...")
         recommendations = self._generate_recommendations(summaries, component_index, distribution, similarity_pairs)
+        self._assert_lock_healthy()
 
         # 8. Check governance thresholds (Feature 1)
         governance_violations = None
@@ -246,12 +275,14 @@ class OrgComponentAnalyzer:
             )
             if thresholds_exceeded:
                 self.logger.warning(f"Governance thresholds exceeded: {len(governance_violations)} violation(s)")
+        self._assert_lock_healthy()
 
         # 9. Naming audit (Feature 3)
         naming_audit = None
         if self.config.audit_naming or self.config.flag_stale:
             self.logger.info("Auditing naming conventions...")
             naming_audit = self._audit_naming_conventions(component_index)
+        self._assert_lock_healthy()
 
         # 10. Owner summary (Feature 5)
         owner_summary = None
@@ -269,6 +300,7 @@ class OrgComponentAnalyzer:
             stale_components = self._detect_stale_components(component_index)
             if stale_components:
                 self.logger.info(f"Found {len(stale_components)} components with stale naming patterns")
+        self._assert_lock_healthy()
 
         duration = time.time() - start_time
         self.logger.info(f"Analysis complete in {duration:.2f}s")
@@ -487,8 +519,11 @@ class OrgComponentAnalyzer:
 
         pending_cache: list[DataViewSummary] = []
 
-        # Use ThreadPoolExecutor for parallel fetches
-        with ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch))) as executor:
+        # Use explicit executor lifecycle so lock-loss can fail closed immediately.
+        executor = ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch)))
+        futures: dict[Any, dict[str, Any]] = {}
+        fail_closed_shutdown = False
+        try:
             futures = {executor.submit(self._fetch_data_view_components, dv): dv for dv in to_fetch}
 
             desc = "Fetching data views" if not cache_hits else f"Fetching {len(to_fetch)} uncached"
@@ -500,30 +535,55 @@ class OrgComponentAnalyzer:
                 leave=True,
                 disable=self.config.quiet,  # Suppress progress bar in quiet mode
             ) as pbar:
-                for future in as_completed(futures):
-                    dv = futures[future]
-                    try:
-                        summary = future.result()
-                        summaries.append(summary)
+                remaining = set(futures)
+                while remaining:
+                    self._assert_lock_healthy()
+                    done, remaining = wait(
+                        remaining,
+                        timeout=self._lock_health_poll_seconds,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    if not done:
+                        # Poll lock health while all futures are still running.
+                        self._assert_lock_healthy()
+                        continue
 
-                        # Store in cache if enabled (batch to reduce disk writes)
-                        if self.config.use_cache and self.cache and not summary.error:
-                            pending_cache.append(summary)
+                    for future in done:
+                        dv = futures[future]
+                        try:
+                            summary = future.result()
+                            summaries.append(summary)
 
-                        if summary.error:
-                            pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
-                        else:
-                            pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
-                    except Exception as e:
-                        error_msg = str(e) or f"{type(e).__name__}"
-                        summaries.append(
-                            DataViewSummary(
-                                data_view_id=dv.get("id", "unknown"),
-                                data_view_name=dv.get("name", "Unknown"),
-                                error=error_msg,
+                            # Store in cache if enabled (batch to reduce disk writes)
+                            if self.config.use_cache and self.cache and not summary.error:
+                                pending_cache.append(summary)
+
+                            if summary.error:
+                                pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
+                            else:
+                                pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
+                        except LockOwnershipLostError:
+                            raise
+                        except Exception as e:
+                            error_msg = str(e) or f"{type(e).__name__}"
+                            summaries.append(
+                                DataViewSummary(
+                                    data_view_id=dv.get("id", "unknown"),
+                                    data_view_name=dv.get("name", "Unknown"),
+                                    error=error_msg,
+                                )
                             )
-                        )
-                    pbar.update(1)
+                        pbar.update(1)
+                        self._assert_lock_healthy()
+        except LockOwnershipLostError:
+            fail_closed_shutdown = True
+            self._cancel_futures_best_effort(futures)
+            raise
+        finally:
+            if fail_closed_shutdown:
+                executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                executor.shutdown(wait=True)
 
         if self.config.use_cache and self.cache and pending_cache:
             self.cache.put_many(

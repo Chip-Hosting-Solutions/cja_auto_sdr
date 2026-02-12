@@ -213,6 +213,21 @@ class ConcurrentOrgReportError(CJASDRError):
         super().__init__(message, details)
 
 
+class LockOwnershipLostError(CJASDRError):
+    """Exception raised when a previously acquired lock can no longer be maintained."""
+
+    def __init__(
+        self,
+        lock_path: str,
+        *,
+        reason: str | None = None,
+    ):
+        self.lock_path = lock_path
+        self.reason = reason
+        message = f"Lock ownership was lost for '{lock_path}'"
+        super().__init__(message, reason)
+
+
 class MemoryLimitExceeded(CJASDRError):
     """Exception raised when component index memory exceeds the configured hard limit.
 

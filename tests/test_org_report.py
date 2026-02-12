@@ -3,6 +3,7 @@ Tests for org-wide component analysis report functionality
 """
 
 import json
+import multiprocessing
 import os
 import sys
 import tempfile
@@ -19,7 +20,7 @@ sys.path.insert(0, ".")
 
 import time
 
-from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
+from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError, LockOwnershipLostError
 from cja_auto_sdr.generator import (
     ComponentDistribution,
     ComponentInfo,
@@ -42,6 +43,49 @@ from cja_auto_sdr.generator import (
 from cja_auto_sdr.org.cache import OrgReportLock
 
 XLSX_NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def _write_signal(path: str, value: str) -> None:
+    Path(path).write_text(value, encoding="utf-8")
+
+
+def _read_signal(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _org_lock_hold_worker(
+    lock_dir: str,
+    org_id: str,
+    signal_file: str,
+    hold_seconds: float,
+    lock_backend: str | None = None,
+) -> None:
+    lock = OrgReportLock(org_id, lock_dir=Path(lock_dir), lock_backend=lock_backend)
+    acquired = lock._try_acquire()
+    _write_signal(signal_file, "1" if acquired else "0")
+    if not acquired:
+        return
+
+    try:
+        time.sleep(hold_seconds)
+    finally:
+        lock._release()
+
+
+def _org_lock_crash_worker(
+    lock_dir: str,
+    org_id: str,
+    signal_file: str,
+    lock_backend: str | None = None,
+) -> None:
+    lock = OrgReportLock(org_id, lock_dir=Path(lock_dir), lock_backend=lock_backend)
+    acquired = lock._try_acquire()
+    _write_signal(signal_file, "1" if acquired else "0")
+    if acquired:
+        os._exit(1)
+    os._exit(2)
 
 
 def _get_excel_shared_strings(file_path: str) -> list[str]:
@@ -70,8 +114,8 @@ class TestOrgReportLock:
                 assert lock.acquired is True
                 # Lock file should exist
                 assert lock.lock_file.exists()
-            # Lock file should be removed after context exit
-            assert not lock.lock_file.exists()
+            # File remains for metadata observability after release.
+            assert lock.lock_file.exists()
 
     def test_lock_blocks_second_acquisition(self):
         """Test that second lock acquisition fails when first holds lock"""
@@ -146,6 +190,121 @@ class TestOrgReportLock:
         """PermissionError should be treated as process alive (EPERM semantics)."""
         with patch("os.kill", side_effect=PermissionError):
             assert OrgReportLock._is_process_running(12345) is True
+
+    @pytest.mark.parametrize("invalid_pid", [0, -1, 10**40, True])
+    def test_process_running_rejects_invalid_pid_values(self, invalid_pid):
+        assert OrgReportLock._is_process_running(invalid_pid) is False
+
+    def test_corrupt_unlocked_lock_file_reclaimed_immediately(self):
+        """Unreadable metadata must not block acquisition when no lock is held."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_dir = Path(tmpdir)
+            lock_file = lock_dir / "org_report_test_org_AdobeOrg.lock"
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            lock_file.write_text("{bad json", encoding="utf-8")
+
+            lock = OrgReportLock("test_org@AdobeOrg", lock_dir=lock_dir, lock_backend="lease")
+            with lock:
+                assert lock.acquired is True
+
+    def test_lock_contention_multi_process(self):
+        """Second process should fail acquisition while first process holds lock."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_hold_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), 1.5),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+
+            contender = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with contender:
+                assert contender.acquired is False
+
+            proc.join(timeout=4)
+            assert not proc.is_alive()
+
+            # Once holder exits, acquisition should succeed immediately.
+            follow_up = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with follow_up:
+                assert follow_up.acquired is True
+
+    def test_crash_recovery_is_immediate(self):
+        """Crash of lock holder should release lock without stale-threshold waiting."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "crash_ready.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_crash_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file)),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+            proc.join(timeout=3)
+            assert not proc.is_alive()
+
+            recovered = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir))
+            with recovered:
+                assert recovered.acquired is True
+
+    def test_lock_contention_multi_process_lease_backend(self):
+        """Lease backend should block contenders while holder is alive."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "ready_lease.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_hold_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), 1.5, "lease"),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+
+            contender = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with contender:
+                assert contender.acquired is False
+
+            proc.join(timeout=4)
+            assert not proc.is_alive()
+
+            follow_up = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with follow_up:
+                assert follow_up.acquired is True
+
+    def test_crash_recovery_is_immediate_lease_backend(self):
+        """Lease backend should reclaim lock after holder crash without stale wait."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ready_file = Path(tmpdir) / "crash_ready_lease.txt"
+            proc = multiprocessing.Process(
+                target=_org_lock_crash_worker,
+                args=(tmpdir, "test_org@AdobeOrg", str(ready_file), "lease"),
+            )
+            proc.start()
+
+            deadline = time.time() + 3
+            while _read_signal(ready_file) is None and time.time() < deadline:
+                time.sleep(0.02)
+
+            assert _read_signal(ready_file) == "1"
+            proc.join(timeout=3)
+            assert not proc.is_alive()
+
+            recovered = OrgReportLock("test_org@AdobeOrg", lock_dir=Path(tmpdir), lock_backend="lease")
+            with recovered:
+                assert recovered.acquired is True
 
 
 class TestConcurrentOrgReportError:
@@ -257,6 +416,179 @@ class TestAnalyzerLockIntegration:
 
         result = analyzer._quick_check_empty_org()
         assert result is None
+
+    def test_analyzer_aborts_when_lock_ownership_is_lost_mid_run(self):
+        """Analyzer must fail closed if lock ownership is lost during execution."""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_lock_lost")
+        config = OrgReportConfig(skip_lock=False)
+
+        with patch("cja_auto_sdr.org.analyzer.OrgReportLock") as MockLock:
+            mock_lock_instance = Mock()
+            mock_lock_instance.acquired = True
+            mock_lock_instance.ensure_healthy.side_effect = [
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+            mock_lock_instance.__enter__ = Mock(return_value=mock_lock_instance)
+            mock_lock_instance.__exit__ = Mock(return_value=None)
+            MockLock.return_value = mock_lock_instance
+
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test_org@AdobeOrg")
+            analyzer._quick_check_empty_org = Mock(return_value=None)
+
+            with pytest.raises(LockOwnershipLostError):
+                analyzer.run_analysis()
+
+            analyzer._quick_check_empty_org.assert_called_once()
+            mock_cja.getDataViews.assert_not_called()
+
+    def test_fetch_cancels_executor_immediately_when_lock_is_lost(self):
+        """Parallel fetch must not block on remaining futures after lock ownership loss."""
+        import logging
+        from concurrent.futures import FIRST_COMPLETED
+
+        class _FakeFuture:
+            def __init__(self, result_value: DataViewSummary):
+                self._result_value = result_value
+                self.cancel_called = False
+
+            def result(self) -> DataViewSummary:
+                return self._result_value
+
+            def cancel(self) -> bool:
+                self.cancel_called = True
+                return True
+
+        class _FakeExecutor:
+            last_instance = None
+
+            def __init__(self, *args, **kwargs):
+                self.submitted = []
+                self.shutdown_calls = []
+                _FakeExecutor.last_instance = self
+
+            def submit(self, fn, dv):  # type: ignore[no-untyped-def]
+                summary = DataViewSummary(
+                    data_view_id=dv.get("id", "unknown"),
+                    data_view_name=dv.get("name", "Unknown"),
+                )
+                future = _FakeFuture(summary)
+                self.submitted.append(future)
+                return future
+
+            def shutdown(self, wait=True, cancel_futures=False):  # type: ignore[no-untyped-def]
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_fetch_lock_loss_cancel")
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(quiet=True), logger)
+        analyzer._assert_lock_healthy = Mock(
+            side_effect=[
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+        )
+
+        data_views = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+
+        wait_calls = {"count": 0}
+
+        def _fake_wait(remaining, timeout, return_when):  # type: ignore[no-untyped-def]
+            wait_calls["count"] += 1
+            assert return_when == FIRST_COMPLETED
+            assert timeout == analyzer._lock_health_poll_seconds
+            first = next(iter(remaining))
+            rest = set(remaining)
+            rest.remove(first)
+            return {first}, rest
+
+        with (
+            patch("cja_auto_sdr.org.analyzer.ThreadPoolExecutor", _FakeExecutor),
+            patch("cja_auto_sdr.org.analyzer.wait", side_effect=_fake_wait),
+            pytest.raises(LockOwnershipLostError),
+        ):
+            analyzer._fetch_all_data_views(data_views)
+
+        executor = _FakeExecutor.last_instance
+        assert executor is not None
+        assert wait_calls["count"] == 1
+        assert executor.shutdown_calls == [(False, True)]
+        assert len(executor.submitted) == 2
+        assert all(future.cancel_called for future in executor.submitted)
+
+    def test_fetch_detects_lock_loss_while_waiting_for_futures(self):
+        """Lock loss should be detected during wait timeouts before any future completes."""
+        import logging
+        from concurrent.futures import FIRST_COMPLETED
+
+        class _FakeFuture:
+            def __init__(self):
+                self.cancel_called = False
+
+            def result(self) -> DataViewSummary:
+                return DataViewSummary(data_view_id="dv_x", data_view_name="DV X")
+
+            def cancel(self) -> bool:
+                self.cancel_called = True
+                return True
+
+        class _FakeExecutor:
+            last_instance = None
+
+            def __init__(self, *args, **kwargs):
+                self.submitted = []
+                self.shutdown_calls = []
+                _FakeExecutor.last_instance = self
+
+            def submit(self, fn, dv):  # type: ignore[no-untyped-def]
+                future = _FakeFuture()
+                self.submitted.append(future)
+                return future
+
+            def shutdown(self, wait=True, cancel_futures=False):  # type: ignore[no-untyped-def]
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_fetch_lock_loss_waiting")
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(quiet=True), logger)
+        analyzer._assert_lock_healthy = Mock(
+            side_effect=[
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+        )
+
+        data_views = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+
+        wait_calls = {"count": 0}
+
+        def _fake_wait(remaining, timeout, return_when):  # type: ignore[no-untyped-def]
+            wait_calls["count"] += 1
+            assert return_when == FIRST_COMPLETED
+            assert timeout == analyzer._lock_health_poll_seconds
+            return set(), set(remaining)
+
+        with (
+            patch("cja_auto_sdr.org.analyzer.ThreadPoolExecutor", _FakeExecutor),
+            patch("cja_auto_sdr.org.analyzer.wait", side_effect=_fake_wait),
+            pytest.raises(LockOwnershipLostError),
+        ):
+            analyzer._fetch_all_data_views(data_views)
+
+        executor = _FakeExecutor.last_instance
+        assert executor is not None
+        assert wait_calls["count"] == 1
+        assert executor.shutdown_calls == [(False, True)]
+        assert all(future.cancel_called for future in executor.submitted)
 
 
 class TestOrgReportConfig:
