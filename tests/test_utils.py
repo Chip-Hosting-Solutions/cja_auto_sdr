@@ -207,6 +207,30 @@ class TestLoggingSetup:
         assert "'refreshToken': '[REDACTED]'" in message
         assert '"apiKey": "[REDACTED]"' in message
 
+    def test_json_formatter_does_not_double_redact_after_filter(self):
+        """JSONFormatter should trust records already redacted by SensitiveDataFilter."""
+        formatter = JSONFormatter()
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.no_double",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg='token=abc123 payload={"access_token":"abc123"}',
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {"note": "token=abc123"}
+
+        assert filter_.filter(record) is True
+        payload = json.loads(formatter.format(record))
+
+        assert payload["message"] == 'token=[REDACTED] payload={"access_token":"[REDACTED]"}'
+        assert payload["note"] == "token=[REDACTED]"
+        assert "token=[REDACTED]]" not in payload["message"]
+        assert "abc123" not in payload["message"]
+        assert "abc123" not in payload["note"]
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -236,6 +260,28 @@ class TestLoggingSetup:
             logger.removeHandler(handler)
             for existing in original_handlers:
                 logger.addHandler(existing)
+
+    def test_sensitive_data_filter_is_idempotent(self):
+        """Applying SensitiveDataFilter repeatedly should not mutate redacted markers."""
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.filter.idempotent",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=abc123",
+            args=(),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        first = record.getMessage()
+
+        assert filter_.filter(record) is True
+        second = record.getMessage()
+
+        assert first == "token=[REDACTED]"
+        assert second == first
 
     def test_sensitive_data_filter_redacts_quoted_payload_text(self):
         """SensitiveDataFilter should redact quoted JSON/dict string payloads."""

@@ -14,6 +14,7 @@ from pathlib import Path
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
 
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
+_REDACTION_FLAG_ATTR = "_cja_redacted"
 _SENSITIVE_FIELD_NAMES = {
     "password",
     "passwd",
@@ -167,6 +168,9 @@ class SensitiveDataFilter(logging.Filter):
     """Best-effort redaction for sensitive values in log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if bool(getattr(record, _REDACTION_FLAG_ATTR, False)):
+            return True
+
         record.msg = _redact_message(record.getMessage())
         record.args = ()
 
@@ -181,6 +185,7 @@ class SensitiveDataFilter(logging.Filter):
                 record.__dict__[key] = _REDACTED_VALUE
             else:
                 record.__dict__[key] = _redact_value(value)
+        record.__dict__[_REDACTION_FLAG_ATTR] = True
         return True
 
 
@@ -194,11 +199,16 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
+        already_redacted = bool(getattr(record, _REDACTION_FLAG_ATTR, False))
+        message = record.getMessage()
+        if not already_redacted:
+            message = _redact_message(message)
+
         log_entry = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": _redact_message(record.getMessage()),
+            "message": message,
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
@@ -225,7 +235,10 @@ class JSONFormatter(logging.Formatter):
             extra_fields.setdefault(key, value)
 
         if extra_fields:
-            log_entry.update(_redact_extra_fields(extra_fields))
+            if already_redacted:
+                log_entry.update(extra_fields)
+            else:
+                log_entry.update(_redact_extra_fields(extra_fields))
 
         return json.dumps(log_entry, default=str)
 
