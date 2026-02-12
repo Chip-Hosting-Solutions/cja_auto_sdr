@@ -52,7 +52,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 1,667 comprehensive tests**
+**Total: 1,668 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -84,7 +84,7 @@ tests/
 | `test_process_single_dataview.py` | 20 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 20 | Data view name to ID resolution |
-| `test_shared_cache.py` | 16 | Shared validation cache |
+| `test_shared_cache.py` | 17 | Shared validation cache |
 | `test_logging_optimization.py` | 15 | Logging performance optimizations |
 | `test_env_credentials.py` | 13 | Environment variable credentials |
 | `test_dry_run.py` | 12 | Dry-run mode functionality |
@@ -97,7 +97,7 @@ tests/
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_quality_policy_and_run_summary.py` | 57 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| **Total** | **1,667** | **Collected via pytest --collect-only** |
+| **Total** | **1,668** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -501,13 +501,13 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,667 tests total)
+- [x] Comprehensive test coverage (1,668 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 170 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
-- [x] Shared validation cache tests (test_shared_cache.py) - 16 tests
+- [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
 - [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 37 tests
 - [x] Segments inventory tests (test_segments_inventory.py) - 42 tests
 - [x] Derived fields inventory tests (test_derived_inventory.py) - 45 tests

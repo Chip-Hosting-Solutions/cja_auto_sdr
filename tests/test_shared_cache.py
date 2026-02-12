@@ -14,12 +14,26 @@ Validates that SharedValidationCache:
 import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import SharedValidationCache, ValidationCache
+
+
+def _shared_cache_processpool_worker(cache):
+    """Worker helper to validate cache proxy behavior after pickling."""
+    df = pd.DataFrame({"id": ["shared-probe"]})
+    try:
+        result, cache_key = cache.get(df, "Metrics", ["id"], ["id"])
+        if result is None:
+            cache.put(df, "Metrics", ["id"], ["id"], [{"source": "worker"}], cache_key)
+            result, _ = cache.get(df, "Metrics", ["id"], ["id"])
+        return {"status": "ok", "result": result, "stats": cache.get_statistics()}
+    except Exception as exc:
+        return {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
 
 
 @pytest.fixture
@@ -336,6 +350,35 @@ class TestSharedValidationCacheShutdown:
             cache.get(df, "Metrics", ["id"], ["id"])
         except Exception:
             pass  # Expected after shutdown
+
+
+class TestSharedValidationCacheSerialization:
+    """Test cache behavior when pickled and sent to worker processes."""
+
+    def test_process_pool_round_trip_preserves_shared_state(self):
+        """Worker writes should be visible in parent via shared Manager proxies."""
+        cache = SharedValidationCache(max_size=10, ttl_seconds=3600)
+        parent_df = pd.DataFrame({"id": ["shared-probe"]})
+
+        try:
+            with ProcessPoolExecutor(max_workers=1) as executor:
+                output = executor.submit(_shared_cache_processpool_worker, cache).result(timeout=30)
+
+            assert output["status"] == "ok", output.get("error", "worker failed")
+            worker_result = output["result"]
+            assert worker_result is not None
+            assert worker_result[0]["source"] == "worker"
+
+            parent_result, _ = cache.get(parent_df, "Metrics", ["id"], ["id"])
+            assert parent_result is not None
+            assert parent_result[0]["source"] == "worker"
+
+            parent_stats = cache.get_statistics()
+            assert parent_stats["size"] == 1
+            assert parent_stats["hits"] >= 1
+            assert parent_stats["misses"] >= 1
+        finally:
+            cache.shutdown()
 
 
 class TestSharedValidationCacheDataIntegrity:

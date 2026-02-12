@@ -31,22 +31,6 @@ from tqdm import tqdm
 
 # Dotenv loading is deferred to configure_cjapy() via api/client._bootstrap_dotenv()
 # to avoid filesystem I/O at import time.
-_DOTENV_AVAILABLE = False
-_DOTENV_LOADED = False
-
-
-def _load_dotenv_once() -> None:
-    """Load .env lazily on first call. No-op if already loaded or unavailable."""
-    global _DOTENV_AVAILABLE, _DOTENV_LOADED
-    if _DOTENV_LOADED or _DOTENV_AVAILABLE:
-        return
-    try:
-        from dotenv import load_dotenv
-
-        _DOTENV_AVAILABLE = True
-        _DOTENV_LOADED = load_dotenv()
-    except ImportError:
-        pass
 
 
 # Attempt to load argcomplete for shell tab-completion (optional dependency)
