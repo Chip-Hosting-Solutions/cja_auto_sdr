@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from cja_auto_sdr.core.colors import ConsoleColors
 from cja_auto_sdr.diff.models import DataViewSnapshot
@@ -22,7 +23,28 @@ class SnapshotManager:
 
     @staticmethod
     def _default_snapshot_timezone():
-        """Return the local timezone used for legacy naive snapshot timestamps."""
+        """Return a DST-aware local timezone for legacy naive snapshot timestamps."""
+        tz_env = os.environ.get("TZ", "").strip()
+        if tz_env:
+            try:
+                return ZoneInfo(tz_env)
+            except ZoneInfoNotFoundError:
+                pass
+
+        try:
+            return ZoneInfo("localtime")
+        except ZoneInfoNotFoundError:
+            pass
+
+        for localtime_path in ("/etc/localtime", "/var/db/timezone/zoneinfo/localtime"):
+            if not os.path.exists(localtime_path):
+                continue
+            try:
+                with open(localtime_path, "rb") as tz_file:
+                    return ZoneInfo.from_file(tz_file)
+            except OSError:
+                continue
+
         return datetime.now().astimezone().tzinfo or UTC
 
     def _parse_snapshot_created_at(self, created_at: str | None) -> datetime | None:

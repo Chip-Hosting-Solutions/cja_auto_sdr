@@ -4003,6 +4003,11 @@ def write_diff_html_output(
         logger.info("Generating diff HTML output...")
 
         _html_escape = html.escape  # Capture before nested functions shadow 'html'
+
+        def _safe_html_escape(value: Any) -> str:
+            """Escape arbitrary values safely for HTML rendering."""
+            return _html_escape("" if value is None else str(value))
+
         summary = diff_result.summary
         meta = diff_result.metadata_diff
         html_parts = []
@@ -4133,9 +4138,9 @@ def write_diff_html_output(
         # Metadata section
         html_parts.append(f"""
         <div class="metadata">
-            <p><strong>{_html_escape(diff_result.source_label)}:</strong> {_html_escape(meta.source_name)} (<code>{_html_escape(meta.source_id)}</code>)</p>
-            <p><strong>{_html_escape(diff_result.target_label)}:</strong> {_html_escape(meta.target_name)} (<code>{_html_escape(meta.target_id)}</code>)</p>
-            <p><strong>Generated:</strong> {_html_escape(str(diff_result.generated_at))}</p>
+            <p><strong>{_safe_html_escape(diff_result.source_label)}:</strong> {_safe_html_escape(meta.source_name)} (<code>{_safe_html_escape(meta.source_id)}</code>)</p>
+            <p><strong>{_safe_html_escape(diff_result.target_label)}:</strong> {_safe_html_escape(meta.target_name)} (<code>{_safe_html_escape(meta.target_id)}</code>)</p>
+            <p><strong>Generated:</strong> {_safe_html_escape(diff_result.generated_at)}</p>
         </div>
 """)
 
@@ -4145,8 +4150,8 @@ def write_diff_html_output(
         <table class="summary-table">
             <tr>
                 <th>Component</th>
-                <th>{_html_escape(diff_result.source_label)}</th>
-                <th>{_html_escape(diff_result.target_label)}</th>
+                <th>{_safe_html_escape(diff_result.source_label)}</th>
+                <th>{_safe_html_escape(diff_result.target_label)}</th>
                 <th>Added</th>
                 <th>Removed</th>
                 <th>Modified</th>

@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
@@ -461,6 +462,24 @@ class TestDiffOutputWriters:
         assert "<!DOCTYPE html>" in content
         assert "Data View Comparison Report" in content
         assert "<table" in content
+
+    def test_html_output_handles_none_metadata_fields(self, sample_diff_result, temp_output_dir, logger):
+        """HTML output should gracefully handle null metadata values."""
+        sample_diff_result.metadata_diff = MetadataDiff(
+            source_name=None,
+            target_name=None,
+            source_id=None,
+            target_id=None,
+        )
+
+        filepath = write_diff_html_output(sample_diff_result, "test_diff_none_meta", temp_output_dir, logger)
+
+        assert os.path.exists(filepath)
+        with open(filepath, encoding="utf-8") as f:
+            content = f.read()
+
+        assert "Data View Comparison Report" in content
+        assert "<code></code>" in content
 
     def test_excel_output(self, sample_diff_result, temp_output_dir, logger):
         """Test Excel output generation"""
@@ -3375,3 +3394,23 @@ class TestGetMostRecentSnapshot:
 
             result = manager.get_most_recent_snapshot(tmpdir, "dv_test")
             assert result == legacy_path
+
+    def test_legacy_timestamp_parsing_uses_dst_aware_zone_from_tz_env(self, monkeypatch):
+        """Legacy naive timestamps should honor DST when TZ is an IANA zone."""
+        from cja_auto_sdr.generator import SnapshotManager
+
+        try:
+            ZoneInfo("America/Los_Angeles")
+        except ZoneInfoNotFoundError:
+            pytest.skip("America/Los_Angeles zoneinfo not available in test environment")
+
+        manager = SnapshotManager()
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+
+        winter = manager._parse_snapshot_created_at("2024-01-15T12:00:00")
+        summer = manager._parse_snapshot_created_at("2024-07-15T12:00:00")
+
+        assert winter is not None
+        assert summer is not None
+        assert winter.hour == 20  # PST (UTC-8)
+        assert summer.hour == 19  # PDT (UTC-7)
