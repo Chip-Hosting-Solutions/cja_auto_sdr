@@ -436,6 +436,21 @@ def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
         assert current.lock_id == "live-local-pid"
 
 
+def test_lock_info_from_dict_rejects_modern_bool_pid() -> None:
+    payload = _build_lock_info("modern-bool-pid").to_dict()
+    payload["pid"] = True
+    assert LockInfo.from_dict(payload) is None
+
+
+def test_lock_info_from_dict_rejects_legacy_bool_pid() -> None:
+    payload = {
+        "pid": True,
+        "timestamp": time.time() - 60,
+        "started_at": datetime.now(UTC).isoformat(),
+    }
+    assert LockInfo.from_dict(payload) is None
+
+
 @pytest.mark.parametrize("invalid_pid", [0, -1, 10**40, True])
 def test_backend_pid_liveness_rejects_invalid_values(invalid_pid: int) -> None:
     assert backends_module._is_process_running(invalid_pid) is False
@@ -460,6 +475,25 @@ def test_lease_backend_reclaims_same_host_invalid_pid_metadata(invalid_pid: int)
         handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
         assert handle is not None
         backend.release(handle)
+
+
+def test_lease_backend_reclaims_stale_bool_pid_metadata() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("lease-marker\n", encoding="utf-8")
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+        payload = _build_lock_info("bool-pid-lock", backend="lease").to_dict()
+        payload["pid"] = True
+        metadata_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        old = time.time() - 10
+        os.utime(metadata_path, (old, old))
+
+        with patch.object(backends_module, "_is_process_running", return_value=True) as is_running:
+            backend = LeaseFileLockBackend()
+            handle = backend.acquire(lock_path, stale_threshold_seconds=1)
+            assert handle is not None
+            assert is_running.call_count == 0
+            backend.release(handle)
 
 
 def test_lease_backend_reclaims_local_fcntl_metadata_when_no_flock_held() -> None:

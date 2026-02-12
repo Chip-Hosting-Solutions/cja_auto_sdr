@@ -193,9 +193,12 @@ class LockInfo:
     @classmethod
     def _from_modern_dict(cls, data: dict[str, Any]) -> LockInfo | None:
         try:
+            pid = cls._coerce_pid(data["pid"])
+            if pid is None:
+                return None
             return cls(
                 lock_id=str(data["lock_id"]),
-                pid=int(data["pid"]),
+                pid=pid,
                 host=str(data["host"]),
                 owner=str(data.get("owner", "")),
                 started_at=str(data["started_at"]),
@@ -213,9 +216,8 @@ class LockInfo:
         if "pid" not in data:
             return None
 
-        try:
-            pid = int(data["pid"])
-        except (TypeError, ValueError, OverflowError):
+        pid = cls._coerce_pid(data["pid"])
+        if pid is None:
             return None
 
         started_at = cls._coerce_legacy_time(data.get("started_at"), data.get("timestamp"))
@@ -272,6 +274,15 @@ class LockInfo:
             return int(value)
         except (TypeError, ValueError, OverflowError):
             return default
+
+    @staticmethod
+    def _coerce_pid(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 def _parse_iso(value: str) -> datetime | None:

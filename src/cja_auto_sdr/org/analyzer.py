@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +67,8 @@ class OrgComponentAnalyzer:
         org_id: Organization ID
         cache: Optional OrgReportCache for incremental analysis
     """
+
+    _lock_health_poll_seconds = 0.25
 
     def __init__(
         self,
@@ -533,32 +535,46 @@ class OrgComponentAnalyzer:
                 leave=True,
                 disable=self.config.quiet,  # Suppress progress bar in quiet mode
             ) as pbar:
-                for future in as_completed(futures):
+                remaining = set(futures)
+                while remaining:
                     self._assert_lock_healthy()
-                    dv = futures[future]
-                    try:
-                        summary = future.result()
-                        summaries.append(summary)
+                    done, remaining = wait(
+                        remaining,
+                        timeout=self._lock_health_poll_seconds,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    if not done:
+                        # Poll lock health while all futures are still running.
+                        self._assert_lock_healthy()
+                        continue
 
-                        # Store in cache if enabled (batch to reduce disk writes)
-                        if self.config.use_cache and self.cache and not summary.error:
-                            pending_cache.append(summary)
+                    for future in done:
+                        dv = futures[future]
+                        try:
+                            summary = future.result()
+                            summaries.append(summary)
 
-                        if summary.error:
-                            pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
-                        else:
-                            pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
-                    except Exception as e:
-                        error_msg = str(e) or f"{type(e).__name__}"
-                        summaries.append(
-                            DataViewSummary(
-                                data_view_id=dv.get("id", "unknown"),
-                                data_view_name=dv.get("name", "Unknown"),
-                                error=error_msg,
+                            # Store in cache if enabled (batch to reduce disk writes)
+                            if self.config.use_cache and self.cache and not summary.error:
+                                pending_cache.append(summary)
+
+                            if summary.error:
+                                pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
+                            else:
+                                pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
+                        except LockOwnershipLostError:
+                            raise
+                        except Exception as e:
+                            error_msg = str(e) or f"{type(e).__name__}"
+                            summaries.append(
+                                DataViewSummary(
+                                    data_view_id=dv.get("id", "unknown"),
+                                    data_view_name=dv.get("name", "Unknown"),
+                                    error=error_msg,
+                                )
                             )
-                        )
-                    pbar.update(1)
-                    self._assert_lock_healthy()
+                        pbar.update(1)
+                        self._assert_lock_healthy()
         except LockOwnershipLostError:
             fail_closed_shutdown = True
             self._cancel_futures_best_effort(futures)

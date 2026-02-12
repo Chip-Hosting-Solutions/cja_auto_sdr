@@ -448,6 +448,7 @@ class TestAnalyzerLockIntegration:
     def test_fetch_cancels_executor_immediately_when_lock_is_lost(self):
         """Parallel fetch must not block on remaining futures after lock ownership loss."""
         import logging
+        from concurrent.futures import FIRST_COMPLETED
 
         class _FakeFuture:
             def __init__(self, result_value: DataViewSummary):
@@ -496,21 +497,98 @@ class TestAnalyzerLockIntegration:
             {"id": "dv_2", "name": "DV 2"},
         ]
 
-        def _fake_as_completed(futures_dict):  # type: ignore[no-untyped-def]
-            yield next(iter(futures_dict))
+        wait_calls = {"count": 0}
+
+        def _fake_wait(remaining, timeout, return_when):  # type: ignore[no-untyped-def]
+            wait_calls["count"] += 1
+            assert return_when == FIRST_COMPLETED
+            assert timeout == analyzer._lock_health_poll_seconds
+            first = next(iter(remaining))
+            rest = set(remaining)
+            rest.remove(first)
+            return {first}, rest
 
         with (
             patch("cja_auto_sdr.org.analyzer.ThreadPoolExecutor", _FakeExecutor),
-            patch("cja_auto_sdr.org.analyzer.as_completed", side_effect=_fake_as_completed),
+            patch("cja_auto_sdr.org.analyzer.wait", side_effect=_fake_wait),
             pytest.raises(LockOwnershipLostError),
         ):
             analyzer._fetch_all_data_views(data_views)
 
         executor = _FakeExecutor.last_instance
         assert executor is not None
+        assert wait_calls["count"] == 1
         assert executor.shutdown_calls == [(False, True)]
         assert len(executor.submitted) == 2
-        assert executor.submitted[1].cancel_called is True
+        assert all(future.cancel_called for future in executor.submitted)
+
+    def test_fetch_detects_lock_loss_while_waiting_for_futures(self):
+        """Lock loss should be detected during wait timeouts before any future completes."""
+        import logging
+        from concurrent.futures import FIRST_COMPLETED
+
+        class _FakeFuture:
+            def __init__(self):
+                self.cancel_called = False
+
+            def result(self) -> DataViewSummary:
+                return DataViewSummary(data_view_id="dv_x", data_view_name="DV X")
+
+            def cancel(self) -> bool:
+                self.cancel_called = True
+                return True
+
+        class _FakeExecutor:
+            last_instance = None
+
+            def __init__(self, *args, **kwargs):
+                self.submitted = []
+                self.shutdown_calls = []
+                _FakeExecutor.last_instance = self
+
+            def submit(self, fn, dv):  # type: ignore[no-untyped-def]
+                future = _FakeFuture()
+                self.submitted.append(future)
+                return future
+
+            def shutdown(self, wait=True, cancel_futures=False):  # type: ignore[no-untyped-def]
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_fetch_lock_loss_waiting")
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(quiet=True), logger)
+        analyzer._assert_lock_healthy = Mock(
+            side_effect=[
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+        )
+
+        data_views = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+
+        wait_calls = {"count": 0}
+
+        def _fake_wait(remaining, timeout, return_when):  # type: ignore[no-untyped-def]
+            wait_calls["count"] += 1
+            assert return_when == FIRST_COMPLETED
+            assert timeout == analyzer._lock_health_poll_seconds
+            return set(), set(remaining)
+
+        with (
+            patch("cja_auto_sdr.org.analyzer.ThreadPoolExecutor", _FakeExecutor),
+            patch("cja_auto_sdr.org.analyzer.wait", side_effect=_fake_wait),
+            pytest.raises(LockOwnershipLostError),
+        ):
+            analyzer._fetch_all_data_views(data_views)
+
+        executor = _FakeExecutor.last_instance
+        assert executor is not None
+        assert wait_calls["count"] == 1
+        assert executor.shutdown_calls == [(False, True)]
+        assert all(future.cancel_called for future in executor.submitted)
 
 
 class TestOrgReportConfig:
