@@ -20,6 +20,53 @@ class SnapshotManager:
     def __init__(self, logger: logging.Logger | None = None):
         self.logger = logger or logging.getLogger(__name__)
 
+    @staticmethod
+    def _default_snapshot_timezone():
+        """Return the local timezone used for legacy naive snapshot timestamps."""
+        return datetime.now().astimezone().tzinfo or UTC
+
+    def _parse_snapshot_created_at(self, created_at: str | None) -> datetime | None:
+        """Parse snapshot created_at into UTC datetime.
+
+        Legacy snapshots may store naive ISO timestamps (no offset). These are
+        interpreted as local time for backwards compatibility, then normalized
+        to UTC for ordering/comparison.
+        """
+        timestamp = (created_at or "").strip()
+        if not timestamp:
+            return None
+
+        normalized = f"{timestamp[:-1]}+00:00" if timestamp.endswith("Z") else timestamp
+
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=self._default_snapshot_timezone())
+
+        return parsed.astimezone(UTC)
+
+    def _snapshot_created_at_utc(self, snapshot: dict) -> datetime | None:
+        """Resolve snapshot created_at to UTC datetime with mtime fallback."""
+        parsed = self._parse_snapshot_created_at(snapshot.get("created_at", ""))
+        if parsed is not None:
+            return parsed
+
+        filepath = snapshot.get("filepath")
+        if filepath and os.path.exists(filepath):
+            try:
+                return datetime.fromtimestamp(os.path.getmtime(filepath), UTC)
+            except OSError:
+                return None
+        return None
+
+    def _snapshot_sort_key(self, snapshot: dict) -> datetime:
+        """Sort key for snapshots by normalized UTC created_at."""
+        created_at = self._snapshot_created_at_utc(snapshot)
+        return created_at if created_at is not None else datetime.min.replace(tzinfo=UTC)
+
     def create_snapshot(
         self,
         cja,
@@ -168,7 +215,7 @@ class SnapshotManager:
                 except OSError, json.JSONDecodeError:
                     continue
 
-        return sorted(snapshots, key=lambda x: x.get("created_at", ""), reverse=True)
+        return sorted(snapshots, key=self._snapshot_sort_key, reverse=True)
 
     def get_most_recent_snapshot(self, directory: str, data_view_id: str) -> str | None:
         """Get the filepath of the most recent snapshot for a specific data view."""
@@ -217,7 +264,6 @@ class SnapshotManager:
             return []
 
         cutoff_date = datetime.now(UTC) - timedelta(days=days)
-        cutoff_str = cutoff_date.isoformat()
 
         all_snapshots = self.list_snapshots(directory)
 
@@ -228,8 +274,11 @@ class SnapshotManager:
 
         deleted = []
         for snapshot in snapshots_to_check:
-            created_at = snapshot.get("created_at", "")
-            if created_at and created_at < cutoff_str:
+            snapshot_created_at = self._snapshot_created_at_utc(snapshot)
+            if snapshot_created_at is None:
+                continue
+
+            if snapshot_created_at < cutoff_date:
                 filepath = snapshot.get("filepath")
                 if filepath and os.path.exists(filepath):
                     try:
