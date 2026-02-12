@@ -282,13 +282,25 @@ def _parse_iso(value: str) -> datetime | None:
 
 
 def _is_process_running(pid: int) -> bool:
+    # Metadata can be malformed; never probe process groups/special values.
+    if isinstance(pid, bool):
+        return False
     try:
-        os.kill(pid, 0)
+        normalized_pid = int(pid)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if normalized_pid <= 0:
+        return False
+
+    try:
+        os.kill(normalized_pid, 0)
         return True
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    except OverflowError:
+        return False
     except OSError as e:
         return e.errno == errno.EPERM
 

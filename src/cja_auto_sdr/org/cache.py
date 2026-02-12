@@ -91,14 +91,24 @@ class OrgReportLock:
     @staticmethod
     def _is_process_running(pid: int) -> bool:
         """Legacy helper kept for compatibility with existing tests."""
+        if isinstance(pid, bool):
+            return False
         try:
-            os.kill(pid, 0)  # Signal 0 doesn't kill, just checks
+            normalized_pid = int(pid)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if normalized_pid <= 0:
+            return False
+        try:
+            os.kill(normalized_pid, 0)  # Signal 0 doesn't kill, just checks
             return True
         except ProcessLookupError:
             return False
         except PermissionError:
             # EPERM means the process exists but we do not have permission to signal it.
             return True
+        except OverflowError:
+            return False
         except OSError as e:
             return e.errno == errno.EPERM
 

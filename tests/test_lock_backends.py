@@ -436,6 +436,32 @@ def test_lease_backend_does_not_expire_local_live_pid_even_if_old() -> None:
         assert current.lock_id == "live-local-pid"
 
 
+@pytest.mark.parametrize("invalid_pid", [0, -1, 10**40, True])
+def test_backend_pid_liveness_rejects_invalid_values(invalid_pid: int) -> None:
+    assert backends_module._is_process_running(invalid_pid) is False
+
+
+@pytest.mark.parametrize("invalid_pid", [0, -1, 10**40])
+def test_lease_backend_reclaims_same_host_invalid_pid_metadata(invalid_pid: int) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        lock_path.write_text("lease-marker\n", encoding="utf-8")
+        info = _build_lock_info(
+            f"invalid-pid-{invalid_pid}",
+            owner="invalid-owner",
+            pid=invalid_pid,
+            host=socket.gethostname(),
+            backend="lease",
+        )
+        metadata_path = lock_path.with_name(f"{lock_path.name}.info")
+        metadata_path.write_text(json.dumps(info.to_dict()) + "\n", encoding="utf-8")
+
+        backend = LeaseFileLockBackend()
+        handle = backend.acquire(lock_path, stale_threshold_seconds=3600)
+        assert handle is not None
+        backend.release(handle)
+
+
 def test_lease_backend_reclaims_local_fcntl_metadata_when_no_flock_held() -> None:
     if backends_module.fcntl is None:
         pytest.skip("fcntl not available on this platform")

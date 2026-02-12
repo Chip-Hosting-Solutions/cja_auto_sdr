@@ -191,6 +191,10 @@ class TestOrgReportLock:
         with patch("os.kill", side_effect=PermissionError):
             assert OrgReportLock._is_process_running(12345) is True
 
+    @pytest.mark.parametrize("invalid_pid", [0, -1, 10**40, True])
+    def test_process_running_rejects_invalid_pid_values(self, invalid_pid):
+        assert OrgReportLock._is_process_running(invalid_pid) is False
+
     def test_corrupt_unlocked_lock_file_reclaimed_immediately(self):
         """Unreadable metadata must not block acquisition when no lock is held."""
         with tempfile.TemporaryDirectory() as tmpdir:
