@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.3] - 2026-02-12
+
+### Fixed
+- **HTML diff severity styling**: Severity styling was applied to the header row instead of data rows, and the last data row was silently dropped from output
+- **SharedValidationCache pickle failure**: Added `__getstate__`/`__setstate__` so cache survives `ProcessPoolExecutor` round-trips with `--shared-cache --workers > 1`
+- **retry_with_backoff implicit None return**: Wrapper could implicitly return `None` if the retry loop exited without returning or raising; now raises `RuntimeError`
+- **Heartbeat TOCTOU race**: Race between heartbeat and `release()` could cause spurious "lock lost" events when a lock was intentionally released
+- **HTML diff null metadata handling**: Diff output no longer crashes when metadata fields are `None`
+- **DST snapshot parsing**: Snapshot timestamp parsing now handles DST-ambiguous timestamps correctly
+- **Dotenv bootstrap ordering**: `load_dotenv()` now runs before CLI env-default parsing, ensuring `.env` values are available for argparse defaults
+- **Dotenv profile resolution**: Restored correct dotenv loading during profile resolution
+- **Snapshot timestamp normalization**: Snapshot retention now normalizes timestamps consistently for age-based pruning
+- **Inventory parsing hardening**: Calculated metrics, derived fields, and segments inventory parsers now handle mixed API payload shapes (missing keys, unexpected types) without crashing
+- **Stale metadata recommendations**: Restored stale metadata recommendation output in relevant contexts
+
+### Security
+- **HTML diff output escaping**: Added `html.escape()` to all diff HTML output — `diff.id`, `diff.name`, metadata names/IDs, and summary table headers were previously inserted as raw HTML
+- **Credential file permissions**: Temp credential file in `test_profile()` now created with `0o600` permissions instead of default umask
+
+### Performance
+- **Deferred dotenv loading**: `load_dotenv()` moved from import-time to lazy `_bootstrap_dotenv()` call, eliminating filesystem I/O during module import
+- **Vectorized org analyzer**: Replaced `iterrows()` with vectorized pandas operations for metric/dimension name capture and derived/standard counting (10-100x faster for large data views)
+
+### Changed
+- Enforced timezone-aware datetimes across all modules (DTZ ruff rule); all `datetime.now()` calls use `datetime.now(UTC)`
+- Cleaned up 52 unnecessary else-after-return patterns (RET ruff rule)
+- Enriched `pyproject.toml` with license, classifiers, and `[project.urls]` metadata
+
+### Tests
+- Added 57 new unit tests for quality policy functions (`normalize_quality_severity`, `count_quality_issues_by_severity`, `has_quality_issues_at_or_above`, `aggregate_quality_issues`, `load_quality_policy`, `apply_quality_policy_defaults`) and run summary inference (`_normalize_exit_code`, `_infer_run_status`, `_coerce_run_mode`)
+- Added `ProcessPoolExecutor` round-trip test for `SharedValidationCache` pickle support
+- Added CJA initialization tests for `configure_cjapy` and dotenv bootstrap
+- Added diff comparison tests for HTML null metadata handling and DST snapshot parsing
+- Added inventory parsing tests for calculated metrics, derived fields, and segments with mixed API payloads
+- Added output format tests for HTML severity row styling
+- Added org report vectorized analyzer tests
+- **1,679 tests** (1,677 passing, 2 skipped) — up from 1,668
+
 ## [3.2.2] - 2026-02-08
 
 ### Added
