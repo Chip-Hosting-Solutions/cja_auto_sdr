@@ -469,6 +469,21 @@ class SharedValidationCache:
             self._cache.clear()
             self._access_times.clear()
 
+    def __getstate__(self) -> dict[str, Any]:
+        """Support pickling for ProcessPoolExecutor by excluding non-picklable objects."""
+        state = self.__dict__.copy()
+        state["_logger_name"] = self.logger.name
+        del state["logger"]
+        del state["_manager"]
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore state after unpickling, reconstructing the logger."""
+        logger_name = state.pop("_logger_name")
+        self.__dict__.update(state)
+        self.logger = logging.getLogger(logger_name)
+        self._manager = None  # Manager lives on the parent side only
+
     def shutdown(self) -> None:
         """
         Shutdown the Manager and cleanup resources.
@@ -476,5 +491,6 @@ class SharedValidationCache:
         IMPORTANT: Call this after batch processing is complete to avoid
         resource leaks. The cache cannot be used after shutdown.
         """
-        with contextlib.suppress(Exception):
-            self._manager.shutdown()
+        if self._manager is not None:
+            with contextlib.suppress(Exception):
+                self._manager.shutdown()

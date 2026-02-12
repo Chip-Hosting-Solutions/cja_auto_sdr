@@ -631,22 +631,21 @@ class OrgComponentAnalyzer:
             if metrics_df is not None and not metrics_df.empty:
                 if "id" in metrics_df.columns:
                     metric_ids = set(metrics_df["id"].dropna().astype(str).tolist())
-                # Capture names if requested
+                # Capture names if requested (vectorized)
                 if self.config.include_names and "name" in metrics_df.columns:
-                    metric_names = {}
-                    for _, row in metrics_df.iterrows():
-                        if pd.notna(row.get("id")) and pd.notna(row.get("name")):
-                            metric_names[str(row["id"])] = str(row["name"])
-                # Count standard vs derived metrics
+                    valid = metrics_df.dropna(subset=["id", "name"])
+                    metric_names = dict(zip(valid["id"].astype(str), valid["name"].astype(str), strict=False))
+                # Count standard vs derived metrics (vectorized)
                 if self.config.include_component_types:
-                    for _, row in metrics_df.iterrows():
-                        # Check type or sourceFieldType for derived indicator
-                        comp_type = str(row.get("type", "")).lower()
-                        source_type = str(row.get("sourceFieldType", "")).lower()
-                        if "derived" in comp_type or "derived" in source_type:
-                            derived_metric_count += 1
-                        else:
-                            standard_metric_count += 1
+                    type_col = metrics_df.get("type", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
+                    source_col = (
+                        metrics_df.get("sourceFieldType", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
+                    )
+                    is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
+                        "derived", na=False
+                    )
+                    derived_metric_count = int(is_derived.sum())
+                    standard_metric_count = len(metrics_df) - derived_metric_count
 
             # Fetch dimensions
             dimensions_df = cja.getDimensions(dv_id, inclType=True, full=True)
@@ -657,22 +656,21 @@ class OrgComponentAnalyzer:
             if dimensions_df is not None and not dimensions_df.empty:
                 if "id" in dimensions_df.columns:
                     dimension_ids = set(dimensions_df["id"].dropna().astype(str).tolist())
-                # Capture names if requested
+                # Capture names if requested (vectorized)
                 if self.config.include_names and "name" in dimensions_df.columns:
-                    dimension_names = {}
-                    for _, row in dimensions_df.iterrows():
-                        if pd.notna(row.get("id")) and pd.notna(row.get("name")):
-                            dimension_names[str(row["id"])] = str(row["name"])
-                # Count standard vs derived dimensions
+                    valid = dimensions_df.dropna(subset=["id", "name"])
+                    dimension_names = dict(zip(valid["id"].astype(str), valid["name"].astype(str), strict=False))
+                # Count standard vs derived dimensions (vectorized)
                 if self.config.include_component_types:
-                    for _, row in dimensions_df.iterrows():
-                        # Check type or sourceFieldType for derived indicator
-                        comp_type = str(row.get("type", "")).lower()
-                        source_type = str(row.get("sourceFieldType", "")).lower()
-                        if "derived" in comp_type or "derived" in source_type:
-                            derived_dimension_count += 1
-                        else:
-                            standard_dimension_count += 1
+                    type_col = dimensions_df.get("type", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
+                    source_col = (
+                        dimensions_df.get("sourceFieldType", pd.Series(dtype=str)).fillna("").astype(str).str.lower()
+                    )
+                    is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
+                        "derived", na=False
+                    )
+                    derived_dimension_count = int(is_derived.sum())
+                    standard_dimension_count = len(dimensions_df) - derived_dimension_count
 
             # Fetch metadata if enabled
             owner = None

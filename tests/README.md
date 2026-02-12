@@ -48,10 +48,11 @@ tests/
 ├── test_main_entry_points.py        # main() and _main_impl() entry point tests
 ├── test_malformed_api_responses.py  # Negative tests for malformed API data
 ├── test_output_content_validation.py # Output format content validation tests
+├── test_quality_policy_and_run_summary.py # Quality policy and run summary tests
 └── README.md                        # This file
 ```
 
-**Total: 1,607 comprehensive tests**
+**Total: 1,664 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -94,8 +95,9 @@ tests/
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
+| `test_quality_policy_and_run_summary.py` | 57 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| **Total** | **1,607** | **Collected via pytest --collect-only** |
+| **Total** | **1,664** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -499,7 +501,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,607 tests total)
+- [x] Comprehensive test coverage (1,664 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 169 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
