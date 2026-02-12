@@ -1275,6 +1275,29 @@ class TestRetryArguments:
                 args = parse_arguments()
                 assert args.max_retries == 2
 
+    def test_dotenv_bootstrap_applies_env_backed_defaults(self):
+        """Parser defaults should honor values loaded from dotenv bootstrap."""
+        test_args = ["cja_sdr_generator.py", "dv_12345"]
+
+        def _bootstrap_side_effect(_logger):
+            os.environ["OUTPUT_DIR"] = "./dotenv-output"
+            os.environ["LOG_LEVEL"] = "WARNING"
+            os.environ["MAX_RETRIES"] = "9"
+            os.environ["CJA_PROFILE"] = "dotenv-profile"
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("cja_auto_sdr.generator._bootstrap_dotenv", side_effect=_bootstrap_side_effect) as mock_bootstrap,
+            patch.object(sys, "argv", test_args),
+        ):
+            args = parse_arguments()
+
+        assert args.output_dir == "./dotenv-output"
+        assert args.log_level == "WARNING"
+        assert args.max_retries == 9
+        assert args.profile == "dotenv-profile"
+        mock_bootstrap.assert_called_once()
+
     def test_invalid_retry_env_max_retries_falls_back_to_default(self):
         """Invalid MAX_RETRIES env values should not crash argument parsing."""
         from cja_auto_sdr.generator import DEFAULT_RETRY_CONFIG

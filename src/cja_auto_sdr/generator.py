@@ -29,8 +29,8 @@ import cjapy
 import pandas as pd
 from tqdm import tqdm
 
-# Dotenv loading is deferred to configure_cjapy() via api/client._bootstrap_dotenv()
-# to avoid filesystem I/O at import time.
+# Dotenv loading is intentionally performed during runtime paths (CLI parsing and
+# API configuration), not at import time, to avoid import-time filesystem I/O.
 
 
 # Attempt to load argcomplete for shell tab-completion (optional dependency)
@@ -1777,7 +1777,7 @@ def test_profile(profile_name: str) -> bool:
 
 # ==================== CONFIG VALIDATION (moved to core/config_validation.py) ====================
 # ==================== CJA CLIENT (moved to api/client.py) ====================
-from cja_auto_sdr.api.client import _config_from_env, configure_cjapy, initialize_cja
+from cja_auto_sdr.api.client import _bootstrap_dotenv, _config_from_env, configure_cjapy, initialize_cja
 from cja_auto_sdr.core.config_validation import (
     ConfigValidator,
     validate_config_file,
@@ -6642,6 +6642,10 @@ def parse_arguments(
         return_parser: When True, return the configured parser without parsing.
         enable_autocomplete: Enable argcomplete integration when available.
     """
+    # Load .env before reading any os.environ-backed defaults so options like
+    # --output-dir, --log-level, --max-retries, and --profile honor .env values.
+    _bootstrap_dotenv(logging.getLogger(__name__))
+
     parser = argparse.ArgumentParser(
         description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
