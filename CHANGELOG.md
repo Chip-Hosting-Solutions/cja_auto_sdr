@@ -123,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,664 tests** (1,662 passing, 2 skipped) — up from 1,607
+- **1,668 tests** (1,666 passing, 2 skipped) — up from 1,607
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient
