@@ -526,15 +526,20 @@ class DerivedFieldInventoryBuilder:
             # Process match (Case When) branches
             elif func_type == "match":
                 branches = func_obj.get("branches", [])
-                total_branches += len(branches)
+                if not isinstance(branches, list):
+                    branches = []
+
+                valid_branches = [branch for branch in branches if isinstance(branch, dict)]
+                total_branches += len(valid_branches)
 
                 # Count operators in branches
-                for branch in branches:
+                for branch in valid_branches:
                     total_operators += 1
                     pred = branch.get("pred", {})
-                    ops, depth = self._count_predicate_operators(pred)
-                    total_operators += ops
-                    max_nesting = max(max_nesting, depth)
+                    if isinstance(pred, dict):
+                        ops, depth = self._count_predicate_operators(pred)
+                        total_operators += ops
+                        max_nesting = max(max_nesting, depth)
 
         # Convert to display names
         functions_display = [
@@ -823,11 +828,28 @@ class DerivedFieldInventoryBuilder:
         short_name = extract_short_name(field_id)
         return short_name if short_name else "unknown"
 
+    def _normalize_label_key(self, value: Any) -> str:
+        """Normalize dynamic label/reference values to hashable string keys."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            for key in ("label", "field", "id", "name", "value"):
+                if key in value:
+                    normalized = self._normalize_label_key(value.get(key))
+                    if normalized:
+                        return normalized
+            return ""
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        return str(value).strip()
+
     def _build_label_map(self, functions: list[dict[str, Any]]) -> dict[str, str]:
         """Build a mapping from labels to field names/descriptions."""
         label_map = {}
         for func_obj in functions:
-            label = func_obj.get("label", "")
+            label = self._normalize_label_key(func_obj.get("label", ""))
             if not label:
                 continue
 
@@ -850,7 +872,7 @@ class DerivedFieldInventoryBuilder:
                     label_map[label] = str(component)
             elif func_type in ("lowercase", "uppercase", "trim", "split"):
                 # Use input field if available
-                field = func_obj.get("field", "")
+                field = self._normalize_label_key(func_obj.get("field", ""))
                 if field and field in label_map:
                     label_map[label] = f"{func_type}({label_map[field]})"
                 else:
@@ -868,11 +890,14 @@ class DerivedFieldInventoryBuilder:
                 continue
 
             branches = func_obj.get("branches", [])
+            if not isinstance(branches, list):
+                continue
+            branches = [branch for branch in branches if isinstance(branch, dict)]
             if not branches:
                 continue
 
             # Get the match field for predicates that don't specify their own field
-            match_field = func_obj.get("field", "")
+            match_field = self._normalize_label_key(func_obj.get("field", ""))
             if match_field in label_map:
                 match_field_resolved = label_map[match_field]
             else:
@@ -946,7 +971,7 @@ class DerivedFieldInventoryBuilder:
 
         if isinstance(map_to, dict):
             map_type = map_to.get("type", "")
-            map_value = map_to.get("value", "")
+            map_value = self._normalize_label_key(map_to.get("value", ""))
             if map_type == "field" and map_value:
                 # Try to resolve the field reference through label_map
                 if map_value in label_map:
@@ -985,6 +1010,7 @@ class DerivedFieldInventoryBuilder:
             # Fall back to direct field reference (CJA common format)
             field_ref = pred.get("field", "")
             if field_ref:
+                field_ref = self._normalize_label_key(field_ref)
                 # Try to resolve label to actual field name
                 if field_ref in label_map:
                     return label_map[field_ref]

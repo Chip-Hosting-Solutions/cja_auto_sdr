@@ -783,6 +783,42 @@ class TestEdgeCases:
         result_df = inventory.get_dataframe()
         assert result_df.iloc[0]["schema_field_list"] == "123"
 
+    def test_match_with_dict_field_references_does_not_crash(self):
+        """Dict-based match field references should be normalized safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "variables/pageName", "label": "page_label"},
+                {
+                    "func": "match",
+                    "field": {"label": "page_label"},
+                    "branches": [
+                        {
+                            "pred": {"func": "contains", "field": {"label": "page_label"}, "value": "home"},
+                            "map-to": {"type": "field", "value": {"label": "page_label"}},
+                        },
+                        {"pred": {"func": "true"}, "map-to": "Other"},
+                    ],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/page_category",
+                    "name": "Page Category",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert inventory.fields[0].logic_summary
+
     def test_nan_component_id_is_skipped(self):
         """Rows with NaN component IDs should be rejected as invalid IDs."""
         df = pd.DataFrame(
