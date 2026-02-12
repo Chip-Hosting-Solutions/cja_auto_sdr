@@ -179,6 +179,34 @@ class TestLoggingSetup:
         assert payload["nested"]["apiKey"] == "[REDACTED]"
         assert "abc123" not in payload["message"]
 
+    def test_json_formatter_redacts_quoted_key_value_payloads(self):
+        """Quoted JSON/dict-style sensitive key-value pairs should be redacted."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.quoted_payloads",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg=(
+                'payload={"access_token":"abc","client_secret":"def","authorization":"Bearer jwt-123"} '
+                'py={\'refreshToken\': \'ghi\', "apiKey": "jkl"}'
+            ),
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+        message = payload["message"]
+
+        for secret in ("abc", "def", "jwt-123", "ghi", "jkl"):
+            assert secret not in message
+
+        assert '"access_token":"[REDACTED]"' in message
+        assert '"client_secret":"[REDACTED]"' in message
+        assert '"authorization":"Bearer [REDACTED]"' in message
+        assert "'refreshToken': '[REDACTED]'" in message
+        assert '"apiKey": "[REDACTED]"' in message
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -204,6 +232,34 @@ class TestLoggingSetup:
             assert "hunter2" not in output
             assert "secret-value" not in output
             assert "token-value" not in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_quoted_payload_text(self):
+        """SensitiveDataFilter should redact quoted JSON/dict string payloads."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.quoted")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info('body={"access_token":"abc","client_secret":"def","authorization":"Bearer jwt-123"}')
+            output = stream.getvalue().strip()
+            assert "abc" not in output
+            assert "def" not in output
+            assert "jwt-123" not in output
+            assert '"access_token":"[REDACTED]"' in output
+            assert '"client_secret":"[REDACTED]"' in output
+            assert '"authorization":"Bearer [REDACTED]"' in output
         finally:
             logger.removeHandler(handler)
             for existing in original_handlers:

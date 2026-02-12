@@ -35,31 +35,44 @@ _SENSITIVE_KEY_REGEX = (
     r"client[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|api[_-]?key|apikey|"
     r"auth[_-]?header|private[_-]?key|password|passwd|pwd|secret|token"
 )
+_MESSAGE_VALUE_REGEX = r"""
+(?:
+    "(?:[^"\\]|\\.)*" |
+    '(?:[^'\\]|\\.)*' |
+    [^,\s;}\]]+
+)
+"""
+_AUTHORIZATION_KEY_REGEX = r"""(?:"authorization"|'authorization'|authorization)"""
 _AUTHORIZATION_SCHEME_PATTERN = re.compile(
-    r"(?i)\b(authorization\s*[:=]\s*)([A-Za-z]+)\s+([A-Za-z0-9._~+/=-]+)"
+    rf"""(?ix)
+    (?P<key>{_AUTHORIZATION_KEY_REGEX})
+    (?P<separator>\s*[:=]\s*)
+    (?P<value_quote>["']?)
+    (?P<scheme>[A-Za-z]+)\s+(?P<credential>[A-Za-z0-9._~+/=-]+)
+    (?P=value_quote)
+    """
 )
 _AUTHORIZATION_VALUE_PATTERN = re.compile(
-    r"""(?ix)
-    \b(authorization\s*[:=]\s*)
-    (?![A-Za-z]+\s+[A-Za-z0-9._~+/=\-\[\]]+)
-    (
-        "(?:[^"\\]|\\.)*" |
-        '(?:[^'\\]|\\.)*' |
-        [^,\s;]+
-    )
+    rf"""(?ix)
+    (?P<key>{_AUTHORIZATION_KEY_REGEX})
+    (?P<separator>\s*[:=]\s*)
+    (?!["']?[A-Za-z]+\s+[A-Za-z0-9._~+/=\-\[\]]+["']?)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
     """
 )
 _GENERIC_BEARER_PATTERN = re.compile(r"(?i)\b(bearer)\s+([A-Za-z0-9._~+/=-]+)")
-_SENSITIVE_KEY_VALUE_PATTERN = re.compile(
+_SENSITIVE_QUOTED_KEY_VALUE_PATTERN = re.compile(
     rf"""(?ix)
-    \b({_SENSITIVE_KEY_REGEX})\b
-    (\s*[:=]\s*)
-    (
-        [A-Za-z]+\s+[A-Za-z0-9._~+/=-]+ |
-        "(?:[^"\\]|\\.)*" |
-        '(?:[^'\\]|\\.)*' |
-        [^,\s;]+
-    )
+    (?P<full_key>["'](?:{_SENSITIVE_KEY_REGEX})["'])
+    (?P<separator>\s*[:=]\s*)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
+    """
+)
+_SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN = re.compile(
+    rf"""(?ix)
+    (?P<full_key>(?<![A-Za-z0-9_])(?:{_SENSITIVE_KEY_REGEX})(?![A-Za-z0-9_]))
+    (?P<separator>\s*[:=]\s*)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
     """
 )
 
@@ -98,22 +111,33 @@ def _redact_bearer_match(match: re.Match[str]) -> str:
     return f"{match.group(1)} {_REDACTED_VALUE}"
 
 
+def _redact_captured_value(value: str) -> str:
+    if len(value) >= 2 and value[0] in {"'", '"'} and value[-1] == value[0]:
+        return f"{value[0]}{_REDACTED_VALUE}{value[0]}"
+    return _REDACTED_VALUE
+
+
 def _redact_authorization_scheme_match(match: re.Match[str]) -> str:
-    return f"{match.group(1)}{match.group(2)} {_REDACTED_VALUE}"
+    quoted_value = f"{match.group('scheme')} {_REDACTED_VALUE}"
+    value_quote = match.group("value_quote")
+    if value_quote:
+        quoted_value = f"{value_quote}{quoted_value}{value_quote}"
+    return f"{match.group('key')}{match.group('separator')}{quoted_value}"
 
 
 def _redact_authorization_value_match(match: re.Match[str]) -> str:
-    return f"{match.group(1)}{_REDACTED_VALUE}"
+    return f"{match.group('key')}{match.group('separator')}{_redact_captured_value(match.group('value'))}"
 
 
 def _redact_key_value_match(match: re.Match[str]) -> str:
-    return f"{match.group(1)}{match.group(2)}{_REDACTED_VALUE}"
+    return f"{match.group('full_key')}{match.group('separator')}{_redact_captured_value(match.group('value'))}"
 
 
 def _redact_message(message: str) -> str:
-    redacted = _AUTHORIZATION_VALUE_PATTERN.sub(_redact_authorization_value_match, message)
-    redacted = _AUTHORIZATION_SCHEME_PATTERN.sub(_redact_authorization_scheme_match, redacted)
-    redacted = _SENSITIVE_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
+    redacted = _AUTHORIZATION_SCHEME_PATTERN.sub(_redact_authorization_scheme_match, message)
+    redacted = _AUTHORIZATION_VALUE_PATTERN.sub(_redact_authorization_value_match, redacted)
+    redacted = _SENSITIVE_QUOTED_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
+    redacted = _SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
     return _GENERIC_BEARER_PATTERN.sub(_redact_bearer_match, redacted)
 
 
