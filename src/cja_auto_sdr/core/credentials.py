@@ -285,11 +285,11 @@ class CredentialResolver:
         creds = loader.load(self.logger)
 
         if creds:
-            is_valid, _ = validate_credentials(creds, self.logger, strict=False, source="environment")
+            is_valid, _ = validate_credentials(creds, self.logger, strict=True, source="environment")
             if is_valid:
                 self.logger.info("Using credentials from environment variables")
                 return creds, "environment"
-            self.logger.debug("Environment credentials incomplete, trying next source")
+            self.logger.debug("Environment credentials invalid, trying next source")
 
         return None, ""
 

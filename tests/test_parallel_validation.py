@@ -15,6 +15,7 @@ import time
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.api.cache import ValidationCache
 from cja_auto_sdr.generator import DataQualityChecker
 
 
@@ -84,6 +85,55 @@ class TestParallelValidation:
 
         # Verify count is consistent and > 0
         assert expected_count > 0, "Should find some issues in test data"
+
+    def test_parallel_cache_isolation_between_metrics_and_dimensions(self):
+        """Cached issues from parallel workers should never bleed across item types."""
+        logger = logging.getLogger("test")
+
+        class SlowIssueChecker(DataQualityChecker):
+            # Slow issue recording to make interleaving deterministic for regression coverage.
+            def add_issue(self, *args, **kwargs):
+                time.sleep(0.002)
+                return super().add_issue(*args, **kwargs)
+
+        metrics_df = pd.DataFrame(
+            [
+                {"id": "m1", "name": "dup_metric", "type": "metric", "title": "Metric One", "description": ""},
+                {"id": "", "name": "dup_metric", "type": "metric", "title": None, "description": ""},
+            ]
+        )
+        dimensions_df = pd.DataFrame(
+            [
+                {"id": "d1", "name": "dimension_a", "type": "dimension", "title": "Dim A", "description": ""},
+                {"id": "d2", "name": "dimension_b", "type": "dimension", "title": "Dim B", "description": ""},
+            ]
+        )
+
+        required_fields = ["id", "name", "type"]
+        critical_fields = ["id", "name", "title", "description"]
+        validation_cache = ValidationCache(max_size=1000, ttl_seconds=3600, logger=logger)
+        checker = SlowIssueChecker(logger, validation_cache=validation_cache, quiet=True)
+
+        checker.check_all_parallel(
+            metrics_df=metrics_df,
+            dimensions_df=dimensions_df,
+            metrics_required_fields=required_fields,
+            dimensions_required_fields=required_fields,
+            critical_fields=critical_fields,
+            max_workers=2,
+        )
+
+        metrics_cached, _ = validation_cache.get(metrics_df, "Metrics", required_fields, critical_fields)
+        dimensions_cached, _ = validation_cache.get(dimensions_df, "Dimensions", required_fields, critical_fields)
+
+        assert metrics_cached is not None
+        assert dimensions_cached is not None
+        assert metrics_cached, "Metrics cache entry should include metrics issues"
+        assert dimensions_cached, "Dimensions cache entry should include dimensions issues"
+        assert all(issue["Type"] == "Metrics" for issue in metrics_cached)
+        assert all(issue["Type"] == "Dimensions" for issue in dimensions_cached)
+        assert any(issue["Category"] == "Duplicates" for issue in metrics_cached)
+        assert not any(issue["Category"] == "Duplicates" for issue in dimensions_cached)
 
     def test_parallel_performance_improvement(self, large_metrics_df, large_dimensions_df):
         """Verify parallel validation performs reasonably (may have overhead on small datasets)"""

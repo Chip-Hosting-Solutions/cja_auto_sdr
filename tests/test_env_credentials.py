@@ -1,12 +1,15 @@
 """Tests for environment variable credential loading"""
 
 import json
+import logging
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.core.config_validation import validate_credentials
+from cja_auto_sdr.core.credentials import CredentialResolver
 from cja_auto_sdr.generator import (
     ENV_VAR_MAPPING,
     _config_from_env,
@@ -110,6 +113,59 @@ class TestValidateEnvCredentials:
         assert result is True
         # Should log a warning about missing auth method
         logger.warning.assert_called()
+
+    def test_validate_credentials_strict_rejects_malformed_required_values(self):
+        """Strict validation should reject malformed required credential values."""
+        logger = logging.getLogger("test_validate_credentials")
+        credentials = {
+            "org_id": "not_an_adobe_org",
+            "client_id": "short",
+            "secret": "tiny",
+            "scopes": "openid",
+        }
+
+        is_valid, issues = validate_credentials(credentials, logger, strict=True, source="environment")
+
+        assert is_valid is False
+        assert any("ORG_ID" in issue for issue in issues)
+        assert any("CLIENT_ID" in issue for issue in issues)
+        assert any("SECRET" in issue for issue in issues)
+
+
+class TestCredentialResolverFallbacks:
+    """Tests for source fallback ordering when credentials are malformed."""
+
+    def test_invalid_environment_credentials_fall_back_to_config(self, tmp_path, clean_env):
+        """Invalid env values should not block valid config.json credentials."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "org_id": "valid_org@AdobeOrg",
+                    "client_id": "a" * 32,
+                    "secret": "b" * 32,
+                    "scopes": "openid",
+                }
+            ),
+            encoding="utf-8",
+        )
+        logger = logging.getLogger("test_credential_resolver")
+        resolver = CredentialResolver(logger)
+
+        with patch.dict(
+            os.environ,
+            {
+                "ORG_ID": "invalid_org",
+                "CLIENT_ID": "short",
+                "SECRET": "tiny",
+                "SCOPES": "openid",
+            },
+            clear=False,
+        ):
+            credentials, source = resolver.resolve(config_file=config_path)
+
+        assert source == "config:config.json"
+        assert credentials["org_id"] == "valid_org@AdobeOrg"
 
 
 class TestConfigFromEnv:

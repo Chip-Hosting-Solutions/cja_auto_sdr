@@ -44,6 +44,12 @@ class TestFormatIsoDate:
         result = format_iso_date("invalid-date-string-with-lots-of-text")
         assert result == "invalid-da"  # First 10 characters
 
+    def test_non_string_values_do_not_raise(self):
+        """Non-string API payload values should be handled safely."""
+        assert format_iso_date(123) == "123"
+        assert format_iso_date({"a": 1}) == "{'a': 1}"
+        assert format_iso_date(["x"]) == "['x']"
+
 
 class TestExtractOwner:
     """Tests for extract_owner function."""

@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Snapshot timestamp normalization**: Snapshot retention now normalizes timestamps consistently for age-based pruning
 - **Inventory parsing hardening**: Calculated metrics, derived fields, and segments inventory parsers now handle mixed API payload shapes (missing keys, unexpected types) without crashing
 - **Stale metadata recommendations**: Restored stale metadata recommendation output in relevant contexts
+- **Parallel validation cache bleed**: `_run_optimized_validation` used a shared-list slice to collect issues for caching; under concurrent execution two threads could capture each other's issues. Replaced with a per-call `local_issues` list so cache writes are isolated
+- **Environment credential strict validation**: `CredentialResolver` now applies strict validation to environment credentials, preventing malformed values (e.g. invalid org ID, too-short secrets) from being silently accepted — falls back to config file instead
+- **Diff false-positive on list ordering**: Inventory list fields (`functions_used`, `metric_references`, `segment_references`, `dimension_references`, `tags`) are now compared order-insensitively, eliminating false modifications when the API returns elements in a different order
+- **Snapshot version upgrade for empty inventories**: `DataViewSnapshot` now upgrades to v2.0 when inventory fields are explicitly present but empty (`[]`), not only when truthy
+- **`format_iso_date` non-string input**: Handles non-string API payload values (int, dict, list) by coercing to string instead of raising `TypeError`
+- **Org report description recommendation denominator**: Missing-description threshold now excludes errored data view fetches from the denominator, preventing inflated thresholds that suppressed valid recommendations
 
 ### Security
 - **HTML diff output escaping**: Added `html.escape()` to all diff HTML output — `diff.id`, `diff.name`, metadata names/IDs, and summary table headers were previously inserted as raw HTML
@@ -45,7 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added inventory parsing tests for calculated metrics, derived fields, and segments with mixed API payloads
 - Added output format tests for HTML severity row styling
 - Added org report vectorized analyzer tests
-- **1,679 tests** (1,677 passing, 2 skipped) — up from 1,668
+- Added parallel validation cache isolation test with interleaving coverage
+- Added strict credential validation and resolver fallback tests
+- Added diff order-insensitive list comparison test for inventory fields
+- Added snapshot v2.0 upgrade test for empty inventory arrays
+- Added `format_iso_date` non-string input test
+- Added org report description recommendation denominator test
+- **1,686 tests** (1,684 passing, 2 skipped) — up from 1,668
 
 ## [3.2.2] - 2026-02-08
 

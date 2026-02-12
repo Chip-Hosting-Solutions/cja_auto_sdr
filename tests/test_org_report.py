@@ -1272,6 +1272,43 @@ class TestOrgComponentAnalyzer:
         assert len(stale_recs) == 1
         assert stale_recs[0]["data_view"] == "dv_stale"
 
+    def test_missing_description_threshold_uses_successful_data_view_count(self, mock_cja, mock_logger):
+        """Description recommendation denominator should exclude errored fetches."""
+        config = OrgReportConfig(include_metadata=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_1",
+                "Healthy DV A",
+                metric_count=10,
+                dimension_count=5,
+                has_description=False,
+            ),
+            DataViewSummary(
+                "dv_2",
+                "Healthy DV B",
+                metric_count=10,
+                dimension_count=5,
+                has_description=True,
+            ),
+            DataViewSummary("dv_err_1", "Errored DV 1", error="permission denied"),
+            DataViewSummary("dv_err_2", "Errored DV 2", error="timeout"),
+            DataViewSummary("dv_err_3", "Errored DV 3", error="timeout"),
+            DataViewSummary("dv_err_4", "Errored DV 4", error="timeout"),
+        ]
+
+        recommendations = analyzer._generate_recommendations(
+            summaries,
+            {},
+            ComponentDistribution(),
+            None,
+        )
+
+        missing_desc_recs = [rec for rec in recommendations if rec.get("type") == "missing_descriptions"]
+        assert len(missing_desc_recs) == 1
+        assert missing_desc_recs[0]["count"] == 1
+
 
 class TestOutputWriters:
     """Test output writer functions"""

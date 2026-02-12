@@ -96,6 +96,13 @@ class DataViewComparator:
         "metric_references",
         "tags",
     ]
+    ORDER_INSENSITIVE_LIST_FIELDS: ClassVar[set[str]] = {
+        "functions_used",
+        "metric_references",
+        "segment_references",
+        "dimension_references",
+        "tags",
+    }
 
     def __init__(
         self,
@@ -300,8 +307,8 @@ class DataViewComparator:
             source_val = source.get(field)
             target_val = target.get(field)
 
-            source_normalized = self._normalize_value(source_val)
-            target_normalized = self._normalize_value(target_val)
+            source_normalized = self._normalize_value(source_val, field_name=field)
+            target_normalized = self._normalize_value(target_val, field_name=field)
 
             if source_normalized != target_normalized:
                 changed[field] = (source_val, target_val)
@@ -353,15 +360,15 @@ class DataViewComparator:
             source_val = source.get(field)
             target_val = target.get(field)
 
-            source_normalized = self._normalize_value(source_val)
-            target_normalized = self._normalize_value(target_val)
+            source_normalized = self._normalize_value(source_val, field_name=field)
+            target_normalized = self._normalize_value(target_val, field_name=field)
 
             if source_normalized != target_normalized:
                 changed[field] = (source_val, target_val)
 
         return changed
 
-    def _normalize_value(self, value: Any) -> Any:
+    def _normalize_value(self, value: Any, field_name: str | None = None) -> Any:
         if value is None:
             return ""
         try:
@@ -374,7 +381,11 @@ class DataViewComparator:
         if isinstance(value, dict):
             return self._normalize_dict(value)
         if isinstance(value, list):
-            return [self._normalize_value(v) for v in value]
+            normalized_list = [self._normalize_value(v) for v in value]
+            if field_name in self.ORDER_INSENSITIVE_LIST_FIELDS:
+                # Treat selected inventory-style lists as sets for stable comparison.
+                return sorted(normalized_list, key=repr)
+            return normalized_list
         return value
 
     def _normalize_dict(self, d: dict) -> dict:
@@ -382,7 +393,7 @@ class DataViewComparator:
             return {}
         result = {}
         for k, v in sorted(d.items()):
-            normalized = self._normalize_value(v)
+            normalized = self._normalize_value(v, field_name=k)
             if normalized != "" and normalized != {} and normalized != []:
                 result[k] = normalized
         return result

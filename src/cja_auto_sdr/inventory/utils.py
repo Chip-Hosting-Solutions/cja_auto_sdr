@@ -26,7 +26,7 @@ __version__ = "1.0.0"
 # ==================== DATE FORMATTING ====================
 
 
-def format_iso_date(iso_date: str) -> str:
+def format_iso_date(iso_date: Any) -> str:
     """Format ISO date string to readable format (YYYY-MM-DD HH:MM).
 
     Args:
@@ -35,16 +35,20 @@ def format_iso_date(iso_date: str) -> str:
     Returns:
         Formatted date string or "-" if invalid/empty
     """
-    if not iso_date:
+    if iso_date is None:
+        return "-"
+    value = iso_date if isinstance(iso_date, str) else str(iso_date)
+    value = value.strip()
+    if not value:
         return "-"
     try:
         # Handle various ISO formats including timezone
-        if "T" in iso_date:
-            dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+        if "T" in value:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%d %H:%M")
-        return iso_date[:10]  # Just the date part
+        return value[:10]  # Just the date part
     except ValueError, TypeError:
-        return iso_date[:19] if len(iso_date) > 19 else iso_date
+        return value[:19] if len(value) > 19 else value
 
 
 # ==================== OWNER/TAGS EXTRACTION ====================
