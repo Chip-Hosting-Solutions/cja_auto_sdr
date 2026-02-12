@@ -1420,7 +1420,7 @@ class DerivedFieldInventoryBuilder:
             if func_obj.get("func") != "depth":
                 continue
 
-            func_obj.get("delimiter", func_obj.get("separator", "/"))
+            delimiter = func_obj.get("delimiter", func_obj.get("separator", "/"))
             field_ref = func_obj.get("field", "")
             input_field = ""
 
@@ -1431,7 +1431,7 @@ class DerivedFieldInventoryBuilder:
                 input_field = field_ref
 
             if input_field:
-                return f"Counts depth of {input_field}"
+                return f"Counts depth of {input_field} using '{delimiter}' separator"
             return "Counts path depth"
 
         return "Depth counting"

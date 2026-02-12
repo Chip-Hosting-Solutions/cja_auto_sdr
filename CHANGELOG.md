@@ -77,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Strict profile import validation**: Non-interactive `--profile-import` now enforces strict credential format checks and reports full validation issues before writing profile config
 - **Org-report recommendation output fidelity**: Recommendation context is now normalized and preserved across HTML, Markdown, JSON, CSV, and Excel outputs, including data view pair details and non-primitive context values
 - **Org-report stdout preflight validation**: Unsupported `--org-report --output -` format combinations and unknown formats are now rejected before org analysis starts, preventing expensive fail-late execution
+- **Derived field depth logic summary**: `_describe_depth_logic` now includes the delimiter in its output instead of silently discarding the fetched value
+- **Lock metadata retry safety**: `_read_info_with_retries` now initializes `legacy_candidate` before the retry loop, preventing a potential `UnboundLocalError` if the loop body is refactored
+- **Lock backend fallback AttributeError masking**: `LockManager._acquire_with_result` now uses `hasattr` instead of a broad `except AttributeError`, preventing internal backend bugs from being silently swallowed as missing-method fallback
+- **Lock backend swap thread safety**: `LockManager.acquire()` now assigns the fallback backend under `_state_lock`, preventing concurrent readers from seeing a partially swapped backend reference
+- **Lock sidecar atomic-write cleanup**: `_write_info_path` now cleans up the temp file when `os.replace` fails, preventing orphaned temp files on cross-device or permission errors
+- **Org cache atomic write**: `OrgReportCache._save_cache` now writes to a temp file and atomically renames, preventing truncated/corrupt cache files from mid-write crashes
 
 ### Tests
 - Added `test_e2e_integration.py` — 16 end-to-end integration tests that mock only the API boundary and exercise the full pipeline (output writers, DQ checker, special character handling)

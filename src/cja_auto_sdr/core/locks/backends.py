@@ -77,7 +77,12 @@ def _write_info_path(path: Path, info: LockInfo) -> None:
     else:
         with contextlib.suppress(OSError):
             os.close(fd)
-        os.replace(tmp_path, path)
+        try:
+            os.replace(tmp_path, path)
+        except OSError:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+            raise
 
 
 def _read_info_path(path: Path) -> LockInfo | None:
@@ -605,6 +610,7 @@ class FcntlFileLockBackend:
 
     def _read_info_with_retries(self, lock_path: Path) -> _ReadInfoOutcome:
         metadata_path = _metadata_path(lock_path)
+        legacy_candidate = False
         for attempt in range(self.metadata_read_retry_attempts + 1):
             info = self.read_info(lock_path)
             if info is not None:

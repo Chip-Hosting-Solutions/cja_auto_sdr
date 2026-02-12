@@ -11,6 +11,7 @@ import errno
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -154,13 +155,19 @@ class OrgReportCache:
                 self._cache = {}
 
     def _save_cache(self) -> None:
-        """Save cache to disk."""
+        """Save cache to disk via atomic write-then-rename."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.cache_file.with_name(f".{self.cache_file.name}.{uuid.uuid4().hex}.tmp")
         try:
-            with open(self.cache_file, "w", encoding="utf-8") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f, indent=2, default=str)
+            os.replace(tmp_path, self.cache_file)
         except OSError as e:
             self.logger.warning(f"Failed to save org report cache to {self.cache_file}: {e}")
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
     def get(
         self,

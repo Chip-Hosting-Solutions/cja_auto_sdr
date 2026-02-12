@@ -1108,6 +1108,7 @@ class TestNewLogicSummaryHandlers:
 
         field = inventory.fields[0]
         assert "depth" in field.logic_summary.lower()
+        assert "'/'" in field.logic_summary  # delimiter included in output
 
     def test_profile_summary(self):
         """Test logic summary for profile function"""

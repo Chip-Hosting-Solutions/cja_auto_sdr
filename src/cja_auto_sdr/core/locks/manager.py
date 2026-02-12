@@ -107,8 +107,10 @@ class LockManager:
                 "fcntl backend unavailable for '%s'; falling back to lease backend",
                 self.lock_path,
             )
-            self.backend = LeaseFileLockBackend()
-            result = self._acquire_with_result(self.backend, self.lock_path, self.stale_threshold_seconds)
+            fallback = LeaseFileLockBackend()
+            result = self._acquire_with_result(fallback, self.lock_path, self.stale_threshold_seconds)
+            with self._state_lock:
+                self.backend = fallback
 
         if result.status == AcquireStatus.BACKEND_UNAVAILABLE:
             if result.error is not None:
@@ -248,15 +250,14 @@ class LockManager:
         lock_path: Path,
         stale_threshold_seconds: int,
     ) -> AcquireResult:
-        try:
+        if hasattr(backend, "acquire_result"):
             return backend.acquire_result(lock_path, stale_threshold_seconds)
-        except AttributeError:
-            try:
-                handle = backend.acquire(lock_path, stale_threshold_seconds)  # pragma: no cover
-            except LockBackendUnavailableError as e:
-                return AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=e)
-            except OSError as e:
-                return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
-            if handle is None:
-                return AcquireResult(status=AcquireStatus.CONTENDED)
-            return AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle)
+        try:
+            handle = backend.acquire(lock_path, stale_threshold_seconds)  # pragma: no cover
+        except LockBackendUnavailableError as e:
+            return AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=e)
+        except OSError as e:
+            return AcquireResult(status=AcquireStatus.METADATA_ERROR, error=e)
+        if handle is None:
+            return AcquireResult(status=AcquireStatus.CONTENDED)
+        return AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle)
