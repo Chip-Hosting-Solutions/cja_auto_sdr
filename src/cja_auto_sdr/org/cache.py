@@ -7,6 +7,7 @@ repeat analysis runs, and a lock mechanism to prevent concurrent runs.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import logging
@@ -164,10 +165,8 @@ class OrgReportCache:
             os.replace(tmp_path, self.cache_file)
         except OSError as e:
             self.logger.warning(f"Failed to save org report cache to {self.cache_file}: {e}")
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
 
     def get(
         self,
