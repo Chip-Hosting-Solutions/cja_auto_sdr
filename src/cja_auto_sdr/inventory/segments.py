@@ -514,6 +514,19 @@ class SegmentsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
+    def _normalize_reference_value(self, value: Any) -> str:
+        """Normalize variable API reference payloads (string/dict/etc.) into a short ID."""
+        if value is None:
+            return ""
+        if isinstance(value, dict):
+            for key in ("id", "name", "dimension", "metric", "segment", "value", "val"):
+                if key in value:
+                    candidate = self._normalize_reference_value(value.get(key))
+                    if candidate:
+                        return candidate
+            return ""
+        return extract_short_name(value)
+
     def _parse_definition(self, definition: dict[str, Any], depth: int = 0) -> dict[str, Any]:
         """
         Recursively parse a segment definition and extract all relevant data.
@@ -595,19 +608,23 @@ class SegmentsInventoryBuilder:
             # Extract dimension references using shared utility
             dimension = node.get("dimension", node.get("dim", ""))
             if dimension:
-                clean_name = extract_short_name(dimension)
-                dimension_refs.add(clean_name)
+                clean_name = self._normalize_reference_value(dimension)
+                if clean_name:
+                    dimension_refs.add(clean_name)
 
             # Extract metric references using shared utility
             metric = node.get("metric", "")
             if metric:
-                clean_name = extract_short_name(metric)
-                metric_refs.add(clean_name)
+                clean_name = self._normalize_reference_value(metric)
+                if clean_name:
+                    metric_refs.add(clean_name)
 
             # Extract segment references
             seg_ref = node.get("segment", node.get("seg", ""))
             if seg_ref:
-                segment_refs.add(seg_ref)
+                clean_name = self._normalize_reference_value(seg_ref)
+                if clean_name:
+                    segment_refs.add(clean_name)
 
             # Check for 'pred' which contains a predicate or nested structure
             pred = node.get("pred", {})
@@ -754,10 +771,9 @@ class SegmentsInventoryBuilder:
         if dimension_refs:
             if len(dimension_refs) == 1:
                 return f"{context_word} where {dimension_refs[0]} meets criteria"
-            elif len(dimension_refs) <= 3:
+            if len(dimension_refs) <= 3:
                 return f"{context_word} where {', '.join(dimension_refs)} meet criteria"
-            else:
-                return f"{context_word} with {len(dimension_refs)} dimension conditions"
+            return f"{context_word} with {len(dimension_refs)} dimension conditions"
 
         if metric_refs:
             if len(metric_refs) == 1:
@@ -823,11 +839,11 @@ class SegmentsInventoryBuilder:
         # Handle comparison operators
         dimension = node.get("dimension", node.get("dim", ""))
         if dimension:
-            dimension = dimension.split("/")[-1] if "/" in dimension else dimension
+            dimension = self._normalize_reference_value(dimension)
 
         metric = node.get("metric", "")
         if metric:
-            metric = metric.split("/")[-1] if "/" in metric else metric
+            metric = self._normalize_reference_value(metric)
 
         val = node.get("val", "")
         # Handle list values
@@ -864,7 +880,8 @@ class SegmentsInventoryBuilder:
                 return f"{field_name} ends with '{val}'"
         elif func == "matches":
             if field_name and val:
-                short_pattern = val[:20] + "..." if len(str(val)) > 20 else val
+                val_str = str(val)
+                short_pattern = val_str[:20] + "..." if len(val_str) > 20 else val_str
                 return f"{field_name} matches /{short_pattern}/"
         elif func == "exists":
             if field_name:

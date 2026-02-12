@@ -263,8 +263,7 @@ class CredentialResolver:
                 if is_valid:
                     self.logger.info(f"Using credentials from profile '{profile_name}'")
                     return creds, f"profile:{profile_name}"
-                else:
-                    self.logger.warning(f"Profile '{profile_name}' credentials have issues: {issues}")
+                self.logger.warning(f"Profile '{profile_name}' credentials have issues: {issues}")
         except ProfileNotFoundError as e:
             raise CredentialSourceError(
                 str(e), source=f"profile:{profile_name}", reason="Profile directory not found", details=e.details
@@ -290,8 +289,7 @@ class CredentialResolver:
             if is_valid:
                 self.logger.info("Using credentials from environment variables")
                 return creds, "environment"
-            else:
-                self.logger.debug("Environment credentials incomplete, trying next source")
+            self.logger.debug("Environment credentials incomplete, trying next source")
 
         return None, ""
 
@@ -323,14 +321,13 @@ class CredentialResolver:
             if is_valid:
                 self.logger.info(f"Using credentials from {config_file}")
                 return creds, f"config:{config_path.name}"
-            else:
-                # Config file exists but has issues
-                raise CredentialSourceError(
-                    f"Config file '{config_file}' has validation errors",
-                    source=f"config:{config_path.name}",
-                    reason="; ".join(issues[:3]),  # Show first 3 issues
-                    details="Fix the issues or use environment variables instead",
-                )
+            # Config file exists but has issues
+            raise CredentialSourceError(
+                f"Config file '{config_file}' has validation errors",
+                source=f"config:{config_path.name}",
+                reason="; ".join(issues[:3]),  # Show first 3 issues
+                details="Fix the issues or use environment variables instead",
+            )
 
         return None, ""
 

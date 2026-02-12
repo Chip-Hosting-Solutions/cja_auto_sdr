@@ -12,6 +12,8 @@ import json
 import os
 import sys
 import tempfile
+from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
@@ -248,6 +250,32 @@ class TestSnapshotManager:
         snapshots = manager.list_snapshots(str(tmp_path))
         assert snapshots == []
 
+    def test_list_snapshots_orders_by_normalized_utc_timestamp(self, tmp_path, logger):
+        """Snapshot listing should sort by UTC-normalized datetime, not raw strings."""
+        manager = SnapshotManager(logger)
+
+        older_in_utc = DataViewSnapshot(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            created_at="2024-01-01T10:30:00+05:00",  # 05:30 UTC
+            metrics=[],
+            dimensions=[],
+        )
+        newer_in_utc = DataViewSnapshot(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            created_at="2024-01-01T08:00:00+00:00",  # 08:00 UTC
+            metrics=[],
+            dimensions=[],
+        )
+
+        manager.save_snapshot(older_in_utc, str(tmp_path / "older.json"))
+        manager.save_snapshot(newer_in_utc, str(tmp_path / "newer.json"))
+
+        snapshots = manager.list_snapshots(str(tmp_path))
+        assert snapshots[0]["filename"] == "newer.json"
+        assert snapshots[1]["filename"] == "older.json"
+
 
 # ==================== DataViewComparator Tests ====================
 
@@ -434,6 +462,24 @@ class TestDiffOutputWriters:
         assert "<!DOCTYPE html>" in content
         assert "Data View Comparison Report" in content
         assert "<table" in content
+
+    def test_html_output_handles_none_metadata_fields(self, sample_diff_result, temp_output_dir, logger):
+        """HTML output should gracefully handle null metadata values."""
+        sample_diff_result.metadata_diff = MetadataDiff(
+            source_name=None,
+            target_name=None,
+            source_id=None,
+            target_id=None,
+        )
+
+        filepath = write_diff_html_output(sample_diff_result, "test_diff_none_meta", temp_output_dir, logger)
+
+        assert os.path.exists(filepath)
+        with open(filepath, encoding="utf-8") as f:
+            content = f.read()
+
+        assert "Data View Comparison Report" in content
+        assert "<code></code>" in content
 
     def test_excel_output(self, sample_diff_result, temp_output_dir, logger):
         """Test Excel output generation"""
@@ -3037,6 +3083,42 @@ class TestRetentionPolicy:
         deleted = manager.apply_retention_policy("/nonexistent/path", "dv_test", keep_last=5)
         assert deleted == []
 
+    def test_date_retention_uses_normalized_datetime_comparison(self):
+        """Date retention should delete based on actual timestamp, not lexical ordering."""
+        manager = SnapshotManager()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cutoff = datetime.now(UTC) - timedelta(days=30)
+
+            # Older than cutoff in absolute UTC time, but lexical string can appear newer.
+            old_utc = cutoff - timedelta(hours=2)
+            old_snapshot = DataViewSnapshot(
+                data_view_id="dv_test",
+                data_view_name="Test",
+                created_at=old_utc.astimezone(timezone(timedelta(hours=5))).isoformat(),
+                metrics=[],
+                dimensions=[],
+            )
+            old_path = os.path.join(tmpdir, "old_offset_snapshot.json")
+            manager.save_snapshot(old_snapshot, old_path)
+
+            # Newer than cutoff and should be retained.
+            new_snapshot = DataViewSnapshot(
+                data_view_id="dv_test",
+                data_view_name="Test",
+                created_at=(cutoff + timedelta(hours=2)).isoformat(),
+                metrics=[],
+                dimensions=[],
+            )
+            new_path = os.path.join(tmpdir, "new_snapshot.json")
+            manager.save_snapshot(new_snapshot, new_path)
+
+            deleted = manager.apply_date_retention_policy(tmpdir, "dv_test", keep_since_days=30)
+
+            assert old_path in deleted
+            assert not os.path.exists(old_path)
+            assert os.path.exists(new_path)
+
 
 class TestAutoSnapshotCLIArguments:
     """Tests for auto-snapshot CLI argument parsing"""
@@ -3279,3 +3361,56 @@ class TestGetMostRecentSnapshot:
         manager = SnapshotManager()
         result = manager.get_most_recent_snapshot("/nonexistent/path", "dv_test")
         assert result is None
+
+    def test_get_most_recent_snapshot_handles_mixed_legacy_and_utc_formats(self):
+        """Mixed naive/offset timestamps should resolve by normalized datetime order."""
+        from cja_auto_sdr.generator import DataViewSnapshot, SnapshotManager
+
+        manager = SnapshotManager()
+        manager._default_snapshot_timezone = lambda: UTC
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Legacy naive timestamp interpreted as UTC via patched default timezone.
+            legacy_snapshot = DataViewSnapshot(
+                data_view_id="dv_test",
+                data_view_name="Test View",
+                created_at="2024-01-01T10:00:00",
+                metrics=[],
+                dimensions=[],
+            )
+            legacy_path = os.path.join(tmpdir, "legacy_snapshot.json")
+            manager.save_snapshot(legacy_snapshot, legacy_path)
+
+            # Lexically looks newer (10:30 > 10:00) but is older in UTC (05:30 UTC).
+            utc_offset_snapshot = DataViewSnapshot(
+                data_view_id="dv_test",
+                data_view_name="Test View",
+                created_at="2024-01-01T10:30:00+05:00",
+                metrics=[],
+                dimensions=[],
+            )
+            offset_path = os.path.join(tmpdir, "offset_snapshot.json")
+            manager.save_snapshot(utc_offset_snapshot, offset_path)
+
+            result = manager.get_most_recent_snapshot(tmpdir, "dv_test")
+            assert result == legacy_path
+
+    def test_legacy_timestamp_parsing_uses_dst_aware_zone_from_tz_env(self, monkeypatch):
+        """Legacy naive timestamps should honor DST when TZ is an IANA zone."""
+        from cja_auto_sdr.generator import SnapshotManager
+
+        try:
+            ZoneInfo("America/Los_Angeles")
+        except ZoneInfoNotFoundError:
+            pytest.skip("America/Los_Angeles zoneinfo not available in test environment")
+
+        manager = SnapshotManager()
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+
+        winter = manager._parse_snapshot_created_at("2024-01-15T12:00:00")
+        summer = manager._parse_snapshot_created_at("2024-07-15T12:00:00")
+
+        assert winter is not None
+        assert summer is not None
+        assert winter.hour == 20  # PST (UTC-8)
+        assert summer.hour == 19  # PDT (UTC-7)

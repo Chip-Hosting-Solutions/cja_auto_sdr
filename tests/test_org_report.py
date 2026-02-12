@@ -784,8 +784,7 @@ class TestOrgComponentAnalyzer:
     @pytest.fixture
     def mock_cja(self):
         """Create mock CJA client"""
-        mock = Mock()
-        return mock
+        return Mock()
 
     @pytest.fixture
     def mock_logger(self):
@@ -821,6 +820,32 @@ class TestOrgComponentAnalyzer:
         assert "m_limited" in distribution.limited_metrics
         assert "m_isolated" in distribution.isolated_metrics
         assert "d_isolated" in distribution.isolated_dimensions
+
+    def test_fetch_components_counts_derived_without_type_column(self, mock_cja, mock_logger):
+        """sourceFieldType must still drive derived counts when type column is absent."""
+        config = OrgReportConfig(include_component_types=True, cja_per_thread=False)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {"id": "m_derived", "name": "Derived Metric", "sourceFieldType": "derived"},
+                {"id": "m_standard", "name": "Standard Metric", "sourceFieldType": "field"},
+            ]
+        )
+        mock_cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {"id": "d_derived", "name": "Derived Dimension", "sourceFieldType": "derived"},
+                {"id": "d_standard", "name": "Standard Dimension", "sourceFieldType": "custom"},
+            ]
+        )
+
+        summary = analyzer._fetch_data_view_components({"id": "dv_1", "name": "DV 1"})
+
+        assert summary.error is None
+        assert summary.derived_metric_count == 1
+        assert summary.standard_metric_count == 1
+        assert summary.derived_dimension_count == 1
+        assert summary.standard_dimension_count == 1
 
     def test_compute_distribution_with_min_count(self, mock_cja, mock_logger):
         """Test core_min_count overrides threshold"""
@@ -1219,6 +1244,33 @@ class TestOrgComponentAnalyzer:
         overlap_rec = [r for r in recommendations if r["type"] == "review_overlap"]
         assert len(overlap_rec) == 1
         assert overlap_rec[0]["similarity"] == 0.95
+
+    def test_generate_recommendations_stale_data_view_with_metadata(self, mock_cja, mock_logger):
+        """Stale recommendation should be generated for old metadata timestamps."""
+        config = OrgReportConfig(include_metadata=True)
+        analyzer = OrgComponentAnalyzer(mock_cja, config, mock_logger)
+
+        summaries = [
+            DataViewSummary(
+                "dv_stale",
+                "Legacy DV",
+                metric_count=10,
+                dimension_count=5,
+                modified="2000-01-01T00:00:00Z",
+                has_description=True,
+            )
+        ]
+
+        recommendations = analyzer._generate_recommendations(
+            summaries,
+            {},
+            ComponentDistribution(),
+            None,
+        )
+
+        stale_recs = [rec for rec in recommendations if rec.get("type") == "stale_data_view"]
+        assert len(stale_recs) == 1
+        assert stale_recs[0]["data_view"] == "dv_stale"
 
 
 class TestOutputWriters:

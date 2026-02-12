@@ -580,6 +580,23 @@ class TestEdgeCases:
 
         assert inventory.total_calculated_metrics == 0
 
+    def test_scalar_formula_is_supported(self):
+        """Scalar formulas should not crash summary generation."""
+        metric = {
+            "id": "cm_scalar",
+            "name": "Scalar Metric",
+            "description": "",
+            "definition": {"func": "calc-metric", "formula": 1.0},
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+        assert inventory.metrics[0].formula_summary == "1.0"
+
 
 # ==================== DATA CLASS TESTS ====================
 

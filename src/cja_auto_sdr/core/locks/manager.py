@@ -206,6 +206,8 @@ class LockManager:
             try:
                 self.backend.write_info(handle, refreshed_info)
             except OSError as e:
+                if self._heartbeat_stop.is_set():
+                    return  # Lock was intentionally released; not a real failure
                 self._handle_heartbeat_failure(e)
                 return
 

@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -29,16 +29,9 @@ import cjapy
 import pandas as pd
 from tqdm import tqdm
 
-# Attempt to load python-dotenv if available (optional dependency)
-_DOTENV_AVAILABLE = False
-_DOTENV_LOADED = False
-try:
-    from dotenv import load_dotenv
+# Dotenv loading is intentionally performed during runtime paths (CLI parsing and
+# API configuration), not at import time, to avoid import-time filesystem I/O.
 
-    _DOTENV_LOADED = load_dotenv()  # Returns True if .env file was found and loaded
-    _DOTENV_AVAILABLE = True
-except ImportError:
-    pass  # python-dotenv not installed
 
 # Attempt to load argcomplete for shell tab-completion (optional dependency)
 _ARGCOMPLETE_AVAILABLE = False
@@ -788,7 +781,7 @@ def write_quality_report_output(
     if output:
         output_path = Path(output)
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_path = Path(output_dir) / f"quality_report_{timestamp}.{report_format}"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1739,10 +1732,12 @@ def test_profile(profile_name: str) -> bool:
     print("3. Testing API connectivity...")
 
     try:
-        # Create temp config file
-        temp_config = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="cja_profile_test_")
-        json.dump(credentials, temp_config)
-        temp_config.close()
+        # Create temp config file with restrictive permissions
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="cja_profile_test_"
+        ) as temp_config:
+            os.chmod(temp_config.name, 0o600)
+            json.dump(credentials, temp_config)
 
         try:
             cjapy.importConfigFile(temp_config.name)
@@ -1757,12 +1752,11 @@ def test_profile(profile_name: str) -> bool:
                 print("Profile test: PASSED")
                 print()
                 return True
-            else:
-                print("   API connection: OK (no data views found)")
-                print()
-                print("Profile test: PASSED")
-                print()
-                return True
+            print("   API connection: OK (no data views found)")
+            print()
+            print("Profile test: PASSED")
+            print()
+            return True
 
         finally:
             os.unlink(temp_config.name)
@@ -1783,7 +1777,7 @@ def test_profile(profile_name: str) -> bool:
 
 # ==================== CONFIG VALIDATION (moved to core/config_validation.py) ====================
 # ==================== CJA CLIENT (moved to api/client.py) ====================
-from cja_auto_sdr.api.client import _config_from_env, configure_cjapy, initialize_cja
+from cja_auto_sdr.api.client import _bootstrap_dotenv, _config_from_env, configure_cjapy, initialize_cja
 from cja_auto_sdr.core.config_validation import (
     ConfigValidator,
     validate_config_file,
@@ -2654,26 +2648,49 @@ def write_html_output(
 
             icon = section_icons.get(sheet_name, "📄")
             html_parts.append('<div class="section">')
-            html_parts.append(f"<h2>{icon} {sheet_name}</h2>")
+            html_parts.append(f"<h2>{icon} {html.escape(sheet_name)}</h2>")
 
             # Convert DataFrame to HTML with custom styling
             df_html = df.to_html(index=False, escape=True, classes="data-table")
 
             # Add severity-based row classes for Data Quality sheet
             if sheet_name == "Data Quality" and "Severity" in df.columns:
-                rows = df_html.split("<tr>")
-                styled_rows = [rows[0]]  # Keep header
+                valid_severities = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
+                # Convert through pandas StringDtype first so categorical Severity columns
+                # can be normalized without fillna() category-assignment errors.
+                severities = df["Severity"].astype("string").fillna("").str.upper().tolist()
 
-                for i, row in enumerate(rows[1:], 1):
-                    if i <= len(df):
-                        severity = df.iloc[i - 1]["Severity"] if i - 1 < len(df) else ""
-                        if severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
-                            row = f'<tr class="severity-{severity}">' + row.split(">", 1)[1]
-                        else:
-                            row = "<tr>" + row
-                        styled_rows.append(row)
+                # Apply classes only to tbody rows so header <tr ...> formatting does not shift alignment.
+                tbody_match = re.search(r"(<tbody>)(.*?)(</tbody>)", df_html, flags=re.DOTALL)
+                if tbody_match:
+                    row_idx = 0
 
-                df_html = "".join(styled_rows)
+                    def _add_severity_class(
+                        match: re.Match[str],
+                        _severities: list[str] = severities,
+                        _valid_severities: set[str] = valid_severities,
+                    ) -> str:
+                        nonlocal row_idx
+                        row_open = match.group(0)
+                        if row_idx >= len(_severities):
+                            return row_open
+
+                        severity = _severities[row_idx]
+                        row_idx += 1
+                        if severity not in _valid_severities:
+                            return row_open
+
+                        if 'class="' in row_open:
+                            return re.sub(
+                                r'class="([^"]*)"',
+                                f'class="\\1 severity-{severity}"',
+                                row_open,
+                                count=1,
+                            )
+                        return row_open.replace("<tr", f'<tr class="severity-{severity}"', 1)
+
+                    styled_tbody = re.sub(r"<tr(?:\s[^>]*)?>", _add_severity_class, tbody_match.group(2))
+                    df_html = df_html[: tbody_match.start(2)] + styled_tbody + df_html[tbody_match.end(2) :]
 
             html_parts.append(df_html)
             html_parts.append("</div>")
@@ -2682,7 +2699,7 @@ def write_html_output(
         html_parts.append(f"""
         <div class="footer">
             <p>Generated by CJA SDR Generator v{__version__}</p>
-            <p>Generated at {metadata_dict.get("Generated At", "N/A")}</p>
+            <p>Generated at {html.escape(str(metadata_dict.get("Generated At", "N/A")))}</p>
         </div>
     </div>
 </body>
@@ -3202,9 +3219,9 @@ def _get_colored_symbol(change_type: ChangeType, use_color: bool = True) -> str:
         return symbol
     if change_type == ChangeType.ADDED:
         return ANSIColors.green(symbol, use_color)
-    elif change_type == ChangeType.REMOVED:
+    if change_type == ChangeType.REMOVED:
         return ANSIColors.red(symbol, use_color)
-    elif change_type == ChangeType.MODIFIED:
+    if change_type == ChangeType.MODIFIED:
         return ANSIColors.yellow(symbol, use_color)
     return symbol
 
@@ -3986,6 +4003,11 @@ def write_diff_html_output(
         logger.info("Generating diff HTML output...")
 
         _html_escape = html.escape  # Capture before nested functions shadow 'html'
+
+        def _safe_html_escape(value: Any) -> str:
+            """Escape arbitrary values safely for HTML rendering."""
+            return _html_escape("" if value is None else str(value))
+
         summary = diff_result.summary
         meta = diff_result.metadata_diff
         html_parts = []
@@ -4116,9 +4138,9 @@ def write_diff_html_output(
         # Metadata section
         html_parts.append(f"""
         <div class="metadata">
-            <p><strong>{diff_result.source_label}:</strong> {meta.source_name} (<code>{meta.source_id}</code>)</p>
-            <p><strong>{diff_result.target_label}:</strong> {meta.target_name} (<code>{meta.target_id}</code>)</p>
-            <p><strong>Generated:</strong> {diff_result.generated_at}</p>
+            <p><strong>{_safe_html_escape(diff_result.source_label)}:</strong> {_safe_html_escape(meta.source_name)} (<code>{_safe_html_escape(meta.source_id)}</code>)</p>
+            <p><strong>{_safe_html_escape(diff_result.target_label)}:</strong> {_safe_html_escape(meta.target_name)} (<code>{_safe_html_escape(meta.target_id)}</code>)</p>
+            <p><strong>Generated:</strong> {_safe_html_escape(diff_result.generated_at)}</p>
         </div>
 """)
 
@@ -4128,8 +4150,8 @@ def write_diff_html_output(
         <table class="summary-table">
             <tr>
                 <th>Component</th>
-                <th>{diff_result.source_label}</th>
-                <th>{diff_result.target_label}</th>
+                <th>{_safe_html_escape(diff_result.source_label)}</th>
+                <th>{_safe_html_escape(diff_result.target_label)}</th>
                 <th>Added</th>
                 <th>Removed</th>
                 <th>Modified</th>
@@ -4224,8 +4246,8 @@ def write_diff_html_output(
                 html += f'''
                 <tr class="{row_class}">
                     <td><span class="badge {badge_class}">{badge_text}</span></td>
-                    <td><code>{diff.id}</code></td>
-                    <td>{diff.name}</td>
+                    <td><code>{_html_escape(str(diff.id))}</code></td>
+                    <td>{_html_escape(str(diff.name))}</td>
                     <td>{detail_escaped}</td>
                 </tr>'''
 
@@ -4268,8 +4290,8 @@ def write_diff_html_output(
                     html += f'''
                     <tr class="{row_class}">
                         <td><span class="badge {badge_class}">{badge_text}</span></td>
-                        <td><code>{diff.id}</code></td>
-                        <td>{diff.name}</td>
+                        <td><code>{_html_escape(str(diff.id))}</code></td>
+                        <td>{_html_escape(str(diff.name))}</td>
                         <td>{detail_escaped}</td>
                     </tr>'''
 
@@ -4792,7 +4814,7 @@ def display_inventory_summary(
     summary = {
         "data_view_id": data_view_id,
         "data_view_name": data_view_name,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "inventories": {},
     }
 
@@ -5493,7 +5515,7 @@ def process_single_dataview(
             dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
 
             # Get current timezone and formatted timestamp
-            local_tz = datetime.now().astimezone().tzinfo
+            local_tz = datetime.now(UTC).astimezone().tzinfo
             current_time = datetime.now(local_tz)
             formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -6625,6 +6647,10 @@ def parse_arguments(
         return_parser: When True, return the configured parser without parsing.
         enable_autocomplete: Enable argcomplete integration when available.
     """
+    # Load .env before reading any os.environ-backed defaults so options like
+    # --output-dir, --log-level, --max-retries, and --profile honor .env values.
+    _bootstrap_dotenv(logging.getLogger(__name__))
+
     parser = argparse.ArgumentParser(
         description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -8362,7 +8388,7 @@ def _extract_connections_list(raw_connections: Any) -> list:
             # whether to process or skip it.
             return [raw_connections]
         return connections
-    elif isinstance(raw_connections, list):
+    if isinstance(raw_connections, list):
         return raw_connections
     return []
 
@@ -8673,33 +8699,32 @@ def _fetch_dataviews(
 
         if output_format == "json":
             return _format_as_json({"dataViews": display_data, "count": len(display_data)})
-        elif output_format == "csv":
+        if output_format == "csv":
             return _format_as_csv(["id", "name", "owner"], display_data)
-        else:
-            table = _format_as_table(
-                f"Found {len(display_data)} accessible data view(s):",
-                display_data,
-                columns=["id", "name", "owner"],
-                col_labels=["ID", "Name", "Owner"],
-            )
-            # Compute total width to match table separator for usage footer
-            labels = ["ID", "Name", "Owner"]
-            cols = ["id", "name", "owner"]
-            widths = [
-                max(len(lbl), max((len(str(item.get(col, ""))) for item in display_data), default=0)) + 2
-                for col, lbl in zip(cols, labels, strict=True)
-            ]
-            total_width = sum(widths)
-            footer_lines = [
-                "=" * total_width,
-                "Usage:",
-                "  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly",
-                '  cja_auto_sdr "<DATA_VIEW_NAME>"   # Use exact name (quotes recommended)',
-                "",
-                "Note: If multiple data views share the same name, all will be processed.",
-                "=" * total_width,
-            ]
-            return table + "\n".join(footer_lines)
+        table = _format_as_table(
+            f"Found {len(display_data)} accessible data view(s):",
+            display_data,
+            columns=["id", "name", "owner"],
+            col_labels=["ID", "Name", "Owner"],
+        )
+        # Compute total width to match table separator for usage footer
+        labels = ["ID", "Name", "Owner"]
+        cols = ["id", "name", "owner"]
+        widths = [
+            max(len(lbl), max((len(str(item.get(col, ""))) for item in display_data), default=0)) + 2
+            for col, lbl in zip(cols, labels, strict=True)
+        ]
+        total_width = sum(widths)
+        footer_lines = [
+            "=" * total_width,
+            "Usage:",
+            "  cja_auto_sdr <DATA_VIEW_ID>       # Use ID directly",
+            '  cja_auto_sdr "<DATA_VIEW_NAME>"   # Use exact name (quotes recommended)',
+            "",
+            "Note: If multiple data views share the same name, all will be processed.",
+            "=" * total_width,
+        ]
+        return table + "\n".join(footer_lines)
 
     return _inner
 
@@ -8795,7 +8820,7 @@ def _fetch_connections(
                             "warning": _PERM_WARNING.replace("\n", " "),
                         }
                     )
-                elif output_format == "csv":
+                if output_format == "csv":
                     flat = [
                         {
                             "connection_id": d["id"],
@@ -8811,16 +8836,15 @@ def _fetch_connections(
                         ["connection_id", "connection_name", "owner", "dataset_id", "dataset_name", "dataview_count"],
                         flat,
                     )
-                else:
-                    lines: list[str] = []
-                    lines.append("")
-                    lines.append(_PERM_WARNING)
-                    lines.append("")
-                    lines.append(f"Found {len(derived)} connection(s) referenced by data views:")
-                    lines.append("")
-                    lines.extend(f"  {d['id']}  ({d['dataview_count']} data view(s))" for d in derived)
-                    lines.append("")
-                    return "\n".join(lines)
+                lines: list[str] = []
+                lines.append("")
+                lines.append(_PERM_WARNING)
+                lines.append("")
+                lines.append(f"Found {len(derived)} connection(s) referenced by data views:")
+                lines.append("")
+                lines.extend(f"  {d['id']}  ({d['dataview_count']} data view(s))" for d in derived)
+                lines.append("")
+                return "\n".join(lines)
 
             # Genuinely no connections
             if is_machine_readable:
@@ -8863,7 +8887,7 @@ def _fetch_connections(
 
         if output_format == "json":
             return _format_as_json({"connections": display_data, "count": len(display_data)})
-        elif output_format == "csv":
+        if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset
             flat_rows: list[dict] = []
             for conn in display_data:
@@ -8891,22 +8915,21 @@ def _fetch_connections(
             return _format_as_csv(
                 ["connection_id", "connection_name", "owner", "dataset_id", "dataset_name"], flat_rows
             )
-        else:
-            lines: list[str] = []
+        lines: list[str] = []
+        lines.append("")
+        lines.append(f"Found {len(display_data)} accessible connection(s):")
+        lines.append("")
+        for conn in display_data:
+            lines.append(f"Connection: {conn['name']} ({conn['id']})")
+            lines.append(f"Owner: {conn['owner']}")
+            if conn["datasets"]:
+                lines.append(f"Datasets ({len(conn['datasets'])}):")
+                for ds in conn["datasets"]:
+                    lines.append(f"  {ds['id']}  {ds['name']}")
+            else:
+                lines.append("Datasets: (none)")
             lines.append("")
-            lines.append(f"Found {len(display_data)} accessible connection(s):")
-            lines.append("")
-            for conn in display_data:
-                lines.append(f"Connection: {conn['name']} ({conn['id']})")
-                lines.append(f"Owner: {conn['owner']}")
-                if conn["datasets"]:
-                    lines.append(f"Datasets ({len(conn['datasets'])}):")
-                    for ds in conn["datasets"]:
-                        lines.append(f"  {ds['id']}  {ds['name']}")
-                else:
-                    lines.append("Datasets: (none)")
-                lines.append("")
-            return "\n".join(lines)
+        return "\n".join(lines)
 
     return _inner
 
@@ -9051,7 +9074,7 @@ def _fetch_datasets(
 
         if output_format == "json":
             return _format_as_json(result_payload)
-        elif output_format == "csv":
+        if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset per data view
             flat_rows: list[dict] = []
             for entry in display_data:
@@ -9084,29 +9107,28 @@ def _fetch_datasets(
                 ["dataview_id", "dataview_name", "connection_id", "connection_name", "dataset_id", "dataset_name"],
                 flat_rows,
             )
-        else:
-            lines: list[str] = []
+        lines: list[str] = []
+        lines.append("")
+        if _no_conn_details:
+            lines.append(_CONN_PERM_WARNING)
             lines.append("")
-            if _no_conn_details:
-                lines.append(_CONN_PERM_WARNING)
-                lines.append("")
-            lines.append(f"Found {len(display_data)} data view(s) with dataset information:")
+        lines.append(f"Found {len(display_data)} data view(s) with dataset information:")
+        lines.append("")
+        for entry in display_data:
+            lines.append(f"Data View: {entry['name']} ({entry['id']})")
+            c_name = entry["connection"]["name"]
+            c_id = entry["connection"]["id"]
+            if c_name:
+                lines.append(f"Connection: {c_name} ({c_id})")
+            else:
+                lines.append(f"Connection: {c_id}")
+            if entry["datasets"]:
+                lines.append(f"Datasets ({len(entry['datasets'])}):")
+                lines.extend(f"  {ds['id']}  {ds['name']}" for ds in entry["datasets"])
+            elif not _no_conn_details:
+                lines.append("Datasets: (none)")
             lines.append("")
-            for entry in display_data:
-                lines.append(f"Data View: {entry['name']} ({entry['id']})")
-                c_name = entry["connection"]["name"]
-                c_id = entry["connection"]["id"]
-                if c_name:
-                    lines.append(f"Connection: {c_name} ({c_id})")
-                else:
-                    lines.append(f"Connection: {c_id}")
-                if entry["datasets"]:
-                    lines.append(f"Datasets ({len(entry['datasets'])}):")
-                    lines.extend(f"  {ds['id']}  {ds['name']}" for ds in entry["datasets"])
-                elif not _no_conn_details:
-                    lines.append("Datasets: (none)")
-                lines.append("")
-            return "\n".join(lines)
+        return "\n".join(lines)
 
     return _inner
 
@@ -9925,10 +9947,9 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         if missing:
             print(f"  ✗ Missing required fields: {', '.join(missing)}")
             return False
-        else:
-            print("  ✓ All required fields present")
-            print(f"  → Using: {source_name}")
-            return True
+        print("  ✓ All required fields present")
+        print(f"  → Using: {source_name}")
+        return True
 
     # Step 1: Check credentials (priority: profile > env > config file)
     print("[1/3] Checking credentials...")
@@ -10753,7 +10774,7 @@ def write_org_report_comparison_console(comparison: OrgReportComparison, quiet: 
     def trend_arrow(delta: int) -> str:
         if delta > 0:
             return f"↑{delta}"
-        elif delta < 0:
+        if delta < 0:
             return f"↓{abs(delta)}"
         return "→0"
 
@@ -11080,7 +11101,7 @@ def write_org_report_json(
     if output_path:
         file_path = output_path if str(output_path).endswith(".json") else Path(f"{output_path}.json")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.json"
 
     json_data = build_org_report_json_data(result)
@@ -11119,7 +11140,7 @@ def write_org_report_excel(
     if output_path:
         file_path = output_path if str(output_path).endswith(".xlsx") else Path(f"{output_path}.xlsx")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.xlsx"
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -11439,7 +11460,7 @@ def write_org_report_markdown(
     if output_path:
         file_path = output_path if str(output_path).endswith(".md") else Path(f"{output_path}.md")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.md"
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -11655,7 +11676,7 @@ def write_org_report_html(
     if output_path:
         file_path = output_path if str(output_path).endswith(".html") else Path(f"{output_path}.html")
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         file_path = Path(output_dir) / f"org_report_{result.org_id}_{timestamp}.html"
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -11986,7 +12007,7 @@ def write_org_report_csv(
     Returns:
         Path to the created directory containing CSV files
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
     # Determine output directory
     if output_path:
@@ -12764,7 +12785,7 @@ def handle_diff_command(
             # Determine effective format
             effective_format = "pr-comment" if format_pr_comment else output_format
 
-            base_filename = f"diff_{source_id}_{target_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            base_filename = f"diff_{source_id}_{target_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
             output_content = write_diff_output(
                 diff_result,
                 effective_format,
@@ -13140,7 +13161,7 @@ def handle_diff_snapshot_command(
             # Determine effective format
             effective_format = "pr-comment" if format_pr_comment else output_format
 
-            base_filename = f"diff_{data_view_id}_snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            base_filename = f"diff_{data_view_id}_snapshot_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
             output_content = write_diff_output(
                 diff_result,
                 effective_format,
@@ -13370,7 +13391,7 @@ def handle_compare_snapshots_command(
             # Generate base filename from snapshot names
             source_base = Path(source_file).stem
             target_base = Path(target_file).stem
-            base_filename = f"diff_{source_base}_vs_{target_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            base_filename = f"diff_{source_base}_vs_{target_base}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
             output_content = write_diff_output(
                 diff_result,
@@ -15311,7 +15332,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 def main():
     """Main entry point with optional run summary emission."""
 
-    summary_start = datetime.now().isoformat()
+    summary_start = datetime.now(UTC).isoformat()
     summary_start_perf = time.time()
     run_state: dict[str, Any] = {
         "mode": "unknown",
@@ -15356,7 +15377,7 @@ def main():
                 "summary_version": "1.0",
                 "tool_version": __version__,
                 "started_at": summary_start,
-                "ended_at": datetime.now().isoformat(),
+                "ended_at": datetime.now(UTC).isoformat(),
                 "duration_seconds": round(time.time() - summary_start_perf, 3),
                 "exit_code": exit_code,
                 "status": _infer_run_status(exit_code, run_state),

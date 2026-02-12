@@ -467,11 +467,30 @@ class CalculatedMetricsInventoryBuilder:
             return None
 
         # Get the formula from the definition
-        formula = definition.get("formula", {})
-        if not formula:
+        raw_formula = definition.get("formula")
+        if raw_formula is None:
             self.logger.warning(f"Skipping metric '{metric_name}' ({metric_id}) - no formula in definition")
             if stats:
                 stats.record_skip("no formula in definition", metric_id)
+            return None
+
+        if isinstance(raw_formula, str) and not raw_formula.strip():
+            self.logger.warning(f"Skipping metric '{metric_name}' ({metric_id}) - no formula in definition")
+            if stats:
+                stats.record_skip("no formula in definition", metric_id)
+            return None
+
+        if isinstance(raw_formula, (dict, list)) and len(raw_formula) == 0:
+            self.logger.warning(f"Skipping metric '{metric_name}' ({metric_id}) - no formula in definition")
+            if stats:
+                stats.record_skip("no formula in definition", metric_id)
+            return None
+
+        formula = self._normalize_formula_node(raw_formula)
+        if formula is None:
+            self.logger.warning(f"Skipping metric '{metric_name}' ({metric_id}) - unsupported formula format")
+            if stats:
+                stats.record_skip("unsupported formula format", metric_id)
             return None
 
         # Parse the formula
@@ -538,7 +557,7 @@ class CalculatedMetricsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
-    def _parse_formula(self, formula: dict[str, Any], depth: int = 0) -> dict[str, Any]:
+    def _parse_formula(self, formula: Any, depth: int = 0) -> dict[str, Any]:
         """
         Recursively parse a formula and extract all relevant data.
 
@@ -696,24 +715,37 @@ class CalculatedMetricsInventoryBuilder:
 
     def _generate_formula_summary(
         self,
-        formula: dict[str, Any],
+        formula: Any,
         parsed: dict[str, Any],
     ) -> str:
         """Generate a brief human-readable summary of what the calculated metric does."""
+        normalized_formula = self._normalize_formula_node(formula)
+        if not normalized_formula:
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                return str(formula)
+            if isinstance(formula, str) and formula.strip():
+                return formula.strip()
+            return "Custom calculated metric"
+
         # Unwrap visualization-group wrapper if present
-        actual_formula = formula
-        func = formula.get("func", "")
+        actual_formula = normalized_formula
+        func = actual_formula.get("func", "")
         if func == "visualization-group":
             # Try to find the actual formula inside
             for key in ["formula", "col", "metric", "col1"]:
-                if key in formula and isinstance(formula[key], dict):
-                    actual_formula = formula[key]
+                if key not in actual_formula:
+                    continue
+                nested_formula = self._normalize_formula_node(actual_formula[key])
+                if nested_formula is not None:
+                    actual_formula = nested_formula
                     break
             else:
                 # Check formulas array
-                formulas = formula.get("formulas", [])
-                if formulas and isinstance(formulas, list) and len(formulas) > 0:
-                    actual_formula = formulas[0]
+                formulas = actual_formula.get("formulas", [])
+                if formulas and isinstance(formulas, list):
+                    nested_formula = self._normalize_formula_node(formulas)
+                    if nested_formula is not None:
+                        actual_formula = nested_formula
 
         # Try to build a formula expression first
         formula_expr = self._build_formula_expression(actual_formula, max_depth=4)
@@ -728,114 +760,114 @@ class CalculatedMetricsInventoryBuilder:
 
         # Try to generate a meaningful description based on the primary operation
         if func == "divide":
-            col1 = formula.get("col1", {})
-            col2 = formula.get("col2", {})
+            col1 = actual_formula.get("col1", {})
+            col2 = actual_formula.get("col2", {})
             numerator = self._get_reference_name(col1)
             denominator = self._get_reference_name(col2)
             if numerator and denominator:
                 return f"{numerator} / {denominator}"
             return "Ratio calculation"
 
-        elif func == "multiply":
-            col1 = formula.get("col1", {})
-            col2 = formula.get("col2", {})
+        if func == "multiply":
+            col1 = actual_formula.get("col1", {})
+            col2 = actual_formula.get("col2", {})
             left = self._get_reference_name(col1)
             right = self._get_reference_name(col2)
             if left and right:
                 return f"{left} x {right}"
             return "Multiplication of metrics"
 
-        elif func == "add":
-            operands = self._get_add_operands(formula)
+        if func == "add":
+            operands = self._get_add_operands(actual_formula)
             if operands:
                 if len(operands) <= 3:
                     return " + ".join(operands)
                 return f"{' + '.join(operands[:2])} + {len(operands) - 2} more"
             return "Sum of metrics"
 
-        elif func == "subtract":
-            col1 = formula.get("col1", {})
-            col2 = formula.get("col2", {})
+        if func == "subtract":
+            col1 = actual_formula.get("col1", {})
+            col2 = actual_formula.get("col2", {})
             left = self._get_reference_name(col1)
             right = self._get_reference_name(col2)
             if left and right:
                 return f"{left} - {right}"
             return "Difference calculation"
 
-        elif func == "if":
-            condition_desc = self._describe_condition(formula)
+        if func == "if":
+            condition_desc = self._describe_condition(actual_formula)
             if condition_desc:
                 return f"If {condition_desc}"
             return "Conditional calculation"
 
-        elif func == "segment":
-            inner_metric = self._get_reference_name(formula.get("metric", {}))
-            segment_id = formula.get("segment_id", formula.get("id", ""))
+        if func == "segment":
+            inner_metric = self._get_reference_name(actual_formula.get("metric", {}))
+            segment_id = actual_formula.get("segment_id", actual_formula.get("id", ""))
             segment_name = self._get_short_id(segment_id)
             if inner_metric and segment_name:
                 return f"{inner_metric} filtered by {segment_name}"
-            elif inner_metric:
+            if inner_metric:
                 return f"{inner_metric} (filtered)"
             return "Segmented metric"
 
-        elif func == "metric":
-            name = formula.get("name", "")
+        if func == "metric":
+            name = actual_formula.get("name", "")
             clean_name = name.split("/")[-1] if "/" in name else name
             return f"= {clean_name}"
 
-        elif func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
+        if func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
             op_name = func.replace("col-", "").upper()
-            inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("metric", {})))
             if inner:
                 return f"{op_name}({inner})"
             return f"Column {op_name.title()} aggregation"
 
-        elif func in ("row-sum", "row-max", "row-min", "row-mean"):
+        if func in ("row-sum", "row-max", "row-min", "row-mean"):
             op_name = func.replace("row-", "").upper()
             return f"Row {op_name.title()} aggregation"
 
-        elif func == "cumulative":
-            inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
+        if func == "cumulative":
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("metric", {})))
             if inner:
                 return f"Cumulative({inner})"
             return "Cumulative calculation"
 
-        elif func == "rolling":
-            inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
-            window = formula.get("window", "")
+        if func == "rolling":
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("metric", {})))
+            window = actual_formula.get("window", "")
             if inner:
                 if window:
                     return f"Rolling {window}({inner})"
                 return f"Rolling({inner})"
             return "Rolling window calculation"
 
-        elif func in ("median", "percentile", "variance", "standard-deviation"):
-            inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
+        if func in ("median", "percentile", "variance", "standard-deviation"):
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("metric", {})))
             op_name = func.replace("-", " ").title()
             if inner:
                 if func == "percentile":
-                    pct = formula.get("percentile", formula.get("val", ""))
+                    pct = actual_formula.get("percentile", actual_formula.get("val", ""))
                     if pct:
                         return f"P{pct}({inner})"
                 return f"{op_name}({inner})"
             return f"{op_name} calculation"
 
-        elif func == "abs":
-            inner = self._get_reference_name(formula.get("col", formula.get("col1", {})))
+        if func == "abs":
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("col1", {})))
             if inner:
                 return f"ABS({inner})"
             return "Absolute value"
 
-        elif func in ("sqrt", "log", "log10", "exp", "ceil", "floor", "round"):
-            inner = self._get_reference_name(formula.get("col", formula.get("col1", {})))
+        if func in ("sqrt", "log", "log10", "exp", "ceil", "floor", "round"):
+            inner = self._get_reference_name(actual_formula.get("col", actual_formula.get("col1", {})))
             op_name = func.upper()
             if inner:
                 return f"{op_name}({inner})"
             return f"{op_name} function"
 
-        elif func == "pow":
-            base = self._get_reference_name(formula.get("col1", {}))
-            exp = self._get_reference_name(formula.get("col2", {}))
+        if func == "pow":
+            base = self._get_reference_name(actual_formula.get("col1", {}))
+            exp = self._get_reference_name(actual_formula.get("col2", {}))
             if base and exp:
                 return f"{base}^{exp}"
             return "Power calculation"
@@ -857,14 +889,13 @@ class CalculatedMetricsInventoryBuilder:
         if metric_refs:
             if len(metric_refs) == 1:
                 return f"Based on {metric_refs[0]}"
-            elif len(metric_refs) == 2:
+            if len(metric_refs) == 2:
                 return f"Combines {metric_refs[0]} and {metric_refs[1]}"
-            else:
-                return f"Combines {len(metric_refs)} metrics: {', '.join(metric_refs[:2])}, ..."
+            return f"Combines {len(metric_refs)} metrics: {', '.join(metric_refs[:2])}, ..."
 
         return "Custom calculated metric"
 
-    def _build_formula_expression(self, node: dict[str, Any], max_depth: int = 4) -> str:
+    def _build_formula_expression(self, node: Any, max_depth: int = 4) -> str:
         """Build a formula expression string like 'A / B' or 'SUM(A, B)'."""
         if not isinstance(node, dict) or max_depth <= 0:
             return ""
@@ -877,6 +908,12 @@ class CalculatedMetricsInventoryBuilder:
 
         if func == "number":
             val = node.get("val", "")
+            return str(val) if val is not None else ""
+
+        if func == "literal":
+            val = node.get("val", "")
+            if isinstance(val, str):
+                return val
             return str(val) if val is not None else ""
 
         if func == "divide":
@@ -923,7 +960,7 @@ class CalculatedMetricsInventoryBuilder:
             segment_name = self._get_short_id(segment_id)
             if inner and segment_name:
                 return f"{inner}[{segment_name}]"
-            elif inner:
+            if inner:
                 return f"{inner}[filtered]"
 
         if func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
@@ -937,7 +974,7 @@ class CalculatedMetricsInventoryBuilder:
             else_val = self._build_formula_expression(node.get("else", {}), max_depth - 1)
             if then_val and else_val:
                 return f"IF(..., {then_val}, {else_val})"
-            elif then_val:
+            if then_val:
                 return f"IF(..., {then_val})"
 
         if func in ("abs", "sqrt", "log", "log10", "exp", "ceil", "floor", "round", "negate"):
@@ -979,8 +1016,11 @@ class CalculatedMetricsInventoryBuilder:
 
         return ""
 
-    def _get_add_operands(self, formula: dict[str, Any]) -> list[str]:
+    def _get_add_operands(self, formula: Any) -> list[str]:
         """Extract all operands from an add operation."""
+        if not isinstance(formula, dict):
+            return []
+
         operands = []
         for key in ["col1", "col2"]:
             if key in formula:
@@ -994,8 +1034,11 @@ class CalculatedMetricsInventoryBuilder:
                     operands.append(name)
         return operands
 
-    def _describe_condition(self, formula: dict[str, Any]) -> str:
+    def _describe_condition(self, formula: Any) -> str:
         """Generate a brief description of an if condition."""
+        if not isinstance(formula, dict):
+            return ""
+
         condition = formula.get("condition", formula.get("cond", {}))
         if not isinstance(condition, dict):
             return ""
@@ -1065,6 +1108,10 @@ class CalculatedMetricsInventoryBuilder:
             val = node.get("val", "")
             return str(val) if val is not None else ""
 
+        if func == "literal":
+            val = node.get("val", "")
+            return str(val) if val is not None else ""
+
         if func == "segment":
             inner = node.get("metric", {})
             return self._get_reference_name(inner)
@@ -1078,6 +1125,34 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{op}({inner_name})"
 
         return ""
+
+    def _normalize_formula_node(self, node: Any) -> dict[str, Any] | None:
+        """Normalize formula payloads to a dict node for downstream parsing."""
+        if isinstance(node, dict):
+            return node
+
+        if isinstance(node, list):
+            for item in node:
+                normalized = self._normalize_formula_node(item)
+                if normalized is not None:
+                    return normalized
+            return None
+
+        if isinstance(node, bool):
+            return {"func": "literal", "val": node}
+
+        if isinstance(node, (int, float)):
+            return {"func": "number", "val": node}
+
+        if isinstance(node, str):
+            value = node.strip()
+            if not value:
+                return None
+            if "/" in value:
+                return {"func": "metric", "name": value}
+            return {"func": "literal", "val": value}
+
+        return None
 
 
 # ==================== MODULE EXPORTS ====================

@@ -619,7 +619,7 @@ Typical output sizes for a data view with 150 metrics and 75 dimensions:
 
 ## Testing
 
-The implementation includes 36 comprehensive tests covering:
+The implementation includes 37 comprehensive tests covering:
 
 - CSV file generation and data integrity
 - JSON structure and validity
@@ -717,7 +717,7 @@ Output format flexibility provides:
 - **Easy CLI Selection:** Simple `--format` flag
 - **Consistent Data:** Same data in all formats
 - **Optimized for Use Cases:** Right format for the right purpose
-- **Fully Tested:** 36 comprehensive tests
+- **Fully Tested:** 37 comprehensive tests
 - **Production Ready:** Zero breaking changes
 
 **Result:** Flexible integration options for automation, APIs, web viewing, documentation, and traditional reporting.

@@ -526,15 +526,20 @@ class DerivedFieldInventoryBuilder:
             # Process match (Case When) branches
             elif func_type == "match":
                 branches = func_obj.get("branches", [])
-                total_branches += len(branches)
+                if not isinstance(branches, list):
+                    branches = []
+
+                valid_branches = [branch for branch in branches if isinstance(branch, dict)]
+                total_branches += len(valid_branches)
 
                 # Count operators in branches
-                for branch in branches:
+                for branch in valid_branches:
                     total_operators += 1
                     pred = branch.get("pred", {})
-                    ops, depth = self._count_predicate_operators(pred)
-                    total_operators += ops
-                    max_nesting = max(max_nesting, depth)
+                    if isinstance(pred, dict):
+                        ops, depth = self._count_predicate_operators(pred)
+                        total_operators += ops
+                        max_nesting = max(max_nesting, depth)
 
         # Convert to display names
         functions_display = [
@@ -823,11 +828,28 @@ class DerivedFieldInventoryBuilder:
         short_name = extract_short_name(field_id)
         return short_name if short_name else "unknown"
 
+    def _normalize_label_key(self, value: Any) -> str:
+        """Normalize dynamic label/reference values to hashable string keys."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            for key in ("label", "field", "id", "name", "value"):
+                if key in value:
+                    normalized = self._normalize_label_key(value.get(key))
+                    if normalized:
+                        return normalized
+            return ""
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        return str(value).strip()
+
     def _build_label_map(self, functions: list[dict[str, Any]]) -> dict[str, str]:
         """Build a mapping from labels to field names/descriptions."""
         label_map = {}
         for func_obj in functions:
-            label = func_obj.get("label", "")
+            label = self._normalize_label_key(func_obj.get("label", ""))
             if not label:
                 continue
 
@@ -850,7 +872,7 @@ class DerivedFieldInventoryBuilder:
                     label_map[label] = str(component)
             elif func_type in ("lowercase", "uppercase", "trim", "split"):
                 # Use input field if available
-                field = func_obj.get("field", "")
+                field = self._normalize_label_key(func_obj.get("field", ""))
                 if field and field in label_map:
                     label_map[label] = f"{func_type}({label_map[field]})"
                 else:
@@ -868,11 +890,14 @@ class DerivedFieldInventoryBuilder:
                 continue
 
             branches = func_obj.get("branches", [])
+            if not isinstance(branches, list):
+                continue
+            branches = [branch for branch in branches if isinstance(branch, dict)]
             if not branches:
                 continue
 
             # Get the match field for predicates that don't specify their own field
-            match_field = func_obj.get("field", "")
+            match_field = self._normalize_label_key(func_obj.get("field", ""))
             if match_field in label_map:
                 match_field_resolved = label_map[match_field]
             else:
@@ -946,7 +971,7 @@ class DerivedFieldInventoryBuilder:
 
         if isinstance(map_to, dict):
             map_type = map_to.get("type", "")
-            map_value = map_to.get("value", "")
+            map_value = self._normalize_label_key(map_to.get("value", ""))
             if map_type == "field" and map_value:
                 # Try to resolve the field reference through label_map
                 if map_value in label_map:
@@ -955,7 +980,7 @@ class DerivedFieldInventoryBuilder:
                 # Otherwise show a cleaner version
                 short_name = self._get_field_short_name(map_value)
                 return f"[{short_name}]"
-            elif "val" in map_to:
+            if "val" in map_to:
                 val = map_to["val"]
                 return f'"{val}"' if isinstance(val, str) else str(val)
             return "[dynamic]"
@@ -985,6 +1010,7 @@ class DerivedFieldInventoryBuilder:
             # Fall back to direct field reference (CJA common format)
             field_ref = pred.get("field", "")
             if field_ref:
+                field_ref = self._normalize_label_key(field_ref)
                 # Try to resolve label to actual field name
                 if field_ref in label_map:
                     return label_map[field_ref]
@@ -1010,7 +1036,7 @@ class DerivedFieldInventoryBuilder:
             value = get_value()
             if field and value is not None:
                 return f'{field}="{value}"' if isinstance(value, str) else f"{field}={value}"
-            elif value is not None:
+            if value is not None:
                 # No field specified, just show the value match
                 return f'="{value}"' if isinstance(value, str) else f"={value}"
         elif func in ("ne", "strne"):
@@ -1018,7 +1044,7 @@ class DerivedFieldInventoryBuilder:
             value = get_value()
             if field and value is not None:
                 return f'{field}≠"{value}"' if isinstance(value, str) else f"{field}≠{value}"
-            elif value is not None:
+            if value is not None:
                 return f'≠"{value}"' if isinstance(value, str) else f"≠{value}"
         elif func == "gt":
             field = get_field()
@@ -1119,7 +1145,7 @@ class DerivedFieldInventoryBuilder:
                 if key_field and value_field:
                     dataset_name = dataset.split("/")[-1] if dataset else "lookup"
                     return f"Lookup: {self._get_field_short_name(key_field)} → {self._get_field_short_name(value_field)} from {dataset_name}"
-                elif key_field:
+                if key_field:
                     return f"Lookup by {self._get_field_short_name(key_field)}"
 
         return ""
@@ -1232,7 +1258,7 @@ class DerivedFieldInventoryBuilder:
 
             if field_name and scope:
                 return f"Deduplicate {field_name} per {scope}"
-            elif field_name:
+            if field_name:
                 return f"Deduplicate {field_name}"
 
         return "Deduplicates values"
@@ -1277,11 +1303,11 @@ class DerivedFieldInventoryBuilder:
             func = func_obj.get("func", "")
             if func == "divide" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} / {field_names[1]}"
-            elif func == "multiply" and len(field_names) >= 2:
+            if func == "multiply" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} x {field_names[1]}"
-            elif func == "add" and len(field_names) >= 2:
+            if func == "add" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} + {field_names[1]}"
-            elif func == "subtract" and len(field_names) >= 2:
+            if func == "subtract" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} - {field_names[1]}"
 
         return ""
@@ -1305,7 +1331,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and target_type:
                 return f"Converts {input_field} to {target_type}"
-            elif target_type:
+            if target_type:
                 return f"Converts to {target_type}"
 
         return "Type conversion"
@@ -1328,7 +1354,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and interval:
                 return f"Buckets {input_field} by {interval}"
-            elif interval:
+            if interval:
                 return f"Date bucketing by {interval}"
 
         return "Date bucketing"
@@ -1351,7 +1377,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and component:
                 return f"Extracts {component} from {input_field}"
-            elif component:
+            if component:
                 return f"Extracts {component} from date"
 
         return "Date component extraction"
@@ -1375,9 +1401,9 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and src_tz and dst_tz:
                 return f"Shifts {input_field} from {src_tz} to {dst_tz}"
-            elif src_tz and dst_tz:
+            if src_tz and dst_tz:
                 return f"Timezone shift from {src_tz} to {dst_tz}"
-            elif dst_tz:
+            if dst_tz:
                 return f"Timezone shift to {dst_tz}"
 
         return "Timezone shift"
@@ -1409,7 +1435,7 @@ class DerivedFieldInventoryBuilder:
                 if replace_val:
                     return f"Replaces '{find_val}' with '{replace_val}' in {input_field}"
                 return f"Removes '{find_val}' from {input_field}"
-            elif find_val:
+            if find_val:
                 if replace_val:
                     return f"Replaces '{find_val}' with '{replace_val}'"
                 return f"Removes '{find_val}'"

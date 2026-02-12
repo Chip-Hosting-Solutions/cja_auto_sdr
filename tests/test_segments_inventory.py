@@ -628,6 +628,34 @@ class TestEdgeCases:
 
         assert inventory.total_segments == 0
 
+    def test_dict_references_are_normalized(self):
+        """Dict-shaped references in definitions should not crash parsing."""
+        segment = {
+            "id": "s_dict_refs",
+            "name": "Dict Refs",
+            "description": "",
+            "definition": {
+                "func": "container",
+                "context": "hits",
+                "pred": {
+                    "func": "and",
+                    "preds": [
+                        {"func": "segment", "segment": {"id": "segments/s_reference"}},
+                        {"func": "eq", "dimension": {"id": "variables/pageurl"}, "val": "checkout"},
+                    ],
+                },
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+        assert "s_reference" in inventory.segments[0].other_segment_references
+        assert "pageurl" in inventory.segments[0].dimension_references
+
 
 # ==================== DATA CLASS TESTS ====================
 

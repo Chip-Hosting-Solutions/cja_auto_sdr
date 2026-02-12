@@ -800,6 +800,10 @@ def retry_with_backoff(
                     _logger.error(f"{func.__name__} failed with non-retryable error: {e!s}")
                     raise
 
+            # Defensive guard: should be unreachable since the last attempt
+            # always returns or raises, but protects against implicit None.
+            raise RuntimeError(f"Retry loop exited unexpectedly for {func.__name__}")
+
         return wrapper
 
     return decorator
@@ -928,3 +932,4 @@ def make_api_call_with_retry[T](
 
     if last_exception:
         raise last_exception
+    raise RuntimeError(f"Retry loop exited unexpectedly for {operation_name}")
