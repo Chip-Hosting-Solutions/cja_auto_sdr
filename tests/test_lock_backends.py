@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 
 import cja_auto_sdr.core.locks.backends as backends_module
+from cja_auto_sdr.core.exceptions import LockOwnershipLostError
 from cja_auto_sdr.core.locks.backends import (
     AcquireStatus,
     FcntlFileLockBackend,
@@ -165,6 +166,42 @@ def test_lock_manager_heartbeat_updates_lease_metadata() -> None:
 
         manager.release()
         assert refreshed is True
+
+
+def test_lock_manager_fails_closed_when_lease_heartbeat_write_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_path = Path(tmpdir) / "lease.lock"
+        manager = LockManager(
+            lock_path=lock_path,
+            owner="test-owner",
+            stale_threshold_seconds=1,
+            backend_name="lease",
+        )
+        assert manager.acquire() is True
+
+        original_release = manager.backend.release
+        release_calls = {"count": 0}
+
+        def _release_wrapper(handle):  # type: ignore[no-untyped-def]
+            release_calls["count"] += 1
+            return original_release(handle)
+
+        monkeypatch.setattr(manager.backend, "release", _release_wrapper)
+        monkeypatch.setattr(
+            manager.backend,
+            "write_info",
+            lambda handle, info: (_ for _ in ()).throw(OSError(errno.EIO, "heartbeat write failed")),
+        )
+
+        deadline = time.time() + 4
+        while time.time() < deadline and not manager.lock_lost:
+            time.sleep(0.05)
+
+        assert manager.lock_lost is True
+        assert manager.acquired is False
+        assert release_calls["count"] >= 1
+        with pytest.raises(LockOwnershipLostError):
+            manager.ensure_held()
 
 
 def test_lock_manager_writes_metadata_to_sidecar_file() -> None:

@@ -7,10 +7,12 @@ import os
 import socket
 import threading
 import uuid
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cja_auto_sdr.core.exceptions import LockOwnershipLostError
 from cja_auto_sdr.core.locks.backends import (
     AcquireResult,
     AcquireStatus,
@@ -80,15 +82,24 @@ class LockManager:
 
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
+        self._state_lock = threading.RLock()
+        self._lock_lost = threading.Event()
+        self._lock_lost_reason: str | None = None
 
     @property
     def acquired(self) -> bool:
-        return self._handle is not None
+        with self._state_lock:
+            return self._handle is not None
+
+    @property
+    def lock_lost(self) -> bool:
+        return self._lock_lost.is_set()
 
     def acquire(self) -> bool:
         """Attempt lock acquisition without blocking."""
-        if self._handle is not None:
-            return True
+        with self._state_lock:
+            if self._handle is not None:
+                return True
 
         result = self._acquire_with_result(self.backend, self.lock_path, self.stale_threshold_seconds)
         if result.status == AcquireStatus.BACKEND_UNAVAILABLE and isinstance(self.backend, FcntlFileLockBackend):
@@ -133,19 +144,24 @@ class LockManager:
             self.backend.release(handle)
             return False
 
-        self._handle = handle
-        self._lock_info = lock_info
+        with self._state_lock:
+            self._handle = handle
+            self._lock_info = lock_info
+            self._lock_lost.clear()
+            self._lock_lost_reason = None
         self._start_heartbeat_if_needed()
         return True
 
     def release(self) -> None:
         """Release lock if held."""
         self._stop_heartbeat()
-        if self._handle is None:
+        with self._state_lock:
+            handle = self._handle
+            self._handle = None
+            self._lock_info = None
+        if handle is None:
             return
-        self.backend.release(self._handle)
-        self._handle = None
-        self._lock_info = None
+        self.backend.release(handle)
 
     def read_info(self) -> dict | None:
         """Read lock metadata for diagnostics."""
@@ -155,10 +171,11 @@ class LockManager:
         return lock_info.to_dict()
 
     def _start_heartbeat_if_needed(self) -> None:
-        if not self.backend.requires_heartbeat or self._handle is None or self._lock_info is None:
-            return
-        if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive():
-            return
+        with self._state_lock:
+            if not self.backend.requires_heartbeat or self._handle is None or self._lock_info is None:
+                return
+            if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive():
+                return
 
         interval_seconds = min(30.0, max(1.0, self.stale_threshold_seconds / 3))
         self._heartbeat_stop.clear()
@@ -178,15 +195,17 @@ class LockManager:
 
     def _heartbeat_loop(self, interval_seconds: float) -> None:
         while not self._heartbeat_stop.wait(interval_seconds):
-            if self._handle is None or self._lock_info is None:
-                return
-
-            self._lock_info = replace(self._lock_info, updated_at=_utcnow_iso())
+            with self._state_lock:
+                if self._handle is None or self._lock_info is None:
+                    return
+                handle = self._handle
+                refreshed_info = replace(self._lock_info, updated_at=_utcnow_iso())
+                self._lock_info = refreshed_info
             try:
-                self.backend.write_info(self._handle, self._lock_info)
-            except OSError:
-                # Metadata heartbeat failure should not automatically drop lock ownership.
-                self.logger.warning("Failed to refresh lock metadata heartbeat for %s", self.lock_path)
+                self.backend.write_info(handle, refreshed_info)
+            except OSError as e:
+                self._handle_heartbeat_failure(e)
+                return
 
     def _write_failure_tombstone_best_effort(self, handle: LockHandle, lock_info: LockInfo) -> None:
         writer = getattr(self.backend, "write_failure_tombstone", None)
@@ -197,6 +216,31 @@ class LockManager:
         except Exception:
             # Best effort only; release path remains authoritative.
             return
+
+    def _handle_heartbeat_failure(self, error: OSError) -> None:
+        reason = f"heartbeat metadata write failed: {error}"
+        self.logger.error("Lock heartbeat failed for %s; releasing lock (%s)", self.lock_path, error)
+        with self._state_lock:
+            handle = self._handle
+            if handle is None:
+                return
+            self._handle = None
+            self._lock_info = None
+            self._lock_lost_reason = reason
+            self._lock_lost.set()
+        self._heartbeat_stop.set()
+        with suppress(OSError):
+            self.backend.release(handle)
+
+    def ensure_held(self) -> None:
+        with self._state_lock:
+            if self._handle is not None:
+                return
+            if self._lock_lost.is_set():
+                raise LockOwnershipLostError(
+                    str(self.lock_path),
+                    reason=self._lock_lost_reason,
+                )
 
     @staticmethod
     def _acquire_with_result(

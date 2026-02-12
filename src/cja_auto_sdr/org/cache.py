@@ -80,6 +80,14 @@ class OrgReportLock:
         """Release lock if currently held by this process."""
         self._manager.release()
 
+    @property
+    def lock_lost(self) -> bool:
+        return self._manager.lock_lost
+
+    def ensure_healthy(self) -> None:
+        """Raise if lock ownership has been lost during execution."""
+        self._manager.ensure_held()
+
     @staticmethod
     def _is_process_running(pid: int) -> bool:
         """Legacy helper kept for compatibility with existing tests."""

@@ -20,7 +20,7 @@ sys.path.insert(0, ".")
 
 import time
 
-from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError
+from cja_auto_sdr.core.exceptions import ConcurrentOrgReportError, LockOwnershipLostError
 from cja_auto_sdr.generator import (
     ComponentDistribution,
     ComponentInfo,
@@ -412,6 +412,34 @@ class TestAnalyzerLockIntegration:
 
         result = analyzer._quick_check_empty_org()
         assert result is None
+
+    def test_analyzer_aborts_when_lock_ownership_is_lost_mid_run(self):
+        """Analyzer must fail closed if lock ownership is lost during execution."""
+        import logging
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_lock_lost")
+        config = OrgReportConfig(skip_lock=False)
+
+        with patch("cja_auto_sdr.org.analyzer.OrgReportLock") as MockLock:
+            mock_lock_instance = Mock()
+            mock_lock_instance.acquired = True
+            mock_lock_instance.ensure_healthy.side_effect = [
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+            mock_lock_instance.__enter__ = Mock(return_value=mock_lock_instance)
+            mock_lock_instance.__exit__ = Mock(return_value=None)
+            MockLock.return_value = mock_lock_instance
+
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test_org@AdobeOrg")
+            analyzer._quick_check_empty_org = Mock(return_value=None)
+
+            with pytest.raises(LockOwnershipLostError):
+                analyzer.run_analysis()
+
+            analyzer._quick_check_empty_org.assert_called_once()
+            mock_cja.getDataViews.assert_not_called()
 
 
 class TestOrgReportConfig:

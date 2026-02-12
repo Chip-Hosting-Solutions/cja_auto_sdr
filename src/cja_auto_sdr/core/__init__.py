@@ -61,6 +61,7 @@ from cja_auto_sdr.core.exceptions import (
     ConcurrentOrgReportError,
     ConfigurationError,
     CredentialSourceError,
+    LockOwnershipLostError,
     MemoryLimitExceeded,
     OutputError,
     ProfileConfigError,
@@ -123,6 +124,7 @@ __all__ = [
     # Locking
     "LockInfo",
     "LockManager",
+    "LockOwnershipLostError",
     "LogConfig",
     "MemoryLimitExceeded",
     "OutputError",
