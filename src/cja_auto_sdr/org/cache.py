@@ -97,7 +97,7 @@ class OrgReportLock:
             return False
         try:
             normalized_pid = int(pid)
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             return False
         if normalized_pid <= 0:
             return False

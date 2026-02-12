@@ -498,7 +498,9 @@ class DerivedFieldInventoryBuilder:
                 ref_id_normalized = str(ref_id).strip() if ref_id is not None else ""
                 namespace_normalized = str(namespace).strip() if namespace is not None else ""
                 if ref_id_normalized and ref_id_normalized.lower() not in {"nan", "none", "null"}:
-                    full_ref = f"{namespace_normalized}/{ref_id_normalized}" if namespace_normalized else ref_id_normalized
+                    full_ref = (
+                        f"{namespace_normalized}/{ref_id_normalized}" if namespace_normalized else ref_id_normalized
+                    )
                     if full_ref not in component_references:
                         component_references.append(full_ref)
 
