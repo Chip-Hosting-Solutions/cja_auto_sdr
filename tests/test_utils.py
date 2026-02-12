@@ -8,7 +8,7 @@ import sys
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.core.logging import flush_logging_handlers, with_log_context
+from cja_auto_sdr.core.logging import SensitiveDataFilter, flush_logging_handlers, with_log_context
 from cja_auto_sdr.generator import (
     VALIDATION_SCHEMA,
     JSONFormatter,
@@ -96,6 +96,66 @@ class TestLoggingSetup:
             assert payload["batch_id"] == "batch-ctx"
             assert payload["run_mode"] == "batch"
             assert payload["data_view_id"] == "dv_ctx"
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_json_formatter_redacts_sensitive_fields_and_message(self):
+        """JSONFormatter should redact sensitive values in messages and extra fields."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="Auth failed token=abc123 password:hunter2 Bearer very-secret-token",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "client_secret": "top-secret",
+            "nested": {"access_token": "token-123", "note": "token=def456"},
+        }
+        record.authorization = "Bearer another-secret-token"
+        record.session_token = "session-abc"
+
+        payload = json.loads(formatter.format(record))
+
+        assert "[REDACTED]" in payload["message"]
+        assert "abc123" not in payload["message"]
+        assert "hunter2" not in payload["message"]
+        assert payload["client_secret"] == "[REDACTED]"
+        assert payload["nested"]["access_token"] == "[REDACTED]"
+        assert payload["nested"]["note"].endswith("[REDACTED]")
+        assert payload["authorization"] == "[REDACTED]"
+        assert payload["session_token"] == "[REDACTED]"
+
+    def test_sensitive_data_filter_redacts_text_logs(self):
+        """SensitiveDataFilter should redact sensitive values for text logs."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(client_secret)s | %(token)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "Processing credentials token=abc123 password:hunter2",
+                extra={"client_secret": "secret-value", "token": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "[REDACTED]" in output
+            assert "abc123" not in output
+            assert "hunter2" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
         finally:
             logger.removeHandler(handler)
             for existing in original_handlers:

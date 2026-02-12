@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
@@ -13,6 +14,94 @@ from pathlib import Path
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
 
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
+_SENSITIVE_FIELD_NAMES = {
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "client_secret",
+    "token",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "auth_header",
+    "private_key",
+}
+_REDACTED_VALUE = "[REDACTED]"
+_MESSAGE_REDACTION_PATTERNS = (
+    re.compile(
+        r"(?i)\b(client_secret|secret|password|token|access_token|refresh_token|api[_-]?key|authorization)\s*[:=]\s*([^\s,;]+)"
+    ),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
+)
+
+
+def _normalize_field_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+
+
+def _is_sensitive_field(name: str) -> bool:
+    normalized = _normalize_field_name(name)
+    if normalized in _SENSITIVE_FIELD_NAMES:
+        return True
+    return normalized.endswith("_token") or normalized.endswith("_secret")
+
+
+def _redact_message(message: str) -> str:
+    redacted = message
+    for pattern in _MESSAGE_REDACTION_PATTERNS:
+        if "Bearer" in pattern.pattern:
+            redacted = pattern.sub(f"Bearer {_REDACTED_VALUE}", redacted)
+            continue
+        redacted = pattern.sub(lambda m: f"{m.group(1)}={_REDACTED_VALUE}", redacted)
+    return redacted
+
+
+def _redact_value(value: object) -> object:
+    if isinstance(value, dict):
+        return {k: (_REDACTED_VALUE if _is_sensitive_field(str(k)) else _redact_value(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item) for item in value)
+    if isinstance(value, str):
+        return _redact_message(value)
+    return value
+
+
+def _redact_extra_fields(extra_fields: dict[str, object]) -> dict[str, object]:
+    redacted: dict[str, object] = {}
+    for key, value in extra_fields.items():
+        if _is_sensitive_field(str(key)):
+            redacted[key] = _REDACTED_VALUE
+        else:
+            redacted[key] = _redact_value(value)
+    return redacted
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Best-effort redaction for sensitive values in log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _redact_message(record.getMessage())
+            record.args = ()
+
+        record_extra_fields = getattr(record, "extra_fields", None)
+        if isinstance(record_extra_fields, dict):
+            record.extra_fields = _redact_extra_fields(record_extra_fields)
+
+        for key, value in list(record.__dict__.items()):
+            if key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_"):
+                continue
+            if _is_sensitive_field(key):
+                record.__dict__[key] = _REDACTED_VALUE
+            else:
+                record.__dict__[key] = _redact_value(value)
+        return True
 
 
 class JSONFormatter(logging.Formatter):
@@ -29,7 +118,7 @@ class JSONFormatter(logging.Formatter):
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": _redact_message(record.getMessage()),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
@@ -56,7 +145,7 @@ class JSONFormatter(logging.Formatter):
             extra_fields.setdefault(key, value)
 
         if extra_fields:
-            log_entry.update(extra_fields)
+            log_entry.update(_redact_extra_fields(extra_fields))
 
         return json.dumps(log_entry, default=str)
 
@@ -215,6 +304,7 @@ def setup_logging(
     for handler in handlers:
         handler.setFormatter(formatter)
         handler.setLevel(numeric_level)
+        handler.addFilter(SensitiveDataFilter())
         logging.root.addHandler(handler)
 
     # Set root logger level explicitly
