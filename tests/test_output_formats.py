@@ -320,12 +320,12 @@ class TestHTMLOutput:
             html_content = f.read()
 
         critical_row = re.search(
-            r'<tr[^>]*severity-CRITICAL[^>]*>.*?<td>CRITICAL</td>.*?<td>Critical issue</td>',
+            r"<tr[^>]*severity-CRITICAL[^>]*>.*?<td>CRITICAL</td>.*?<td>Critical issue</td>",
             html_content,
             re.DOTALL,
         )
         high_row = re.search(
-            r'<tr[^>]*severity-HIGH[^>]*>.*?<td>HIGH</td>.*?<td>High issue</td>',
+            r"<tr[^>]*severity-HIGH[^>]*>.*?<td>HIGH</td>.*?<td>High issue</td>",
             html_content,
             re.DOTALL,
         )
