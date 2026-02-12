@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from cja_auto_sdr.core.colors import ConsoleColors
 from cja_auto_sdr.diff.models import DataViewSnapshot
@@ -216,7 +216,7 @@ class SnapshotManager:
         if not days or days <= 0:
             return []
 
-        cutoff_date = datetime.now() - __import__("datetime").timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
         cutoff_str = cutoff_date.isoformat()
 
         all_snapshots = self.list_snapshots(directory)
@@ -246,7 +246,7 @@ class SnapshotManager:
 
     def generate_snapshot_filename(self, data_view_id: str, data_view_name: str | None = None) -> str:
         """Generate a timestamped filename for auto-saved snapshots."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         if data_view_name:
             safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in data_view_name)
             safe_name = safe_name[:50]

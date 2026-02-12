@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cja_auto_sdr.core.version import __version__
@@ -148,7 +148,7 @@ def generate_git_commit_message(
     custom_message: str | None = None,
 ) -> str:
     """Generate a descriptive Git commit message for SDR snapshot."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
 
     if custom_message:
         subject = f"[{data_view_id}] {custom_message}"

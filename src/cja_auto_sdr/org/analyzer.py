@@ -14,7 +14,7 @@ import threading
 import time
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -150,7 +150,7 @@ class OrgComponentAnalyzer:
             if quick_check is None or (hasattr(quick_check, "__len__") and len(quick_check) == 0):
                 self.logger.warning("No data views found in organization; returning empty org report")
                 return OrgReportResult(
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     org_id=self.org_id,
                     parameters=self.config,
                     data_view_summaries=[],
@@ -169,7 +169,7 @@ class OrgComponentAnalyzer:
     def _run_analysis_impl(self) -> OrgReportResult:
         """Internal implementation of org-wide analysis (called within lock)."""
         start_time = time.time()
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         self._assert_lock_healthy()
 
         # 1. List and filter data views
@@ -1274,7 +1274,7 @@ class OrgComponentAnalyzer:
 
         # Recommendation: Stale data views (if metadata enabled)
         if self.config.include_metadata:
-            six_months_ago = datetime.now() - timedelta(days=180)
+            six_months_ago = datetime.now(UTC) - timedelta(days=180)
             for summary in summaries:
                 if summary.error or not summary.modified:
                     continue

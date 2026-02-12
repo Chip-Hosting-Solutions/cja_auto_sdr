@@ -955,7 +955,7 @@ class DerivedFieldInventoryBuilder:
                 # Otherwise show a cleaner version
                 short_name = self._get_field_short_name(map_value)
                 return f"[{short_name}]"
-            elif "val" in map_to:
+            if "val" in map_to:
                 val = map_to["val"]
                 return f'"{val}"' if isinstance(val, str) else str(val)
             return "[dynamic]"
@@ -1010,7 +1010,7 @@ class DerivedFieldInventoryBuilder:
             value = get_value()
             if field and value is not None:
                 return f'{field}="{value}"' if isinstance(value, str) else f"{field}={value}"
-            elif value is not None:
+            if value is not None:
                 # No field specified, just show the value match
                 return f'="{value}"' if isinstance(value, str) else f"={value}"
         elif func in ("ne", "strne"):
@@ -1018,7 +1018,7 @@ class DerivedFieldInventoryBuilder:
             value = get_value()
             if field and value is not None:
                 return f'{field}≠"{value}"' if isinstance(value, str) else f"{field}≠{value}"
-            elif value is not None:
+            if value is not None:
                 return f'≠"{value}"' if isinstance(value, str) else f"≠{value}"
         elif func == "gt":
             field = get_field()
@@ -1119,7 +1119,7 @@ class DerivedFieldInventoryBuilder:
                 if key_field and value_field:
                     dataset_name = dataset.split("/")[-1] if dataset else "lookup"
                     return f"Lookup: {self._get_field_short_name(key_field)} → {self._get_field_short_name(value_field)} from {dataset_name}"
-                elif key_field:
+                if key_field:
                     return f"Lookup by {self._get_field_short_name(key_field)}"
 
         return ""
@@ -1232,7 +1232,7 @@ class DerivedFieldInventoryBuilder:
 
             if field_name and scope:
                 return f"Deduplicate {field_name} per {scope}"
-            elif field_name:
+            if field_name:
                 return f"Deduplicate {field_name}"
 
         return "Deduplicates values"
@@ -1277,11 +1277,11 @@ class DerivedFieldInventoryBuilder:
             func = func_obj.get("func", "")
             if func == "divide" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} / {field_names[1]}"
-            elif func == "multiply" and len(field_names) >= 2:
+            if func == "multiply" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} x {field_names[1]}"
-            elif func == "add" and len(field_names) >= 2:
+            if func == "add" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} + {field_names[1]}"
-            elif func == "subtract" and len(field_names) >= 2:
+            if func == "subtract" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} - {field_names[1]}"
 
         return ""
@@ -1305,7 +1305,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and target_type:
                 return f"Converts {input_field} to {target_type}"
-            elif target_type:
+            if target_type:
                 return f"Converts to {target_type}"
 
         return "Type conversion"
@@ -1328,7 +1328,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and interval:
                 return f"Buckets {input_field} by {interval}"
-            elif interval:
+            if interval:
                 return f"Date bucketing by {interval}"
 
         return "Date bucketing"
@@ -1351,7 +1351,7 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and component:
                 return f"Extracts {component} from {input_field}"
-            elif component:
+            if component:
                 return f"Extracts {component} from date"
 
         return "Date component extraction"
@@ -1375,9 +1375,9 @@ class DerivedFieldInventoryBuilder:
 
             if input_field and src_tz and dst_tz:
                 return f"Shifts {input_field} from {src_tz} to {dst_tz}"
-            elif src_tz and dst_tz:
+            if src_tz and dst_tz:
                 return f"Timezone shift from {src_tz} to {dst_tz}"
-            elif dst_tz:
+            if dst_tz:
                 return f"Timezone shift to {dst_tz}"
 
         return "Timezone shift"
@@ -1409,7 +1409,7 @@ class DerivedFieldInventoryBuilder:
                 if replace_val:
                     return f"Replaces '{find_val}' with '{replace_val}' in {input_field}"
                 return f"Removes '{find_val}' from {input_field}"
-            elif find_val:
+            if find_val:
                 if replace_val:
                     return f"Replaces '{find_val}' with '{replace_val}'"
                 return f"Removes '{find_val}'"

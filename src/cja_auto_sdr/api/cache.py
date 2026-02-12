@@ -90,9 +90,7 @@ class ValidationCache:
             config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
 
             # Combine into cache key
-            cache_key = f"{item_type}:{df_hash}:{config_hash}"
-
-            return cache_key
+            return f"{item_type}:{df_hash}:{config_hash}"
 
         except Exception as e:
             self.logger.warning(f"Error generating cache key: {e}. Cache disabled for this call.")

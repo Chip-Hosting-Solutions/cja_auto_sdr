@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -197,7 +197,7 @@ class OrgReportCache:
 
         try:
             fetched_time = datetime.fromisoformat(fetched_at)
-            if datetime.now() - fetched_time > timedelta(hours=max_age_hours):
+            if datetime.now(UTC) - fetched_time > timedelta(hours=max_age_hours):
                 return None  # Cache is stale
         except ValueError, TypeError:
             return None
@@ -326,7 +326,7 @@ class OrgReportCache:
             "include_names": include_names,
             "include_metadata": include_metadata,
             "include_component_types": include_component_types,
-            "fetched_at": datetime.now().isoformat(),
+            "fetched_at": datetime.now(UTC).isoformat(),
         }
 
     def invalidate(self, dv_id: str | None = None) -> None:
@@ -361,7 +361,7 @@ class OrgReportCache:
 
         try:
             fetched_time = datetime.fromisoformat(fetched_at)
-            if datetime.now() - fetched_time > timedelta(hours=max_age_hours):
+            if datetime.now(UTC) - fetched_time > timedelta(hours=max_age_hours):
                 return False  # Cache is stale anyway
         except ValueError, TypeError:
             return False

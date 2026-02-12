@@ -754,10 +754,9 @@ class SegmentsInventoryBuilder:
         if dimension_refs:
             if len(dimension_refs) == 1:
                 return f"{context_word} where {dimension_refs[0]} meets criteria"
-            elif len(dimension_refs) <= 3:
+            if len(dimension_refs) <= 3:
                 return f"{context_word} where {', '.join(dimension_refs)} meet criteria"
-            else:
-                return f"{context_word} with {len(dimension_refs)} dimension conditions"
+            return f"{context_word} with {len(dimension_refs)} dimension conditions"
 
         if metric_refs:
             if len(metric_refs) == 1:

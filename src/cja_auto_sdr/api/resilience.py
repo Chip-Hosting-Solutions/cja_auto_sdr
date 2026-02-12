@@ -932,3 +932,4 @@ def make_api_call_with_retry[T](
 
     if last_exception:
         raise last_exception
+    raise RuntimeError(f"Retry loop exited unexpectedly for {operation_name}")

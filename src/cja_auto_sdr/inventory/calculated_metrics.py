@@ -736,7 +736,7 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{numerator} / {denominator}"
             return "Ratio calculation"
 
-        elif func == "multiply":
+        if func == "multiply":
             col1 = formula.get("col1", {})
             col2 = formula.get("col2", {})
             left = self._get_reference_name(col1)
@@ -745,7 +745,7 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{left} x {right}"
             return "Multiplication of metrics"
 
-        elif func == "add":
+        if func == "add":
             operands = self._get_add_operands(formula)
             if operands:
                 if len(operands) <= 3:
@@ -753,7 +753,7 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{' + '.join(operands[:2])} + {len(operands) - 2} more"
             return "Sum of metrics"
 
-        elif func == "subtract":
+        if func == "subtract":
             col1 = formula.get("col1", {})
             col2 = formula.get("col2", {})
             left = self._get_reference_name(col1)
@@ -762,45 +762,45 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{left} - {right}"
             return "Difference calculation"
 
-        elif func == "if":
+        if func == "if":
             condition_desc = self._describe_condition(formula)
             if condition_desc:
                 return f"If {condition_desc}"
             return "Conditional calculation"
 
-        elif func == "segment":
+        if func == "segment":
             inner_metric = self._get_reference_name(formula.get("metric", {}))
             segment_id = formula.get("segment_id", formula.get("id", ""))
             segment_name = self._get_short_id(segment_id)
             if inner_metric and segment_name:
                 return f"{inner_metric} filtered by {segment_name}"
-            elif inner_metric:
+            if inner_metric:
                 return f"{inner_metric} (filtered)"
             return "Segmented metric"
 
-        elif func == "metric":
+        if func == "metric":
             name = formula.get("name", "")
             clean_name = name.split("/")[-1] if "/" in name else name
             return f"= {clean_name}"
 
-        elif func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
+        if func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
             op_name = func.replace("col-", "").upper()
             inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
             if inner:
                 return f"{op_name}({inner})"
             return f"Column {op_name.title()} aggregation"
 
-        elif func in ("row-sum", "row-max", "row-min", "row-mean"):
+        if func in ("row-sum", "row-max", "row-min", "row-mean"):
             op_name = func.replace("row-", "").upper()
             return f"Row {op_name.title()} aggregation"
 
-        elif func == "cumulative":
+        if func == "cumulative":
             inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
             if inner:
                 return f"Cumulative({inner})"
             return "Cumulative calculation"
 
-        elif func == "rolling":
+        if func == "rolling":
             inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
             window = formula.get("window", "")
             if inner:
@@ -809,7 +809,7 @@ class CalculatedMetricsInventoryBuilder:
                 return f"Rolling({inner})"
             return "Rolling window calculation"
 
-        elif func in ("median", "percentile", "variance", "standard-deviation"):
+        if func in ("median", "percentile", "variance", "standard-deviation"):
             inner = self._get_reference_name(formula.get("col", formula.get("metric", {})))
             op_name = func.replace("-", " ").title()
             if inner:
@@ -820,20 +820,20 @@ class CalculatedMetricsInventoryBuilder:
                 return f"{op_name}({inner})"
             return f"{op_name} calculation"
 
-        elif func == "abs":
+        if func == "abs":
             inner = self._get_reference_name(formula.get("col", formula.get("col1", {})))
             if inner:
                 return f"ABS({inner})"
             return "Absolute value"
 
-        elif func in ("sqrt", "log", "log10", "exp", "ceil", "floor", "round"):
+        if func in ("sqrt", "log", "log10", "exp", "ceil", "floor", "round"):
             inner = self._get_reference_name(formula.get("col", formula.get("col1", {})))
             op_name = func.upper()
             if inner:
                 return f"{op_name}({inner})"
             return f"{op_name} function"
 
-        elif func == "pow":
+        if func == "pow":
             base = self._get_reference_name(formula.get("col1", {}))
             exp = self._get_reference_name(formula.get("col2", {}))
             if base and exp:
@@ -857,10 +857,9 @@ class CalculatedMetricsInventoryBuilder:
         if metric_refs:
             if len(metric_refs) == 1:
                 return f"Based on {metric_refs[0]}"
-            elif len(metric_refs) == 2:
+            if len(metric_refs) == 2:
                 return f"Combines {metric_refs[0]} and {metric_refs[1]}"
-            else:
-                return f"Combines {len(metric_refs)} metrics: {', '.join(metric_refs[:2])}, ..."
+            return f"Combines {len(metric_refs)} metrics: {', '.join(metric_refs[:2])}, ..."
 
         return "Custom calculated metric"
 
@@ -923,7 +922,7 @@ class CalculatedMetricsInventoryBuilder:
             segment_name = self._get_short_id(segment_id)
             if inner and segment_name:
                 return f"{inner}[{segment_name}]"
-            elif inner:
+            if inner:
                 return f"{inner}[filtered]"
 
         if func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
@@ -937,7 +936,7 @@ class CalculatedMetricsInventoryBuilder:
             else_val = self._build_formula_expression(node.get("else", {}), max_depth - 1)
             if then_val and else_val:
                 return f"IF(..., {then_val}, {else_val})"
-            elif then_val:
+            if then_val:
                 return f"IF(..., {then_val})"
 
         if func in ("abs", "sqrt", "log", "log10", "exp", "ceil", "floor", "round", "negate"):

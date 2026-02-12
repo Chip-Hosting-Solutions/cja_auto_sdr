@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -292,7 +292,7 @@ class DiffResult:
 
     def __post_init__(self):
         if not self.generated_at:
-            self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         if not self.tool_version:
             self.tool_version = __version__
 
@@ -321,7 +321,7 @@ class DataViewSnapshot:
 
     def __post_init__(self):
         if not self.created_at:
-            self.created_at = datetime.now().isoformat()
+            self.created_at = datetime.now(UTC).isoformat()
         if self.metrics is None:
             self.metrics = []
         if self.dimensions is None:
