@@ -441,6 +441,73 @@ class TestAnalyzerLockIntegration:
             analyzer._quick_check_empty_org.assert_called_once()
             mock_cja.getDataViews.assert_not_called()
 
+    def test_fetch_cancels_executor_immediately_when_lock_is_lost(self):
+        """Parallel fetch must not block on remaining futures after lock ownership loss."""
+        import logging
+
+        class _FakeFuture:
+            def __init__(self, result_value: DataViewSummary):
+                self._result_value = result_value
+                self.cancel_called = False
+
+            def result(self) -> DataViewSummary:
+                return self._result_value
+
+            def cancel(self) -> bool:
+                self.cancel_called = True
+                return True
+
+        class _FakeExecutor:
+            last_instance = None
+
+            def __init__(self, *args, **kwargs):
+                self.submitted = []
+                self.shutdown_calls = []
+                _FakeExecutor.last_instance = self
+
+            def submit(self, fn, dv):  # type: ignore[no-untyped-def]
+                summary = DataViewSummary(
+                    data_view_id=dv.get("id", "unknown"),
+                    data_view_name=dv.get("name", "Unknown"),
+                )
+                future = _FakeFuture(summary)
+                self.submitted.append(future)
+                return future
+
+            def shutdown(self, wait=True, cancel_futures=False):  # type: ignore[no-untyped-def]
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        mock_cja = Mock()
+        logger = logging.getLogger("test_fetch_lock_loss_cancel")
+        analyzer = OrgComponentAnalyzer(mock_cja, OrgReportConfig(quiet=True), logger)
+        analyzer._assert_lock_healthy = Mock(
+            side_effect=[
+                None,
+                LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
+            ]
+        )
+
+        data_views = [
+            {"id": "dv_1", "name": "DV 1"},
+            {"id": "dv_2", "name": "DV 2"},
+        ]
+
+        def _fake_as_completed(futures_dict):  # type: ignore[no-untyped-def]
+            yield next(iter(futures_dict))
+
+        with (
+            patch("cja_auto_sdr.org.analyzer.ThreadPoolExecutor", _FakeExecutor),
+            patch("cja_auto_sdr.org.analyzer.as_completed", side_effect=_fake_as_completed),
+            pytest.raises(LockOwnershipLostError),
+        ):
+            analyzer._fetch_all_data_views(data_views)
+
+        executor = _FakeExecutor.last_instance
+        assert executor is not None
+        assert executor.shutdown_calls == [(False, True)]
+        assert len(executor.submitted) == 2
+        assert executor.submitted[1].cancel_called is True
+
 
 class TestOrgReportConfig:
     """Test OrgReportConfig dataclass"""

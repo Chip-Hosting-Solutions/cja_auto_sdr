@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lease heartbeat split-brain protection**: lease metadata updates are now file-descriptor-bound to the original lock inode, preventing stale holders from overwriting a newer owner’s lock metadata after reclamation
 - **Fail-closed lock ownership handling**: heartbeat metadata write failures now mark lock ownership as lost and force backend release, preventing long-running local work from continuing after remote contenders can legally reclaim
 - **Analyzer lock-health enforcement**: org-report analysis now performs lock-health checks between major phases and during parallel fetch completion, aborting immediately if ownership is lost mid-run
+- **Fail-closed parallel fetch shutdown**: when lock ownership is lost during org-report DV fetch, pending executor futures are cancelled and the pool is torn down with `wait=False, cancel_futures=True` to stop unlocked work promptly
 - **Cross-backend lock exclusivity**: `fcntl` acquisition now honors active non-`fcntl` lock metadata (including `lease` holders), preventing concurrent takeover when processes use different lock backends
 - **Local PID stale-age protection**: same-host live PIDs no longer expire solely due age thresholds, preventing active lock takeover when timestamps become old
 - **Mixed-backend open-race hardening**: `fcntl` lock acquisition now uses atomic create/open semantics and always validates pre-existing lock metadata after open, preventing `lease`/`fcntl` concurrent holders under create-time races
@@ -96,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added lock regression coverage to ensure fcntl unsupported fallback preserves pre-existing sidecar metadata
 - Added lock regression coverage for fresh-vs-stale missing-metadata behavior in both `lease` and `fcntl` acquisition paths
 - Added lock regression coverage for fail-closed heartbeat ownership loss in `LockManager` and analyzer-level abort-on-lock-loss behavior
+- Added lock regression coverage for immediate executor cancellation when lock ownership is lost during parallel DV fetch loops
 - Expanded `tests/test_org_report.py` with multi-process contention and crash-recovery tests for both default and `lease` lock backends
 - Added targeted regression tests for:
   - Git init failure propagation and data-view-scoped staging behavior
@@ -109,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry config guards for negative env values and invalid delay windows
   - Org-report recommendation context/serialization coverage across HTML, Markdown, JSON, CSV, and Excel outputs
   - Org-report stdout/output-format preflight validation (including fail-fast no-analysis assertions)
-- **1,591 tests** (1,589 passing, 2 skipped) — up from 1,431
+- **1,592 tests** (1,590 passing, 2 skipped) — up from 1,431
 
 ### Changed
 - Removed `.python-version` from repo; `requires-python` in `pyproject.toml` is sufficient

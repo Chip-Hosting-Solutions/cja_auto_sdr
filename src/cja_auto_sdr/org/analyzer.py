@@ -24,6 +24,7 @@ from cja_auto_sdr.core.constants import (
     DEFAULT_ORG_REPORT_WORKERS,
     GOVERNANCE_MAX_OVERLAP_THRESHOLD,
 )
+from cja_auto_sdr.core.exceptions import LockOwnershipLostError
 from cja_auto_sdr.inventory.utils import extract_owner
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
@@ -130,6 +131,14 @@ class OrgComponentAnalyzer:
         if self._active_lock is None:
             return
         self._active_lock.ensure_healthy()
+
+    @staticmethod
+    def _cancel_futures_best_effort(futures: dict[Any, Any]) -> None:
+        for future in futures:
+            try:
+                future.cancel()
+            except Exception:
+                continue
 
     def _quick_check_empty_org(self) -> OrgReportResult | None:
         """Return an empty-org result if no data views exist, otherwise None."""
@@ -508,8 +517,11 @@ class OrgComponentAnalyzer:
 
         pending_cache: list[DataViewSummary] = []
 
-        # Use ThreadPoolExecutor for parallel fetches
-        with ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch))) as executor:
+        # Use explicit executor lifecycle so lock-loss can fail closed immediately.
+        executor = ThreadPoolExecutor(max_workers=min(DEFAULT_ORG_REPORT_WORKERS, len(to_fetch)))
+        futures: dict[Any, dict[str, Any]] = {}
+        fail_closed_shutdown = False
+        try:
             futures = {executor.submit(self._fetch_data_view_components, dv): dv for dv in to_fetch}
 
             desc = "Fetching data views" if not cache_hits else f"Fetching {len(to_fetch)} uncached"
@@ -547,6 +559,15 @@ class OrgComponentAnalyzer:
                         )
                     pbar.update(1)
                     self._assert_lock_healthy()
+        except LockOwnershipLostError:
+            fail_closed_shutdown = True
+            self._cancel_futures_best_effort(futures)
+            raise
+        finally:
+            if fail_closed_shutdown:
+                executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                executor.shutdown(wait=True)
 
         if self.config.use_cache and self.cache and pending_cache:
             self.cache.put_many(
