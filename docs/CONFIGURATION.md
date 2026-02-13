@@ -215,6 +215,7 @@ cja_auto_sdr --sample-config
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LOG_LEVEL` | Logging verbosity: DEBUG, INFO, WARNING, ERROR | INFO |
+| `LOG_FORMAT` | Log output format: `text` (human-readable) or `json` (structured) | text |
 | `OUTPUT_DIR` | Default output directory for generated files | Current directory |
 
 ### Setting Environment Variables
@@ -725,11 +726,23 @@ docker run --env-file .env.production \
 - **Rotate secrets** periodically in Adobe Developer Console
 - **Limit API scope** to only what's needed
 
+### Automatic Log Redaction
+
+All log output is automatically filtered through a sensitive data redaction layer. The following values are replaced with `[REDACTED]` before they reach any log handler or file:
+
+- API keys, client secrets, access tokens, and refresh tokens
+- Bearer authorization headers (scheme preserved: `Bearer [REDACTED]`)
+- Password fields (`password`, `passwd`, `pwd`)
+- Both `snake_case` and `camelCase` field names (e.g. `client_secret` and `clientSecret`)
+- Exception messages and stack traces containing any of the above
+
+Redaction is always active — no configuration is required to enable it.
+
 ### Don't
 
 - **Never commit secrets** to version control
 - **Never share config.json** files via email/chat
-- **Never log secrets** (the tool masks them automatically)
+- **Never log secrets** (the tool redacts them automatically)
 - **Never use production credentials** for development
 - **Never store secrets** in command history
 
@@ -894,6 +907,16 @@ LOG_LEVEL=DEBUG cja_auto_sdr --list-dataviews
 # Via command line
 cja_auto_sdr --list-dataviews --log-level DEBUG
 ```
+
+### Structured JSON Logging
+
+Use `--log-format json` for machine-readable log output compatible with log aggregation systems (Splunk, ELK, CloudWatch):
+
+```bash
+cja_auto_sdr dv_12345 --log-format json
+```
+
+JSON records include ISO timestamps, log level, process/thread metadata, and contextual fields (`run_mode`, `data_view_id`, `batch_id`) for correlation across batch runs.
 
 ---
 

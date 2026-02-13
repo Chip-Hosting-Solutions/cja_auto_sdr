@@ -198,6 +198,27 @@ The policy file supports these keys:
 
 Explicit CLI flags (`--fail-on-quality`, `--quality-report`, `--max-issues`) always take precedence over policy file values.
 
+## Production Mode
+
+Use `--production` to reduce data quality log noise while still running all validation checks:
+
+```bash
+cja_auto_sdr dv_12345 --production
+```
+
+In production mode, individual per-issue HIGH and CRITICAL warnings are suppressed from log output. Instead, an aggregated severity summary is logged once at the end — for example, `3 HIGH and 1 CRITICAL issues detected`. The full issue details remain available in the Data Quality sheet and quality report output.
+
+This is useful for:
+- CI/CD pipelines where per-issue log lines create excessive noise
+- Batch runs across many data views
+- Any context where the report file is the primary output, not the log stream
+
+To combine with a non-zero exit on quality failures:
+
+```bash
+cja_auto_sdr dv_12345 --production --fail-on-quality HIGH
+```
+
 ## Skipping Validation
 
 For faster processing when validation isn't needed:
