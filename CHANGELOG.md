@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.4] - 2026-02-13
+
+### Security
+- **Sensitive data redaction in logs**: Added `SensitiveDataFilter` that automatically redacts API keys, client secrets, access tokens, refresh tokens, passwords, and Bearer tokens from all log output — covers both snake_case and camelCase field names, quoted/unquoted key-value pairs, and exception payloads
+- **Exception payload redaction**: Formatted exception stack traces are filtered through the same redaction patterns, protecting credentials that appear in error messages
+
+### Fixed
+- **Inventory-summary `--log-format` propagation**: `--log-format json` was silently ignored in inventory-summary mode; now propagated correctly
+- **Handler flush on error paths**: Early-exit flush loops only touched `logger.handlers`, missing propagated root handlers; replaced with `flush_logging_handlers()` helper that flushes both
+- **Derived field inventory parsing resilience**: Pandas NaN/NA checks on tuple/array edge cases could raise `ValueError`; broadened exception handling to prevent crashes on malformed field definitions
+
+### Changed
+- **Structured JSON logging**: New `JSONFormatter` emits ISO-timestamped, machine-readable log records with process/thread metadata and custom extra fields when `--log-format json` is used
+- **Structured logging context**: Added `with_log_context()` helper that enriches loggers with persistent contextual fields (`run_mode`, `data_view_id`, `batch_id`) for correlation-friendly telemetry
+- **Production DQ log noise reduction**: Individual per-issue HIGH/CRITICAL data quality warnings suppressed in `--production` mode; replaced with an aggregated high-severity summary signal
+
+### Tests
+- Added redaction filter tests for Bearer tokens, API keys, quoted/unquoted secrets, camelCase variants, exception payloads, and idempotent double-processing
+- Added JSON formatter tests for ISO timestamps, process/thread metadata, and custom record fields
+- Added inventory-summary log-format propagation and handler-flush regression tests
+- Added structured log context injection tests
+- Added production-mode DQ warning suppression and summary signal tests
+- Added derived field inventory parsing hardening tests for malformed payloads
+- **1,712 tests** (1,710 passing, 2 skipped) — up from 1,686
+
 ## [3.2.3] - 2026-02-12
 
 ### Fixed
