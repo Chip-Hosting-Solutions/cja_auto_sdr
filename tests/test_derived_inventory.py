@@ -819,6 +819,39 @@ class TestEdgeCases:
         assert inventory.total_derived_fields == 1
         assert inventory.fields[0].logic_summary
 
+    def test_non_string_func_names_do_not_crash(self):
+        """Malformed non-string function names should be skipped safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "variables/pageName", "label": "page_label"},
+                {
+                    "func": {"unexpected": "match"},
+                    "field": "page_label",
+                    "branches": [
+                        {"pred": {"func": "contains", "field": "page_label", "value": "home"}, "map-to": "Home"},
+                        {"pred": {"func": "true"}, "map-to": "Other"},
+                    ],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/page_category",
+                    "name": "Page Category",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert inventory.fields[0].functions_used_internal == ["raw-field"]
+
     def test_nan_component_id_is_skipped(self):
         """Rows with NaN component IDs should be rejected as invalid IDs."""
         df = pd.DataFrame(

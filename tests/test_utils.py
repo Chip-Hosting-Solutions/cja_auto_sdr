@@ -179,6 +179,36 @@ class TestLoggingSetup:
         assert payload["nested"]["apiKey"] == "[REDACTED]"
         assert "abc123" not in payload["message"]
 
+    def test_json_formatter_redacts_concatenated_sensitive_fields(self):
+        """Concatenated token/secret field names should be treated as sensitive."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.concatenated",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="payload includes clientsecret=abc123 accesstoken=token-1 refreshtoken=token-2",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "clientsecret": "top-secret",
+            "accesstoken": "access-123",
+            "refreshtoken": "refresh-456",
+            "nested": {"authheader": "Bearer nested-secret", "privatekey": "private-value"},
+        }
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["clientsecret"] == "[REDACTED]"
+        assert payload["accesstoken"] == "[REDACTED]"
+        assert payload["refreshtoken"] == "[REDACTED]"
+        assert payload["nested"]["authheader"] == "[REDACTED]"
+        assert payload["nested"]["privatekey"] == "[REDACTED]"
+        assert "abc123" not in payload["message"]
+        assert "token-1" not in payload["message"]
+        assert "token-2" not in payload["message"]
+
     def test_json_formatter_redacts_quoted_key_value_payloads(self):
         """Quoted JSON/dict-style sensitive key-value pairs should be redacted."""
         formatter = JSONFormatter()
@@ -485,6 +515,38 @@ class TestLoggingSetup:
             assert "secret-value" not in output
             assert "token-value" not in output
             assert "Authorization: Bearer [REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_concatenated_sensitive_extras(self):
+        """SensitiveDataFilter should redact concatenated credential field names."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.concatenated")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(clientsecret)s | %(accesstoken)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "clientsecret=abc123 accesstoken=token-1 refreshtoken=token-2",
+                extra={"clientsecret": "secret-value", "accesstoken": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "abc123" not in output
+            assert "token-1" not in output
+            assert "token-2" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
+            assert "clientsecret=[REDACTED]" in output
+            assert "accesstoken=[REDACTED]" in output
         finally:
             logger.removeHandler(handler)
             for existing in original_handlers:

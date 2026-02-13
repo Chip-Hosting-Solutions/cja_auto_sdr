@@ -33,6 +33,21 @@ _SENSITIVE_FIELD_NAMES = {
     "auth_header",
     "private_key",
 }
+_SENSITIVE_COMPACT_FIELD_NAMES = {
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "clientsecret",
+    "token",
+    "accesstoken",
+    "refreshtoken",
+    "bearertoken",
+    "apikey",
+    "authorization",
+    "authheader",
+    "privatekey",
+}
 _REDACTED_VALUE = "[REDACTED]"
 _SENSITIVE_KEY_REGEX = (
     r"client[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|api[_-]?key|apikey|"
@@ -143,6 +158,10 @@ def _is_sensitive_field(name: str) -> bool:
         return False
     if normalized in _SENSITIVE_FIELD_NAMES:
         return True
+    compact = normalized.replace("_", "")
+    if compact in _SENSITIVE_COMPACT_FIELD_NAMES:
+        return True
+
     parts = [part for part in normalized.split("_") if part]
     if not parts:
         return False
@@ -158,6 +177,13 @@ def _is_sensitive_field(name: str) -> bool:
         or parts[-2:] == ["api", "key"]
         or parts[-2:] == ["private", "key"]
         or parts[-1] == "apikey"
+        or compact.endswith("token")
+        or compact.endswith("secret")
+        or compact.endswith("password")
+        or compact.endswith("passwd")
+        or compact.endswith("apikey")
+        or compact.endswith("authheader")
+        or compact.endswith("privatekey")
     )
 
 
