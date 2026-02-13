@@ -57,7 +57,7 @@ _MESSAGE_VALUE_REGEX = r"""
 (?:
     "(?:[^"\\]|\\.)*" |
     '(?:[^'\\]|\\.)*' |
-    [^,\s;}\]]+
+    [^,\s;}]+
 )
 """
 _AUTHORIZATION_KEY_REGEX = r"""(?:"authorization"|'authorization'|authorization)"""

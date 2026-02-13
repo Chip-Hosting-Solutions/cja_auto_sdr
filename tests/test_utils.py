@@ -302,6 +302,24 @@ class TestLoggingSetup:
         assert "token=[REDACTED]" in exception_text
         assert "password=[REDACTED]" in exception_text
 
+    def test_json_formatter_preserves_pre_redacted_unquoted_placeholders(self):
+        """Pre-redacted unquoted placeholders should remain stable."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.pre_redacted.json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=[REDACTED] password=[REDACTED] clientsecret=[REDACTED]",
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+        assert payload["message"] == "token=[REDACTED] password=[REDACTED] clientsecret=[REDACTED]"
+        assert "token=[REDACTED]]" not in payload["message"]
+        assert "password=[REDACTED]]" not in payload["message"]
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -353,6 +371,25 @@ class TestLoggingSetup:
 
         assert first == "token=[REDACTED]"
         assert second == first
+
+    def test_sensitive_data_filter_preserves_pre_redacted_unquoted_placeholders(self):
+        """Filter should not corrupt upstream pre-redacted unquoted placeholders."""
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.pre_redacted.filter",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=[REDACTED] password=[REDACTED] accesstoken=[REDACTED]",
+            args=(),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        message = record.getMessage()
+        assert message == "token=[REDACTED] password=[REDACTED] accesstoken=[REDACTED]"
+        assert "token=[REDACTED]]" not in message
+        assert "password=[REDACTED]]" not in message
 
     def test_sensitive_data_filter_handles_message_format_errors(self):
         """Filter should not raise when LogRecord message formatting fails."""
