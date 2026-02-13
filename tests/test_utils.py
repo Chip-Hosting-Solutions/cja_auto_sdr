@@ -1,5 +1,6 @@
-"""Tests for utility functions"""
+"""Tests for utility functions."""
 
+import io
 import json
 import logging
 import os
@@ -7,8 +8,10 @@ import sys
 
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.core.logging import SensitiveDataFilter, flush_logging_handlers, with_log_context
 from cja_auto_sdr.generator import (
     VALIDATION_SCHEMA,
+    JSONFormatter,
     PerformanceTracker,
     _format_error_msg,
     setup_logging,
@@ -18,6 +21,573 @@ from cja_auto_sdr.generator import (
 
 class TestLoggingSetup:
     """Test logging configuration"""
+
+    def test_json_formatter_includes_custom_record_fields(self):
+        """JSONFormatter should include custom fields from logging extra."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="hello",
+            args=(),
+            exc_info=None,
+        )
+        record.batch_id = "batch-123"
+        record.extra_fields = {"mode": "batch"}
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["message"] == "hello"
+        assert payload["mode"] == "batch"
+        assert payload["batch_id"] == "batch-123"
+        assert "process" in payload
+        assert "thread" in payload
+
+    def test_flush_logging_handlers_flushes_propagated_root_handlers(self):
+        """flush_logging_handlers should flush root handlers when logger has none."""
+
+        class _FlushTrackingHandler(logging.StreamHandler):
+            def __init__(self):
+                super().__init__(stream=io.StringIO())
+                self.flush_count = 0
+
+            def flush(self):
+                self.flush_count += 1
+                super().flush()
+
+        root_logger = logging.getLogger()
+        original_handlers = list(root_logger.handlers)
+
+        for handler in original_handlers:
+            root_logger.removeHandler(handler)
+
+        tracking_handler = _FlushTrackingHandler()
+        root_logger.addHandler(tracking_handler)
+
+        try:
+            test_logger = logging.getLogger("test.flush")
+            test_logger.handlers.clear()
+            flush_logging_handlers(test_logger)
+            assert tracking_handler.flush_count >= 1
+        finally:
+            root_logger.removeHandler(tracking_handler)
+            for handler in original_handlers:
+                root_logger.addHandler(handler)
+
+    def test_with_log_context_includes_fields_in_json_output(self):
+        """with_log_context should emit adapter context as JSON fields."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.context.adapter")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(JSONFormatter())
+        logger.addHandler(handler)
+
+        try:
+            contextual_logger = with_log_context(logger, batch_id="batch-ctx", run_mode="batch")
+            contextual_logger.info("context message", extra={"data_view_id": "dv_ctx"})
+            payload = json.loads(stream.getvalue().strip())
+            assert payload["batch_id"] == "batch-ctx"
+            assert payload["run_mode"] == "batch"
+            assert payload["data_view_id"] == "dv_ctx"
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_json_formatter_redacts_sensitive_fields_and_message(self):
+        """JSONFormatter should redact sensitive values in messages and extra fields."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="Auth failed token=abc123 password:hunter2 Bearer very-secret-token",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "client_secret": "top-secret",
+            "nested": {"access_token": "token-123", "note": "token=def456"},
+        }
+        record.authorization = "Bearer another-secret-token"
+        record.session_token = "session-abc"
+
+        payload = json.loads(formatter.format(record))
+
+        assert "[REDACTED]" in payload["message"]
+        assert "abc123" not in payload["message"]
+        assert "hunter2" not in payload["message"]
+        assert payload["client_secret"] == "[REDACTED]"
+        assert payload["nested"]["access_token"] == "[REDACTED]"
+        assert payload["nested"]["note"].endswith("[REDACTED]")
+        assert payload["authorization"] == "[REDACTED]"
+        assert payload["session_token"] == "[REDACTED]"
+
+    def test_json_formatter_redacts_authorization_bearer_header(self):
+        """Authorization: Bearer <token> should redact the full credential."""
+        formatter = JSONFormatter()
+        secret = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.signature"
+        record = logging.LogRecord(
+            name="test.redaction.authorization",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg=f"Request failed Authorization: Bearer {secret} and authorization=Bearer {secret}",
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+
+        assert secret not in payload["message"]
+        assert "Authorization: Bearer [REDACTED]" in payload["message"]
+        assert "authorization=Bearer [REDACTED]" in payload["message"]
+
+    def test_json_formatter_redacts_camelcase_sensitive_fields(self):
+        """camelCase token/secret keys should be treated as sensitive."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.camelcase",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="payload includes accessToken=abc123",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "clientSecret": "top-secret",
+            "accessToken": "access-123",
+            "refreshToken": "refresh-456",
+            "nested": {"authHeader": "Bearer nested-secret", "apiKey": "api-xyz"},
+        }
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["clientSecret"] == "[REDACTED]"
+        assert payload["accessToken"] == "[REDACTED]"
+        assert payload["refreshToken"] == "[REDACTED]"
+        assert payload["nested"]["authHeader"] == "[REDACTED]"
+        assert payload["nested"]["apiKey"] == "[REDACTED]"
+        assert "abc123" not in payload["message"]
+
+    def test_json_formatter_redacts_concatenated_sensitive_fields(self):
+        """Concatenated token/secret field names should be treated as sensitive."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.concatenated",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="payload includes clientsecret=abc123 accesstoken=token-1 refreshtoken=token-2",
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {
+            "clientsecret": "top-secret",
+            "accesstoken": "access-123",
+            "refreshtoken": "refresh-456",
+            "nested": {"authheader": "Bearer nested-secret", "privatekey": "private-value"},
+        }
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["clientsecret"] == "[REDACTED]"
+        assert payload["accesstoken"] == "[REDACTED]"
+        assert payload["refreshtoken"] == "[REDACTED]"
+        assert payload["nested"]["authheader"] == "[REDACTED]"
+        assert payload["nested"]["privatekey"] == "[REDACTED]"
+        assert "abc123" not in payload["message"]
+        assert "token-1" not in payload["message"]
+        assert "token-2" not in payload["message"]
+
+    def test_json_formatter_redacts_quoted_key_value_payloads(self):
+        """Quoted JSON/dict-style sensitive key-value pairs should be redacted."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.quoted_payloads",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg=(
+                'payload={"access_token":"abc","client_secret":"def","authorization":"Bearer jwt-123"} '
+                "py={'refreshToken': 'ghi', \"apiKey\": \"jkl\"}"
+            ),
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+        message = payload["message"]
+
+        for secret in ("abc", "def", "jwt-123", "ghi", "jkl"):
+            assert secret not in message
+
+        assert '"access_token":"[REDACTED]"' in message
+        assert '"client_secret":"[REDACTED]"' in message
+        assert '"authorization":"Bearer [REDACTED]"' in message
+        assert "'refreshToken': '[REDACTED]'" in message
+        assert '"apiKey": "[REDACTED]"' in message
+
+    def test_json_formatter_does_not_double_redact_after_filter(self):
+        """JSONFormatter should trust records already redacted by SensitiveDataFilter."""
+        formatter = JSONFormatter()
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.no_double",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg='token=abc123 payload={"access_token":"abc123"}',
+            args=(),
+            exc_info=None,
+        )
+        record.extra_fields = {"note": "token=abc123"}
+
+        assert filter_.filter(record) is True
+        payload = json.loads(formatter.format(record))
+
+        assert payload["message"] == 'token=[REDACTED] payload={"access_token":"[REDACTED]"}'
+        assert payload["note"] == "token=[REDACTED]"
+        assert "token=[REDACTED]]" not in payload["message"]
+        assert "abc123" not in payload["message"]
+        assert "abc123" not in payload["note"]
+
+    def test_json_formatter_ignores_external_redaction_flag(self):
+        """A caller-provided _cja_redacted extra flag must not bypass formatter redaction."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.external_flag_json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=abc123",
+            args=(),
+            exc_info=None,
+        )
+        record._cja_redacted = True
+
+        payload = json.loads(formatter.format(record))
+        assert payload["message"] == "token=[REDACTED]"
+        assert "abc123" not in payload["message"]
+
+    def test_json_formatter_redacts_exception_details_without_filter(self):
+        """JSONFormatter should redact sensitive values in exception text without filter help."""
+        formatter = JSONFormatter()
+        try:
+            raise RuntimeError("auth failed token=abc123 password=hunter2")
+        except RuntimeError:
+            record = logging.LogRecord(
+                name="test.redaction.exception.json.formatter",
+                level=logging.ERROR,
+                pathname=__file__,
+                lineno=42,
+                msg="Operation failed",
+                args=(),
+                exc_info=sys.exc_info(),
+            )
+
+        payload = json.loads(formatter.format(record))
+        exception_text = payload["exception"]
+        assert "abc123" not in exception_text
+        assert "hunter2" not in exception_text
+        assert "token=[REDACTED]" in exception_text
+        assert "password=[REDACTED]" in exception_text
+
+    def test_json_formatter_preserves_pre_redacted_unquoted_placeholders(self):
+        """Pre-redacted unquoted placeholders should remain stable."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.pre_redacted.json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=[REDACTED] password=[REDACTED] clientsecret=[REDACTED]",
+            args=(),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+        assert payload["message"] == "token=[REDACTED] password=[REDACTED] clientsecret=[REDACTED]"
+        assert "token=[REDACTED]]" not in payload["message"]
+        assert "password=[REDACTED]]" not in payload["message"]
+
+    def test_sensitive_data_filter_redacts_text_logs(self):
+        """SensitiveDataFilter should redact sensitive values for text logs."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(client_secret)s | %(token)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "Processing credentials token=abc123 password:hunter2",
+                extra={"client_secret": "secret-value", "token": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "[REDACTED]" in output
+            assert "abc123" not in output
+            assert "hunter2" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_is_idempotent(self):
+        """Applying SensitiveDataFilter repeatedly should not mutate redacted markers."""
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.filter.idempotent",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=abc123",
+            args=(),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        first = record.getMessage()
+
+        assert filter_.filter(record) is True
+        second = record.getMessage()
+
+        assert first == "token=[REDACTED]"
+        assert second == first
+
+    def test_sensitive_data_filter_preserves_pre_redacted_unquoted_placeholders(self):
+        """Filter should not corrupt upstream pre-redacted unquoted placeholders."""
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.pre_redacted.filter",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=[REDACTED] password=[REDACTED] accesstoken=[REDACTED]",
+            args=(),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        message = record.getMessage()
+        assert message == "token=[REDACTED] password=[REDACTED] accesstoken=[REDACTED]"
+        assert "token=[REDACTED]]" not in message
+        assert "password=[REDACTED]]" not in message
+
+    def test_sensitive_data_filter_handles_message_format_errors(self):
+        """Filter should not raise when LogRecord message formatting fails."""
+
+        class _BadStr:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.format_error",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=%s",
+            args=(_BadStr(),),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        message = record.getMessage()
+        assert "[log-message-format-error]" in message
+        assert "boom" not in message
+        assert record.args == ()
+
+    def test_sensitive_data_filter_redacts_exception_text_logs(self):
+        """SensitiveDataFilter should redact exception payloads for standard text formatters."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.exception.text")
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            try:
+                raise RuntimeError("upstream auth token=abc123 password=hunter2")
+            except RuntimeError:
+                logger.exception("operation failed")
+
+            output = stream.getvalue()
+            assert "abc123" not in output
+            assert "hunter2" not in output
+            assert "token=[REDACTED]" in output
+            assert "password=[REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_exception_text_for_json_formatter(self):
+        """SensitiveDataFilter + JSONFormatter should emit redacted exception text."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.exception.json")
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(JSONFormatter())
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            try:
+                raise RuntimeError("token=abc123 password=hunter2")
+            except RuntimeError:
+                logger.exception("json failure")
+
+            payload = json.loads(stream.getvalue().strip())
+            exception_text = payload["exception"]
+            assert "abc123" not in exception_text
+            assert "hunter2" not in exception_text
+            assert "token=[REDACTED]" in exception_text
+            assert "password=[REDACTED]" in exception_text
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_ignores_external_redaction_flag(self):
+        """A caller-provided _cja_redacted extra flag must not bypass filtering."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.external_flag_text")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info("token=abc123", extra={"_cja_redacted": True})
+            output = stream.getvalue().strip()
+            assert "abc123" not in output
+            assert "token=[REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_quoted_payload_text(self):
+        """SensitiveDataFilter should redact quoted JSON/dict string payloads."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.quoted")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info('body={"access_token":"abc","client_secret":"def","authorization":"Bearer jwt-123"}')
+            output = stream.getvalue().strip()
+            assert "abc" not in output
+            assert "def" not in output
+            assert "jwt-123" not in output
+            assert '"access_token":"[REDACTED]"' in output
+            assert '"client_secret":"[REDACTED]"' in output
+            assert '"authorization":"Bearer [REDACTED]"' in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_camelcase_extras(self):
+        """SensitiveDataFilter should redact camelCase credential fields."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.camelcase")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(clientSecret)s | %(accessToken)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "Authorization: Bearer should-redact",
+                extra={"clientSecret": "secret-value", "accessToken": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "should-redact" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
+            assert "Authorization: Bearer [REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_concatenated_sensitive_extras(self):
+        """SensitiveDataFilter should redact concatenated credential field names."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.text.concatenated")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s | %(clientsecret)s | %(accesstoken)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info(
+                "clientsecret=abc123 accesstoken=token-1 refreshtoken=token-2",
+                extra={"clientsecret": "secret-value", "accesstoken": "token-value"},
+            )
+            output = stream.getvalue().strip()
+            assert "abc123" not in output
+            assert "token-1" not in output
+            assert "token-2" not in output
+            assert "secret-value" not in output
+            assert "token-value" not in output
+            assert "clientsecret=[REDACTED]" in output
+            assert "accesstoken=[REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
 
     def test_logging_creates_log_directory(self, tmp_path, monkeypatch):
         """Test that logging creates the logs directory"""

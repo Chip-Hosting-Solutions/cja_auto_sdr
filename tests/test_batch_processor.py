@@ -532,6 +532,8 @@ class TestBatchProcessorWorkerArgs:
         assert isinstance(args, WorkerArgs)
         assert args.data_view_id == "dv_test_12345"
         assert args.config_file == mock_config_file
+        assert args.production_mode is False
+        assert args.batch_id is not None
 
 
 class TestBatchProcessorEdgeCases:

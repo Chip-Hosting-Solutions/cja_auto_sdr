@@ -1,15 +1,284 @@
 """Logging helpers for CJA Auto SDR."""
 
 import atexit
+import contextlib
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
+
+_LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
+_REDACTION_FLAG_ATTR = "_cja_redacted"
+_REDACTION_MARKER = object()
+_REDACTION_EXCEPTION_ATTR = "_cja_redacted_exception"
+_SENSITIVE_FIELD_NAMES = {
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "client_secret",
+    "token",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "auth_header",
+    "private_key",
+}
+_SENSITIVE_COMPACT_FIELD_NAMES = {
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "clientsecret",
+    "token",
+    "accesstoken",
+    "refreshtoken",
+    "bearertoken",
+    "apikey",
+    "authorization",
+    "authheader",
+    "privatekey",
+}
+_REDACTED_VALUE = "[REDACTED]"
+_SENSITIVE_KEY_REGEX = (
+    r"client[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|api[_-]?key|apikey|"
+    r"auth[_-]?header|private[_-]?key|password|passwd|pwd|secret|token"
+)
+_MESSAGE_VALUE_REGEX = r"""
+(?:
+    "(?:[^"\\]|\\.)*" |
+    '(?:[^'\\]|\\.)*' |
+    [^,\s;}]+
+)
+"""
+_AUTHORIZATION_KEY_REGEX = r"""(?:"authorization"|'authorization'|authorization)"""
+_AUTHORIZATION_SCHEME_PATTERN = re.compile(
+    rf"""(?ix)
+    (?P<key>{_AUTHORIZATION_KEY_REGEX})
+    (?P<separator>\s*[:=]\s*)
+    (?P<value_quote>["']?)
+    (?P<scheme>[A-Za-z]+)\s+(?P<credential>[A-Za-z0-9._~+/=-]+)
+    (?P=value_quote)
+    """
+)
+_AUTHORIZATION_VALUE_PATTERN = re.compile(
+    rf"""(?ix)
+    (?P<key>{_AUTHORIZATION_KEY_REGEX})
+    (?P<separator>\s*[:=]\s*)
+    (?!["']?[A-Za-z]+\s+[A-Za-z0-9._~+/=\-\[\]]+["']?)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
+    """
+)
+_GENERIC_BEARER_PATTERN = re.compile(r"(?i)\b(bearer)\s+([A-Za-z0-9._~+/=-]+)")
+_SENSITIVE_QUOTED_KEY_VALUE_PATTERN = re.compile(
+    rf"""(?ix)
+    (?P<full_key>["'](?:{_SENSITIVE_KEY_REGEX})["'])
+    (?P<separator>\s*[:=]\s*)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
+    """
+)
+_SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN = re.compile(
+    rf"""(?ix)
+    (?P<full_key>(?<![A-Za-z0-9_])(?:{_SENSITIVE_KEY_REGEX})(?![A-Za-z0-9_]))
+    (?P<separator>\s*[:=]\s*)
+    (?P<value>{_MESSAGE_VALUE_REGEX})
+    """
+)
+
+
+def _normalize_field_name(name: str) -> str:
+    separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name.strip())
+    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", separated)
+    return re.sub(r"[^a-z0-9]+", "_", separated.lower()).strip("_")
+
+
+def _safe_str(value: object) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return "<unprintable>"
+
+
+def _safe_record_message(record: logging.LogRecord) -> str:
+    try:
+        return record.getMessage()
+    except Exception:
+        # Keep logging resilient when message formatting fails (bad placeholders or broken __str__).
+        return f"{_safe_str(getattr(record, 'msg', ''))} [log-message-format-error]"
+
+
+def _is_record_redacted(record: logging.LogRecord) -> bool:
+    return record.__dict__.get(_REDACTION_FLAG_ATTR) is _REDACTION_MARKER
+
+
+def _mark_record_redacted(record: logging.LogRecord) -> None:
+    record.__dict__[_REDACTION_FLAG_ATTR] = _REDACTION_MARKER
+
+
+def _safe_format_exception(exc_info: object) -> str:
+    try:
+        if isinstance(exc_info, tuple) and len(exc_info) == 3:
+            return logging.Formatter().formatException(exc_info)
+    except Exception:
+        return "<exception-format-error>"
+    return "<exception-unavailable>"
+
+
+def _mark_record_exception_redacted(record: logging.LogRecord, exception_text: str) -> None:
+    record.__dict__[_REDACTION_EXCEPTION_ATTR] = (_REDACTION_MARKER, exception_text)
+    # Standard formatters append exc_text when present, preventing raw exc_info rendering.
+    record.exc_text = exception_text
+
+
+def _get_marked_exception_text(record: logging.LogRecord) -> str | None:
+    payload = record.__dict__.get(_REDACTION_EXCEPTION_ATTR)
+    if isinstance(payload, tuple) and len(payload) == 2 and payload[0] is _REDACTION_MARKER:
+        return payload[1] if isinstance(payload[1], str) else _safe_str(payload[1])
+    return None
+
+
+def _is_reserved_or_private_record_key(key: object) -> bool:
+    if not isinstance(key, str):
+        return True
+    return key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_")
+
+
+def _is_sensitive_field(name: str) -> bool:
+    normalized = _normalize_field_name(name)
+    if not normalized:
+        return False
+    if normalized in _SENSITIVE_FIELD_NAMES:
+        return True
+    compact = normalized.replace("_", "")
+    if compact in _SENSITIVE_COMPACT_FIELD_NAMES:
+        return True
+
+    parts = [part for part in normalized.split("_") if part]
+    if not parts:
+        return False
+
+    if "password" in parts or "passwd" in parts or "pwd" in parts:
+        return True
+    if "secret" in parts or "token" in parts:
+        return True
+    if "authorization" in parts:
+        return True
+    return (
+        parts[-2:] == ["auth", "header"]
+        or parts[-2:] == ["api", "key"]
+        or parts[-2:] == ["private", "key"]
+        or parts[-1] == "apikey"
+        or compact.endswith("token")
+        or compact.endswith("secret")
+        or compact.endswith("password")
+        or compact.endswith("passwd")
+        or compact.endswith("apikey")
+        or compact.endswith("authheader")
+        or compact.endswith("privatekey")
+    )
+
+
+def _redact_bearer_match(match: re.Match[str]) -> str:
+    return f"{match.group(1)} {_REDACTED_VALUE}"
+
+
+def _redact_captured_value(value: str) -> str:
+    if len(value) >= 2 and value[0] in {"'", '"'} and value[-1] == value[0]:
+        return f"{value[0]}{_REDACTED_VALUE}{value[0]}"
+    return _REDACTED_VALUE
+
+
+def _redact_authorization_scheme_match(match: re.Match[str]) -> str:
+    quoted_value = f"{match.group('scheme')} {_REDACTED_VALUE}"
+    value_quote = match.group("value_quote")
+    if value_quote:
+        quoted_value = f"{value_quote}{quoted_value}{value_quote}"
+    return f"{match.group('key')}{match.group('separator')}{quoted_value}"
+
+
+def _redact_authorization_value_match(match: re.Match[str]) -> str:
+    return f"{match.group('key')}{match.group('separator')}{_redact_captured_value(match.group('value'))}"
+
+
+def _redact_key_value_match(match: re.Match[str]) -> str:
+    return f"{match.group('full_key')}{match.group('separator')}{_redact_captured_value(match.group('value'))}"
+
+
+def _redact_message(message: str) -> str:
+    redacted = _AUTHORIZATION_SCHEME_PATTERN.sub(_redact_authorization_scheme_match, message)
+    redacted = _AUTHORIZATION_VALUE_PATTERN.sub(_redact_authorization_value_match, redacted)
+    redacted = _SENSITIVE_QUOTED_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
+    redacted = _SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN.sub(_redact_key_value_match, redacted)
+    return _GENERIC_BEARER_PATTERN.sub(_redact_bearer_match, redacted)
+
+
+def _redact_value(value: object) -> object:
+    if isinstance(value, dict):
+        redacted_dict: dict[object, object] = {}
+        for key, item in value.items():
+            if _is_sensitive_field(_safe_str(key)):
+                redacted_dict[key] = _REDACTED_VALUE
+            else:
+                redacted_dict[key] = _redact_value(item)
+        return redacted_dict
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item) for item in value)
+    if isinstance(value, str):
+        return _redact_message(value)
+    return value
+
+
+def _redact_extra_fields(extra_fields: dict[str, object]) -> dict[str, object]:
+    redacted: dict[str, object] = {}
+    for key, value in extra_fields.items():
+        if _is_sensitive_field(_safe_str(key)):
+            redacted[key] = _REDACTED_VALUE
+        else:
+            redacted[key] = _redact_value(value)
+    return redacted
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Best-effort redaction for sensitive values in log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if _is_record_redacted(record):
+            return True
+
+        record.msg = _redact_message(_safe_record_message(record))
+        record.args = ()
+
+        if record.exc_info:
+            exception_text = _redact_message(_safe_format_exception(record.exc_info))
+            _mark_record_exception_redacted(record, exception_text)
+
+        record_extra_fields = getattr(record, "extra_fields", None)
+        if isinstance(record_extra_fields, dict):
+            with contextlib.suppress(Exception):
+                record.extra_fields = _redact_extra_fields(record_extra_fields)
+
+        for key, value in list(record.__dict__.items()):
+            if _is_reserved_or_private_record_key(key):
+                continue
+            key_name = _safe_str(key)
+            if _is_sensitive_field(key_name):
+                record.__dict__[key] = _REDACTED_VALUE
+                continue
+            with contextlib.suppress(Exception):
+                record.__dict__[key] = _redact_value(value)
+        _mark_record_redacted(record)
+        return True
 
 
 class JSONFormatter(logging.Formatter):
@@ -22,23 +291,51 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
+        already_redacted = _is_record_redacted(record)
+        message = _safe_record_message(record)
+        if not already_redacted:
+            message = _redact_message(message)
+        exception_text = _get_marked_exception_text(record)
+
         log_entry = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": message,
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
+            "process": record.process,
+            "process_name": record.processName,
+            "thread": record.thread,
+            "thread_name": record.threadName,
         }
 
         # Add exception info if present
         if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            if exception_text is None:
+                exception_text = _redact_message(_safe_format_exception(record.exc_info))
+                if already_redacted:
+                    _mark_record_exception_redacted(record, exception_text)
+            log_entry["exception"] = exception_text
 
-        # Add any extra fields passed to the logger
-        if hasattr(record, "extra_fields"):
-            log_entry.update(record.extra_fields)
+        # Add any explicit extra fields passed to the logger.
+        extra_fields = {}
+        record_extra_fields = getattr(record, "extra_fields", None)
+        if isinstance(record_extra_fields, dict):
+            extra_fields.update(record_extra_fields)
+
+        # Also include custom LogRecord attributes set via logging's `extra`.
+        for key, value in record.__dict__.items():
+            if _is_reserved_or_private_record_key(key):
+                continue
+            extra_fields.setdefault(key, value)
+
+        if extra_fields:
+            if already_redacted:
+                log_entry.update(extra_fields)
+            else:
+                log_entry.update(_redact_extra_fields(extra_fields))
 
         return json.dumps(log_entry, default=str)
 
@@ -47,6 +344,75 @@ class JSONFormatter(logging.Formatter):
 _logging_initialized = False
 _current_log_file = None
 _atexit_registered = False
+
+
+class ContextLoggerAdapter(logging.LoggerAdapter):
+    """LoggerAdapter that merges contextual fields into record extras."""
+
+    def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:
+        extra = kwargs.get("extra")
+        merged_extra = dict(self.extra)
+        if isinstance(extra, dict):
+            merged_extra.update(extra)
+        kwargs["extra"] = merged_extra
+        return msg, kwargs
+
+
+def _unwrap_logger(logger: logging.Logger | logging.LoggerAdapter | None) -> logging.Logger | None:
+    current = logger
+    while isinstance(current, logging.LoggerAdapter):
+        current = current.logger
+    if isinstance(current, logging.Logger):
+        return current
+    return None
+
+
+def with_log_context(
+    logger: logging.Logger | logging.LoggerAdapter | object, **context: object
+) -> logging.Logger | logging.LoggerAdapter | object:
+    """Return a logger enriched with persistent contextual fields."""
+    if not isinstance(logger, (logging.Logger, logging.LoggerAdapter)):
+        # Preserve test doubles/mocks that may not satisfy logging interfaces.
+        return logger
+
+    base_logger = _unwrap_logger(logger)
+    if base_logger is None:
+        return logger
+
+    normalized_context = {k: v for k, v in context.items() if v is not None}
+    existing_context = {}
+    if isinstance(logger, logging.LoggerAdapter):
+        existing_context = dict(getattr(logger, "extra", {}))
+
+    existing_context.update(normalized_context)
+    return ContextLoggerAdapter(base_logger, existing_context)
+
+
+def flush_logging_handlers(logger: logging.Logger | logging.LoggerAdapter | None = None) -> None:
+    """Flush logger handlers, including propagated root handlers."""
+    handlers: list[logging.Handler] = []
+    seen: set[int] = set()
+
+    unwrapped_logger = _unwrap_logger(logger)
+
+    if unwrapped_logger is not None:
+        current: logging.Logger | None = unwrapped_logger
+        while current is not None:
+            handlers.extend(current.handlers)
+            if not current.propagate:
+                break
+            current = current.parent
+
+    if not handlers:
+        handlers.extend(logging.root.handlers)
+
+    for handler in handlers:
+        handler_id = id(handler)
+        if handler_id in seen:
+            continue
+        seen.add(handler_id)
+        with contextlib.suppress(Exception):
+            handler.flush()
 
 
 def setup_logging(
@@ -128,6 +494,7 @@ def setup_logging(
     for handler in handlers:
         handler.setFormatter(formatter)
         handler.setLevel(numeric_level)
+        handler.addFilter(SensitiveDataFilter())
         logging.root.addHandler(handler)
 
     # Set root logger level explicitly

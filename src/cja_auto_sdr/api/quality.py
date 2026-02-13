@@ -18,12 +18,19 @@ class DataQualityChecker:
     # Severity levels in priority order (highest to lowest) for proper sorting
     SEVERITY_ORDER: ClassVar[list[str]] = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
-    def __init__(self, logger: logging.Logger, validation_cache: ValidationCache | None = None, quiet: bool = False):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        validation_cache: ValidationCache | None = None,
+        quiet: bool = False,
+        log_high_severity_issues: bool = True,
+    ):
         self.issues = []
         self.logger = logger
         self.validation_cache = validation_cache  # Optional cache for performance
         self._issues_lock = threading.Lock()  # Thread safety for parallel validation
         self.quiet = quiet
+        self.log_high_severity_issues = log_high_severity_issues
 
     def add_issue(
         self, severity: str, category: str, item_type: str, item_name: str, description: str, details: str = ""
@@ -46,7 +53,11 @@ class DataQualityChecker:
         # Only log individual issues in DEBUG mode
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(f"DQ Issue [{severity}] - {item_type}: {description}")
-        elif severity in ["CRITICAL", "HIGH"] and self.logger.isEnabledFor(logging.WARNING):
+        elif (
+            self.log_high_severity_issues
+            and severity in ["CRITICAL", "HIGH"]
+            and self.logger.isEnabledFor(logging.WARNING)
+        ):
             # In non-DEBUG modes, only log CRITICAL/HIGH severity issues
             self.logger.warning(f"DQ Issue [{severity}] - {item_type}: {description}")
         return issue
@@ -442,3 +453,11 @@ class DataQualityChecker:
             for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
                 if sev in severity_counts:
                     self.logger.info(f"  {sev}: {severity_counts[sev]}")
+        elif self.logger.isEnabledFor(logging.WARNING):
+            # Minimal warning-level telemetry for production mode.
+            high_severity = {
+                sev: count for sev, count in severity_counts.items() if sev in ("CRITICAL", "HIGH") and count > 0
+            }
+            if high_severity:
+                details = ", ".join(f"{sev}: {count}" for sev, count in high_severity.items())
+                self.logger.warning(f"Data quality high-severity summary: {details}")

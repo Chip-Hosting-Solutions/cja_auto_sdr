@@ -126,6 +126,41 @@ class TestDataQualityLogging:
         # Should have debug log entry
         assert any("Debug test issue" in record.message for record in caplog.records)
 
+    def test_production_mode_suppresses_individual_high_severity_logs(self, caplog):
+        """Production mode should avoid per-issue warning spam."""
+        logger = logging.getLogger("test_production_warning")
+        logger.setLevel(logging.WARNING)
+
+        dq_checker = DataQualityChecker(logger, log_high_severity_issues=False)
+
+        with caplog.at_level(logging.WARNING):
+            dq_checker.add_issue(
+                severity="CRITICAL",
+                category="Test",
+                item_type="Metrics",
+                item_name="test_metric",
+                description="Critical production issue",
+                details="Details",
+            )
+
+        assert not any("Critical production issue" in record.message for record in caplog.records)
+
+    def test_production_mode_emits_aggregated_high_severity_warning(self, caplog):
+        """Production mode should still emit one aggregated warning signal."""
+        logger = logging.getLogger("test_production_summary")
+        logger.setLevel(logging.WARNING)
+
+        dq_checker = DataQualityChecker(logger, log_high_severity_issues=False)
+        dq_checker.add_issue("CRITICAL", "Test", "Metrics", "metric1", "Issue 1", "")
+        dq_checker.add_issue("HIGH", "Test", "Dimensions", "dim1", "Issue 2", "")
+
+        with caplog.at_level(logging.WARNING):
+            dq_checker.log_summary()
+
+        assert any("high-severity summary" in record.message for record in caplog.records)
+        assert any("CRITICAL: 1" in record.message for record in caplog.records)
+        assert any("HIGH: 1" in record.message for record in caplog.records)
+
 
 class TestSummaryLogging:
     """Test aggregated summary logging"""

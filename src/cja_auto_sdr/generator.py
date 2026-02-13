@@ -304,6 +304,8 @@ class WorkerArgs:
     inventory_only: bool = False
     inventory_order: str | None = None
     quality_report_only: bool = False
+    production_mode: bool = False
+    batch_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -335,6 +337,8 @@ class ProcessingConfig:
     inventory_only: bool = False
     inventory_order: list[str] | None = None
     quality_report_only: bool = False
+    production_mode: bool = False
+    batch_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -368,6 +372,7 @@ class BatchConfig:
     inventory_only: bool = False
     inventory_order: list[str] | None = None
     quality_report_only: bool = False
+    production_mode: bool = False
 
 
 @dataclass(frozen=True)
@@ -1054,7 +1059,7 @@ from cja_auto_sdr.api.tuning import APIWorkerTuner
 
 # ==================== LOGGING SETUP ====================
 # ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, setup_logging
+from cja_auto_sdr.core.logging import JSONFormatter, flush_logging_handlers, setup_logging, with_log_context
 
 # ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
 from cja_auto_sdr.core.perf import PerformanceTracker
@@ -4985,6 +4990,7 @@ def process_inventory_summary(
     config_file: str = "config.json",
     output_dir: str | Path = ".",
     log_level: str = "INFO",
+    log_format: str = "text",
     output_format: str = "console",
     quiet: bool = False,
     profile: str | None = None,
@@ -5001,6 +5007,7 @@ def process_inventory_summary(
         config_file: Path to CJA config file
         output_dir: Directory for JSON output
         log_level: Logging level
+        log_format: Log output format - "text" (default) or "json"
         output_format: Output format - "console" or "json"
         quiet: Suppress console output
         profile: Config profile name
@@ -5012,7 +5019,8 @@ def process_inventory_summary(
     Returns:
         Dictionary with summary statistics
     """
-    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level)
+    base_logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level, log_format=log_format)
+    logger = with_log_context(base_logger, run_mode="inventory_summary", data_view_id=data_view_id)
 
     # Initialize CJA
     cja = initialize_cja(config_file, logger, profile=profile)
@@ -5122,6 +5130,8 @@ def process_single_dataview(
     inventory_only: bool = False,
     inventory_order: list[str] | None = None,
     quality_report_only: bool = False,
+    production_mode: bool = False,
+    batch_id: str | None = None,
     processing_config: ProcessingConfig | None = None,
 ) -> ProcessingResult:
     """
@@ -5148,6 +5158,8 @@ def process_single_dataview(
         inventory_only: Output only inventory sheets, skip standard SDR content (default: False)
         inventory_order: Order of inventory sheets as they appear in CLI (default: ['derived', 'calculated', 'segments'])
         quality_report_only: Validate and return quality issues without generating SDR files (default: False)
+        production_mode: Reduce per-issue warning log volume for production runs (default: False)
+        batch_id: Optional batch correlation ID for structured logging context (default: None)
 
     Returns:
         ProcessingResult with processing details including success status, metrics/dimensions count,
@@ -5180,6 +5192,8 @@ def process_single_dataview(
             inventory_only=inventory_only,
             inventory_order=inventory_order,
             quality_report_only=quality_report_only,
+            production_mode=production_mode,
+            batch_id=batch_id,
         )
 
     config_file = processing_config.config_file
@@ -5207,11 +5221,15 @@ def process_single_dataview(
     inventory_only = processing_config.inventory_only
     inventory_order = processing_config.inventory_order
     quality_report_only = processing_config.quality_report_only
+    production_mode = processing_config.production_mode
+    batch_id = processing_config.batch_id
 
     start_time = time.time()
 
     # Setup logging for this data view
-    logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level, log_format=log_format)
+    base_logger = setup_logging(data_view_id, batch_mode=False, log_level=log_level, log_format=log_format)
+    run_mode = "batch_worker" if batch_id else "single"
+    logger = with_log_context(base_logger, run_mode=run_mode, data_view_id=data_view_id, batch_id=batch_id)
     perf_tracker = PerformanceTracker(logger)
 
     try:
@@ -5298,8 +5316,7 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             # Flush handlers to ensure log is written
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5343,7 +5360,12 @@ def process_single_dataview(
                 else:
                     logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
 
-            dq_checker = DataQualityChecker(logger, validation_cache=validation_cache, quiet=quiet)
+            dq_checker = DataQualityChecker(
+                logger,
+                validation_cache=validation_cache,
+                quiet=quiet,
+                log_high_severity_issues=not production_mode,
+            )
 
             # Run parallel data quality checks (10-15% faster than sequential)
             logger.info("Running parallel data quality checks...")
@@ -5935,8 +5957,7 @@ def process_single_dataview(
             logger.info("Error: Permission denied")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5954,8 +5975,7 @@ def process_single_dataview(
             logger.info(f"Error: {e!s}")
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
-            for handler in logger.handlers:
-                handler.flush()
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
@@ -5974,8 +5994,7 @@ def process_single_dataview(
         logger.info(f"Error: {e!s}")
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
         logger.info("=" * BANNER_WIDTH)
-        for handler in logger.handlers:
-            handler.flush()
+        flush_logging_handlers(logger)
         return ProcessingResult(
             data_view_id=data_view_id,
             data_view_name="Unknown",
@@ -6028,6 +6047,8 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
             inventory_only=args.inventory_only,
             inventory_order=args.inventory_order,
             quality_report_only=args.quality_report_only,
+            production_mode=args.production_mode,
+            batch_id=args.batch_id,
         ),
     )
 
@@ -6064,6 +6085,7 @@ class BatchProcessor:
         shared_cache: Share validation cache across batch workers (default: False)
         api_tuning_config: API worker auto-tuning configuration (default: None)
         circuit_breaker_config: Circuit breaker configuration (default: None)
+        production_mode: Reduce per-issue warning log volume for production runs (default: False)
     """
 
     def __init__(
@@ -6095,6 +6117,7 @@ class BatchProcessor:
         inventory_only: bool = False,
         inventory_order: list[str] | None = None,
         quality_report_only: bool = False,
+        production_mode: bool = False,
         batch_config: BatchConfig | None = None,
     ):
         if batch_config is None:
@@ -6126,6 +6149,7 @@ class BatchProcessor:
                 inventory_only=inventory_only,
                 inventory_order=inventory_order,
                 quality_report_only=quality_report_only,
+                production_mode=production_mode,
             )
 
         self.config_file = batch_config.config_file
@@ -6155,8 +6179,10 @@ class BatchProcessor:
         self.inventory_only = batch_config.inventory_only
         self.inventory_order = batch_config.inventory_order
         self.quality_report_only = batch_config.quality_report_only
+        self.production_mode = batch_config.production_mode
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
-        self.logger = setup_logging(batch_mode=True, log_level=self.log_level, log_format=self.log_format)
+        base_logger = setup_logging(batch_mode=True, log_level=self.log_level, log_format=self.log_format)
+        self.logger = with_log_context(base_logger, run_mode="batch", batch_id=self.batch_id)
         self.logger.info(f"Batch ID: {self.batch_id}")
 
         # Create shared validation cache if enabled
@@ -6232,6 +6258,8 @@ class BatchProcessor:
                 inventory_only=self.inventory_only,
                 inventory_order=self.inventory_order,
                 quality_report_only=self.quality_report_only,
+                production_mode=self.production_mode,
+                batch_id=self.batch_id,
             )
             for dv_id in data_view_ids
         ]
@@ -14906,6 +14934,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     config_file=args.config_file,
                     output_dir=args.output_dir,
                     log_level=effective_log_level,
+                    log_format=args.log_format,
                     output_format=summary_format,
                     quiet=args.quiet,
                     profile=getattr(args, "profile", None),
@@ -14922,6 +14951,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 config_file=args.config_file,
                 output_dir=args.output_dir,
                 log_level=effective_log_level,
+                log_format=args.log_format,
                 output_format=summary_format,
                 quiet=args.quiet,
                 profile=getattr(args, "profile", None),
@@ -14970,6 +15000,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 inventory_only=False,
                 inventory_order=None,
                 quality_report_only=True,
+                production_mode=args.production,
             )
             quality_report_results.append(result)
             processed_results.append(result)
@@ -15046,6 +15077,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
             quality_report_only=quality_report_only,
+            production_mode=args.production,
         )
 
         results = processor.process_batch(data_views)
@@ -15111,6 +15143,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order if inventory_order else None,
             quality_report_only=quality_report_only,
+            production_mode=args.production,
         )
         processed_results = [result]
 

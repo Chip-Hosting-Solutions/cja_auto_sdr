@@ -3277,6 +3277,34 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "inventory_summary"
         assert payload["output_format"] == "console"
 
+    @patch("cja_auto_sdr.generator.process_inventory_summary")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_inventory_summary_propagates_log_format(self, mock_resolve, mock_inventory_summary):
+        """Inventory summary mode should pass --log-format to process_inventory_summary."""
+        from cja_auto_sdr.generator import main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_inventory_summary.return_value = {}
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "dv_test",
+                "--include-segments",
+                "--inventory-summary",
+                "--log-format",
+                "json",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        assert mock_inventory_summary.call_count == 1
+        assert mock_inventory_summary.call_args.kwargs["log_format"] == "json"
+
     @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
     def test_run_summary_git_init_mode(self, mock_git_init, tmp_path):
         """Run summary should classify --git-init runs with git_init mode."""

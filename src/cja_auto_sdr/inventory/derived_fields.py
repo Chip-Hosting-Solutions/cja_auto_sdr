@@ -465,7 +465,7 @@ class DerivedFieldInventoryBuilder:
             if not isinstance(func_obj, dict):
                 continue
 
-            func_type = func_obj.get("func", "")
+            func_type = self._normalize_func_name(func_obj.get("func", ""))
             if not func_type:
                 continue
 
@@ -576,6 +576,12 @@ class DerivedFieldInventoryBuilder:
             "inferred_output_type": inferred_output_type,
         }
 
+    def _normalize_func_name(self, value: Any) -> str:
+        """Normalize function names to strings suitable for comparisons/lookup keys."""
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
     def _count_predicate_operators(self, pred: dict[str, Any], depth: int = 0) -> tuple[int, int]:
         """Recursively count operators in a predicate structure."""
         if not isinstance(pred, dict):
@@ -651,7 +657,7 @@ class DerivedFieldInventoryBuilder:
             return "unknown"
 
         last_func = functions[-1]
-        func_type = last_func.get("func", "")
+        func_type = self._normalize_func_name(last_func.get("func", ""))
 
         # Math operations produce numeric output
         if func_type in ("divide", "multiply", "add", "subtract"):
@@ -853,7 +859,7 @@ class DerivedFieldInventoryBuilder:
             if not label:
                 continue
 
-            func_type = func_obj.get("func", "")
+            func_type = self._normalize_func_name(func_obj.get("func", ""))
             if func_type == "raw-field":
                 # Map label to the field ID's short name
                 field_id = func_obj.get("id", "")
