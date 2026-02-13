@@ -231,6 +231,24 @@ class TestLoggingSetup:
         assert "abc123" not in payload["message"]
         assert "abc123" not in payload["note"]
 
+    def test_json_formatter_ignores_external_redaction_flag(self):
+        """A caller-provided _cja_redacted extra flag must not bypass formatter redaction."""
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.redaction.external_flag_json",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=abc123",
+            args=(),
+            exc_info=None,
+        )
+        record._cja_redacted = True
+
+        payload = json.loads(formatter.format(record))
+        assert payload["message"] == "token=[REDACTED]"
+        assert "abc123" not in payload["message"]
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -282,6 +300,54 @@ class TestLoggingSetup:
 
         assert first == "token=[REDACTED]"
         assert second == first
+
+    def test_sensitive_data_filter_handles_message_format_errors(self):
+        """Filter should not raise when LogRecord message formatting fails."""
+
+        class _BadStr:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        filter_ = SensitiveDataFilter()
+        record = logging.LogRecord(
+            name="test.redaction.format_error",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=42,
+            msg="token=%s",
+            args=(_BadStr(),),
+            exc_info=None,
+        )
+
+        assert filter_.filter(record) is True
+        message = record.getMessage()
+        assert "[log-message-format-error]" in message
+        assert "boom" not in message
+        assert record.args == ()
+
+    def test_sensitive_data_filter_ignores_external_redaction_flag(self):
+        """A caller-provided _cja_redacted extra flag must not bypass filtering."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.external_flag_text")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            logger.info("token=abc123", extra={"_cja_redacted": True})
+            output = stream.getvalue().strip()
+            assert "abc123" not in output
+            assert "token=[REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
 
     def test_sensitive_data_filter_redacts_quoted_payload_text(self):
         """SensitiveDataFilter should redact quoted JSON/dict string payloads."""

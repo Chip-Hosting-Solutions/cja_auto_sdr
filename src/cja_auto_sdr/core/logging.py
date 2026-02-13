@@ -15,6 +15,7 @@ from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTE
 
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
 _REDACTION_FLAG_ATTR = "_cja_redacted"
+_REDACTION_MARKER = object()
 _SENSITIVE_FIELD_NAMES = {
     "password",
     "passwd",
@@ -84,6 +85,35 @@ def _normalize_field_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", separated.lower()).strip("_")
 
 
+def _safe_str(value: object) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return "<unprintable>"
+
+
+def _safe_record_message(record: logging.LogRecord) -> str:
+    try:
+        return record.getMessage()
+    except Exception:
+        # Keep logging resilient when message formatting fails (bad placeholders or broken __str__).
+        return f"{_safe_str(getattr(record, 'msg', ''))} [log-message-format-error]"
+
+
+def _is_record_redacted(record: logging.LogRecord) -> bool:
+    return record.__dict__.get(_REDACTION_FLAG_ATTR) is _REDACTION_MARKER
+
+
+def _mark_record_redacted(record: logging.LogRecord) -> None:
+    record.__dict__[_REDACTION_FLAG_ATTR] = _REDACTION_MARKER
+
+
+def _is_reserved_or_private_record_key(key: object) -> bool:
+    if not isinstance(key, str):
+        return True
+    return key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_")
+
+
 def _is_sensitive_field(name: str) -> bool:
     normalized = _normalize_field_name(name)
     if not normalized:
@@ -144,7 +174,13 @@ def _redact_message(message: str) -> str:
 
 def _redact_value(value: object) -> object:
     if isinstance(value, dict):
-        return {k: (_REDACTED_VALUE if _is_sensitive_field(str(k)) else _redact_value(v)) for k, v in value.items()}
+        redacted_dict: dict[object, object] = {}
+        for key, item in value.items():
+            if _is_sensitive_field(_safe_str(key)):
+                redacted_dict[key] = _REDACTED_VALUE
+            else:
+                redacted_dict[key] = _redact_value(item)
+        return redacted_dict
     if isinstance(value, list):
         return [_redact_value(item) for item in value]
     if isinstance(value, tuple):
@@ -157,7 +193,7 @@ def _redact_value(value: object) -> object:
 def _redact_extra_fields(extra_fields: dict[str, object]) -> dict[str, object]:
     redacted: dict[str, object] = {}
     for key, value in extra_fields.items():
-        if _is_sensitive_field(str(key)):
+        if _is_sensitive_field(_safe_str(key)):
             redacted[key] = _REDACTED_VALUE
         else:
             redacted[key] = _redact_value(value)
@@ -168,24 +204,27 @@ class SensitiveDataFilter(logging.Filter):
     """Best-effort redaction for sensitive values in log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if bool(getattr(record, _REDACTION_FLAG_ATTR, False)):
+        if _is_record_redacted(record):
             return True
 
-        record.msg = _redact_message(record.getMessage())
+        record.msg = _redact_message(_safe_record_message(record))
         record.args = ()
 
         record_extra_fields = getattr(record, "extra_fields", None)
         if isinstance(record_extra_fields, dict):
-            record.extra_fields = _redact_extra_fields(record_extra_fields)
+            with contextlib.suppress(Exception):
+                record.extra_fields = _redact_extra_fields(record_extra_fields)
 
         for key, value in list(record.__dict__.items()):
-            if key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_"):
+            if _is_reserved_or_private_record_key(key):
                 continue
-            if _is_sensitive_field(key):
+            key_name = _safe_str(key)
+            if _is_sensitive_field(key_name):
                 record.__dict__[key] = _REDACTED_VALUE
-            else:
+                continue
+            with contextlib.suppress(Exception):
                 record.__dict__[key] = _redact_value(value)
-        record.__dict__[_REDACTION_FLAG_ATTR] = True
+        _mark_record_redacted(record)
         return True
 
 
@@ -199,8 +238,8 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
-        already_redacted = bool(getattr(record, _REDACTION_FLAG_ATTR, False))
-        message = record.getMessage()
+        already_redacted = _is_record_redacted(record)
+        message = _safe_record_message(record)
         if not already_redacted:
             message = _redact_message(message)
 
@@ -230,7 +269,7 @@ class JSONFormatter(logging.Formatter):
 
         # Also include custom LogRecord attributes set via logging's `extra`.
         for key, value in record.__dict__.items():
-            if key in _LOG_RECORD_RESERVED_FIELDS or key.startswith("_"):
+            if _is_reserved_or_private_record_key(key):
                 continue
             extra_fields.setdefault(key, value)
 
