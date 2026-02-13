@@ -16,6 +16,7 @@ from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTE
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
 _REDACTION_FLAG_ATTR = "_cja_redacted"
 _REDACTION_MARKER = object()
+_REDACTION_EXCEPTION_ATTR = "_cja_redacted_exception"
 _SENSITIVE_FIELD_NAMES = {
     "password",
     "passwd",
@@ -106,6 +107,28 @@ def _is_record_redacted(record: logging.LogRecord) -> bool:
 
 def _mark_record_redacted(record: logging.LogRecord) -> None:
     record.__dict__[_REDACTION_FLAG_ATTR] = _REDACTION_MARKER
+
+
+def _safe_format_exception(exc_info: object) -> str:
+    try:
+        if isinstance(exc_info, tuple) and len(exc_info) == 3:
+            return logging.Formatter().formatException(exc_info)
+    except Exception:
+        return "<exception-format-error>"
+    return "<exception-unavailable>"
+
+
+def _mark_record_exception_redacted(record: logging.LogRecord, exception_text: str) -> None:
+    record.__dict__[_REDACTION_EXCEPTION_ATTR] = (_REDACTION_MARKER, exception_text)
+    # Standard formatters append exc_text when present, preventing raw exc_info rendering.
+    record.exc_text = exception_text
+
+
+def _get_marked_exception_text(record: logging.LogRecord) -> str | None:
+    payload = record.__dict__.get(_REDACTION_EXCEPTION_ATTR)
+    if isinstance(payload, tuple) and len(payload) == 2 and payload[0] is _REDACTION_MARKER:
+        return payload[1] if isinstance(payload[1], str) else _safe_str(payload[1])
+    return None
 
 
 def _is_reserved_or_private_record_key(key: object) -> bool:
@@ -210,6 +233,10 @@ class SensitiveDataFilter(logging.Filter):
         record.msg = _redact_message(_safe_record_message(record))
         record.args = ()
 
+        if record.exc_info:
+            exception_text = _redact_message(_safe_format_exception(record.exc_info))
+            _mark_record_exception_redacted(record, exception_text)
+
         record_extra_fields = getattr(record, "extra_fields", None)
         if isinstance(record_extra_fields, dict):
             with contextlib.suppress(Exception):
@@ -242,6 +269,7 @@ class JSONFormatter(logging.Formatter):
         message = _safe_record_message(record)
         if not already_redacted:
             message = _redact_message(message)
+        exception_text = _get_marked_exception_text(record)
 
         log_entry = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
@@ -259,7 +287,11 @@ class JSONFormatter(logging.Formatter):
 
         # Add exception info if present
         if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            if exception_text is None:
+                exception_text = _redact_message(_safe_format_exception(record.exc_info))
+                if already_redacted:
+                    _mark_record_exception_redacted(record, exception_text)
+            log_entry["exception"] = exception_text
 
         # Add any explicit extra fields passed to the logger.
         extra_fields = {}

@@ -249,6 +249,29 @@ class TestLoggingSetup:
         assert payload["message"] == "token=[REDACTED]"
         assert "abc123" not in payload["message"]
 
+    def test_json_formatter_redacts_exception_details_without_filter(self):
+        """JSONFormatter should redact sensitive values in exception text without filter help."""
+        formatter = JSONFormatter()
+        try:
+            raise RuntimeError("auth failed token=abc123 password=hunter2")
+        except RuntimeError:
+            record = logging.LogRecord(
+                name="test.redaction.exception.json.formatter",
+                level=logging.ERROR,
+                pathname=__file__,
+                lineno=42,
+                msg="Operation failed",
+                args=(),
+                exc_info=sys.exc_info(),
+            )
+
+        payload = json.loads(formatter.format(record))
+        exception_text = payload["exception"]
+        assert "abc123" not in exception_text
+        assert "hunter2" not in exception_text
+        assert "token=[REDACTED]" in exception_text
+        assert "password=[REDACTED]" in exception_text
+
     def test_sensitive_data_filter_redacts_text_logs(self):
         """SensitiveDataFilter should redact sensitive values for text logs."""
         stream = io.StringIO()
@@ -324,6 +347,67 @@ class TestLoggingSetup:
         assert "[log-message-format-error]" in message
         assert "boom" not in message
         assert record.args == ()
+
+    def test_sensitive_data_filter_redacts_exception_text_logs(self):
+        """SensitiveDataFilter should redact exception payloads for standard text formatters."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.exception.text")
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            try:
+                raise RuntimeError("upstream auth token=abc123 password=hunter2")
+            except RuntimeError:
+                logger.exception("operation failed")
+
+            output = stream.getvalue()
+            assert "abc123" not in output
+            assert "hunter2" not in output
+            assert "token=[REDACTED]" in output
+            assert "password=[REDACTED]" in output
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
+
+    def test_sensitive_data_filter_redacts_exception_text_for_json_formatter(self):
+        """SensitiveDataFilter + JSONFormatter should emit redacted exception text."""
+        stream = io.StringIO()
+        logger = logging.getLogger("test.redaction.exception.json")
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+        original_handlers = list(logger.handlers)
+        logger.handlers.clear()
+
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(JSONFormatter())
+        handler.addFilter(SensitiveDataFilter())
+        logger.addHandler(handler)
+
+        try:
+            try:
+                raise RuntimeError("token=abc123 password=hunter2")
+            except RuntimeError:
+                logger.exception("json failure")
+
+            payload = json.loads(stream.getvalue().strip())
+            exception_text = payload["exception"]
+            assert "abc123" not in exception_text
+            assert "hunter2" not in exception_text
+            assert "token=[REDACTED]" in exception_text
+            assert "password=[REDACTED]" in exception_text
+        finally:
+            logger.removeHandler(handler)
+            for existing in original_handlers:
+                logger.addHandler(existing)
 
     def test_sensitive_data_filter_ignores_external_redaction_flag(self):
         """A caller-provided _cja_redacted extra flag must not bypass filtering."""
