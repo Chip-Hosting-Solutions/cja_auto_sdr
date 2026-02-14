@@ -1315,6 +1315,27 @@ class TestDescriptionExtraction:
 
         assert inventory.fields[0].description == ""
 
+    def test_timestamp_description_handled(self):
+        """Datetime-like descriptions should be preserved via scalar coercion."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": pd.Timestamp("2025-01-15T10:30:00Z"),
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.fields[0].description != ""
+        assert "2025-01-15" in inventory.fields[0].description
+
     def test_description_in_dataframe(self):
         """Test that description column appears in DataFrame output"""
         df = pd.DataFrame(

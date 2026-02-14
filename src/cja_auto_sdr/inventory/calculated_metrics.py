@@ -27,11 +27,14 @@ import pandas as pd
 
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
+    coerce_display_text,
+    coerce_scalar_text,
     extract_owner,
     extract_short_name,
     extract_tags,
     format_iso_date,
     normalize_api_response,
+    normalize_func_name,
     validate_required_id,
 )
 
@@ -569,41 +572,15 @@ class CalculatedMetricsInventoryBuilder:
 
     def _normalize_func_name(self, value: Any) -> str:
         """Normalize function names to comparable string keys."""
-        if isinstance(value, str):
-            return value.strip()
-        return ""
+        return normalize_func_name(value)
 
     def _coerce_scalar_text(self, value: Any) -> str:
         """Convert scalar values to text while ignoring null/object payloads."""
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value.strip()
-
-        try:
-            is_na = pd.isna(value)
-            if isinstance(is_na, bool) and is_na:
-                return ""
-        except TypeError, ValueError:
-            pass
-
-        if hasattr(value, "isoformat"):
-            try:
-                iso_value = value.isoformat()
-                if iso_value is None:
-                    return ""
-                return str(iso_value).strip()
-            except TypeError, ValueError:
-                pass
-
-        if pd.api.types.is_scalar(value):
-            return str(value).strip()
-        return ""
+        return coerce_scalar_text(value)
 
     def _coerce_display_text(self, value: Any, fallback: str = "") -> str:
         """Normalize text values for summaries/dataclass fields."""
-        normalized = self._coerce_scalar_text(value)
-        return normalized if normalized else fallback
+        return coerce_display_text(value, fallback=fallback)
 
     def _normalize_reference_value(self, value: Any) -> str:
         """Normalize IDs and reference values from mixed payload shapes."""

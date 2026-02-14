@@ -30,7 +30,10 @@ import pandas as pd
 
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
+    coerce_display_text,
+    coerce_scalar_text,
     extract_short_name,
+    normalize_func_name,
     validate_required_id,
 )
 
@@ -575,9 +578,7 @@ class DerivedFieldInventoryBuilder:
 
     def _normalize_func_name(self, value: Any) -> str:
         """Normalize function names to strings suitable for comparisons/lookup keys."""
-        if isinstance(value, str):
-            return value.strip()
-        return ""
+        return normalize_func_name(value)
 
     def _normalize_source_type(self, value: Any) -> str:
         """Normalize sourceFieldType values from scalar/list-like payloads."""
@@ -597,23 +598,11 @@ class DerivedFieldInventoryBuilder:
 
     def _coerce_scalar_text(self, value: Any) -> str:
         """Convert scalar values to display text while ignoring null/object payloads."""
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value.strip()
-        if isinstance(value, (int, float, bool)):
-            try:
-                if bool(pd.isna(value)):
-                    return ""
-            except TypeError, ValueError:
-                pass
-            return str(value).strip()
-        return ""
+        return coerce_scalar_text(value)
 
     def _coerce_display_text(self, value: Any, fallback: str = "") -> str:
         """Normalize display text with a fallback for null/unsupported value shapes."""
-        normalized = self._coerce_scalar_text(value)
-        return normalized if normalized else fallback
+        return coerce_display_text(value, fallback=fallback)
 
     def _coerce_int_index(self, value: Any, default: int = 0) -> int:
         """Safely coerce split indexes to integers without raising on malformed values."""
