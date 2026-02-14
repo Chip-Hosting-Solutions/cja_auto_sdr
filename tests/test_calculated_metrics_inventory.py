@@ -597,6 +597,132 @@ class TestEdgeCases:
         assert inventory.total_calculated_metrics == 1
         assert inventory.metrics[0].formula_summary == "1.0"
 
+    def test_non_string_metric_name_does_not_crash(self):
+        """Non-string metric name should not crash name.split('/')."""
+        metric = {
+            "id": "cm_name",
+            "name": "Non String Name",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {"func": "metric", "name": 123},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+
+    def test_non_list_operands_does_not_crash(self):
+        """Non-list operands value should not crash iteration."""
+        metric = {
+            "id": "cm_ops",
+            "name": "Non List Operands",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {
+                    "func": "add",
+                    "operands": "not_a_list",
+                },
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+
+    def test_non_dict_metric_payloads_are_skipped(self):
+        """Unexpected list entries from the API should be skipped safely."""
+        valid_metric = {
+            "id": "cm_valid",
+            "name": "Valid Metric",
+            "description": "",
+            "definition": {"func": "calc-metric", "formula": {"func": "metric", "name": "metrics/revenue"}},
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = ["bad_payload", valid_metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+        assert inventory.metrics[0].metric_id == "cm_valid"
+
+    def test_dict_shaped_segment_id_is_normalized(self):
+        """Segment IDs provided as objects should still be extracted safely."""
+        metric = {
+            "id": "cm_segment_obj",
+            "name": "Segment Object Metric",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {
+                    "func": "segment",
+                    "segment_id": {"id": "segments/s_mobile_visitors"},
+                    "metric": {"func": "metric", "name": "metrics/orders"},
+                },
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+        assert "s_mobile_visitors" in inventory.metrics[0].segment_references
+
+    def test_non_string_func_name_does_not_crash(self):
+        """Unhashable/non-string func values should be ignored safely."""
+        metric = {
+            "id": "cm_bad_func",
+            "name": "Bad Func",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {"func": {"bad": "metric"}, "name": "metrics/revenue"},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+
+    def test_timestamp_metadata_is_preserved(self):
+        """Datetime-like created/modified values should not be dropped."""
+        metric = {
+            "id": "cm_timestamps",
+            "name": "Timestamp Metric",
+            "description": "",
+            "created": pd.Timestamp("2025-01-15T10:30:00Z"),
+            "modified": pd.Timestamp("2025-01-16T11:45:00Z"),
+            "definition": {"func": "calc-metric", "formula": {"func": "metric", "name": "metrics/revenue"}},
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+        assert inventory.metrics[0].created != ""
+        assert inventory.metrics[0].modified != ""
+        df = inventory.get_dataframe()
+        assert df.iloc[0]["created"] != "-"
+        assert df.iloc[0]["modified"] != "-"
+        assert "2025-01-15" in str(df.iloc[0]["created"])
+        assert "2025-01-16" in str(df.iloc[0]["modified"])
+
 
 # ==================== DATA CLASS TESTS ====================
 

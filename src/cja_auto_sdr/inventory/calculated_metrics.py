@@ -27,11 +27,14 @@ import pandas as pd
 
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
+    coerce_display_text,
+    coerce_scalar_text,
     extract_owner,
     extract_short_name,
     extract_tags,
     format_iso_date,
     normalize_api_response,
+    normalize_func_name,
     validate_required_id,
 )
 
@@ -419,6 +422,9 @@ class CalculatedMetricsInventoryBuilder:
             # Process each metric with tracking
             stats = BatchProcessingStats(logger=self.logger)
             for metric_data in metrics_list:
+                if not isinstance(metric_data, dict):
+                    stats.record_skip("unexpected metric payload type", str(type(metric_data)))
+                    continue
                 summary = self._process_metric(metric_data, stats)
                 if summary:
                     inventory.metrics.append(summary)
@@ -452,11 +458,13 @@ class CalculatedMetricsInventoryBuilder:
                 stats.record_skip("missing ID", metric_data.get("name", "Unknown"))
             return None
 
-        metric_name = metric_data.get("name", "Unknown")
-        description = metric_data.get("description", "")
+        metric_name = self._coerce_display_text(metric_data.get("name", "Unknown"), fallback="Unknown")
+        description = self._coerce_display_text(metric_data.get("description", ""), fallback="")
 
         # Extract owner info using shared utility
         owner, owner_id = extract_owner(metric_data.get("owner", {}))
+        owner = self._coerce_display_text(owner, fallback="")
+        owner_id = self._coerce_display_text(owner_id, fallback="")
 
         # Get definition
         definition = metric_data.get("definition", {})
@@ -509,8 +517,10 @@ class CalculatedMetricsInventoryBuilder:
         tags = extract_tags(metric_data.get("tags", []))
 
         # Extract timestamps
-        created = metric_data.get("created", metric_data.get("createdDate", ""))
-        modified = metric_data.get("modified", metric_data.get("modifiedDate", ""))
+        created = self._coerce_display_text(metric_data.get("created", metric_data.get("createdDate", "")), fallback="")
+        modified = self._coerce_display_text(
+            metric_data.get("modified", metric_data.get("modifiedDate", "")), fallback=""
+        )
 
         # Extract sharing info
         shares_data = metric_data.get("shares", [])
@@ -518,14 +528,17 @@ class CalculatedMetricsInventoryBuilder:
         shared_to_count = len(shares)
 
         # Extract data view association
-        data_view_id = metric_data.get("dataId", metric_data.get("rsid", ""))
-        site_title = metric_data.get("siteTitle", "")
+        data_view_id = self._coerce_display_text(metric_data.get("dataId", metric_data.get("rsid", "")), fallback="")
+        site_title = self._coerce_display_text(metric_data.get("siteTitle", ""), fallback="")
 
         # Generate formula summary
         formula_summary = self._generate_formula_summary(formula, parsed)
 
         # Serialize definition to JSON string for full fidelity
-        definition_json_str = json.dumps(definition, separators=(",", ":"))
+        try:
+            definition_json_str = json.dumps(definition, separators=(",", ":"))
+        except TypeError, ValueError:
+            definition_json_str = json.dumps(str(definition))
 
         return CalculatedMetricSummary(
             metric_id=metric_id,
@@ -557,6 +570,40 @@ class CalculatedMetricsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
+    def _normalize_func_name(self, value: Any) -> str:
+        """Normalize function names to comparable string keys."""
+        return normalize_func_name(value)
+
+    def _coerce_scalar_text(self, value: Any) -> str:
+        """Convert scalar values to text while ignoring null/object payloads."""
+        return coerce_scalar_text(value)
+
+    def _coerce_display_text(self, value: Any, fallback: str = "") -> str:
+        """Normalize text values for summaries/dataclass fields."""
+        return coerce_display_text(value, fallback=fallback)
+
+    def _normalize_reference_value(self, value: Any) -> str:
+        """Normalize IDs and reference values from mixed payload shapes."""
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                candidate = self._normalize_reference_value(item)
+                if candidate:
+                    return candidate
+            return ""
+        if isinstance(value, dict):
+            for key in ("segment_id", "id", "name", "metric", "value", "val"):
+                if key in value:
+                    candidate = self._normalize_reference_value(value.get(key))
+                    if candidate:
+                        return candidate
+            return ""
+        normalized = extract_short_name(value)
+        if normalized.lower() in {"", "nan", "none", "null"}:
+            return ""
+        return normalized
+
     def _parse_formula(self, formula: Any, depth: int = 0) -> dict[str, Any]:
         """
         Recursively parse a formula and extract all relevant data.
@@ -584,7 +631,7 @@ class CalculatedMetricsInventoryBuilder:
 
             max_nesting = max(max_nesting, current_depth)
 
-            func = node.get("func", "")
+            func = self._normalize_func_name(node.get("func", ""))
             if func:
                 functions_internal.add(func)
 
@@ -613,17 +660,15 @@ class CalculatedMetricsInventoryBuilder:
 
                 # Extract metric references
                 if func == "metric":
-                    metric_name = node.get("name", "")
-                    if metric_name:
-                        # Clean up metric name using shared utility
-                        clean_name = extract_short_name(metric_name)
+                    clean_name = self._normalize_reference_value(node.get("name", ""))
+                    if clean_name:
                         metric_refs.add(clean_name)
 
                 # Extract segment references
                 if func == "segment":
-                    segment_id = node.get("segment_id", node.get("id", ""))
-                    if segment_id:
-                        segment_refs.add(segment_id)
+                    clean_segment = self._normalize_reference_value(node.get("segment_id", node.get("id", "")))
+                    if clean_segment:
+                        segment_refs.add(clean_segment)
 
             # Traverse child nodes
             for key in [
@@ -811,9 +856,10 @@ class CalculatedMetricsInventoryBuilder:
             return "Segmented metric"
 
         if func == "metric":
-            name = actual_formula.get("name", "")
-            clean_name = name.split("/")[-1] if "/" in name else name
-            return f"= {clean_name}"
+            clean_name = self._normalize_reference_value(actual_formula.get("name", ""))
+            if clean_name:
+                return f"= {clean_name}"
+            return "Metric reference"
 
         if func in ("col-sum", "col-max", "col-min", "col-mean", "col-count"):
             op_name = func.replace("col-", "").upper()
@@ -903,8 +949,7 @@ class CalculatedMetricsInventoryBuilder:
         func = node.get("func", "")
 
         if func == "metric":
-            name = node.get("name", "")
-            return name.split("/")[-1] if "/" in name else name
+            return self._normalize_reference_value(node.get("name", ""))
 
         if func == "number":
             val = node.get("val", "")
@@ -940,7 +985,7 @@ class CalculatedMetricsInventoryBuilder:
                     expr = self._build_formula_expression(node[key], max_depth - 1)
                     if expr:
                         operands.append(expr)
-            if "operands" in node:
+            if "operands" in node and isinstance(node["operands"], list):
                 for op in node["operands"]:
                     expr = self._build_formula_expression(op, max_depth - 1)
                     if expr:
@@ -1027,7 +1072,7 @@ class CalculatedMetricsInventoryBuilder:
                 name = self._get_reference_name(formula[key])
                 if name:
                     operands.append(name)
-        if "operands" in formula:
+        if "operands" in formula and isinstance(formula["operands"], list):
             for op in formula["operands"]:
                 name = self._get_reference_name(op)
                 if name:
@@ -1079,19 +1124,20 @@ class CalculatedMetricsInventoryBuilder:
 
         return ""
 
-    def _get_short_id(self, full_id: str) -> str:
+    def _get_short_id(self, full_id: Any) -> str:
         """Get a shortened version of an ID for display."""
-        if not full_id:
+        normalized_id = self._normalize_reference_value(full_id)
+        if not normalized_id:
             return ""
         # Handle IDs like "s300000000_1234567890abcdef" -> show last part
-        if "_" in full_id:
-            parts = full_id.split("_")
+        if "_" in normalized_id:
+            parts = normalized_id.split("_")
             if len(parts[-1]) > 8:
                 return parts[-1][:8] + "..."
             return parts[-1]
-        if len(full_id) > 12:
-            return full_id[:12] + "..."
-        return full_id
+        if len(normalized_id) > 12:
+            return normalized_id[:12] + "..."
+        return normalized_id
 
     def _get_reference_name(self, node: dict[str, Any]) -> str:
         """Extract a human-readable name from a formula node."""
@@ -1101,8 +1147,7 @@ class CalculatedMetricsInventoryBuilder:
         func = node.get("func", "")
 
         if func == "metric":
-            name = node.get("name", "")
-            return name.split("/")[-1] if "/" in name else name
+            return self._normalize_reference_value(node.get("name", ""))
 
         if func == "number":
             val = node.get("val", "")

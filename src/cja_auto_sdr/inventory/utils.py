@@ -169,6 +169,50 @@ def extract_short_name(full_id: Any, separator: str = "/") -> str:
     return full_id
 
 
+# ==================== NORMALIZATION HELPERS ====================
+
+
+def normalize_func_name(value: Any) -> str:
+    """Normalize function names to comparable string keys."""
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def coerce_scalar_text(value: Any) -> str:
+    """Convert scalar values to text while ignoring null/object payloads."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+
+    try:
+        is_na = pd.isna(value)
+        if isinstance(is_na, bool) and is_na:
+            return ""
+    except TypeError, ValueError:
+        pass
+
+    if hasattr(value, "isoformat"):
+        try:
+            iso_value = value.isoformat()
+            if iso_value is None:
+                return ""
+            return str(iso_value).strip()
+        except TypeError, ValueError:
+            pass
+
+    if pd.api.types.is_scalar(value):
+        return str(value).strip()
+    return ""
+
+
+def coerce_display_text(value: Any, fallback: str = "") -> str:
+    """Normalize text values for summaries/dataclass fields."""
+    normalized = coerce_scalar_text(value)
+    return normalized if normalized else fallback
+
+
 # ==================== COMPLEXITY SCORING ====================
 
 
@@ -323,11 +367,14 @@ def validate_required_id(
 __all__ = [
     "BatchProcessingStats",
     "__version__",
+    "coerce_display_text",
+    "coerce_scalar_text",
     "compute_complexity_score",
     "extract_owner",
     "extract_short_name",
     "extract_tags",
     "format_iso_date",
     "normalize_api_response",
+    "normalize_func_name",
     "validate_required_id",
 ]

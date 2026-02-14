@@ -762,6 +762,25 @@ class TestEdgeCases:
         # Neither should be included - only sourceFieldType="derived" counts
         assert inventory.total_derived_fields == 0
 
+    def test_list_shaped_source_field_type_is_supported(self):
+        """sourceFieldType values provided as lists should still be recognized."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test_list_source_type",
+                    "name": "List Source Type",
+                    "sourceFieldType": ["derived"],
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
     def test_non_string_field_references_do_not_crash(self):
         """Numeric field reference IDs should be normalized without crashing."""
         df = pd.DataFrame(
@@ -902,6 +921,309 @@ class TestEdgeCases:
 
         assert inventory.total_derived_fields == 0
 
+    def test_dict_shaped_args_does_not_crash(self):
+        """Dict-shaped args (instead of list) should not crash parsing."""
+        definition = json.dumps(
+            [
+                {
+                    "func": "url-parse",
+                    "component": "hostname",
+                    "args": {"func": "raw-field", "id": "test"},
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_dict_args",
+                    "name": "Dict Args",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
+    def test_non_string_delimiter_in_concat_does_not_crash(self):
+        """Non-string delimiter in concatenate should not crash."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {"func": "raw-field", "id": "field_b", "label": "b"},
+                {
+                    "func": "concatenate",
+                    "delimiter": 42,
+                    "args": [
+                        {"func": "raw-field", "id": "field_a"},
+                        {"func": "raw-field", "id": "field_b"},
+                    ],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_delim",
+                    "name": "Non String Delim",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert inventory.fields[0].logic_summary
+
+    def test_non_string_pattern_in_regex_does_not_crash(self):
+        """Non-string pattern/replacement in regex-replace should not crash."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "regex-replace",
+                    "pattern": {"regex": "test"},
+                    "replacement": 123,
+                    "args": [{"func": "raw-field", "id": "field_a"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_regex",
+                    "name": "Non String Regex",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert inventory.fields[0].logic_summary
+
+    def test_regex_null_replacement_is_reported_as_remove(self):
+        """replacement: null should be treated as removal, not literal 'None' text."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "regex-replace",
+                    "pattern": "foo",
+                    "replacement": None,
+                    "args": [{"func": "raw-field", "id": "field_a"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_regex_null_replace",
+                    "name": "Regex Null Replacement",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "remove" in inventory.fields[0].logic_summary.lower()
+        assert '"None"' not in inventory.fields[0].logic_summary
+
+    def test_non_list_match_preds_do_not_crash(self):
+        """Dict-shaped preds payloads in predicates should be ignored safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "match",
+                    "field": "a",
+                    "branches": [
+                        {
+                            "pred": {
+                                "func": "and",
+                                "preds": {"func": "eq", "field": "a", "value": "x"},
+                            },
+                            "map-to": "X",
+                        }
+                    ],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_non_list_preds",
+                    "name": "Non List Preds",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
+    def test_non_dict_function_entries_do_not_crash(self):
+        """Unexpected non-dict entries in function lists should be ignored."""
+        definition = json.dumps(
+            [
+                "invalid_function_entry",
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "regex-replace",
+                    "pattern": "foo",
+                    "replacement": "bar",
+                    "args": [{"func": "raw-field", "id": "field_a"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_mixed_function_entries",
+                    "name": "Mixed Entries",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
+    @pytest.mark.parametrize("bad_index", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_split_index_does_not_crash(self, bad_index):
+        """Non-finite split indexes should fall back safely instead of raising."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_split_bad_index",
+                    "name": "Split Bad Index",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": [
+                        {"func": "raw-field", "id": "field_a", "label": "a"},
+                        {
+                            "func": "split",
+                            "delimiter": "/",
+                            "index": bad_index,
+                            "args": [{"func": "raw-field", "id": "field_a"}],
+                        },
+                    ],
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "part 1" in inventory.fields[0].logic_summary
+
+    def test_non_string_dataset_in_lookup_does_not_crash(self):
+        """Non-string dataset in classify/lookup should not crash."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "classify",
+                    "mapping": {
+                        "key-field": "field_a",
+                        "value-field": "field_b",
+                        "dataset": {"id": 123},
+                    },
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_lookup",
+                    "name": "Non String Dataset",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "lookup" in inventory.fields[0].logic_summary.lower()
+
+    def test_non_dict_branch_items_do_not_crash(self):
+        """Non-dict items in match branches should be skipped safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "match",
+                    "field": "a",
+                    "branches": ["string_branch", 123, {"pred": {"func": "true"}, "map-to": "OK"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_branches",
+                    "name": "Non Dict Branches",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
+    def test_except_valueerror_in_isna_check(self):
+        """Values that trigger ValueError in pd.isna() should be handled."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test_ve",
+                    "name": "ValueError Test",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": {"ambiguous": True},
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        # Should not raise — the except (TypeError, ValueError) handles it
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+        assert inventory.total_derived_fields == 0
+
 
 # ==================== DESCRIPTION EXTRACTION TESTS ====================
 
@@ -992,6 +1314,27 @@ class TestDescriptionExtraction:
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
 
         assert inventory.fields[0].description == ""
+
+    def test_timestamp_description_handled(self):
+        """Datetime-like descriptions should be preserved via scalar coercion."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test",
+                    "name": "Test Metric",
+                    "description": pd.Timestamp("2025-01-15T10:30:00Z"),
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.fields[0].description != ""
+        assert "2025-01-15" in inventory.fields[0].description
 
     def test_description_in_dataframe(self):
         """Test that description column appears in DataFrame output"""

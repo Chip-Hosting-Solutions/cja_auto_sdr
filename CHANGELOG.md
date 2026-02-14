@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.5] - 2026-02-13
+
+### Fixed
+- **Inventory parsing hardening**: All three inventory parsers (derived fields, segments, calculated metrics) now handle unexpected API payload shapes — non-dict list entries, non-string func/name/context values, dict-shaped args, non-list operands/preds/checkpoints, non-finite split indexes, and non-string delimiters/patterns — without crashing
+- **Datetime metadata preservation**: `pd.Timestamp` values in created/modified fields are now coerced via `isoformat()` instead of being silently dropped to empty strings
+- **Split index coercion**: Non-finite float indexes (`NaN`, `Inf`, `-Inf`) in derived field split definitions now fall back to the default index instead of raising `OverflowError`
+
+### Changed
+- **Centralized normalization helpers**: Extracted `normalize_func_name`, `coerce_scalar_text`, and `coerce_display_text` into `inventory/utils.py` so all three builders share identical coercion logic, eliminating implementation drift
+
+### Tests
+- Added edge-case tests for non-dict payloads, non-string func names, non-list operands/preds, dict-shaped args, non-finite split indexes, non-string delimiters/patterns/datasets, non-dict branch items, datetime metadata preservation, and timestamp description coercion
+- **1,739 tests** (1,737 passing, 2 skipped) — up from 1,712
+
 ## [3.2.4] - 2026-02-13
 
 ### Security
