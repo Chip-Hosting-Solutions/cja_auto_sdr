@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance micro-optimizations**: Cached redundant `len()`, `df.iloc[]`, and `str()` calls in hot paths; converted list to set for O(1) membership checks
 
 ### Added
-- **CI: Coverage threshold gate** (`--cov-fail-under=70`) prevents coverage regression
+- **CI: Coverage threshold gate** (`--cov-fail-under=73`) prevents coverage regression
 - **CI: Package build verification** job validates wheel builds, installs, and version imports correctly
 - **CI: Version sync check** (`scripts/check_version_sync.py`) catches version string drift across docs, tests, and source
 - **Ruff rule sets**: Enabled S (bandit), C4 (comprehensions), PT (pytest-style), PIE with targeted suppressions
