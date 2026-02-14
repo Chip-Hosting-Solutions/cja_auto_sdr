@@ -257,6 +257,12 @@ Use cases for skipping validation:
 5. Re-run to verify fixes
 6. Track improvement over time
 
+## Inventory Parsing Resilience
+
+The inventory parsers for derived fields, segments, and calculated metrics are hardened against unexpected API payload shapes. If the CJA API returns malformed or unusual data — such as non-dict list entries, non-string field values, dict-shaped arguments, non-list operands, or non-finite split indexes — the parsers handle these gracefully without crashing. Datetime metadata (`pd.Timestamp` values in created/modified fields) is coerced via `isoformat()` so timestamps are preserved rather than silently dropped.
+
+This means inventory sheets will still be generated even when individual component definitions contain unexpected structures; malformed entries are normalized to safe defaults rather than aborting the entire run.
+
 ## Performance Considerations
 
 The validation engine is optimized for performance:
