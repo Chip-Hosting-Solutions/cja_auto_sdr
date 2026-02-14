@@ -178,13 +178,7 @@ def _is_sensitive_field(name: str) -> bool:
         or parts[-2:] == ["api", "key"]
         or parts[-2:] == ["private", "key"]
         or parts[-1] == "apikey"
-        or compact.endswith("token")
-        or compact.endswith("secret")
-        or compact.endswith("password")
-        or compact.endswith("passwd")
-        or compact.endswith("apikey")
-        or compact.endswith("authheader")
-        or compact.endswith("privatekey")
+        or compact.endswith(("token", "secret", "password", "passwd", "apikey", "authheader", "privatekey"))
     )
 
 

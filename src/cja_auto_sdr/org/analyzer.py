@@ -139,7 +139,8 @@ class OrgComponentAnalyzer:
         for future in futures:
             try:
                 future.cancel()
-            except Exception:
+            except Exception as e:
+                logging.debug("Best-effort future cancel failed: %s", e)
                 continue
 
     def _quick_check_empty_org(self) -> OrgReportResult | None:
@@ -723,9 +724,9 @@ class OrgComponentAnalyzer:
                         # Extract description
                         description = dv_details.get("description", "")
                         has_description = bool(description and description.strip())
-                except Exception:
+                except Exception as e:
                     # Metadata fetch may fail - continue without it
-                    pass
+                    self.logger.debug("Metadata fetch failed for %s: %s", dv_id, e)
 
             return DataViewSummary(
                 data_view_id=dv_id,
@@ -987,8 +988,8 @@ class OrgComponentAnalyzer:
                 only_in_dv2_names = None
 
                 if self.config.include_drift:
-                    only_in_dv1 = sorted(list(set1 - set2))
-                    only_in_dv2 = sorted(list(set2 - set1))
+                    only_in_dv1 = sorted(set1 - set2)
+                    only_in_dv2 = sorted(set2 - set1)
 
                     if self.config.include_names:
                         only_in_dv1_names = {}
@@ -1294,7 +1295,7 @@ class OrgComponentAnalyzer:
                                 "Consider reviewing if still needed or if updates are required.",
                             }
                         )
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             # Missing descriptions

@@ -275,7 +275,8 @@ class TestHTMLOutput:
             html_content = f.read()
 
         # Metadata values should be escaped (we control this)
-        assert "&lt;" in html_content and "&gt;" in html_content
+        assert "&lt;" in html_content
+        assert "&gt;" in html_content
 
     def test_html_severity_styling(self, tmp_path, sample_metadata_dict):
         """Test that HTML applies severity-based styling to data quality issues"""

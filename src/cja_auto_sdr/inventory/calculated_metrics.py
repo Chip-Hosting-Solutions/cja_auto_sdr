@@ -537,7 +537,7 @@ class CalculatedMetricsInventoryBuilder:
         # Serialize definition to JSON string for full fidelity
         try:
             definition_json_str = json.dumps(definition, separators=(",", ":"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             definition_json_str = json.dumps(str(definition))
 
         return CalculatedMetricSummary(
@@ -720,8 +720,8 @@ class CalculatedMetricsInventoryBuilder:
         return {
             "functions_internal": list(functions_internal),
             "functions_display": functions_display,
-            "metric_references": sorted(list(metric_refs)),
-            "segment_references": sorted(list(segment_refs)),
+            "metric_references": sorted(metric_refs),
+            "segment_references": sorted(segment_refs),
             "operator_count": total_operators,
             "nesting_depth": max_nesting,
             "conditional_count": total_conditionals,

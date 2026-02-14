@@ -65,7 +65,7 @@ class CredentialLoader(ABC):
     @abstractmethod
     def source_name(self) -> str:
         """Return the name of this credential source."""
-        pass
+        ...
 
     def load(self, logger: logging.Logger) -> dict[str, str] | None:
         """Load credentials, handling errors gracefully.
@@ -95,7 +95,7 @@ class CredentialLoader(ABC):
         Returns:
             Raw credentials dictionary, or None if not available
         """
-        pass
+        ...
 
 
 class JsonFileCredentialLoader(CredentialLoader):

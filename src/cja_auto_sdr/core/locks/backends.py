@@ -12,12 +12,12 @@ from __future__ import annotations
 import contextlib
 import errno
 import json
+import logging
 import math
 import os
 import socket
 import time
 import uuid
-import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -94,7 +94,7 @@ def _read_info_path(path: Path) -> LockInfo | None:
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
     if not isinstance(data, dict):
         return None
@@ -216,7 +216,7 @@ class LockInfo:
                 backend=str(data.get("backend", "")),
                 version=int(data.get("version", 1)),
             )
-        except (KeyError, TypeError, ValueError, OverflowError):
+        except KeyError, TypeError, ValueError, OverflowError:
             return None
 
     @classmethod
@@ -258,7 +258,7 @@ class LockInfo:
                 continue
             try:
                 return datetime.fromtimestamp(epoch, UTC).isoformat()
-            except (OverflowError, OSError, ValueError):
+            except OverflowError, OSError, ValueError:
                 continue
         return _utcnow_iso()
 
@@ -270,7 +270,7 @@ class LockInfo:
             return None
         try:
             epoch = float(value)
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             return None
         if not math.isfinite(epoch):
             return None
@@ -282,7 +282,7 @@ class LockInfo:
             if value in (None, ""):
                 return default
             return int(value)
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             return default
 
     @staticmethod
@@ -291,7 +291,7 @@ class LockInfo:
             return None
         try:
             return int(value)
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             return None
 
 
@@ -308,7 +308,7 @@ def _is_process_running(pid: int) -> bool:
         return False
     try:
         normalized_pid = int(pid)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return False
     if normalized_pid <= 0:
         return False
