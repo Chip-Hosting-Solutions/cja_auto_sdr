@@ -64,15 +64,15 @@ tests/
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 235 | Command-line interface and argument parsing |
 | `test_profiles.py` | 48 | Multi-organization profile support |
-| `test_derived_inventory.py` | 47 | Derived fields inventory feature |
+| `test_derived_inventory.py` | 54 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
-| `test_segments_inventory.py` | 43 | Segments inventory feature |
+| `test_segments_inventory.py` | 45 | Segments inventory feature |
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
-| `test_calculated_metrics_inventory.py` | 38 | Calculated metrics inventory feature |
+| `test_calculated_metrics_inventory.py` | 40 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 35 | CJA connection and configuration validation |
-| `test_utils.py` | 49 | Utility functions and helpers |
+| `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
 | `test_parallel_api_fetcher.py` | 25 | Parallel API data fetching |
 | `test_api_tuning.py` | 23 | API worker auto-tuning |
@@ -508,9 +508,9 @@ Check for drift (CI-friendly):
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
-- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 38 tests
-- [x] Segments inventory tests (test_segments_inventory.py) - 43 tests
-- [x] Derived fields inventory tests (test_derived_inventory.py) - 47 tests
+- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 40 tests
+- [x] Segments inventory tests (test_segments_inventory.py) - 45 tests
+- [x] Derived fields inventory tests (test_derived_inventory.py) - 54 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 47 tests
 - [x] Git integration tests (test_git_integration.py) - 36 tests
 - [x] Inventory diff support in snapshot comparisons (test_diff_comparison.py) - 169 tests
