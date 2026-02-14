@@ -97,7 +97,7 @@ class OrgReportLock:
             return False
         try:
             normalized_pid = int(pid)
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             return False
         if normalized_pid <= 0:
             return False
@@ -199,7 +199,7 @@ class OrgReportCache:
             fetched_time = datetime.fromisoformat(fetched_at)
             if datetime.now(UTC) - fetched_time > timedelta(hours=max_age_hours):
                 return None  # Cache is stale
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
         # Validate modification timestamp if provided
@@ -363,7 +363,7 @@ class OrgReportCache:
             fetched_time = datetime.fromisoformat(fetched_at)
             if datetime.now(UTC) - fetched_time > timedelta(hours=max_age_hours):
                 return False  # Cache is stale anyway
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return False
 
         return True

@@ -1162,7 +1162,7 @@ def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
         if isinstance(config, dict):
             return {k: str(v).strip() for k, v in config.items() if v}
         return None
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
 
 
@@ -1429,7 +1429,7 @@ def add_profile_interactive(profile_name: str) -> bool:
             print("Error: OAuth Scopes are required")
             return False
 
-    except KeyboardInterrupt, EOFError:
+    except (KeyboardInterrupt, EOFError):
         print("\nAborted.")
         return False
 
@@ -3238,7 +3238,7 @@ def _format_diff_value(val: Any, truncate: bool = True, max_len: int = 30) -> st
     try:
         if pd.isna(val):
             return "(empty)"
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     result = str(val)
     if truncate and len(result) > max_len:
@@ -6303,7 +6303,7 @@ class BatchProcessor:
                                         f.cancel()
                                     break
 
-                        except KeyboardInterrupt, SystemExit:
+                        except (KeyboardInterrupt, SystemExit):
                             # Allow graceful shutdown on Ctrl+C
                             self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
                             for f in future_to_dv:
@@ -6517,7 +6517,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         else:
             print("  ⚠ API connection returned None - may be unstable")
             available_dvs = []
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         print()
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
@@ -6593,7 +6593,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 print(f"  ✗ {dv_id}: Not found or no access")
                 invalid_count += 1
                 all_passed = False
-        except KeyboardInterrupt, SystemExit:
+        except (KeyboardInterrupt, SystemExit):
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
@@ -6661,7 +6661,7 @@ def _safe_env_number(env_var: str, default: int | float, cast: Callable[[str], i
         return default
     try:
         return cast(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -8093,7 +8093,7 @@ def prompt_for_selection(options: list[tuple[str, str]], prompt_text: str) -> st
             print(f"Invalid selection. Enter 1-{len(options)} or 0 to cancel.")
         except ValueError:
             print("Please enter a number.")
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             print("\nCancelled.")
             return None
 
@@ -8449,7 +8449,7 @@ def _to_numeric_sort_value(value: Any) -> float | None:
         try:
             if pd.isna(value):
                 return None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
         return float(value)
 
@@ -8473,7 +8473,7 @@ def _is_missing_sort_value(value: Any) -> bool:
         return True
     try:
         return bool(pd.isna(value))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
 
 
@@ -8668,7 +8668,7 @@ def _run_list_command(
             print("  cja_auto_sdr --sample-config")
         return False
 
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -9373,7 +9373,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         print("  cja_auto_sdr --sample-config")
         return []
 
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         print()
         print(ConsoleColors.warning("Operation cancelled."))
         return []
@@ -9433,7 +9433,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
             try:
                 default_hint = f" [{options[[k for k, _ in options].index(default)][1]}]" if default else ""
                 choice = input(f"Enter choice (1-{len(options)}){default_hint}: ").strip().lower()
-            except EOFError, KeyboardInterrupt:
+            except (EOFError, KeyboardInterrupt):
                 print()
                 return None
 
@@ -9465,7 +9465,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
             print()
             try:
                 answer = input(f"{prompt} {prompt_hint}: ").strip().lower()
-            except EOFError, KeyboardInterrupt:
+            except (EOFError, KeyboardInterrupt):
                 print()
                 return None
 
@@ -9547,7 +9547,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         while True:
             try:
                 selection = input("Select data view(s): ").strip().lower()
-            except EOFError, KeyboardInterrupt:
+            except (EOFError, KeyboardInterrupt):
                 print()
                 return None
 
@@ -10086,7 +10086,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         else:
             print("  ⚠ API returned empty response - connection may be unstable")
 
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
@@ -10281,7 +10281,7 @@ def show_stats(
             print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False
 
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -12442,7 +12442,7 @@ def run_org_report(
         _status_print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False, False
 
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         if not quiet:
             _status_print()
             _status_print(ConsoleColors.warning("Operation cancelled."))
@@ -14746,7 +14746,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 print("Cancelled.")
                 sys.exit(0)
             print()
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             print("\nCancelled.")
             sys.exit(0)
 
