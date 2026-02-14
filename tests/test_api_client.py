@@ -132,9 +132,7 @@ class TestConfigFromEnvCleanup:
         cleanup_fn = mock_atexit.register.call_args[0][0]
 
         # The temp file was created by _config_from_env — find it from debug log
-        temp_path_call = [
-            str(c) for c in mock_logger.debug.call_args_list if "temporary config file" in str(c).lower()
-        ]
+        temp_path_call = [str(c) for c in mock_logger.debug.call_args_list if "temporary config file" in str(c).lower()]
         assert len(temp_path_call) == 1, "Should log temp file creation"
 
         # Extract path from log message
@@ -233,9 +231,7 @@ class TestConfigureCjapyProfileErrors:
     def test_profile_not_found_error(self, mock_resolver_class, mock_dotenv, mock_logger):
         """ProfileNotFoundError is caught and returns failure tuple."""
         mock_resolver = Mock()
-        mock_resolver.resolve.side_effect = ProfileNotFoundError(
-            "Profile 'missing' not found", profile_name="missing"
-        )
+        mock_resolver.resolve.side_effect = ProfileNotFoundError("Profile 'missing' not found", profile_name="missing")
         mock_resolver_class.return_value = mock_resolver
 
         success, source, creds = configure_cjapy(profile="missing", logger=mock_logger)
@@ -250,9 +246,7 @@ class TestConfigureCjapyProfileErrors:
     def test_profile_config_error(self, mock_resolver_class, mock_dotenv, mock_logger):
         """ProfileConfigError is caught and returns failure tuple."""
         mock_resolver = Mock()
-        mock_resolver.resolve.side_effect = ProfileConfigError(
-            "Invalid JSON in profile config", profile_name="broken"
-        )
+        mock_resolver.resolve.side_effect = ProfileConfigError("Invalid JSON in profile config", profile_name="broken")
         mock_resolver_class.return_value = mock_resolver
 
         success, source, creds = configure_cjapy(profile="broken", logger=mock_logger)
@@ -303,12 +297,12 @@ class TestInitializeCjaCredentialDetails:
         assert result is None
         # Check that the details string was logged via critical
         critical_calls = [str(c) for c in mock_logger.critical.call_args_list]
-        assert any("Hint: Try setting" in c for c in critical_calls), (
-            f"Expected details logged, got: {critical_calls}"
-        )
+        assert any("Hint: Try setting" in c for c in critical_calls), f"Expected details logged, got: {critical_calls}"
 
     @patch("cja_auto_sdr.api.client.CredentialResolver")
-    def test_credential_error_without_details_skips_details_line(self, mock_resolver_class, mock_logger, mock_config_file):
+    def test_credential_error_without_details_skips_details_line(
+        self, mock_resolver_class, mock_logger, mock_config_file
+    ):
         """When CredentialSourceError has no .details, the details line is skipped."""
         mock_resolver = Mock()
         error = CredentialSourceError(
@@ -498,9 +492,7 @@ class TestConfigureCjapySourceDisplay:
         )
         mock_resolver_class.return_value = mock_resolver
 
-        success, display_source, _ = configure_cjapy(
-            config_file=str(config_path), logger=mock_logger
-        )
+        success, display_source, _ = configure_cjapy(config_file=str(config_path), logger=mock_logger)
 
         assert success is True
         assert display_source.startswith("Config file: ")
@@ -554,7 +546,9 @@ class TestConfigureCjapyEnvProfileResolution:
     @patch("cja_auto_sdr.api.client._bootstrap_dotenv")
     @patch("cja_auto_sdr.api.client.CredentialResolver")
     @patch("cja_auto_sdr.api.client._config_from_env")
-    def test_cja_profile_env_var_whitespace_ignored(self, mock_config_env, mock_resolver_class, mock_dotenv, mock_logger):
+    def test_cja_profile_env_var_whitespace_ignored(
+        self, mock_config_env, mock_resolver_class, mock_dotenv, mock_logger
+    ):
         """CJA_PROFILE env var with only whitespace is treated as not set."""
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (

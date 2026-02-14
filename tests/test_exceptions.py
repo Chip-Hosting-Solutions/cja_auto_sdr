@@ -145,7 +145,9 @@ class TestOutputError:
 
     def test_all_params(self):
         orig = PermissionError("denied")
-        err = OutputError("write failed", output_path="/tmp/out.xlsx", output_format="excel", details="denied", original_error=orig)
+        err = OutputError(
+            "write failed", output_path="/tmp/out.xlsx", output_format="excel", details="denied", original_error=orig
+        )
         assert err.output_path == "/tmp/out.xlsx"
         assert err.output_format == "excel"
         assert err.original_error is orig
@@ -201,10 +203,16 @@ class TestCredentialSourceError:
         assert str(CredentialSourceError("cred failed", source="profile")) == "[profile] cred failed"
 
     def test_str_with_reason(self):
-        assert str(CredentialSourceError("cred failed", source="env", reason="not set")) == "[env] cred failed - Reason: not set"
+        assert (
+            str(CredentialSourceError("cred failed", source="env", reason="not set"))
+            == "[env] cred failed - Reason: not set"
+        )
 
     def test_str_with_details(self):
-        assert str(CredentialSourceError("cred failed", source="config_file", details="check docs")) == "[config_file] cred failed - check docs"
+        assert (
+            str(CredentialSourceError("cred failed", source="config_file", details="check docs"))
+            == "[config_file] cred failed - check docs"
+        )
 
     def test_str_with_reason_and_details(self):
         err = CredentialSourceError("cred failed", source="env", reason="not set", details="check .env")

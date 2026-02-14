@@ -90,6 +90,7 @@ class TestSafeStr:
         class Bad:
             def __str__(self):
                 raise RuntimeError("boom")
+
         assert _safe_str(Bad()) == "<unprintable>"
 
 
@@ -97,38 +98,85 @@ class TestSafeStr:
 # _is_sensitive_field
 # ---------------------------------------------------------------------------
 class TestIsSensitiveField:
-    @pytest.mark.parametrize("name", [
-        "password", "passwd", "pwd", "secret", "client_secret",
-        "token", "access_token", "refresh_token", "bearer_token",
-        "api_key", "apikey", "authorization", "auth_header", "private_key",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "password",
+            "passwd",
+            "pwd",
+            "secret",
+            "client_secret",
+            "token",
+            "access_token",
+            "refresh_token",
+            "bearer_token",
+            "api_key",
+            "apikey",
+            "authorization",
+            "auth_header",
+            "private_key",
+        ],
+    )
     def test_direct_sensitive_names(self, name):
         assert _is_sensitive_field(name) is True
 
-    @pytest.mark.parametrize("name", [
-        "clientSecret", "accessToken", "refreshToken", "bearerToken",
-        "apiKey", "authHeader", "privateKey",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "clientSecret",
+            "accessToken",
+            "refreshToken",
+            "bearerToken",
+            "apiKey",
+            "authHeader",
+            "privateKey",
+        ],
+    )
     def test_camel_case_sensitive_names(self, name):
         assert _is_sensitive_field(name) is True
 
-    @pytest.mark.parametrize("name", [
-        "ClientSecret", "AccessToken", "RefreshToken", "BearerToken",
-        "ApiKey", "AuthHeader", "PrivateKey",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "ClientSecret",
+            "AccessToken",
+            "RefreshToken",
+            "BearerToken",
+            "ApiKey",
+            "AuthHeader",
+            "PrivateKey",
+        ],
+    )
     def test_pascal_case_sensitive_names(self, name):
         assert _is_sensitive_field(name) is True
 
-    @pytest.mark.parametrize("name", [
-        "my_api_key", "old_password", "db_secret", "jwt_token", "x_authorization",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "my_api_key",
+            "old_password",
+            "db_secret",
+            "jwt_token",
+            "x_authorization",
+        ],
+    )
     def test_compound_sensitive_names(self, name):
         assert _is_sensitive_field(name) is True
 
-    @pytest.mark.parametrize("name", [
-        "username", "email", "data_view_id", "name", "description",
-        "count", "format", "level", "module",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "username",
+            "email",
+            "data_view_id",
+            "name",
+            "description",
+            "count",
+            "format",
+            "level",
+            "module",
+        ],
+    )
     def test_non_sensitive_names(self, name):
         assert _is_sensitive_field(name) is False
 
@@ -277,8 +325,13 @@ class TestRedactValue:
 class TestSensitiveDataFilter:
     def _make_record(self, msg="test", args=(), level=logging.INFO, **kwargs):
         record = logging.LogRecord(
-            name="test.logger", level=level, pathname="test.py",
-            lineno=1, msg=msg, args=args, exc_info=None,
+            name="test.logger",
+            level=level,
+            pathname="test.py",
+            lineno=1,
+            msg=msg,
+            args=args,
+            exc_info=None,
         )
         for k, v in kwargs.items():
             setattr(record, k, v)
@@ -352,8 +405,13 @@ class TestSensitiveDataFilter:
 class TestJSONFormatter:
     def _make_record(self, msg="test", level=logging.INFO, **kwargs):
         record = logging.LogRecord(
-            name="test.logger", level=level, pathname="test.py",
-            lineno=1, msg=msg, args=(), exc_info=None,
+            name="test.logger",
+            level=level,
+            pathname="test.py",
+            lineno=1,
+            msg=msg,
+            args=(),
+            exc_info=None,
         )
         for k, v in kwargs.items():
             setattr(record, k, v)

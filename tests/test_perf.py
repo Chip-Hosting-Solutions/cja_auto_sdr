@@ -97,9 +97,9 @@ class TestMaxMetricsEviction:
 class TestAddCacheStatistics:
     """Test add_cache_statistics logging (lines 59-74)"""
 
-    def _make_cache_stub(self, *, total_requests, hits, misses, hit_rate,
-                         size, max_size, evictions):
+    def _make_cache_stub(self, *, total_requests, hits, misses, hit_rate, size, max_size, evictions):
         """Create a simple stub object with a get_statistics method."""
+
         class CacheStub:
             def get_statistics(self_inner):
                 return {
@@ -111,6 +111,7 @@ class TestAddCacheStatistics:
                     "max_size": max_size,
                     "evictions": evictions,
                 }
+
         return CacheStub()
 
     def test_logs_cache_stats_when_requests_exist(self, caplog):
@@ -119,8 +120,13 @@ class TestAddCacheStatistics:
         tracker = PerformanceTracker(logger)
 
         cache = self._make_cache_stub(
-            total_requests=100, hits=0, misses=100,
-            hit_rate=0.0, size=50, max_size=200, evictions=0,
+            total_requests=100,
+            hits=0,
+            misses=100,
+            hit_rate=0.0,
+            size=50,
+            max_size=200,
+            evictions=0,
         )
 
         with caplog.at_level(logging.INFO, logger="test_cache_stats"):
@@ -141,8 +147,13 @@ class TestAddCacheStatistics:
         tracker = PerformanceTracker(logger)
 
         cache = self._make_cache_stub(
-            total_requests=200, hits=100, misses=100,
-            hit_rate=50.0, size=80, max_size=200, evictions=5,
+            total_requests=200,
+            hits=100,
+            misses=100,
+            hit_rate=50.0,
+            size=80,
+            max_size=200,
+            evictions=5,
         )
 
         with caplog.at_level(logging.INFO, logger="test_cache_time_saved"):
@@ -162,8 +173,13 @@ class TestAddCacheStatistics:
         tracker = PerformanceTracker(logger)
 
         cache = self._make_cache_stub(
-            total_requests=0, hits=0, misses=0,
-            hit_rate=0.0, size=0, max_size=200, evictions=0,
+            total_requests=0,
+            hits=0,
+            misses=0,
+            hit_rate=0.0,
+            size=0,
+            max_size=200,
+            evictions=0,
         )
 
         with caplog.at_level(logging.INFO, logger="test_cache_no_requests"):
@@ -177,8 +193,13 @@ class TestAddCacheStatistics:
         tracker = PerformanceTracker(logger)
 
         cache = self._make_cache_stub(
-            total_requests=10, hits=1, misses=9,
-            hit_rate=10.0, size=5, max_size=100, evictions=0,
+            total_requests=10,
+            hits=1,
+            misses=9,
+            hit_rate=10.0,
+            size=5,
+            max_size=100,
+            evictions=0,
         )
 
         with caplog.at_level(logging.INFO, logger="test_cache_time_calc"):

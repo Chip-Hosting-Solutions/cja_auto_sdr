@@ -164,9 +164,7 @@ class TestCredentialLoaderBase:
     def test_load_filters_credentials(self, tmp_path):
         """Successful load should filter through filter_credentials."""
         config_path = tmp_path / "config.json"
-        config_path.write_text(
-            json.dumps({"org_id": "test@AdobeOrg", "extra_key": "should_be_removed"})
-        )
+        config_path.write_text(json.dumps({"org_id": "test@AdobeOrg", "extra_key": "should_be_removed"}))
         loader = JsonFileCredentialLoader(config_path)
         logger = MagicMock()
 
@@ -270,11 +268,7 @@ class TestDotenvCredentialLoader:
     def test_load_valid_dotenv(self, tmp_path):
         """Valid .env file with key=value lines should be parsed (lines 134-160)."""
         env_path = tmp_path / ".env"
-        env_path.write_text(
-            "ORG_ID=test@AdobeOrg\n"
-            "CLIENT_ID=my_client\n"
-            "SECRET=my_secret\n"
-        )
+        env_path.write_text("ORG_ID=test@AdobeOrg\nCLIENT_ID=my_client\nSECRET=my_secret\n")
 
         loader = DotenvCredentialLoader(env_path)
         logger = MagicMock()
@@ -288,12 +282,7 @@ class TestDotenvCredentialLoader:
     def test_ignores_comments_and_blank_lines(self, tmp_path):
         """Comments and blank lines should be skipped."""
         env_path = tmp_path / ".env"
-        env_path.write_text(
-            "# This is a comment\n"
-            "\n"
-            "   \n"
-            "ORG_ID=test@AdobeOrg\n"
-        )
+        env_path.write_text("# This is a comment\n\n   \nORG_ID=test@AdobeOrg\n")
 
         loader = DotenvCredentialLoader(env_path)
         logger = MagicMock()
@@ -508,9 +497,10 @@ class TestCredentialResolver:
             "scopes": "openid",
         }
 
-        with patch.object(
-            resolver, "_try_environment", return_value=(valid_creds, "environment")
-        ), patch.object(resolver, "_warn_multiple_sources") as mock_warn:
+        with (
+            patch.object(resolver, "_try_environment", return_value=(valid_creds, "environment")),
+            patch.object(resolver, "_warn_multiple_sources") as mock_warn,
+        ):
             _creds, source = resolver.resolve(config_file=config_path)
 
         assert source == "environment"
@@ -528,9 +518,10 @@ class TestCredentialResolver:
             "scopes": "openid",
         }
 
-        with patch.object(
-            resolver, "_try_environment", return_value=(valid_creds, "environment")
-        ), patch.object(resolver, "_warn_multiple_sources") as mock_warn:
+        with (
+            patch.object(resolver, "_try_environment", return_value=(valid_creds, "environment")),
+            patch.object(resolver, "_warn_multiple_sources") as mock_warn,
+        ):
             _creds, source = resolver.resolve(config_file=config_path)
 
         assert source == "environment"
@@ -616,9 +607,7 @@ class TestCredentialResolverTryProfile:
 
         with patch(
             "cja_auto_sdr.generator.load_profile_credentials",
-            side_effect=ProfileNotFoundError(
-                "not found", profile_name="missing", details="check path"
-            ),
+            side_effect=ProfileNotFoundError("not found", profile_name="missing", details="check path"),
         ):
             with pytest.raises(CredentialSourceError) as exc_info:
                 resolver._try_profile("missing")
@@ -631,9 +620,7 @@ class TestCredentialResolverTryProfile:
 
         with patch(
             "cja_auto_sdr.generator.load_profile_credentials",
-            side_effect=ProfileConfigError(
-                "bad config", profile_name="broken", details="invalid JSON"
-            ),
+            side_effect=ProfileConfigError("bad config", profile_name="broken", details="invalid JSON"),
         ):
             with pytest.raises(CredentialSourceError) as exc_info:
                 resolver._try_profile("broken")

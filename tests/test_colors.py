@@ -255,16 +255,16 @@ class TestDetectDefaultEnabled:
             assert ConsoleColors._detect_default_enabled() is False
 
     def test_windows_without_term(self):
-        with patch("sys.stdout") as mock_stdout, \
-             patch("os.name", "nt"), \
-             patch.dict(os.environ, {}, clear=True):
+        with patch("sys.stdout") as mock_stdout, patch("os.name", "nt"), patch.dict(os.environ, {}, clear=True):
             mock_stdout.isatty.return_value = True
             assert not ConsoleColors._detect_default_enabled()
 
     def test_windows_with_term(self):
-        with patch("sys.stdout") as mock_stdout, \
-             patch("os.name", "nt"), \
-             patch.dict(os.environ, {"TERM": "xterm"}, clear=False):
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.name", "nt"),
+            patch.dict(os.environ, {"TERM": "xterm"}, clear=False),
+        ):
             mock_stdout.isatty.return_value = True
             assert ConsoleColors._detect_default_enabled()
 
@@ -489,13 +489,13 @@ class TestFormatFileSize:
         assert format_file_size(int(2.5 * 1024 * 1024)) == "2.5 MB"
 
     def test_gigabytes(self):
-        assert format_file_size(1024 ** 3) == "1.0 GB"
+        assert format_file_size(1024**3) == "1.0 GB"
 
     def test_terabytes(self):
-        assert format_file_size(1024 ** 4) == "1.0 TB"
+        assert format_file_size(1024**4) == "1.0 TB"
 
     def test_large_terabytes(self):
-        assert format_file_size(5 * 1024 ** 4) == "5.0 TB"
+        assert format_file_size(5 * 1024**4) == "5.0 TB"
 
     def test_bytes_no_decimal(self):
         result = format_file_size(42)

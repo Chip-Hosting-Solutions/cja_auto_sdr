@@ -177,10 +177,19 @@ class TestSDRConfig:
 class TestFromArgs:
     def test_from_args_full(self):
         args = argparse.Namespace(
-            max_retries=5, retry_base_delay=2.0, retry_max_delay=60.0,
-            enable_cache=True, cache_size=2000, cache_ttl=7200,
-            log_level="DEBUG", workers=8, format="json", output_dir="/tmp",
-            skip_validation=True, max_issues=100, quiet=True,
+            max_retries=5,
+            retry_base_delay=2.0,
+            retry_max_delay=60.0,
+            enable_cache=True,
+            cache_size=2000,
+            cache_ttl=7200,
+            log_level="DEBUG",
+            workers=8,
+            format="json",
+            output_dir="/tmp",
+            skip_validation=True,
+            max_issues=100,
+            quiet=True,
         )
         config = SDRConfig.from_args(args)
         assert config.retry.max_retries == 5

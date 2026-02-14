@@ -1085,7 +1085,11 @@ class TestBuildFormulaExpression:
         """If expression with then and else branches."""
         node = {
             "func": "if",
-            "condition": {"func": "gt", "col1": {"func": "metric", "name": "metrics/visits"}, "col2": {"func": "number", "val": 0}},
+            "condition": {
+                "func": "gt",
+                "col1": {"func": "metric", "name": "metrics/visits"},
+                "col2": {"func": "number", "val": 0},
+            },
             "then": {"func": "metric", "name": "metrics/orders"},
             "else": {"func": "number", "val": 0},
         }
@@ -1719,7 +1723,10 @@ class TestGenerateFormulaSummary:
                 "col1": {"func": "metric", "name": "metrics/this_very_long_metric_name_for_exceeding_limits_visits"},
                 "col2": {"func": "metric", "name": "metrics/another_extremely_long_metric_reference_threshold_value"},
             },
-            "then": {"func": "metric", "name": "metrics/yet_another_ridiculous_metric_name_that_pushes_past_eighty_chars"},
+            "then": {
+                "func": "metric",
+                "name": "metrics/yet_another_ridiculous_metric_name_that_pushes_past_eighty_chars",
+            },
             "else": {"func": "number", "val": 0},
         }
         parsed = self._make_parsed(formula)
@@ -1746,7 +1753,10 @@ class TestGenerateFormulaSummary:
         formula = {
             "func": "coalesce",
             "operands": [
-                {"func": "metric", "name": "metrics/aaaa_very_long_name_that_makes_expression_way_too_long_to_fit_in_eighty_characters"},
+                {
+                    "func": "metric",
+                    "name": "metrics/aaaa_very_long_name_that_makes_expression_way_too_long_to_fit_in_eighty_characters",
+                },
             ],
         }
         parsed = self._make_parsed(formula)
@@ -2253,28 +2263,48 @@ class TestComputeComplexityScoreDirect:
     def test_zero_inputs(self):
         """All zero inputs produce zero complexity."""
         score = self.builder._compute_complexity_score(
-            operators=0, metric_refs=0, nesting=0, functions=0, segments=0, conditionals=0,
+            operators=0,
+            metric_refs=0,
+            nesting=0,
+            functions=0,
+            segments=0,
+            conditionals=0,
         )
         assert score == pytest.approx(0.0)
 
     def test_max_inputs(self):
         """All max inputs produce 100.0 complexity."""
         score = self.builder._compute_complexity_score(
-            operators=50, metric_refs=10, nesting=8, functions=15, segments=5, conditionals=5,
+            operators=50,
+            metric_refs=10,
+            nesting=8,
+            functions=15,
+            segments=5,
+            conditionals=5,
         )
         assert score == pytest.approx(100.0)
 
     def test_beyond_max_caps_at_100(self):
         """Values beyond max are capped (normalized to 1.0)."""
         score = self.builder._compute_complexity_score(
-            operators=200, metric_refs=100, nesting=50, functions=100, segments=50, conditionals=50,
+            operators=200,
+            metric_refs=100,
+            nesting=50,
+            functions=100,
+            segments=50,
+            conditionals=50,
         )
         assert score == pytest.approx(100.0)
 
     def test_single_operator(self):
         """Single operator contributes proportionally."""
         score = self.builder._compute_complexity_score(
-            operators=1, metric_refs=0, nesting=0, functions=0, segments=0, conditionals=0,
+            operators=1,
+            metric_refs=0,
+            nesting=0,
+            functions=0,
+            segments=0,
+            conditionals=0,
         )
         expected = round((1 / 50) * 0.25 * 100, 1)
         assert score == pytest.approx(expected)
@@ -2282,7 +2312,12 @@ class TestComputeComplexityScoreDirect:
     def test_single_segment(self):
         """Single segment contributes proportionally."""
         score = self.builder._compute_complexity_score(
-            operators=0, metric_refs=0, nesting=0, functions=0, segments=1, conditionals=0,
+            operators=0,
+            metric_refs=0,
+            nesting=0,
+            functions=0,
+            segments=1,
+            conditionals=0,
         )
         expected = round((1 / 5) * 0.10 * 100, 1)
         assert score == pytest.approx(expected)
@@ -2290,7 +2325,12 @@ class TestComputeComplexityScoreDirect:
     def test_moderate_complexity(self):
         """Moderate inputs produce moderate score."""
         score = self.builder._compute_complexity_score(
-            operators=5, metric_refs=3, nesting=2, functions=4, segments=1, conditionals=1,
+            operators=5,
+            metric_refs=3,
+            nesting=2,
+            functions=4,
+            segments=1,
+            conditionals=1,
         )
         assert 10 < score < 50
 
@@ -2444,8 +2484,22 @@ class TestParseFormulaDirect:
 
     def test_all_arithmetic_operators_counted(self):
         """All arithmetic operators contribute to operator_count."""
-        for op in ("divide", "multiply", "add", "subtract", "negate", "pow", "sqrt",
-                    "abs", "ceil", "floor", "round", "log", "log10", "exp"):
+        for op in (
+            "divide",
+            "multiply",
+            "add",
+            "subtract",
+            "negate",
+            "pow",
+            "sqrt",
+            "abs",
+            "ceil",
+            "floor",
+            "round",
+            "log",
+            "log10",
+            "exp",
+        ):
             formula = {"func": op, "col": {"func": "metric", "name": "metrics/x"}}
             parsed = self.builder._parse_formula(formula)
             assert parsed["operator_count"] >= 1, f"{op} should count as an operator"
@@ -2761,13 +2815,33 @@ class TestToFullDictEdgeCases:
         )
         d = s.to_full_dict()
         expected_keys = {
-            "metric_id", "metric_name", "description", "owner", "owner_id",
-            "approved", "favorite", "tags", "created", "modified",
-            "shares", "shared_to_count", "data_view_id", "site_title",
-            "complexity_score", "functions_used", "functions_used_internal",
-            "nesting_depth", "operator_count", "metric_references",
-            "segment_references", "conditional_count", "formula_summary",
-            "polarity", "metric_type", "precision", "definition_json",
+            "metric_id",
+            "metric_name",
+            "description",
+            "owner",
+            "owner_id",
+            "approved",
+            "favorite",
+            "tags",
+            "created",
+            "modified",
+            "shares",
+            "shared_to_count",
+            "data_view_id",
+            "site_title",
+            "complexity_score",
+            "functions_used",
+            "functions_used_internal",
+            "nesting_depth",
+            "operator_count",
+            "metric_references",
+            "segment_references",
+            "conditional_count",
+            "formula_summary",
+            "polarity",
+            "metric_type",
+            "precision",
+            "definition_json",
         }
         assert set(d.keys()) == expected_keys
         assert d["favorite"] is True
@@ -2796,59 +2870,71 @@ class TestProcessMetricEdgeCases:
 
     def test_no_formula_key_skipped(self):
         """Metric with definition but no formula key is skipped."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "No Formula",
-            "definition": {"func": "calc-metric"},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "No Formula",
+                "definition": {"func": "calc-metric"},
+            }
+        )
         assert result is None
 
     def test_empty_string_formula_skipped(self):
         """Metric with empty string formula is skipped."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Empty Formula",
-            "definition": {"formula": "   "},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Empty Formula",
+                "definition": {"formula": "   "},
+            }
+        )
         assert result is None
 
     def test_empty_list_formula_skipped(self):
         """Metric with empty list formula is skipped."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Empty List Formula",
-            "definition": {"formula": []},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Empty List Formula",
+                "definition": {"formula": []},
+            }
+        )
         assert result is None
 
     def test_definition_not_dict_skipped(self):
         """Metric with non-dict definition is skipped."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "String Definition",
-            "definition": "not a dict",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "String Definition",
+                "definition": "not a dict",
+            }
+        )
         assert result is None
 
     def test_definition_none_skipped(self):
         """Metric with None definition is skipped."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "None Definition",
-            "definition": None,
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "None Definition",
+                "definition": None,
+            }
+        )
         assert result is None
 
     def test_governance_fields_extracted(self):
         """Governance fields (approved, favorite, tags) are extracted."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Governed Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "approved": True,
-            "favorite": True,
-            "tags": [{"name": "production"}, {"name": "kpi"}],
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Governed Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "approved": True,
+                "favorite": True,
+                "tags": [{"name": "production"}, {"name": "kpi"}],
+            }
+        )
         assert result is not None
         assert result.approved is True
         assert result.favorite is True
@@ -2856,84 +2942,98 @@ class TestProcessMetricEdgeCases:
 
     def test_shares_extracted(self):
         """Sharing info is extracted correctly."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Shared Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "shares": [{"type": "user", "id": "u1"}, {"type": "group", "id": "g1"}],
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Shared Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "shares": [{"type": "user", "id": "u1"}, {"type": "group", "id": "g1"}],
+            }
+        )
         assert result is not None
         assert result.shared_to_count == 2
         assert len(result.shares) == 2
 
     def test_non_list_shares_handled(self):
         """Non-list shares value defaults to empty list."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Bad Shares",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "shares": "not a list",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Bad Shares",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "shares": "not a list",
+            }
+        )
         assert result is not None
         assert result.shares == []
         assert result.shared_to_count == 0
 
     def test_data_view_id_from_dataId(self):
         """data_view_id extracted from 'dataId' key."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "DV Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "dataId": "dv_12345",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "DV Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "dataId": "dv_12345",
+            }
+        )
         assert result is not None
         assert result.data_view_id == "dv_12345"
 
     def test_data_view_id_from_rsid(self):
         """data_view_id falls back to 'rsid' key."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "RSID Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "rsid": "rsid_67890",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "RSID Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "rsid": "rsid_67890",
+            }
+        )
         assert result is not None
         assert result.data_view_id == "rsid_67890"
 
     def test_site_title_extracted(self):
         """Site title is extracted."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Site Title Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "siteTitle": "My Analytics Site",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Site Title Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "siteTitle": "My Analytics Site",
+            }
+        )
         assert result is not None
         assert result.site_title == "My Analytics Site"
 
     def test_timestamps_from_alternate_keys(self):
         """Timestamps extracted from createdDate/modifiedDate fallback keys."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Alt Timestamps",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "createdDate": "2025-01-01T00:00:00Z",
-            "modifiedDate": "2025-06-01T00:00:00Z",
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Alt Timestamps",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "createdDate": "2025-01-01T00:00:00Z",
+                "modifiedDate": "2025-06-01T00:00:00Z",
+            }
+        )
         assert result is not None
         assert "2025-01-01" in result.created
         assert "2025-06-01" in result.modified
 
     def test_format_metadata_extracted(self):
         """Polarity, type, and precision are extracted."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "Format Metric",
-            "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
-            "polarity": "negative",
-            "type": "percent",
-            "precision": 4,
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "Format Metric",
+                "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
+                "polarity": "negative",
+                "type": "percent",
+                "precision": 4,
+            }
+        )
         assert result is not None
         assert result.polarity == "negative"
         assert result.metric_type == "percent"
@@ -2950,54 +3050,64 @@ class TestProcessMetricEdgeCases:
 
     def test_definition_json_serialization(self):
         """Definition is serialized to JSON string."""
-        result = self.builder._process_metric({
-            "id": "cm_1",
-            "name": "JSON Metric",
-            "definition": {
-                "formula": {"func": "metric", "name": "metrics/a"},
-                "version": [1, 0, 0],
-            },
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_1",
+                "name": "JSON Metric",
+                "definition": {
+                    "formula": {"func": "metric", "name": "metrics/a"},
+                    "version": [1, 0, 0],
+                },
+            }
+        )
         assert result is not None
         assert '"formula"' in result.definition_json
         assert '"func"' in result.definition_json
 
     def test_string_formula_with_slash(self):
         """String formula with slash is treated as metric reference."""
-        result = self.builder._process_metric({
-            "id": "cm_str_formula",
-            "name": "String Formula",
-            "definition": {"formula": "metrics/revenue"},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_str_formula",
+                "name": "String Formula",
+                "definition": {"formula": "metrics/revenue"},
+            }
+        )
         assert result is not None
         assert "revenue" in result.formula_summary.lower()
 
     def test_list_formula_with_dict(self):
         """List formula containing a dict is normalized to the dict."""
-        result = self.builder._process_metric({
-            "id": "cm_list_formula",
-            "name": "List Formula",
-            "definition": {"formula": [{"func": "metric", "name": "metrics/revenue"}]},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_list_formula",
+                "name": "List Formula",
+                "definition": {"formula": [{"func": "metric", "name": "metrics/revenue"}]},
+            }
+        )
         assert result is not None
         assert "revenue" in result.formula_summary.lower()
 
     def test_boolean_formula_treated_as_literal(self):
         """Boolean formula is treated as literal."""
-        result = self.builder._process_metric({
-            "id": "cm_bool",
-            "name": "Bool Formula",
-            "definition": {"formula": True},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_bool",
+                "name": "Bool Formula",
+                "definition": {"formula": True},
+            }
+        )
         assert result is not None
 
     def test_integer_formula_treated_as_number(self):
         """Integer formula is treated as number."""
-        result = self.builder._process_metric({
-            "id": "cm_int",
-            "name": "Int Formula",
-            "definition": {"formula": 99},
-        })
+        result = self.builder._process_metric(
+            {
+                "id": "cm_int",
+                "name": "Int Formula",
+                "definition": {"formula": 99},
+            }
+        )
         assert result is not None
         assert "99" in result.formula_summary
 

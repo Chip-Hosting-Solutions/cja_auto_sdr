@@ -302,9 +302,7 @@ class TestCreateSnapshot:
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fail_calc_import):
-            snap = manager.create_snapshot(
-                cja, "dv_test", quiet=False, include_calculated_metrics=True
-            )
+            snap = manager.create_snapshot(cja, "dv_test", quiet=False, include_calculated_metrics=True)
             captured = capsys.readouterr()
             assert snap.calculated_metrics_inventory is None
             assert "Warning" in captured.out
@@ -313,13 +311,9 @@ class TestCreateSnapshot:
         """Lines 151-154: Generic exception when fetching calc metrics."""
         cja = self._mock_cja(metrics_df=None, dimensions_df=None)
 
-        with patch(
-            "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder"
-        ) as mock_builder_cls:
+        with patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder") as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("API failure")
-            manager.create_snapshot(
-                cja, "dv_test", quiet=False, include_calculated_metrics=True
-            )
+            manager.create_snapshot(cja, "dv_test", quiet=False, include_calculated_metrics=True)
             captured = capsys.readouterr()
             assert "Warning" in captured.out
             assert "API failure" in captured.out
@@ -338,9 +332,7 @@ class TestCreateSnapshot:
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fail_seg_import):
-            snap = manager.create_snapshot(
-                cja, "dv_test", quiet=False, include_segments=True
-            )
+            snap = manager.create_snapshot(cja, "dv_test", quiet=False, include_segments=True)
             captured = capsys.readouterr()
             assert snap.segments_inventory is None
             assert "Warning" in captured.out
@@ -349,13 +341,9 @@ class TestCreateSnapshot:
         """Lines 172-175: Generic exception when fetching segments."""
         cja = self._mock_cja(metrics_df=None, dimensions_df=None)
 
-        with patch(
-            "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder"
-        ) as mock_builder_cls:
+        with patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder") as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("Segment fail")
-            manager.create_snapshot(
-                cja, "dv_test", quiet=False, include_segments=True
-            )
+            manager.create_snapshot(cja, "dv_test", quiet=False, include_segments=True)
             captured = capsys.readouterr()
             assert "Warning" in captured.out
             assert "Segment fail" in captured.out
@@ -364,13 +352,9 @@ class TestCreateSnapshot:
         """Lines 147-154 with quiet=True: warnings still print but success messages don't."""
         cja = self._mock_cja(metrics_df=None, dimensions_df=None)
 
-        with patch(
-            "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder"
-        ) as mock_builder_cls:
+        with patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder") as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("quiet test")
-            manager.create_snapshot(
-                cja, "dv_test", quiet=True, include_calculated_metrics=True
-            )
+            manager.create_snapshot(cja, "dv_test", quiet=True, include_calculated_metrics=True)
             captured = capsys.readouterr()
             # quiet=True means no warning is printed to stdout
             assert "quiet test" not in captured.out
@@ -379,13 +363,9 @@ class TestCreateSnapshot:
         """Lines 168-175 with quiet=True: warnings suppressed."""
         cja = self._mock_cja(metrics_df=None, dimensions_df=None)
 
-        with patch(
-            "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder"
-        ) as mock_builder_cls:
+        with patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder") as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("quiet seg")
-            manager.create_snapshot(
-                cja, "dv_test", quiet=True, include_segments=True
-            )
+            manager.create_snapshot(cja, "dv_test", quiet=True, include_segments=True)
             captured = capsys.readouterr()
             assert "quiet seg" not in captured.out
 
@@ -510,16 +490,12 @@ class TestApplyDateRetentionPolicy:
 
     def test_zero_days_returns_empty(self, manager, tmp_path):
         """Line 286: days=0 → return []."""
-        result = manager.apply_date_retention_policy(
-            str(tmp_path), "dv_abc", keep_since_days=0
-        )
+        result = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", keep_since_days=0)
         assert result == []
 
     def test_negative_days_returns_empty(self, manager, tmp_path):
         """Line 286: negative days → return []."""
-        result = manager.apply_date_retention_policy(
-            str(tmp_path), "dv_abc", keep_since_days=-10
-        )
+        result = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", keep_since_days=-10)
         assert result == []
 
     def test_wildcard_data_view_id(self, manager, tmp_path):
@@ -528,9 +504,7 @@ class TestApplyDateRetentionPolicy:
         _write_snapshot_json(str(tmp_path / "a.json"), data_view_id="dv_a", created_at=old_time)
         _write_snapshot_json(str(tmp_path / "b.json"), data_view_id="dv_b", created_at=old_time)
 
-        deleted = manager.apply_date_retention_policy(
-            str(tmp_path), "*", keep_since_days=30
-        )
+        deleted = manager.apply_date_retention_policy(str(tmp_path), "*", keep_since_days=30)
         assert len(deleted) == 2
 
     def test_empty_data_view_id_applies_to_all(self, manager, tmp_path):
@@ -539,9 +513,7 @@ class TestApplyDateRetentionPolicy:
         _write_snapshot_json(str(tmp_path / "a.json"), data_view_id="dv_a", created_at=old_time)
         _write_snapshot_json(str(tmp_path / "b.json"), data_view_id="dv_b", created_at=old_time)
 
-        deleted = manager.apply_date_retention_policy(
-            str(tmp_path), "", keep_since_days=30
-        )
+        deleted = manager.apply_date_retention_policy(str(tmp_path), "", keep_since_days=30)
         assert len(deleted) == 2
 
     def test_snapshot_with_no_created_at_skipped(self, manager, tmp_path):
@@ -561,9 +533,7 @@ class TestApplyDateRetentionPolicy:
 
         # Patch getmtime so the mtime fallback also returns None
         with patch("os.path.getmtime", side_effect=OSError("no mtime")):
-            deleted = manager.apply_date_retention_policy(
-                str(tmp_path), "dv_abc", keep_since_days=1
-            )
+            deleted = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", keep_since_days=1)
             # Should skip (not delete) because created_at couldn't be resolved
             assert deleted == []
             # File should still exist (not deleted)
@@ -577,9 +547,7 @@ class TestApplyDateRetentionPolicy:
         _write_snapshot_json(str(tmp_path / "old.json"), created_at=old_time)
         _write_snapshot_json(str(tmp_path / "recent.json"), created_at=recent_time)
 
-        deleted = manager.apply_date_retention_policy(
-            str(tmp_path), "dv_abc", keep_since_days=30
-        )
+        deleted = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", keep_since_days=30)
         assert len(deleted) == 1
         assert "old.json" in deleted[0]
         remaining = manager.list_snapshots(str(tmp_path))
@@ -591,9 +559,7 @@ class TestApplyDateRetentionPolicy:
         _write_snapshot_json(str(tmp_path / "old.json"), created_at=old_time)
 
         with patch("os.remove", side_effect=OSError("read-only filesystem")):
-            deleted = manager.apply_date_retention_policy(
-                str(tmp_path), "dv_abc", keep_since_days=30
-            )
+            deleted = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", keep_since_days=30)
             assert deleted == []
 
     def test_delete_older_than_days_alias(self, manager, tmp_path):
@@ -601,9 +567,7 @@ class TestApplyDateRetentionPolicy:
         old_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         _write_snapshot_json(str(tmp_path / "old.json"), created_at=old_time)
 
-        deleted = manager.apply_date_retention_policy(
-            str(tmp_path), "dv_abc", delete_older_than_days=30
-        )
+        deleted = manager.apply_date_retention_policy(str(tmp_path), "dv_abc", delete_older_than_days=30)
         assert len(deleted) == 1
 
 

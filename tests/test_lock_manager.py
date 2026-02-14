@@ -33,9 +33,14 @@ def _mock_handle(lock_id="test-lock-id"):
 
 def _mock_lock_info():
     return LockInfo(
-        lock_id="test-lock-id", pid=os.getpid(), host="localhost",
-        owner="test-owner", started_at="2026-01-01T00:00:00+00:00",
-        updated_at="2026-01-01T00:00:00+00:00", backend="mock", version=1,
+        lock_id="test-lock-id",
+        pid=os.getpid(),
+        host="localhost",
+        owner="test-owner",
+        started_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        backend="mock",
+        version=1,
     )
 
 
@@ -132,8 +137,11 @@ class TestLockManagerAcquire:
         mock_backend.name = "mock"
         mock_backend.requires_heartbeat = False
         mgr = self._make_manager(tmp_path, mock_backend)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle)):
+        with patch.object(
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle),
+        ):
             result = mgr.acquire()
         assert result is True
         assert mgr.acquired is True
@@ -146,8 +154,9 @@ class TestLockManagerAcquire:
 
     def test_contended_returns_false(self, tmp_path):
         mgr = self._make_manager(tmp_path)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.CONTENDED)):
+        with patch.object(
+            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.CONTENDED)
+        ):
             assert mgr.acquire() is False
             assert mgr.acquired is False
 
@@ -164,8 +173,10 @@ class TestLockManagerAcquire:
         real_fcntl = FcntlFileLockBackend()
         with patch("cja_auto_sdr.core.locks.manager.create_lock_backend", return_value=real_fcntl):
             mgr = LockManager(lock_path=tmp_path / "test.lock", owner="test-owner")
-        with patch.object(LockManager, "_acquire_with_result", side_effect=_side_effect), \
-             patch.object(LeaseFileLockBackend, "write_info"):
+        with (
+            patch.object(LockManager, "_acquire_with_result", side_effect=_side_effect),
+            patch.object(LeaseFileLockBackend, "write_info"),
+        ):
             result = mgr.acquire()
         assert result is True
         assert isinstance(mgr.backend, LeaseFileLockBackend)
@@ -176,8 +187,11 @@ class TestLockManagerAcquire:
         mock_backend.name = "lease"
         mock_backend.requires_heartbeat = False
         mgr = self._make_manager(tmp_path, mock_backend)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=error)):
+        with patch.object(
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=error),
+        ):
             with pytest.raises(LockBackendUnavailableError, match="both failed"):
                 mgr.acquire()
 
@@ -186,23 +200,28 @@ class TestLockManagerAcquire:
         mock_backend.name = "lease"
         mock_backend.requires_heartbeat = False
         mgr = self._make_manager(tmp_path, mock_backend)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE)):
+        with patch.object(
+            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE)
+        ):
             with pytest.raises(LockBackendUnavailableError, match="lock backend unavailable"):
                 mgr.acquire()
 
     def test_metadata_error_with_error_raises(self, tmp_path):
         mgr = self._make_manager(tmp_path)
         error = OSError("metadata broken")
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR, error=error)):
+        with patch.object(
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR, error=error),
+        ):
             with pytest.raises(OSError, match="metadata broken"):
                 mgr.acquire()
 
     def test_metadata_error_without_error_returns_false(self, tmp_path):
         mgr = self._make_manager(tmp_path)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR)):
+        with patch.object(
+            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR)
+        ):
             assert mgr.acquire() is False
 
     def test_write_info_oserror_returns_false(self, tmp_path):
@@ -212,8 +231,11 @@ class TestLockManagerAcquire:
         mock_backend.requires_heartbeat = False
         mock_backend.write_info.side_effect = OSError("disk full")
         mgr = self._make_manager(tmp_path, mock_backend)
-        with patch.object(LockManager, "_acquire_with_result",
-                          return_value=AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle)):
+        with patch.object(
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.ACQUIRED, handle=handle),
+        ):
             result = mgr.acquire()
         assert result is False
         assert mgr.acquired is False
