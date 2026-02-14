@@ -162,8 +162,8 @@ class OrgComponentAnalyzer:
                     is_sampled=False,
                     total_available_data_views=0,
                 )
-        except Exception:
-            pass  # Continue to normal flow - let actual analysis handle errors
+        except Exception as e:
+            self.logger.debug("Quick empty-org check skipped: %s", e)
         return None
 
     def _run_analysis_impl(self) -> OrgReportResult:
