@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'src/cja_auto_sdr/core/version.py'
-      - 'CLAUDE.md'
       - 'CHANGELOG.md'
       - 'docs/QUICK_REFERENCE.md'
       - 'docs/QUICKSTART_GUIDE.md'

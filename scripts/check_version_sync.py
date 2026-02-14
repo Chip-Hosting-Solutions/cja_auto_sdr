@@ -32,11 +32,6 @@ def get_canonical_version() -> str:
 # Each entry: (relative_path, regex_pattern_with_one_capture_group, description)
 VERSION_LOCATIONS: list[tuple[str, str, str]] = [
     (
-        "CLAUDE.md",
-        r"Current version:\s*v(\d+\.\d+\.\d+)",
-        "CLAUDE.md version reference",
-    ),
-    (
         "CHANGELOG.md",
         r"^## \[(\d+\.\d+\.\d+)\]",
         "CHANGELOG.md latest release entry",
