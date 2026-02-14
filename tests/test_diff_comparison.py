@@ -1869,7 +1869,7 @@ class TestDiffSummaryPercentages:
         )
 
         assert summary.metrics_changed == 10
-        assert summary.metrics_change_percent == 10.0
+        assert summary.metrics_change_percent == pytest.approx(10.0)
 
     def test_dimensions_change_percent(self, logger):
         """Test dimensions_change_percent calculation"""
@@ -1885,7 +1885,7 @@ class TestDiffSummaryPercentages:
 
         assert summary.dimensions_changed == 15
         # Should use max(50, 60) = 60 as base
-        assert summary.dimensions_change_percent == 25.0
+        assert summary.dimensions_change_percent == pytest.approx(25.0)
 
     def test_zero_components_percent(self, logger):
         """Test percentage is 0 when no components exist"""
@@ -1893,7 +1893,7 @@ class TestDiffSummaryPercentages:
 
         summary = DiffSummary(source_metrics_count=0, target_metrics_count=0)
 
-        assert summary.metrics_change_percent == 0.0
+        assert summary.metrics_change_percent == pytest.approx(0.0)
 
     def test_natural_language_summary(self, logger):
         """Test natural_language_summary property"""

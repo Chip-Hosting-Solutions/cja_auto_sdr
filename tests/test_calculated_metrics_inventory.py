@@ -756,7 +756,7 @@ class TestCalculatedMetricSummary:
         assert d["name"] == "Test Metric"
         assert d["description"] == "Test description"
         assert d["owner"] == "Test Owner"
-        assert d["complexity_score"] == 45.5
+        assert d["complexity_score"] == pytest.approx(45.5)
         assert "Division" in d["functions_used"]
         assert "revenue" in d["metric_references"]
         assert d["polarity"] == "Positive"
@@ -796,12 +796,12 @@ class TestCalculatedMetricsInventoryProperties:
     def test_avg_complexity_empty(self):
         """Test average complexity with no metrics"""
         inventory = CalculatedMetricsInventory(data_view_id="dv_test", data_view_name="Test")
-        assert inventory.avg_complexity == 0.0
+        assert inventory.avg_complexity == pytest.approx(0.0)
 
     def test_max_complexity_empty(self):
         """Test max complexity with no metrics"""
         inventory = CalculatedMetricsInventory(data_view_id="dv_test", data_view_name="Test")
-        assert inventory.max_complexity == 0.0
+        assert inventory.max_complexity == pytest.approx(0.0)
 
 
 # ==================== SUMMARY COLUMN ALIAS TESTS ====================
