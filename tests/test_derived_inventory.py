@@ -1114,6 +1114,35 @@ class TestEdgeCases:
 
         assert inventory.total_derived_fields == 1
 
+    @pytest.mark.parametrize("bad_index", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_split_index_does_not_crash(self, bad_index):
+        """Non-finite split indexes should fall back safely instead of raising."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_split_bad_index",
+                    "name": "Split Bad Index",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": [
+                        {"func": "raw-field", "id": "field_a", "label": "a"},
+                        {
+                            "func": "split",
+                            "delimiter": "/",
+                            "index": bad_index,
+                            "args": [{"func": "raw-field", "id": "field_a"}],
+                        },
+                    ],
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "part 1" in inventory.fields[0].logic_summary
+
     def test_non_string_dataset_in_lookup_does_not_crash(self):
         """Non-string dataset in classify/lookup should not crash."""
         definition = json.dumps(

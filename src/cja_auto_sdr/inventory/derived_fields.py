@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -613,6 +614,30 @@ class DerivedFieldInventoryBuilder:
         """Normalize display text with a fallback for null/unsupported value shapes."""
         normalized = self._coerce_scalar_text(value)
         return normalized if normalized else fallback
+
+    def _coerce_int_index(self, value: Any, default: int = 0) -> int:
+        """Safely coerce split indexes to integers without raising on malformed values."""
+        if isinstance(value, bool) or value is None:
+            return default
+
+        if isinstance(value, (int, float)):
+            if isinstance(value, float) and not math.isfinite(value):
+                return default
+            try:
+                return int(value)
+            except TypeError, ValueError, OverflowError:
+                return default
+
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if not trimmed:
+                return default
+            try:
+                return int(trimmed)
+            except ValueError:
+                return default
+
+        return default
 
     def _iter_function_dicts(self, functions: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """Yield only dict function objects from mixed lists."""
@@ -1342,14 +1367,7 @@ class DerivedFieldInventoryBuilder:
 
             delimiter = func_obj.get("delimiter", "")
             index_raw = func_obj.get("index", 0)
-            index = 0
-            if isinstance(index_raw, (int, float)) and not isinstance(index_raw, bool):
-                index = int(index_raw)
-            elif isinstance(index_raw, str):
-                try:
-                    index = int(index_raw.strip())
-                except ValueError:
-                    index = 0
+            index = self._coerce_int_index(index_raw, default=0)
 
             args = func_obj.get("args", [])
             field_name = ""
