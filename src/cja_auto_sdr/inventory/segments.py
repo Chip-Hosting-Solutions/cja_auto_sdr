@@ -602,7 +602,7 @@ class SegmentsInventoryBuilder:
 
             # Extract container type (context)
             context = node.get("context", "")
-            if context and not container_type:
+            if context and isinstance(context, str) and not container_type:
                 container_type = context.lower()
 
             # Extract dimension references using shared utility
@@ -808,7 +808,7 @@ class SegmentsInventoryBuilder:
         # Handle logical operators
         if func == "and":
             preds = node.get("preds", [])
-            if preds:
+            if isinstance(preds, list) and preds:
                 parts = []
                 for p in preds[:3]:  # Limit to 3 for readability
                     desc = self._describe_definition(p, max_depth - 1)
@@ -820,7 +820,7 @@ class SegmentsInventoryBuilder:
 
         if func == "or":
             preds = node.get("preds", [])
-            if preds:
+            if isinstance(preds, list) and preds:
                 parts = []
                 for p in preds[:3]:
                     desc = self._describe_definition(p, max_depth - 1)

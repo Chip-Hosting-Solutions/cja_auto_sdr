@@ -812,6 +812,8 @@ class CalculatedMetricsInventoryBuilder:
 
         if func == "metric":
             name = actual_formula.get("name", "")
+            if not isinstance(name, str):
+                name = str(name)
             clean_name = name.split("/")[-1] if "/" in name else name
             return f"= {clean_name}"
 
@@ -904,6 +906,8 @@ class CalculatedMetricsInventoryBuilder:
 
         if func == "metric":
             name = node.get("name", "")
+            if not isinstance(name, str):
+                name = str(name)
             return name.split("/")[-1] if "/" in name else name
 
         if func == "number":
@@ -940,7 +944,7 @@ class CalculatedMetricsInventoryBuilder:
                     expr = self._build_formula_expression(node[key], max_depth - 1)
                     if expr:
                         operands.append(expr)
-            if "operands" in node:
+            if "operands" in node and isinstance(node["operands"], list):
                 for op in node["operands"]:
                     expr = self._build_formula_expression(op, max_depth - 1)
                     if expr:
@@ -1027,7 +1031,7 @@ class CalculatedMetricsInventoryBuilder:
                 name = self._get_reference_name(formula[key])
                 if name:
                     operands.append(name)
-        if "operands" in formula:
+        if "operands" in formula and isinstance(formula["operands"], list):
             for op in formula["operands"]:
                 name = self._get_reference_name(op)
                 if name:
@@ -1102,6 +1106,8 @@ class CalculatedMetricsInventoryBuilder:
 
         if func == "metric":
             name = node.get("name", "")
+            if not isinstance(name, str):
+                name = str(name)
             return name.split("/")[-1] if "/" in name else name
 
         if func == "number":

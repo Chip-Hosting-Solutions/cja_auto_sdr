@@ -597,6 +597,47 @@ class TestEdgeCases:
         assert inventory.total_calculated_metrics == 1
         assert inventory.metrics[0].formula_summary == "1.0"
 
+    def test_non_string_metric_name_does_not_crash(self):
+        """Non-string metric name should not crash name.split('/')."""
+        metric = {
+            "id": "cm_name",
+            "name": "Non String Name",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {"func": "metric", "name": 123},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+
+    def test_non_list_operands_does_not_crash(self):
+        """Non-list operands value should not crash iteration."""
+        metric = {
+            "id": "cm_ops",
+            "name": "Non List Operands",
+            "description": "",
+            "definition": {
+                "func": "calc-metric",
+                "formula": {
+                    "func": "add",
+                    "operands": "not_a_list",
+                },
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getCalculatedMetrics.return_value = [metric]
+
+        builder = CalculatedMetricsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_calculated_metrics == 1
+
 
 # ==================== DATA CLASS TESTS ====================
 

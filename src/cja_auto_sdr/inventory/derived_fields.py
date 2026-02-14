@@ -370,7 +370,7 @@ class DerivedFieldInventoryBuilder:
                 is_na = bool(is_na.all()) if len(is_na) > 0 else True
             else:
                 is_na = bool(is_na)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             is_na = field_def_str is None
 
         if is_na or field_def_str in ("NaN", "", "null", None):
@@ -670,6 +670,8 @@ class DerivedFieldInventoryBuilder:
             string_outputs = 0
 
             for branch in branches:
+                if not isinstance(branch, dict):
+                    continue
                 map_to = branch.get("map-to")
                 if isinstance(map_to, (int, float)):
                     numeric_outputs += 1
@@ -1149,7 +1151,7 @@ class DerivedFieldInventoryBuilder:
                 value_field = mapping.get("value-field", "")
                 dataset = mapping.get("dataset", "")
                 if key_field and value_field:
-                    dataset_name = dataset.split("/")[-1] if dataset else "lookup"
+                    dataset_name = dataset.split("/")[-1] if isinstance(dataset, str) and dataset else "lookup"
                     return f"Lookup: {self._get_field_short_name(key_field)} → {self._get_field_short_name(value_field)} from {dataset_name}"
                 if key_field:
                     return f"Lookup by {self._get_field_short_name(key_field)}"
@@ -1167,7 +1169,7 @@ class DerivedFieldInventoryBuilder:
 
             # Find the input field
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
 
             component_names = {
@@ -1207,10 +1209,12 @@ class DerivedFieldInventoryBuilder:
 
             delimiter = func_obj.get("delimiter", "")
             args = func_obj.get("args", [])
+            if not isinstance(args, list):
+                args = []
             field_count = len([a for a in args if isinstance(a, dict) and a.get("func") == "raw-field"])
 
             if delimiter:
-                delim_desc = f'"{delimiter}"' if delimiter.strip() else "(space)"
+                delim_desc = f'"{delimiter}"' if str(delimiter).strip() else "(space)"
                 if field_count > 0:
                     return f"Concat {field_count} fields with {delim_desc}"
                 return f"Concatenate with {delim_desc}"
@@ -1226,8 +1230,8 @@ class DerivedFieldInventoryBuilder:
             if func_obj.get("func") != "regex-replace":
                 continue
 
-            pattern = func_obj.get("pattern", "")
-            replacement = func_obj.get("replacement", "")
+            pattern = str(func_obj.get("pattern", ""))
+            replacement = str(func_obj.get("replacement", ""))
 
             if pattern:
                 short_pattern = pattern[:25] + "..." if len(pattern) > 25 else pattern
@@ -1250,7 +1254,7 @@ class DerivedFieldInventoryBuilder:
 
             args = func_obj.get("args", [])
             field_name = ""
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 field_name = self._get_field_short_name(args[0].get("id", ""))
 
             if field_name:
@@ -1271,7 +1275,7 @@ class DerivedFieldInventoryBuilder:
             scope = func_obj.get("scope", "")  # session, person, etc.
             args = func_obj.get("args", [])
             field_name = ""
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 field_name = self._get_field_short_name(args[0].get("id", ""))
 
             if field_name and scope:
@@ -1302,7 +1306,7 @@ class DerivedFieldInventoryBuilder:
 
             args = func_obj.get("args", [])
             field_name = ""
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 field_name = self._get_field_short_name(args[0].get("id", ""))
 
             delim_desc = f'"{delimiter}"' if delimiter else "delimiter"
@@ -1342,7 +1346,7 @@ class DerivedFieldInventoryBuilder:
 
             # Find the input field from args or referenced label
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref
@@ -1365,7 +1369,7 @@ class DerivedFieldInventoryBuilder:
             input_field = ""
 
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref
@@ -1388,7 +1392,7 @@ class DerivedFieldInventoryBuilder:
             input_field = ""
 
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref
@@ -1412,7 +1416,7 @@ class DerivedFieldInventoryBuilder:
             input_field = ""
 
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref
@@ -1438,7 +1442,7 @@ class DerivedFieldInventoryBuilder:
             input_field = ""
 
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref
@@ -1471,7 +1475,7 @@ class DerivedFieldInventoryBuilder:
             input_field = ""
 
             args = func_obj.get("args", [])
-            if args and isinstance(args[0], dict):
+            if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
             elif field_ref:
                 input_field = field_ref

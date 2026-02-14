@@ -656,6 +656,45 @@ class TestEdgeCases:
         assert "s_reference" in inventory.segments[0].other_segment_references
         assert "pageurl" in inventory.segments[0].dimension_references
 
+    def test_non_string_context_does_not_crash(self):
+        """Non-string context value should not crash parsing."""
+        segment = {
+            "id": "s_ctx",
+            "name": "Non String Context",
+            "description": "",
+            "definition": {
+                "func": "container",
+                "context": 123,
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+
+    def test_non_list_preds_does_not_crash(self):
+        """Non-list preds value should not crash describe_definition."""
+        segment = {
+            "id": "s_preds",
+            "name": "Non List Preds",
+            "description": "",
+            "definition": {
+                "func": "and",
+                "preds": "not_a_list",
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+
 
 # ==================== DATA CLASS TESTS ====================
 
