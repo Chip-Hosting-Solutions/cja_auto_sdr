@@ -416,6 +416,15 @@ def flush_logging_handlers(logger: logging.Logger | logging.LoggerAdapter | None
             handler.flush()
 
 
+def _infer_run_mode(data_view_id: str | None, batch_mode: bool) -> str:
+    """Infer the run mode from setup_logging parameters."""
+    if batch_mode:
+        return "batch"
+    if data_view_id:
+        return "single"
+    return "discovery"
+
+
 def setup_logging(
     data_view_id: str | None = None, batch_mode: bool = False, log_level: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
@@ -516,6 +525,12 @@ def setup_logging(
     else:
         logger.info("Logging initialized. Console output only.")
     logger.info(f"CJA SDR Generator version: {__version__}", extra={"sdr_version": __version__})
+    logger.info(
+        f"Python {sys.version.split()[0]} on {sys.platform}",
+        extra={"python_version": sys.version.split()[0], "platform": sys.platform},
+    )
+    logger.info(f"Log level: {log_level.upper()}", extra={"log_level": log_level.upper()})
+    logger.info(f"Run mode: {_infer_run_mode(data_view_id, batch_mode)}")
 
     # Flush handlers to ensure log file is not empty even on early exit
     for handler in logging.root.handlers:
