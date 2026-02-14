@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Centralized normalization helpers**: Extracted `normalize_func_name`, `coerce_scalar_text`, and `coerce_display_text` into `inventory/utils.py` so all three builders share identical coercion logic, eliminating implementation drift
+- **Enhanced startup logging**: Log initialization now emits Python version, platform, active log level, and inferred run mode (batch/single/discovery) alongside the tool version for easier troubleshooting
 
 ### Tests
 - Added edge-case tests for non-dict payloads, non-string func names, non-list operands/preds, dict-shaped args, non-finite split indexes, non-string delimiters/patterns/datasets, non-dict branch items, datetime metadata preservation, and timestamp description coercion
