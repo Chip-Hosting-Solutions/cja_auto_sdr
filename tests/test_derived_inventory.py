@@ -852,6 +852,37 @@ class TestEdgeCases:
         assert inventory.total_derived_fields == 1
         assert inventory.fields[0].functions_used_internal == ["raw-field"]
 
+    def test_url_parse_with_dict_component_does_not_crash(self):
+        """Dict-shaped url-parse component payloads should be handled safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "web.webPageDetails.URL", "label": "url"},
+                {
+                    "func": "url-parse",
+                    "label": "utm_campaign",
+                    "component": {"func": "query", "param": "utm_campaign"},
+                    "args": [{"func": "raw-field", "id": "web.webPageDetails.URL"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/utm_campaign",
+                    "name": "UTM Campaign",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "query param 'utm_campaign'" in inventory.fields[0].logic_summary
+
     def test_nan_component_id_is_skipped(self):
         """Rows with NaN component IDs should be rejected as invalid IDs."""
         df = pd.DataFrame(

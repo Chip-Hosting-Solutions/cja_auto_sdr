@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inventory-summary `--log-format` propagation**: `--log-format json` was silently ignored in inventory-summary mode; now propagated correctly
 - **Handler flush on error paths**: Early-exit flush loops only touched `logger.handlers`, missing propagated root handlers; replaced with `flush_logging_handlers()` helper that flushes both
 - **Derived field inventory parsing resilience**: Pandas NaN/NA checks on tuple/array edge cases could raise `ValueError`; broadened exception handling to prevent crashes on malformed field definitions
+- **Derived field URL parse dict-component handling**: `url-parse` definitions where `component` is an object (for example `{"func":"query","param":"utm_campaign"}`) no longer trigger `TypeError: cannot use 'dict' as a dict key`; parser now normalizes dict-shaped component payloads safely
+- **Runtime version observability in logs**: Log initialization now records `CJA SDR Generator version: <version>` so run logs clearly show which build executed
 
 ### Changed
 - **Structured JSON logging**: New `JSONFormatter` emits ISO-timestamped, machine-readable log records with process/thread metadata and custom extra fields when `--log-format json` is used
@@ -32,7 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added structured log context injection tests
 - Added production-mode DQ warning suppression and summary signal tests
 - Added derived field inventory parsing hardening tests for malformed payloads
+- Added derived inventory regression test for dict-shaped `url-parse.component` payloads
+- Added logging setup regression test to assert emitted SDR tool version line
 - **1,712 tests** (1,710 passing, 2 skipped) — up from 1,686
+
+### Release Notes
+- Backport note: This patch set is suitable for `v2.3.4` maintenance branches without a version bump, including the `url-parse` dict-component derived-field fix and startup log version stamping.
 
 ## [3.2.3] - 2026-02-12
 

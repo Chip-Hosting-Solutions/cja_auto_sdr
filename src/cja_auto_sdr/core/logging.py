@@ -12,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
+from cja_auto_sdr.core.version import __version__
 
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
 _REDACTION_FLAG_ATTR = "_cja_redacted"
@@ -514,6 +515,7 @@ def setup_logging(
         logger.info(f"Logging initialized. Log file: {log_file}")
     else:
         logger.info("Logging initialized. Console output only.")
+    logger.info(f"CJA SDR Generator version: {__version__}", extra={"sdr_version": __version__})
 
     # Flush handlers to ensure log file is not empty even on early exit
     for handler in logging.root.handlers:
