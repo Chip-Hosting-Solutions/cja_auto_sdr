@@ -49,10 +49,20 @@ tests/
 ├── test_malformed_api_responses.py  # Negative tests for malformed API data
 ├── test_output_content_validation.py # Output format content validation tests
 ├── test_quality_policy_and_run_summary.py # Quality policy and run summary tests
+├── test_api_client.py               # API client exception path tests
+├── test_config_validation.py        # Configuration validation tests
+├── test_credentials.py              # Credential resolution tests
+├── test_perf.py                     # Performance utilities tests
+├── test_snapshot.py                 # Diff snapshot tests
+├── test_colors.py                   # Console color formatting tests
+├── test_exceptions.py               # Custom exception class tests
+├── test_logging_redaction.py        # Logging and sensitive data redaction tests
+├── test_config_dataclasses.py       # Config dataclasses and constants tests
+├── test_lock_manager.py             # Lock manager tests
 └── README.md                        # This file
 ```
 
-**Total: 1,739 comprehensive tests**
+**Total: 2,651 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -68,7 +78,7 @@ tests/
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 48 | Segments inventory feature |
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
-| `test_calculated_metrics_inventory.py` | 44 | Calculated metrics inventory feature |
+| `test_calculated_metrics_inventory.py` | 273 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 35 | CJA connection and configuration validation |
@@ -97,7 +107,17 @@ tests/
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_quality_policy_and_run_summary.py` | 57 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| **Total** | **1,739** | **Collected via pytest --collect-only** |
+| `test_api_client.py` | 25 | API client exception paths and error handling |
+| `test_config_validation.py` | 55 | Configuration validation logic |
+| `test_credentials.py` | 67 | Credential resolution and source selection |
+| `test_perf.py` | 7 | Performance utilities (cache eviction, statistics) |
+| `test_snapshot.py` | 72 | Diff snapshot creation and comparison |
+| `test_colors.py` | 121 | Console color formatting, themes, TTY detection |
+| `test_exceptions.py` | 64 | Custom exception classes construction and formatting |
+| `test_logging_redaction.py` | 136 | Logging, sensitive data redaction, JSON formatter |
+| `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
+| `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
+| **Total** | **2,651** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -501,7 +521,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (1,739 tests total)
+- [x] Comprehensive test coverage (2,651 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
