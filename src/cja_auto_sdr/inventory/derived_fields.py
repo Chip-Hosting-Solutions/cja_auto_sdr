@@ -1179,7 +1179,19 @@ class DerivedFieldInventoryBuilder:
                 "port": "port",
                 "query_param": f"query param '{func_obj.get('param', '')}'",
             }
-            component_desc = component_names.get(component, component)
+            if isinstance(component, dict):
+                # Some payloads provide URL component as an object, e.g. {"func": "query", "param": "..."}.
+                comp_func = self._normalize_func_name(component.get("func", ""))
+                if comp_func == "query":
+                    param = component.get("param", "")
+                    param_str = str(param).strip() if param is not None else ""
+                    component_desc = f"query param '{param_str}'" if param_str else "query string"
+                else:
+                    component_desc = component_names.get(comp_func, comp_func if comp_func else "URL component")
+            elif isinstance(component, str):
+                component_desc = component_names.get(component, component)
+            else:
+                component_desc = str(component)
 
             if input_field:
                 return f"URL parse: extract {component_desc} from {input_field}"

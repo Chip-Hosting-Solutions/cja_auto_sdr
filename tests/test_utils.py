@@ -9,6 +9,7 @@ import sys
 # Import the functions and classes we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.core.logging import SensitiveDataFilter, flush_logging_handlers, with_log_context
+from cja_auto_sdr.core.version import __version__
 from cja_auto_sdr.generator import (
     VALIDATION_SCHEMA,
     JSONFormatter,
@@ -621,6 +622,18 @@ class TestLoggingSetup:
         log_dir = tmp_path / "logs"
         log_files = list(log_dir.glob("SDR_Batch_Generation_*.log"))
         assert len(log_files) > 0
+
+    def test_logging_includes_tool_version(self, tmp_path, monkeypatch):
+        """Test that setup logging writes the SDR tool version."""
+        monkeypatch.chdir(tmp_path)
+
+        setup_logging("dv_test_12345", batch_mode=False, log_level="INFO")
+
+        log_dir = tmp_path / "logs"
+        log_files = list(log_dir.glob("SDR_Generation_dv_test_12345_*.log"))
+        assert len(log_files) == 1
+        log_content = log_files[0].read_text(encoding="utf-8")
+        assert f"CJA SDR Generator version: {__version__}" in log_content
 
     def test_log_level_configuration(self, tmp_path, monkeypatch):
         """Test that log level is configured correctly"""
