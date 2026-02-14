@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -353,9 +354,7 @@ class DerivedFieldInventoryBuilder:
     ) -> DerivedFieldSummary | None:
         """Process a single row and return a DerivedFieldSummary if it's a derived field."""
         # Check if this is a derived field
-        source_type = row.get("sourceFieldType", "")
-        if hasattr(source_type, "__iter__") and not isinstance(source_type, str):
-            source_type = source_type[0] if len(source_type) > 0 else ""
+        source_type = self._normalize_source_type(row.get("sourceFieldType", ""))
 
         if source_type != "derived":
             return None  # Not a derived field, skip silently (this is expected)
@@ -383,7 +382,7 @@ class DerivedFieldInventoryBuilder:
             elif isinstance(field_def_str, list):
                 functions = field_def_str
             else:
-                component_name = str(row.get("name", "Unknown"))
+                component_name = self._coerce_display_text(row.get("name", "Unknown"), fallback="Unknown")
                 self.logger.warning(
                     f"Derived field '{component_name}' has unexpected definition type: {type(field_def_str)}"
                 )
@@ -391,7 +390,7 @@ class DerivedFieldInventoryBuilder:
                     stats.record_skip("unexpected definition type", component_name)
                 return None
         except (json.JSONDecodeError, TypeError) as e:
-            component_name = str(row.get("name", "Unknown"))
+            component_name = self._coerce_display_text(row.get("name", "Unknown"), fallback="Unknown")
             self.logger.warning(f"Failed to parse fieldDefinition for '{component_name}': {e}")
             if stats:
                 stats.record_skip(f"JSON parse error: {e}", component_name)
@@ -400,14 +399,14 @@ class DerivedFieldInventoryBuilder:
         if not isinstance(functions, list) or len(functions) == 0:
             return None  # Empty function list is not an error, just nothing to document
 
-        component_name = str(row.get("name", "Unknown"))
+        component_name = self._coerce_display_text(row.get("name", "Unknown"), fallback="Unknown")
         component_id = validate_required_id({"id": row.get("id"), "name": component_name}, logger=self.logger)
         if not component_id:
             if stats:
                 stats.record_skip("missing ID", component_name)
             return None
 
-        component_description = str(row.get("description", "")) if not pd.isna(row.get("description")) else ""
+        component_description = self._coerce_display_text(row.get("description", ""), fallback="")
 
         # Parse the definition
         parsed = self._parse_definition(functions)
@@ -461,10 +460,7 @@ class DerivedFieldInventoryBuilder:
         max_nesting = 0
         total_branches = 0
 
-        for func_obj in functions:
-            if not isinstance(func_obj, dict):
-                continue
-
+        for func_obj in self._iter_function_dicts(functions):
             func_type = self._normalize_func_name(func_obj.get("func", ""))
             if not func_type:
                 continue
@@ -473,8 +469,8 @@ class DerivedFieldInventoryBuilder:
                 functions_internal.append(func_type)
 
             # Extract rule metadata from any function type that has it
-            rule_name = func_obj.get("#rule_name", "")
-            rule_desc = func_obj.get("#rule_description", "")
+            rule_name = self._coerce_scalar_text(func_obj.get("#rule_name", ""))
+            rule_desc = self._coerce_scalar_text(func_obj.get("#rule_description", ""))
             if rule_name and rule_name not in rule_names:
                 rule_names.append(rule_name)
             if rule_desc and rule_desc not in rule_descriptions:
@@ -582,6 +578,48 @@ class DerivedFieldInventoryBuilder:
             return value.strip()
         return ""
 
+    def _normalize_source_type(self, value: Any) -> str:
+        """Normalize sourceFieldType values from scalar/list-like payloads."""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                normalized = self._normalize_source_type(item)
+                if normalized:
+                    return normalized
+        if hasattr(value, "tolist") and not isinstance(value, dict):
+            try:
+                return self._normalize_source_type(value.tolist())
+            except (TypeError, ValueError):
+                return ""
+        return ""
+
+    def _coerce_scalar_text(self, value: Any) -> str:
+        """Convert scalar values to display text while ignoring null/object payloads."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (int, float, bool)):
+            try:
+                if bool(pd.isna(value)):
+                    return ""
+            except TypeError, ValueError:
+                pass
+            return str(value).strip()
+        return ""
+
+    def _coerce_display_text(self, value: Any, fallback: str = "") -> str:
+        """Normalize display text with a fallback for null/unsupported value shapes."""
+        normalized = self._coerce_scalar_text(value)
+        return normalized if normalized else fallback
+
+    def _iter_function_dicts(self, functions: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+        """Yield only dict function objects from mixed lists."""
+        for func_obj in functions:
+            if isinstance(func_obj, dict):
+                yield func_obj
+
     def _count_predicate_operators(self, pred: dict[str, Any], depth: int = 0) -> tuple[int, int]:
         """Recursively count operators in a predicate structure."""
         if not isinstance(pred, dict):
@@ -590,16 +628,17 @@ class DerivedFieldInventoryBuilder:
         count = 0
         max_depth = depth
 
-        func = pred.get("func", "")
+        func = self._normalize_func_name(pred.get("func", ""))
 
         # Logical operators that can contain nested predicates
         if func in ("and", "or"):
             count += 1
             nested_preds = pred.get("preds", [])
-            for nested in nested_preds:
-                nested_count, nested_depth = self._count_predicate_operators(nested, depth + 1)
-                count += nested_count
-                max_depth = max(max_depth, nested_depth)
+            if isinstance(nested_preds, list):
+                for nested in nested_preds:
+                    nested_count, nested_depth = self._count_predicate_operators(nested, depth + 1)
+                    count += nested_count
+                    max_depth = max(max_depth, nested_depth)
 
         # Comparison operators
         elif func in (
@@ -856,7 +895,7 @@ class DerivedFieldInventoryBuilder:
     def _build_label_map(self, functions: list[dict[str, Any]]) -> dict[str, str]:
         """Build a mapping from labels to field names/descriptions."""
         label_map = {}
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             label = self._normalize_label_key(func_obj.get("label", ""))
             if not label:
                 continue
@@ -893,7 +932,7 @@ class DerivedFieldInventoryBuilder:
         # Build label map for resolving field references
         label_map = self._build_label_map(functions)
 
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "match":
                 continue
 
@@ -1006,7 +1045,7 @@ class DerivedFieldInventoryBuilder:
         if not isinstance(pred, dict) or max_depth <= 0:
             return ""
 
-        func = pred.get("func", "")
+        func = self._normalize_func_name(pred.get("func", ""))
         label_map = label_map or {}
 
         # Helper to get field name - handles both arg1 structure and direct field reference
@@ -1104,7 +1143,7 @@ class DerivedFieldInventoryBuilder:
         # Logical operators
         elif func == "and":
             preds = pred.get("preds", [])
-            if preds:
+            if isinstance(preds, list) and preds:
                 parts = [self._describe_predicate(p, max_depth - 1, label_map, match_field) for p in preds[:3]]
                 parts = [p for p in parts if p]
                 if parts:
@@ -1112,7 +1151,7 @@ class DerivedFieldInventoryBuilder:
                     return " AND ".join(parts) + suffix
         elif func == "or":
             preds = pred.get("preds", [])
-            if preds:
+            if isinstance(preds, list) and preds:
                 parts = [self._describe_predicate(p, max_depth - 1, label_map, match_field) for p in preds[:3]]
                 parts = [p for p in parts if p]
                 if parts:
@@ -1141,7 +1180,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_lookup_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of lookup/classify logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "classify":
                 continue
 
@@ -1160,7 +1199,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_url_parse_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of URL parsing logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "url-parse":
                 continue
 
@@ -1172,6 +1211,7 @@ class DerivedFieldInventoryBuilder:
             if isinstance(args, list) and args and isinstance(args[0], dict):
                 input_field = self._get_field_short_name(args[0].get("id", ""))
 
+            root_param = self._coerce_scalar_text(func_obj.get("param", ""))
             component_names = {
                 "hostname": "hostname",
                 "path": "path",
@@ -1179,21 +1219,20 @@ class DerivedFieldInventoryBuilder:
                 "fragment": "fragment",
                 "protocol": "protocol",
                 "port": "port",
-                "query_param": f"query param '{func_obj.get('param', '')}'",
+                "query_param": f"query param '{root_param}'" if root_param else "query string",
             }
             if isinstance(component, dict):
                 # Some payloads provide URL component as an object, e.g. {"func": "query", "param": "..."}.
                 comp_func = self._normalize_func_name(component.get("func", ""))
                 if comp_func == "query":
-                    param = component.get("param", "")
-                    param_str = str(param).strip() if param is not None else ""
+                    param_str = self._coerce_scalar_text(component.get("param", ""))
                     component_desc = f"query param '{param_str}'" if param_str else "query string"
                 else:
                     component_desc = component_names.get(comp_func, comp_func if comp_func else "URL component")
             elif isinstance(component, str):
                 component_desc = component_names.get(component, component)
             else:
-                component_desc = str(component)
+                component_desc = self._coerce_scalar_text(component) or "URL component"
 
             if input_field:
                 return f"URL parse: extract {component_desc} from {input_field}"
@@ -1203,7 +1242,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_concat_logic(self, functions: list[dict[str, Any]], parsed: dict[str, Any]) -> str:
         """Generate detailed description of concatenation logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "concatenate":
                 continue
 
@@ -1226,12 +1265,12 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_regex_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of regex replacement logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "regex-replace":
                 continue
 
-            pattern = str(func_obj.get("pattern", ""))
-            replacement = str(func_obj.get("replacement", ""))
+            pattern = self._coerce_scalar_text(func_obj.get("pattern", ""))
+            replacement = self._coerce_scalar_text(func_obj.get("replacement", ""))
 
             if pattern:
                 short_pattern = pattern[:25] + "..." if len(pattern) > 25 else pattern
@@ -1244,7 +1283,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_sequential_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of next/previous value logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             func = func_obj.get("func", "")
             if func not in ("next", "previous"):
                 continue
@@ -1268,7 +1307,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_dedup_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of deduplication logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "deduplicate":
                 continue
 
@@ -1297,12 +1336,20 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_split_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of split logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "split":
                 continue
 
             delimiter = func_obj.get("delimiter", "")
-            index = func_obj.get("index", 0)
+            index_raw = func_obj.get("index", 0)
+            index = 0
+            if isinstance(index_raw, (int, float)) and not isinstance(index_raw, bool):
+                index = int(index_raw)
+            elif isinstance(index_raw, str):
+                try:
+                    index = int(index_raw.strip())
+                except ValueError:
+                    index = 0
 
             args = func_obj.get("args", [])
             field_name = ""
@@ -1321,7 +1368,7 @@ class DerivedFieldInventoryBuilder:
         schema_fields = parsed.get("schema_fields", [])
         field_names = [self._get_field_short_name(f) for f in schema_fields[:2]]
 
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             func = func_obj.get("func", "")
             if func == "divide" and len(field_names) >= 2:
                 return f"Math: {field_names[0]} / {field_names[1]}"
@@ -1336,7 +1383,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_typecast_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of typecast logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "typecast":
                 continue
 
@@ -1360,7 +1407,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_datetime_bucket_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of datetime bucketing logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "datetime-bucket":
                 continue
 
@@ -1383,7 +1430,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_datetime_slice_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of datetime slicing logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "datetime-slice":
                 continue
 
@@ -1406,7 +1453,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_timezone_shift_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of timezone shift logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "timezone-shift":
                 continue
 
@@ -1432,7 +1479,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_find_replace_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of find and replace logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "find-replace":
                 continue
 
@@ -1466,7 +1513,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_depth_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of depth counting logic."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "depth":
                 continue
 
@@ -1488,7 +1535,7 @@ class DerivedFieldInventoryBuilder:
 
     def _describe_profile_logic(self, functions: list[dict[str, Any]]) -> str:
         """Generate detailed description of profile attribute reference."""
-        for func_obj in functions:
+        for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "profile":
                 continue
 

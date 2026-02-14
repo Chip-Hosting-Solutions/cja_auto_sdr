@@ -408,6 +408,9 @@ class SegmentsInventoryBuilder:
             # Process each segment with tracking
             stats = BatchProcessingStats(logger=self.logger)
             for segment_data in segments_list:
+                if not isinstance(segment_data, dict):
+                    stats.record_skip("unexpected segment payload type", str(type(segment_data)))
+                    continue
                 summary = self._process_segment(segment_data, stats)
                 if summary:
                     inventory.segments.append(summary)
@@ -441,11 +444,13 @@ class SegmentsInventoryBuilder:
                 stats.record_skip("missing ID", segment_data.get("name", "Unknown"))
             return None
 
-        segment_name = segment_data.get("name", "Unknown")
-        description = segment_data.get("description", "")
+        segment_name = self._coerce_display_text(segment_data.get("name", "Unknown"), fallback="Unknown")
+        description = self._coerce_display_text(segment_data.get("description", ""), fallback="")
 
         # Extract owner info using shared utility
         owner, owner_id = extract_owner(segment_data.get("owner", {}))
+        owner = self._coerce_display_text(owner, fallback="")
+        owner_id = self._coerce_display_text(owner_id, fallback="")
 
         # Get definition
         definition = segment_data.get("definition", {})
@@ -466,8 +471,8 @@ class SegmentsInventoryBuilder:
         tags = extract_tags(segment_data.get("tags", []))
 
         # Extract timestamps
-        created = segment_data.get("created", segment_data.get("createdDate", ""))
-        modified = segment_data.get("modified", segment_data.get("modifiedDate", ""))
+        created = self._coerce_display_text(segment_data.get("created", segment_data.get("createdDate", "")), fallback="")
+        modified = self._coerce_display_text(segment_data.get("modified", segment_data.get("modifiedDate", "")), fallback="")
 
         # Extract sharing info
         shares_data = segment_data.get("shares", [])
@@ -475,14 +480,17 @@ class SegmentsInventoryBuilder:
         shared_to_count = len(shares)
 
         # Extract data view association
-        data_view_id = segment_data.get("dataId", segment_data.get("rsid", ""))
-        site_title = segment_data.get("siteTitle", "")
+        data_view_id = self._coerce_display_text(segment_data.get("dataId", segment_data.get("rsid", "")), fallback="")
+        site_title = self._coerce_display_text(segment_data.get("siteTitle", ""), fallback="")
 
         # Generate definition summary
         definition_summary = self._generate_definition_summary(definition, parsed)
 
         # Serialize definition to JSON string for full fidelity
-        definition_json_str = json.dumps(definition, separators=(",", ":"))
+        try:
+            definition_json_str = json.dumps(definition, separators=(",", ":"))
+        except (TypeError, ValueError):
+            definition_json_str = json.dumps(str(definition))
 
         return SegmentSummary(
             segment_id=segment_id,
@@ -514,9 +522,53 @@ class SegmentsInventoryBuilder:
             definition_json=definition_json_str,
         )
 
+    def _normalize_func_name(self, value: Any) -> str:
+        """Normalize function names to comparable string keys."""
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
+    def _coerce_scalar_text(self, value: Any) -> str:
+        """Convert scalar values to text while ignoring null/object payloads."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+
+        try:
+            is_na = pd.isna(value)
+            if isinstance(is_na, bool) and is_na:
+                return ""
+        except (TypeError, ValueError):
+            pass
+
+        if hasattr(value, "isoformat"):
+            try:
+                iso_value = value.isoformat()
+                if iso_value is None:
+                    return ""
+                return str(iso_value).strip()
+            except (TypeError, ValueError):
+                pass
+
+        if pd.api.types.is_scalar(value):
+            return str(value).strip()
+        return ""
+
+    def _coerce_display_text(self, value: Any, fallback: str = "") -> str:
+        """Normalize text values for summaries/dataclass fields."""
+        normalized = self._coerce_scalar_text(value)
+        return normalized if normalized else fallback
+
     def _normalize_reference_value(self, value: Any) -> str:
         """Normalize variable API reference payloads (string/dict/etc.) into a short ID."""
         if value is None:
+            return ""
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                candidate = self._normalize_reference_value(item)
+                if candidate:
+                    return candidate
             return ""
         if isinstance(value, dict):
             for key in ("id", "name", "dimension", "metric", "segment", "value", "val"):
@@ -525,7 +577,10 @@ class SegmentsInventoryBuilder:
                     if candidate:
                         return candidate
             return ""
-        return extract_short_name(value)
+        normalized = extract_short_name(value)
+        if normalized.lower() in {"", "nan", "none", "null"}:
+            return ""
+        return normalized
 
     def _parse_definition(self, definition: dict[str, Any], depth: int = 0) -> dict[str, Any]:
         """
@@ -558,7 +613,7 @@ class SegmentsInventoryBuilder:
 
             max_nesting = max(max_nesting, current_depth)
 
-            func = node.get("func", "")
+            func = self._normalize_func_name(node.get("func", ""))
             if func:
                 functions_internal.add(func)
 
@@ -793,6 +848,7 @@ class SegmentsInventoryBuilder:
             return ""
 
         func = node.get("func", "")
+        func = self._normalize_func_name(func)
         context = node.get("context", "")
 
         # Handle container - go to inner content
@@ -897,7 +953,7 @@ class SegmentsInventoryBuilder:
         # Handle sequence
         if func in ("sequence", "sequence-prefix", "sequence-suffix"):
             checkpoints = node.get("checkpoints", [])
-            if checkpoints:
+            if isinstance(checkpoints, list) and checkpoints:
                 return f"sequential pattern with {len(checkpoints)} steps"
 
         # Handle exclude

@@ -695,6 +695,76 @@ class TestEdgeCases:
 
         assert inventory.total_segments == 1
 
+    def test_non_dict_segment_payloads_are_skipped(self):
+        """Unexpected list entries from the API should be skipped safely."""
+        valid_segment = {
+            "id": "s_valid",
+            "name": "Valid Segment",
+            "description": "",
+            "definition": {
+                "func": "container",
+                "context": "hits",
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = ["bad_payload", valid_segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+        assert inventory.segments[0].segment_id == "s_valid"
+
+    def test_non_string_func_values_do_not_crash(self):
+        """Unhashable/non-string func values should not break parser traversal."""
+        segment = {
+            "id": "s_bad_func",
+            "name": "Bad Func",
+            "description": "",
+            "definition": {
+                "func": {"name": "container"},
+                "context": "hits",
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+
+    def test_timestamp_metadata_is_preserved(self):
+        """Datetime-like created/modified values should not be dropped."""
+        segment = {
+            "id": "s_timestamps",
+            "name": "Timestamp Segment",
+            "description": "",
+            "created": pd.Timestamp("2025-01-15T10:30:00Z"),
+            "modified": pd.Timestamp("2025-01-16T11:45:00Z"),
+            "definition": {
+                "func": "container",
+                "context": "hits",
+                "pred": {"func": "exists", "dimension": "variables/pageurl"},
+            },
+        }
+        mock_cja = Mock()
+        mock_cja.getFilters.return_value = [segment]
+
+        builder = SegmentsInventoryBuilder()
+        inventory = builder.build(mock_cja, "dv_test", "Test")
+
+        assert inventory.total_segments == 1
+        assert inventory.segments[0].created != ""
+        assert inventory.segments[0].modified != ""
+        df = inventory.get_dataframe()
+        assert df.iloc[0]["created"] != "-"
+        assert df.iloc[0]["modified"] != "-"
+        assert "2025-01-15" in str(df.iloc[0]["created"])
+        assert "2025-01-16" in str(df.iloc[0]["modified"])
+
 
 # ==================== DATA CLASS TESTS ====================
 

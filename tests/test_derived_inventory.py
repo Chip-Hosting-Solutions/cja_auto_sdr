@@ -762,6 +762,25 @@ class TestEdgeCases:
         # Neither should be included - only sourceFieldType="derived" counts
         assert inventory.total_derived_fields == 0
 
+    def test_list_shaped_source_field_type_is_supported(self):
+        """sourceFieldType values provided as lists should still be recognized."""
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/test_list_source_type",
+                    "name": "List Source Type",
+                    "sourceFieldType": ["derived"],
+                    "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
     def test_non_string_field_references_do_not_crash(self):
         """Numeric field reference IDs should be normalized without crashing."""
         df = pd.DataFrame(
@@ -994,6 +1013,106 @@ class TestEdgeCases:
 
         assert inventory.total_derived_fields == 1
         assert inventory.fields[0].logic_summary
+
+    def test_regex_null_replacement_is_reported_as_remove(self):
+        """replacement: null should be treated as removal, not literal 'None' text."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "regex-replace",
+                    "pattern": "foo",
+                    "replacement": None,
+                    "args": [{"func": "raw-field", "id": "field_a"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_regex_null_replace",
+                    "name": "Regex Null Replacement",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+        assert "remove" in inventory.fields[0].logic_summary.lower()
+        assert '"None"' not in inventory.fields[0].logic_summary
+
+    def test_non_list_match_preds_do_not_crash(self):
+        """Dict-shaped preds payloads in predicates should be ignored safely."""
+        definition = json.dumps(
+            [
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "match",
+                    "field": "a",
+                    "branches": [
+                        {
+                            "pred": {
+                                "func": "and",
+                                "preds": {"func": "eq", "field": "a", "value": "x"},
+                            },
+                            "map-to": "X",
+                        }
+                    ],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_non_list_preds",
+                    "name": "Non List Preds",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
+
+    def test_non_dict_function_entries_do_not_crash(self):
+        """Unexpected non-dict entries in function lists should be ignored."""
+        definition = json.dumps(
+            [
+                "invalid_function_entry",
+                {"func": "raw-field", "id": "field_a", "label": "a"},
+                {
+                    "func": "regex-replace",
+                    "pattern": "foo",
+                    "replacement": "bar",
+                    "args": [{"func": "raw-field", "id": "field_a"}],
+                },
+            ]
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "id": "dimensions/test_mixed_function_entries",
+                    "name": "Mixed Entries",
+                    "sourceFieldType": "derived",
+                    "fieldDefinition": definition,
+                    "dataSetType": "event",
+                }
+            ]
+        )
+
+        builder = DerivedFieldInventoryBuilder()
+        inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
+
+        assert inventory.total_derived_fields == 1
 
     def test_non_string_dataset_in_lookup_does_not_crash(self):
         """Non-string dataset in classify/lookup should not crash."""
