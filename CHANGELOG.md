@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **1,712 tests** (1,710 passing, 2 skipped) — up from 1,686
 
 ### Release Notes
-- Backport note: This patch set is suitable for `v2.3.4` maintenance branches without a version bump, including the `url-parse` dict-component derived-field fix and startup log version stamping.
+- Backport note: This patch set is suitable for `v3.2.4` maintenance branches without a version bump, including the `url-parse` dict-component derived-field fix and startup log version stamping.
 
 ## [3.2.3] - 2026-02-12
 
