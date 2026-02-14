@@ -2466,24 +2466,24 @@ class TestInventoryPropertiesExtended:
 
     def _make_summary(self, **kwargs):
         """Helper to create a CalculatedMetricSummary with defaults."""
-        defaults = dict(
-            metric_id="cm_test",
-            metric_name="Test",
-            description="",
-            owner="",
-            complexity_score=10.0,
-            functions_used=[],
-            functions_used_internal=[],
-            nesting_depth=0,
-            operator_count=0,
-            metric_references=[],
-            segment_references=[],
-            conditional_count=0,
-            formula_summary="",
-            polarity="positive",
-            metric_type="decimal",
-            precision=0,
-        )
+        defaults = {
+            "metric_id": "cm_test",
+            "metric_name": "Test",
+            "description": "",
+            "owner": "",
+            "complexity_score": 10.0,
+            "functions_used": [],
+            "functions_used_internal": [],
+            "nesting_depth": 0,
+            "operator_count": 0,
+            "metric_references": [],
+            "segment_references": [],
+            "conditional_count": 0,
+            "formula_summary": "",
+            "polarity": "positive",
+            "metric_type": "decimal",
+            "precision": 0,
+        }
         defaults.update(kwargs)
         return CalculatedMetricSummary(**defaults)
 
@@ -2545,24 +2545,24 @@ class TestGetSummaryExtended:
     """Extended tests for get_summary output"""
 
     def _make_summary(self, **kwargs):
-        defaults = dict(
-            metric_id="cm_test",
-            metric_name="Test",
-            description="",
-            owner="",
-            complexity_score=10.0,
-            functions_used=[],
-            functions_used_internal=[],
-            nesting_depth=0,
-            operator_count=0,
-            metric_references=[],
-            segment_references=[],
-            conditional_count=0,
-            formula_summary="",
-            polarity="positive",
-            metric_type="decimal",
-            precision=0,
-        )
+        defaults = {
+            "metric_id": "cm_test",
+            "metric_name": "Test",
+            "description": "",
+            "owner": "",
+            "complexity_score": 10.0,
+            "functions_used": [],
+            "functions_used_internal": [],
+            "nesting_depth": 0,
+            "operator_count": 0,
+            "metric_references": [],
+            "segment_references": [],
+            "conditional_count": 0,
+            "formula_summary": "",
+            "polarity": "positive",
+            "metric_type": "decimal",
+            "precision": 0,
+        }
         defaults.update(kwargs)
         return CalculatedMetricSummary(**defaults)
 
@@ -2630,24 +2630,24 @@ class TestToDictEdgeCases:
     """Edge cases for CalculatedMetricSummary.to_dict"""
 
     def _make_summary(self, **kwargs):
-        defaults = dict(
-            metric_id="cm_test",
-            metric_name="Test",
-            description="",
-            owner="",
-            complexity_score=10.0,
-            functions_used=[],
-            functions_used_internal=[],
-            nesting_depth=0,
-            operator_count=0,
-            metric_references=[],
-            segment_references=[],
-            conditional_count=0,
-            formula_summary="",
-            polarity="positive",
-            metric_type="decimal",
-            precision=0,
-        )
+        defaults = {
+            "metric_id": "cm_test",
+            "metric_name": "Test",
+            "description": "",
+            "owner": "",
+            "complexity_score": 10.0,
+            "functions_used": [],
+            "functions_used_internal": [],
+            "nesting_depth": 0,
+            "operator_count": 0,
+            "metric_references": [],
+            "segment_references": [],
+            "conditional_count": 0,
+            "formula_summary": "",
+            "polarity": "positive",
+            "metric_type": "decimal",
+            "precision": 0,
+        }
         defaults.update(kwargs)
         return CalculatedMetricSummary(**defaults)
 
@@ -3009,24 +3009,24 @@ class TestToJsonExtended:
     """Extended tests for CalculatedMetricsInventory.to_json"""
 
     def _make_summary(self, **kwargs):
-        defaults = dict(
-            metric_id="cm_test",
-            metric_name="Test",
-            description="",
-            owner="",
-            complexity_score=10.0,
-            functions_used=[],
-            functions_used_internal=[],
-            nesting_depth=0,
-            operator_count=0,
-            metric_references=[],
-            segment_references=[],
-            conditional_count=0,
-            formula_summary="",
-            polarity="positive",
-            metric_type="decimal",
-            precision=0,
-        )
+        defaults = {
+            "metric_id": "cm_test",
+            "metric_name": "Test",
+            "description": "",
+            "owner": "",
+            "complexity_score": 10.0,
+            "functions_used": [],
+            "functions_used_internal": [],
+            "nesting_depth": 0,
+            "operator_count": 0,
+            "metric_references": [],
+            "segment_references": [],
+            "conditional_count": 0,
+            "formula_summary": "",
+            "polarity": "positive",
+            "metric_type": "decimal",
+            "precision": 0,
+        }
         defaults.update(kwargs)
         return CalculatedMetricSummary(**defaults)
 

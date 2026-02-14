@@ -6,7 +6,6 @@ ensure_held, and _acquire_with_result.
 
 import os
 import sys
-import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -125,8 +124,7 @@ class TestLockManagerAcquire:
         mock_backend.name = "mock"
         mock_backend.requires_heartbeat = False
         with patch("cja_auto_sdr.core.locks.manager.create_lock_backend", return_value=mock_backend):
-            mgr = LockManager(lock_path=tmp_path / "test.lock", owner="test-owner", stale_threshold_seconds=3600)
-        return mgr
+            return LockManager(lock_path=tmp_path / "test.lock", owner="test-owner", stale_threshold_seconds=3600)
 
     def test_successful_acquire(self, tmp_path):
         handle = _mock_handle()

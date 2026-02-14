@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -190,7 +190,7 @@ class TestConfigureCjapyDefaultLogger:
         mock_resolver_class.return_value = mock_resolver
 
         # Call without providing a logger
-        success, source, creds = configure_cjapy(logger=None, config_file="test.json")
+        success, _source, creds = configure_cjapy(logger=None, config_file="test.json")
 
         assert success is True
         assert creds is not None
@@ -204,8 +204,8 @@ class TestConfigureCjapyUnknownSource:
 
     @patch("cja_auto_sdr.api.client._bootstrap_dotenv")
     @patch("cja_auto_sdr.api.client.CredentialResolver")
-    @patch("cja_auto_sdr.api.client._config_from_env")
-    def test_unknown_source_format_used_as_is(self, mock_config_env, mock_resolver_class, mock_dotenv, mock_logger):
+    @patch("cja_auto_sdr.api.client.cjapy")
+    def test_unknown_source_format_used_as_is(self, mock_cjapy, mock_resolver_class, mock_dotenv, mock_logger):
         """When source is not profile:*, environment, or config:*, use raw string."""
         mock_resolver = Mock()
         mock_resolver.resolve.return_value = (
@@ -215,8 +215,8 @@ class TestConfigureCjapyUnknownSource:
         mock_resolver_class.return_value = mock_resolver
 
         # "custom_source_unknown" does not start with "profile:", "config:", or equal "environment"
-        # so _config_from_env gets called (it's not a config:* source), and display_source falls through to line 132
-        success, display_source, creds = configure_cjapy(logger=mock_logger)
+        # so the else branch calls cjapy.importConfigFile, and display_source falls through to line 132
+        success, display_source, _creds = configure_cjapy(logger=mock_logger)
 
         assert success is True
         assert display_source == "custom_source_unknown"
@@ -272,7 +272,7 @@ class TestConfigureCjapyProfileErrors:
         )
         mock_resolver_class.return_value = mock_resolver
 
-        success, source, creds = configure_cjapy(logger=mock_logger)
+        success, _source, creds = configure_cjapy(logger=mock_logger)
 
         assert success is False
         assert creds is None

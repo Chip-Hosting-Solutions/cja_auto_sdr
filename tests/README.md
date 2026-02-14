@@ -528,7 +528,7 @@ Check for drift (CI-friendly):
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
-- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 44 tests
+- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 273 tests
 - [x] Segments inventory tests (test_segments_inventory.py) - 48 tests
 - [x] Derived fields inventory tests (test_derived_inventory.py) - 62 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 47 tests

@@ -5,13 +5,9 @@ Targets uncovered lines: 30, 38, 47, 67, 83, 107, 156, 184, 186, 202,
 """
 
 import json
-import logging
 import os
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,7 +16,6 @@ from cja_auto_sdr.core.config_validation import (
     validate_config_file,
     validate_credentials,
 )
-
 
 # ==================== ConfigValidator.validate_org_id ====================
 
@@ -94,13 +89,13 @@ class TestValidateScopes:
 
     def test_none_scopes_returns_error(self):
         """Line 67: None scopes returns error."""
-        valid, error, missing = ConfigValidator.validate_scopes(None)
+        valid, error, _missing = ConfigValidator.validate_scopes(None)
         assert valid is False
         assert "cannot be empty" in error
 
     def test_whitespace_only_scopes_returns_error(self):
         """Line 67: whitespace-only scopes returns error."""
-        valid, error, missing = ConfigValidator.validate_scopes("   ")
+        valid, error, _missing = ConfigValidator.validate_scopes("   ")
         assert valid is False
         assert "cannot be empty" in error
 
@@ -279,7 +274,7 @@ class TestValidateCredentials:
             "unknown_field": "value",
             "another_unknown": "value2",
         }
-        is_valid, issues = validate_credentials(credentials, logger, strict=False, source="test")
+        _is_valid, _issues = validate_credentials(credentials, logger, strict=False, source="test")
         logger.debug.assert_called()
         debug_msg = logger.debug.call_args[0][0]
         assert "unknown_field" in debug_msg or "another_unknown" in debug_msg
@@ -293,7 +288,7 @@ class TestValidateCredentials:
             "secret": "s" * 32,
             "scopes": "openid",
         }
-        is_valid, issues = validate_credentials(credentials, logger, strict=True, source="test")
+        is_valid, _issues = validate_credentials(credentials, logger, strict=True, source="test")
         assert is_valid is False
 
     def test_non_strict_mode_passes_with_format_issues_only(self):

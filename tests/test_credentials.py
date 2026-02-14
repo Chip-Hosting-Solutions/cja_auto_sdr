@@ -8,7 +8,6 @@ CredentialResolver, and legacy helper functions.
 import json
 import logging
 import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +27,6 @@ from cja_auto_sdr.core.exceptions import (
     ProfileConfigError,
     ProfileNotFoundError,
 )
-
 
 # ==================== normalize_credential_value ====================
 
@@ -513,7 +511,7 @@ class TestCredentialResolver:
         with patch.object(
             resolver, "_try_environment", return_value=(valid_creds, "environment")
         ), patch.object(resolver, "_warn_multiple_sources") as mock_warn:
-            creds, source = resolver.resolve(config_file=config_path)
+            _creds, source = resolver.resolve(config_file=config_path)
 
         assert source == "environment"
         mock_warn.assert_called_once_with(config_path)
@@ -533,7 +531,7 @@ class TestCredentialResolver:
         with patch.object(
             resolver, "_try_environment", return_value=(valid_creds, "environment")
         ), patch.object(resolver, "_warn_multiple_sources") as mock_warn:
-            creds, source = resolver.resolve(config_file=config_path)
+            _creds, source = resolver.resolve(config_file=config_path)
 
         assert source == "environment"
         mock_warn.assert_not_called()

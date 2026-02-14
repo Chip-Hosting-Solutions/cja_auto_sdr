@@ -11,8 +11,6 @@ import os
 import sys
 from unittest.mock import patch
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.core.config import (
@@ -40,7 +38,6 @@ from cja_auto_sdr.core.constants import (
     DEFAULT_RETRY_CONFIG,
     DEFAULT_VALIDATION_WORKERS,
     ENV_VAR_MAPPING,
-    EXTENSION_TO_FORMAT,
     FORMAT_ALIASES,
     GOVERNANCE_MAX_OVERLAP_THRESHOLD,
     JWT_DEPRECATED_FIELDS,

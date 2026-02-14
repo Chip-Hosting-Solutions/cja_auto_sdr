@@ -19,7 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.diff.models import DataViewSnapshot
 from cja_auto_sdr.diff.snapshot import SnapshotManager, parse_retention_period
 
-
 # ==================== Fixtures ====================
 
 
@@ -318,7 +317,7 @@ class TestCreateSnapshot:
             "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder"
         ) as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("API failure")
-            snap = manager.create_snapshot(
+            manager.create_snapshot(
                 cja, "dv_test", quiet=False, include_calculated_metrics=True
             )
             captured = capsys.readouterr()
@@ -354,7 +353,7 @@ class TestCreateSnapshot:
             "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder"
         ) as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("Segment fail")
-            snap = manager.create_snapshot(
+            manager.create_snapshot(
                 cja, "dv_test", quiet=False, include_segments=True
             )
             captured = capsys.readouterr()
@@ -369,7 +368,7 @@ class TestCreateSnapshot:
             "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder"
         ) as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("quiet test")
-            snap = manager.create_snapshot(
+            manager.create_snapshot(
                 cja, "dv_test", quiet=True, include_calculated_metrics=True
             )
             captured = capsys.readouterr()
@@ -384,7 +383,7 @@ class TestCreateSnapshot:
             "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder"
         ) as mock_builder_cls:
             mock_builder_cls.return_value.build.side_effect = RuntimeError("quiet seg")
-            snap = manager.create_snapshot(
+            manager.create_snapshot(
                 cja, "dv_test", quiet=True, include_segments=True
             )
             captured = capsys.readouterr()

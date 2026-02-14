@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.core.exceptions import (
     APIError,
-    CJASDRError,
     CircuitBreakerOpen,
+    CJASDRError,
     ConcurrentOrgReportError,
     ConfigurationError,
     CredentialSourceError,

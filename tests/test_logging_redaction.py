@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -510,13 +510,13 @@ class TestContextLoggerAdapterProcess:
     def test_process_no_extra_in_kwargs(self):
         base = logging.getLogger("test.adapter.noextra")
         adapter = ContextLoggerAdapter(base, {"ctx_key": "ctx_val"})
-        msg, kwargs = adapter.process("hello", {})
+        _msg, kwargs = adapter.process("hello", {})
         assert kwargs["extra"]["ctx_key"] == "ctx_val"
 
     def test_call_extra_overrides_context(self):
         base = logging.getLogger("test.adapter.override")
         adapter = ContextLoggerAdapter(base, {"key": "from_context"})
-        msg, kwargs = adapter.process("hello", {"extra": {"key": "from_call"}})
+        _msg, kwargs = adapter.process("hello", {"extra": {"key": "from_call"}})
         assert kwargs["extra"]["key"] == "from_call"
 
 
