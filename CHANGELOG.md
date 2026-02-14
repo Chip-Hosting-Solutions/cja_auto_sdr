@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.6] - 2026-02-14
+
+### Changed
+- **Exception handler normalization**: Parenthesized 30+ `except A, B:` clauses to `except (A, B):` across 12 source files for idiomatic Python 3
+- **Silent exception handlers**: Added debug logging to 6 bare `except Exception:` handlers for improved debuggability
+- **Performance micro-optimizations**: Cached redundant `len()`, `df.iloc[]`, and `str()` calls in hot paths; converted list to set for O(1) membership checks
+
+### Added
+- **CI: Coverage threshold gate** (`--cov-fail-under=70`) prevents coverage regression
+- **CI: Package build verification** job validates wheel builds, installs, and version imports correctly
+- **CI: Version sync check** (`scripts/check_version_sync.py`) catches version string drift across docs, tests, and source
+- **Ruff rule sets**: Enabled S (bandit), C4 (comprehensions), PT (pytest-style), PIE with targeted suppressions
+
+### Fixed
+- **Ruff violations**: `usedforsecurity=False` on md5 cache hashing, `dict.fromkeys()` for constant-value dicts, removed unnecessary `list()` in `sorted()`, merged `endswith()` calls, replaced `pass` with `...` in abstract methods
+- **Test robustness**: `pytest.approx()` for all computed float assertions; split compound `assert a and b` into separate assertions
+
 ## [3.2.5] - 2026-02-13
 
 ### Fixed
