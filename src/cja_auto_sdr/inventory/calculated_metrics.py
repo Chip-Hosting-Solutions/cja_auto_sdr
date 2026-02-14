@@ -515,7 +515,9 @@ class CalculatedMetricsInventoryBuilder:
 
         # Extract timestamps
         created = self._coerce_display_text(metric_data.get("created", metric_data.get("createdDate", "")), fallback="")
-        modified = self._coerce_display_text(metric_data.get("modified", metric_data.get("modifiedDate", "")), fallback="")
+        modified = self._coerce_display_text(
+            metric_data.get("modified", metric_data.get("modifiedDate", "")), fallback=""
+        )
 
         # Extract sharing info
         shares_data = metric_data.get("shares", [])
@@ -532,7 +534,7 @@ class CalculatedMetricsInventoryBuilder:
         # Serialize definition to JSON string for full fidelity
         try:
             definition_json_str = json.dumps(definition, separators=(",", ":"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             definition_json_str = json.dumps(str(definition))
 
         return CalculatedMetricSummary(
@@ -582,7 +584,7 @@ class CalculatedMetricsInventoryBuilder:
             is_na = pd.isna(value)
             if isinstance(is_na, bool) and is_na:
                 return ""
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
         if hasattr(value, "isoformat"):
@@ -591,7 +593,7 @@ class CalculatedMetricsInventoryBuilder:
                 if iso_value is None:
                     return ""
                 return str(iso_value).strip()
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         if pd.api.types.is_scalar(value):

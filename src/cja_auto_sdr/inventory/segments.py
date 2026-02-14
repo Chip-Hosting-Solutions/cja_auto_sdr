@@ -471,8 +471,12 @@ class SegmentsInventoryBuilder:
         tags = extract_tags(segment_data.get("tags", []))
 
         # Extract timestamps
-        created = self._coerce_display_text(segment_data.get("created", segment_data.get("createdDate", "")), fallback="")
-        modified = self._coerce_display_text(segment_data.get("modified", segment_data.get("modifiedDate", "")), fallback="")
+        created = self._coerce_display_text(
+            segment_data.get("created", segment_data.get("createdDate", "")), fallback=""
+        )
+        modified = self._coerce_display_text(
+            segment_data.get("modified", segment_data.get("modifiedDate", "")), fallback=""
+        )
 
         # Extract sharing info
         shares_data = segment_data.get("shares", [])
@@ -489,7 +493,7 @@ class SegmentsInventoryBuilder:
         # Serialize definition to JSON string for full fidelity
         try:
             definition_json_str = json.dumps(definition, separators=(",", ":"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             definition_json_str = json.dumps(str(definition))
 
         return SegmentSummary(
@@ -539,7 +543,7 @@ class SegmentsInventoryBuilder:
             is_na = pd.isna(value)
             if isinstance(is_na, bool) and is_na:
                 return ""
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
         if hasattr(value, "isoformat"):
@@ -548,7 +552,7 @@ class SegmentsInventoryBuilder:
                 if iso_value is None:
                     return ""
                 return str(iso_value).strip()
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         if pd.api.types.is_scalar(value):

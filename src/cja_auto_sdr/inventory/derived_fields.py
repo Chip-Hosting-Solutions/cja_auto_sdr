@@ -590,7 +590,7 @@ class DerivedFieldInventoryBuilder:
         if hasattr(value, "tolist") and not isinstance(value, dict):
             try:
                 return self._normalize_source_type(value.tolist())
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return ""
         return ""
 
