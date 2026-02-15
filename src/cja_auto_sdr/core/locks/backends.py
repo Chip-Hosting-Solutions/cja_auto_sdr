@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import json
+import logging
 import math
 import os
 import socket
@@ -22,6 +23,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
+
+_logger = logging.getLogger(__name__)
 
 try:
     import fcntl
@@ -186,13 +189,15 @@ class LockInfo:
     def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
         try:
             modern = cls._from_modern_dict(data)
-        except Exception:
+        except Exception as e:
+            _logger.debug("Modern lock info parse failed: %s", e)
             modern = None
         if modern is not None:
             return modern
         try:
             return cls._from_legacy_dict(data)
-        except Exception:
+        except Exception as e:
+            _logger.debug("Legacy lock info parse failed: %s", e)
             return None
 
     @classmethod

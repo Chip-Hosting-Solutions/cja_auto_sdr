@@ -145,14 +145,15 @@ class DataQualityChecker:
 
             missing_desc = df[df["description"].isna() | (df["description"] == "")]
 
-            if len(missing_desc) > 0:
+            missing_desc_count = len(missing_desc)
+            if missing_desc_count > 0:
                 item_names = missing_desc["name"].tolist() if "name" in missing_desc.columns else []
                 self.add_issue(
                     severity="LOW",
                     category="Missing Descriptions",
                     item_type=item_type,
-                    item_name=f"{len(missing_desc)} items",
-                    description=f"{len(missing_desc)} items without descriptions",
+                    item_name=f"{missing_desc_count} items",
+                    description=f"{missing_desc_count} items without descriptions",
                     details=f"Items: {', '.join(str(x) for x in item_names)}",
                 )
         except Exception as e:
@@ -185,13 +186,14 @@ class DataQualityChecker:
                 return
 
             missing_ids = df[df["id"].isna() | (df["id"] == "")]
-            if len(missing_ids) > 0:
+            missing_ids_count = len(missing_ids)
+            if missing_ids_count > 0:
                 self.add_issue(
                     severity="HIGH",
                     category="Invalid IDs",
                     item_type=item_type,
-                    item_name=f"{len(missing_ids)} items",
-                    description=f"{len(missing_ids)} items with missing or invalid IDs",
+                    item_name=f"{missing_ids_count} items",
+                    description=f"{missing_ids_count} items with missing or invalid IDs",
                     details="Items without valid IDs may cause issues in reporting",
                 )
         except Exception as e:

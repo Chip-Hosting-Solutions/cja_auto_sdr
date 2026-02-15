@@ -695,7 +695,7 @@ def normalize_quality_severity(severity: str) -> str:
 
 def count_quality_issues_by_severity(issues: list[dict[str, Any]]) -> dict[str, int]:
     """Count quality issues by severity in canonical order."""
-    counts = {severity: 0 for severity in QUALITY_SEVERITY_ORDER}
+    counts = dict.fromkeys(QUALITY_SEVERITY_ORDER, 0)
     for issue in issues:
         severity = str(issue.get("Severity", "")).upper()
         if severity in counts:
@@ -756,7 +756,8 @@ def _build_quality_report_dataframe(issues: list[dict[str, Any]]) -> pd.DataFram
 
     df = pd.DataFrame(issues)
     preferred_cols = [col for col in QUALITY_REPORT_PREFERRED_COLUMNS if col in df.columns]
-    other_cols = [col for col in df.columns if col not in preferred_cols]
+    preferred_set = set(preferred_cols)
+    other_cols = [col for col in df.columns if col not in preferred_set]
     return df[preferred_cols + other_cols]
 
 
@@ -2239,13 +2240,14 @@ def apply_excel_formatting(
         is_component_sheet = sheet_name in ("Metrics", "Dimensions") and name_col_idx >= 0
 
         for idx in range(len(df)):
-            max_lines = max((str(val).count("\n") for val in df.iloc[idx]), default=0) + 1
+            row_data = df.iloc[idx]
+            max_lines = max((str(val).count("\n") for val in row_data), default=0) + 1
             row_height = min(max_lines * 15, 400)
             excel_row = data_start_row + idx
 
             # Apply severity-based formatting for Data Quality sheet
             if is_data_quality_sheet:
-                severity = str(df.iloc[idx]["Severity"])
+                severity = str(row_data["Severity"])
                 row_format, bold_format = severity_formats.get(severity, (low_format, low_bold))
 
                 # Set row height and default format
@@ -2261,7 +2263,7 @@ def apply_excel_formatting(
                 # Apply bold Name column for Metrics/Dimensions sheets
                 if is_component_sheet:
                     name_format = name_bold_grey if idx % 2 == 0 else name_bold_white
-                    worksheet.write(excel_row, name_col_idx, df.iloc[idx]["name"], name_format)
+                    worksheet.write(excel_row, name_col_idx, row_data["name"], name_format)
 
         # Add autofilter to data table (offset by summary rows)
         worksheet.autofilter(summary_rows, 0, summary_rows + len(df), len(df.columns) - 1)

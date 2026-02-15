@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import DataQualityChecker, ValidationCache
@@ -65,7 +66,7 @@ class TestValidationCache:
         # Should have 1 hit
         stats = cache.get_statistics()
         assert stats["hits"] == 1
-        assert stats["hit_rate"] == 50.0  # 1 hit out of 2 total
+        assert stats["hit_rate"] == pytest.approx(50.0)  # 1 hit out of 2 total
 
     def test_cache_miss_on_different_data(self, sample_metrics_df, sample_dimensions_df):
         """Different data should cause cache miss"""
@@ -266,7 +267,7 @@ class TestValidationCache:
         stats = cache.get_statistics()
         assert stats["hits"] == 1
         assert stats["misses"] == 1
-        assert stats["hit_rate"] == 50.0
+        assert stats["hit_rate"] == pytest.approx(50.0)
         assert stats["size"] == 1
 
     def test_performance_improvement(self, sample_metrics_df):

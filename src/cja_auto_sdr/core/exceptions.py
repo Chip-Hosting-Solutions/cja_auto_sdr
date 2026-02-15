@@ -124,8 +124,6 @@ class ProfileNotFoundError(ProfileError):
         - Neither config.json nor .env exists in profile directory
     """
 
-    pass
-
 
 class ProfileConfigError(ProfileError):
     """Raised when a profile has invalid configuration.
@@ -135,8 +133,6 @@ class ProfileConfigError(ProfileError):
         - Missing required credentials
         - Invalid profile name format
     """
-
-    pass
 
 
 class CredentialSourceError(CJASDRError):

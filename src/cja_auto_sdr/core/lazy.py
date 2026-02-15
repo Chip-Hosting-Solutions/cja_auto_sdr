@@ -26,7 +26,7 @@ def make_getattr(
     if mapping is None:
         if not target_module:
             raise ValueError("target_module or mapping is required")
-        mapping = {name: target_module for name in export_set}
+        mapping = dict.fromkeys(export_set, target_module)
 
     def __getattr__(name: str) -> object:
         if name in mapping:

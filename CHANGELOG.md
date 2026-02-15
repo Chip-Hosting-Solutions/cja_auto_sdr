@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.6] - 2026-02-14
+
+### Changed
+- **Exception handler normalization**: Parenthesized 30+ `except A, B:` clauses to `except (A, B):` across 12 source files for idiomatic Python 3
+- **Silent exception handlers**: Added debug logging to 6 bare `except Exception:` handlers for improved debuggability
+- **Performance micro-optimizations**: Cached redundant `len()`, `df.iloc[]`, and `str()` calls in hot paths; converted list to set for O(1) membership checks
+
+### Added
+- **CI: Coverage threshold gate** (`--cov-fail-under=73`) prevents coverage regression
+- **CI: Package build verification** job validates wheel builds, installs, and version imports correctly
+- **CI: Version sync check** (`scripts/check_version_sync.py`) catches version string drift across docs, tests, and source
+- **Ruff rule sets**: Enabled S (bandit), C4 (comprehensions), PT (pytest-style), PIE with targeted suppressions
+
+### Fixed
+- **Ruff violations**: `usedforsecurity=False` on md5 cache hashing, `dict.fromkeys()` for constant-value dicts, removed unnecessary `list()` in `sorted()`, merged `endswith()` calls, replaced `pass` with `...` in abstract methods
+- **Test robustness**: `pytest.approx()` for all computed float assertions; split compound `assert a and b` into separate assertions
+- **Missed exception handlers**: Fixed 3 `except subprocess.TimeoutExpired, FileNotFoundError:` clauses in `diff/git.py` that the initial regex sweep missed (dotted exception names)
+
+### Tests
+- Added 912 tests across 10 new test files for core module coverage:
+  - `test_colors.py` (121): ConsoleColors formatting, themes, TTY detection
+  - `test_exceptions.py` (64): All 13 custom exception classes
+  - `test_logging_redaction.py` (136): Sensitive data redaction, JSON formatter
+  - `test_config_dataclasses.py` (88): Config dataclasses and constants
+  - `test_lock_manager.py` (48): Lock acquire/release/heartbeat lifecycle
+  - `test_api_client.py` (25): API client exception paths
+  - `test_config_validation.py` (55): Configuration validation logic
+  - `test_credentials.py` (67): Credential resolution and sources
+  - `test_perf.py` (7): Performance utilities
+  - `test_snapshot.py` (72): Diff snapshot creation and comparison
+- Expanded `test_calculated_metrics_inventory.py` from 44 to 273 tests
+- **2,651 tests** (2,649 passing, 2 skipped) — up from 1,739
+
 ## [3.2.5] - 2026-02-13
 
 ### Fixed

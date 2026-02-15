@@ -91,14 +91,25 @@ select = [
     "PERF", # perflint
     "DTZ",  # flake8-datetimez
     "RET",  # flake8-return
+    "S",    # flake8-bandit (security)
+    "C4",   # flake8-comprehensions
+    "PT",   # flake8-pytest-style
+    "PIE",  # flake8-pie
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "SIM108", # ternary operator (readability preference)
+    "S101",   # assert (used in tests and src invariant checks)
+    "S311",   # random (used for retry jitter, not crypto)
+    "S603",   # subprocess call (legitimate CLI tool usage)
+    "S606",   # os.startfile (legitimate CLI tool usage)
+    "S607",   # partial executable path (legitimate CLI tool usage)
+    "PT011",  # pytest.raises too broad (matching messages makes tests brittle)
+    "PT012",  # multiline pytest.raises block (common with context managers)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False
+"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive
 "src/cja_auto_sdr/api/*.py" = ["F822"]       # lazy forwarding modules (resolved via __getattr__)
 "src/cja_auto_sdr/cli/*.py" = ["F822"]       # lazy forwarding modules
 "src/cja_auto_sdr/core/profiles.py" = ["F822"]  # lazy forwarding module
@@ -106,7 +117,7 @@ ignore = [
 "src/cja_auto_sdr/inventory/*.py" = ["F822"] # lazy forwarding modules
 "src/cja_auto_sdr/output/**/*.py" = ["F822"] # lazy forwarding modules
 "src/cja_auto_sdr/pipeline/*.py" = ["F822"]  # lazy forwarding modules
-"tests/**" = ["B", "SIM", "RUF012", "PERF", "DTZ"]
+"tests/**" = ["B", "SIM", "RUF012", "PERF", "DTZ", "S105", "S108", "S110", "S314", "PT017", "PT018", "PT019"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["cja_auto_sdr"]

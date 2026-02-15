@@ -718,9 +718,9 @@ class SegmentsInventoryBuilder:
         return {
             "functions_internal": list(functions_internal),
             "functions_display": functions_display,
-            "dimension_references": sorted(list(dimension_refs)),
-            "metric_references": sorted(list(metric_refs)),
-            "segment_references": sorted(list(segment_refs)),
+            "dimension_references": sorted(dimension_refs),
+            "metric_references": sorted(metric_refs),
+            "segment_references": sorted(segment_refs),
             "predicate_count": total_predicates,
             "logic_operator_count": total_logic_operators,
             "nesting_depth": max_nesting,

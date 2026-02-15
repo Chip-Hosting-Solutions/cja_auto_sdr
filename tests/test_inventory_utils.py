@@ -5,6 +5,7 @@ Tests for shared CJA inventory utilities.
 import logging
 
 import pandas as pd
+import pytest
 
 from cja_auto_sdr.inventory.utils import (
     BatchProcessingStats,
@@ -182,20 +183,20 @@ class TestComputeComplexityScore:
         factors = {"operators": 0, "nesting": 0}
         weights = {"operators": 0.5, "nesting": 0.5}
         max_values = {"operators": 10, "nesting": 5}
-        assert compute_complexity_score(factors, weights, max_values) == 0.0
+        assert compute_complexity_score(factors, weights, max_values) == pytest.approx(0.0)
 
     def test_max_factors_returns_100(self):
         factors = {"operators": 100, "nesting": 100}  # Over max
         weights = {"operators": 0.5, "nesting": 0.5}
         max_values = {"operators": 10, "nesting": 5}
-        assert compute_complexity_score(factors, weights, max_values) == 100.0
+        assert compute_complexity_score(factors, weights, max_values) == pytest.approx(100.0)
 
     def test_partial_complexity(self):
         factors = {"operators": 5, "nesting": 2}  # Half of max
         weights = {"operators": 0.5, "nesting": 0.5}
         max_values = {"operators": 10, "nesting": 4}
         # (0.5 * 0.5) + (0.5 * 0.5) = 0.5 * 100 = 50
-        assert compute_complexity_score(factors, weights, max_values) == 50.0
+        assert compute_complexity_score(factors, weights, max_values) == pytest.approx(50.0)
 
 
 class TestBatchProcessingStats:

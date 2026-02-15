@@ -720,8 +720,8 @@ class CalculatedMetricsInventoryBuilder:
         return {
             "functions_internal": list(functions_internal),
             "functions_display": functions_display,
-            "metric_references": sorted(list(metric_refs)),
-            "segment_references": sorted(list(segment_refs)),
+            "metric_references": sorted(metric_refs),
+            "segment_references": sorted(segment_refs),
             "operator_count": total_operators,
             "nesting_depth": max_nesting,
             "conditional_count": total_conditionals,

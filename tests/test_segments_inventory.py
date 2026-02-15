@@ -798,7 +798,7 @@ class TestSegmentSummary:
         assert d["name"] == "Test Segment"
         assert d["description"] == "Test description"
         assert d["owner"] == "Test Owner"
-        assert d["complexity_score"] == 45.5
+        assert d["complexity_score"] == pytest.approx(45.5)
         assert "Contains" in d["functions_used"]
         assert "pageurl" in d["dimension_references"]
         assert d["container_type"] == "Hits"
@@ -838,12 +838,12 @@ class TestSegmentsInventoryProperties:
     def test_avg_complexity_empty(self):
         """Test average complexity with no segments"""
         inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
-        assert inventory.avg_complexity == 0.0
+        assert inventory.avg_complexity == pytest.approx(0.0)
 
     def test_max_complexity_empty(self):
         """Test max complexity with no segments"""
         inventory = SegmentsInventory(data_view_id="dv_test", data_view_name="Test")
-        assert inventory.max_complexity == 0.0
+        assert inventory.max_complexity == pytest.approx(0.0)
 
     def test_approved_count(self):
         """Test approved count property"""

@@ -143,8 +143,10 @@ class TestSharedValidationCacheAPICompatibility:
         regular_result, regular_key = regular.get(sample_metrics_df, "Metrics", ["id", "name"], ["id", "description"])
 
         # Both return same structure
-        assert shared_result is None and regular_result is None
-        assert isinstance(shared_key, str) and isinstance(regular_key, str)
+        assert shared_result is None
+        assert regular_result is None
+        assert isinstance(shared_key, str)
+        assert isinstance(regular_key, str)
 
         shared.shutdown()
 

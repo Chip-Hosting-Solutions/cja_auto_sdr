@@ -147,7 +147,7 @@ class TestRetryDecorator:
 
         # With jitter, delays should vary (not all identical)
         # Due to random.uniform(0.5, 1.5), values should differ
-        unique_delays = set(round(d, 2) for d in delays_with_jitter)
+        unique_delays = {round(d, 2) for d in delays_with_jitter}
         # Should have some variation (not all exactly the same)
         assert len(unique_delays) > 1 or len(delays_with_jitter) <= 1
 

@@ -687,7 +687,7 @@ class TestSimilarityPair:
             shared_count=17,
             union_count=20,
         )
-        assert pair.jaccard_similarity == 0.85
+        assert pair.jaccard_similarity == pytest.approx(0.85)
         assert pair.shared_count == 17
         assert pair.union_count == 20
 
@@ -1243,7 +1243,7 @@ class TestOrgComponentAnalyzer:
 
         overlap_rec = [r for r in recommendations if r["type"] == "review_overlap"]
         assert len(overlap_rec) == 1
-        assert overlap_rec[0]["similarity"] == 0.95
+        assert overlap_rec[0]["similarity"] == pytest.approx(0.95)
 
     def test_generate_recommendations_stale_data_view_with_metadata(self, mock_cja, mock_logger):
         """Stale recommendation should be generated for old metadata timestamps."""
@@ -1845,7 +1845,7 @@ class TestDataViewCluster:
             cohesion_score=0.85,
         )
         assert cluster.size == 3
-        assert cluster.cohesion_score == 0.85
+        assert cluster.cohesion_score == pytest.approx(0.85)
 
     def test_cluster_without_name(self):
         """Test cluster without inferred name"""
@@ -3101,7 +3101,7 @@ class TestOwnerSummary:
         alice_stats = owner_summary["by_owner"]["Alice"]
         assert alice_stats["data_view_count"] == 2
         assert alice_stats["total_metrics"] == 90
-        assert alice_stats["avg_metrics_per_dv"] == 45.0
+        assert alice_stats["avg_metrics_per_dv"] == pytest.approx(45.0)
 
         bob_stats = owner_summary["by_owner"]["Bob"]
         assert bob_stats["data_view_count"] == 1

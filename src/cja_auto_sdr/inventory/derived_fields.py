@@ -1502,10 +1502,14 @@ class DerivedFieldInventoryBuilder:
                 input_field = field_ref
 
             # Truncate long patterns/replacements
-            if find_val and len(str(find_val)) > 20:
-                find_val = str(find_val)[:20] + "..."
-            if replace_val and len(str(replace_val)) > 15:
-                replace_val = str(replace_val)[:15] + "..."
+            if find_val:
+                find_str = str(find_val)
+                if len(find_str) > 20:
+                    find_val = find_str[:20] + "..."
+            if replace_val:
+                replace_str = str(replace_val)
+                if len(replace_str) > 15:
+                    replace_val = replace_str[:15] + "..."
 
             if input_field and find_val:
                 if replace_val:
