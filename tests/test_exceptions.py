@@ -248,7 +248,7 @@ class TestCircuitBreakerOpen:
     def test_cannot_catch_as_cjasdr_error(self):
         with pytest.raises(CircuitBreakerOpen):
             try:
-                raise CircuitBreakerOpen()
+                raise CircuitBreakerOpen
             except CJASDRError:
                 pytest.fail("should not be caught as CJASDRError")
 

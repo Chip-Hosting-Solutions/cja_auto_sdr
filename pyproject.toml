@@ -95,21 +95,30 @@ select = [
     "C4",   # flake8-comprehensions
     "PT",   # flake8-pytest-style
     "PIE",  # flake8-pie
+    "ISC",  # implicit string concatenation
+    "TID",  # tidy imports
+    "A",    # flake8-builtins
+    "PLE",  # pylint errors
+    "RSE",  # unnecessary parens on raise
+    "PLW",  # pylint warnings
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "SIM108", # ternary operator (readability preference)
-    "S101",   # assert (used in tests and src invariant checks)
-    "S311",   # random (used for retry jitter, not crypto)
-    "S603",   # subprocess call (legitimate CLI tool usage)
-    "S606",   # os.startfile (legitimate CLI tool usage)
-    "S607",   # partial executable path (legitimate CLI tool usage)
-    "PT011",  # pytest.raises too broad (matching messages makes tests brittle)
-    "PT012",  # multiline pytest.raises block (common with context managers)
+    "E501",    # line too long (handled by formatter)
+    "SIM108",  # ternary operator (readability preference)
+    "S101",    # assert (used in tests and src invariant checks)
+    "S311",    # random (used for retry jitter, not crypto)
+    "S603",    # subprocess call (legitimate CLI tool usage)
+    "S606",    # os.startfile (legitimate CLI tool usage)
+    "S607",    # partial executable path (legitimate CLI tool usage)
+    "PT011",   # pytest.raises too broad (matching messages makes tests brittle)
+    "PT012",   # multiline pytest.raises block (common with context managers)
+    "PLW1510", # subprocess.run without check (intentional in git helpers)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive
+"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105", "PLW2901"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive; PLW2901: line=line.strip() pattern
+"src/cja_auto_sdr/core/credentials.py" = ["PLW2901"]  # line=line.strip() pattern
+"src/cja_auto_sdr/core/logging.py" = ["PLW0603"]      # legitimate global state for logging init
 "src/cja_auto_sdr/api/*.py" = ["F822"]       # lazy forwarding modules (resolved via __getattr__)
 "src/cja_auto_sdr/cli/*.py" = ["F822"]       # lazy forwarding modules
 "src/cja_auto_sdr/core/profiles.py" = ["F822"]  # lazy forwarding module

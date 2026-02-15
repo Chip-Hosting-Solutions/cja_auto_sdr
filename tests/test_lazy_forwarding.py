@@ -12,7 +12,6 @@ import pytest
 
 from cja_auto_sdr.core.lazy import make_getattr
 
-
 # ---------------------------------------------------------------------------
 # Section 1: Direct unit tests for make_getattr()
 # ---------------------------------------------------------------------------
@@ -110,7 +109,7 @@ class TestMakeGetattr:
             ["x"],
             target_module="cja_auto_sdr.core.version",
         )
-        with pytest.raises(AttributeError, match="my.custom.module"):
+        with pytest.raises(AttributeError, match=r"my\.custom\.module"):
             getter("unknown")
 
 

@@ -15,13 +15,13 @@ Example usage:
 # Deferred imports to avoid circular import with generator.py
 # Will be populated when code is fully extracted
 
-__all__ = []
+from cja_auto_sdr.core.lazy import make_getattr
+
+__all__: list[str] = []
 
 _LAZY_EXPORTS = [
     "ProcessingResult",
     "DiffSummary",
 ]
-
-from cja_auto_sdr.core.lazy import make_getattr
 
 __getattr__ = make_getattr(__name__, _LAZY_EXPORTS, target_module="cja_auto_sdr.generator")
