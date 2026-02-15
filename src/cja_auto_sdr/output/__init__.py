@@ -23,14 +23,3 @@ __all__ = [
     "write_json_output",
     "write_markdown_output",
 ]
-
-
-_LAZY_EXPORTS = [
-    "format_output",
-    "generate_output_files",
-    "OUTPUT_FORMATS",
-]
-
-from cja_auto_sdr.core.lazy import make_getattr
-
-__getattr__ = make_getattr(__name__, _LAZY_EXPORTS, target_module="cja_auto_sdr.generator")

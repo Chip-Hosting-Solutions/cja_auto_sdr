@@ -20,7 +20,6 @@ __all__ = []
 _LAZY_EXPORTS = [
     "ProcessingResult",
     "DiffSummary",
-    "DiffChange",
 ]
 
 from cja_auto_sdr.core.lazy import make_getattr
