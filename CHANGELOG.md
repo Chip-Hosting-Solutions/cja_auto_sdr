@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.9] - 2026-02-16
+
+### Added
+- **Ruff rule expansion**: Enabled 16 new rule sets — FLY, FA, YTT, PD, SLOT,
+  ICN, EXE, INT, NPY, AIR, ASYNC, INP, ERA, Q, COM, TCH — bringing total
+  from 25 → 41 active rule sets; auto-fixed ~938 trailing comma violations
+- **CI coverage threshold**: Raised `--cov-fail-under` from 85% → 90%
+
+### Tests
+- Added ~258 tests across 4 new test files:
+  - `test_diff_inventory_output.py`: Inventory diff output across all formats
+    (console, JSON, HTML, Excel, Markdown, CSV, PR comment)
+  - `test_cli_command_handlers.py`: CLI dispatch for --stats, --org-report,
+    --list-snapshots, --prune-snapshots, inventory summary, diff config unpacking
+  - `test_profile_management.py`: Interactive profile creation, import, test, show
+  - `test_snapshot_commands.py`: Snapshot creation, comparison, name resolution
+
 ## [3.2.8] - 2026-02-16
 
 ### Added
