@@ -7,6 +7,255 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
+from cja_auto_sdr.org.models import (
+    ComponentDistribution,
+    ComponentInfo,
+    DataViewCluster,
+    DataViewSummary,
+    OrgReportConfig,
+    OrgReportResult,
+    SimilarityPair,
+)
+
+
+@pytest.fixture
+def rich_org_report_result():
+    """Create a comprehensive org report result used by renderer and CLI tests."""
+    config = OrgReportConfig(
+        core_threshold=0.5,
+        include_metadata=True,
+        overlap_threshold=0.95,
+        summary_only=False,
+        include_component_types=True,
+        include_drift=True,
+    )
+
+    summaries = [
+        DataViewSummary(
+            data_view_id="dv_001",
+            data_view_name="Primary Business Data View With A Long Name",
+            metric_ids={"metric/core/1", "metric/common/1", "metric/limited/1"},
+            dimension_ids={"dimension/core/1", "dimension/common/1"},
+            metric_count=3,
+            dimension_count=2,
+            standard_metric_count=2,
+            derived_metric_count=1,
+            standard_dimension_count=1,
+            derived_dimension_count=1,
+            owner="Alice",
+            owner_id="owner_1",
+            created="2026-01-01T00:00:00+00:00",
+            modified="2026-02-15T10:00:00+00:00",
+            has_description=True,
+        ),
+        DataViewSummary(
+            data_view_id="dv_002",
+            data_view_name="Secondary Data View",
+            metric_count=0,
+            dimension_count=0,
+            error="permission denied",
+            status="error",
+        ),
+        DataViewSummary(
+            data_view_id="dv_003",
+            data_view_name="Tertiary Data View",
+            metric_ids={"metric/core/2", "metric/isolated/1"},
+            dimension_ids={"dimension/isolated/1"},
+            metric_count=2,
+            dimension_count=1,
+            standard_metric_count=1,
+            derived_metric_count=1,
+            standard_dimension_count=1,
+            derived_dimension_count=0,
+            owner="Carol",
+            owner_id="owner_3",
+            created="2026-01-03T00:00:00+00:00",
+            modified="2026-02-15T11:00:00+00:00",
+        ),
+    ]
+
+    distribution = ComponentDistribution(
+        core_metrics=["metric/core/1", "metric/core/2"],
+        core_dimensions=["dimension/core/1"],
+        common_metrics=["metric/common/1"],
+        common_dimensions=["dimension/common/1"],
+        limited_metrics=["metric/limited/1"],
+        limited_dimensions=["dimension/limited/1"],
+        isolated_metrics=["metric/isolated/1"],
+        isolated_dimensions=["dimension/isolated/1"],
+    )
+
+    component_index = {
+        "metric/core/1": ComponentInfo(
+            component_id="metric/core/1",
+            component_type="metric",
+            name="Core Metric One",
+            data_views={"dv_001", "dv_003"},
+        ),
+        "metric/core/2": ComponentInfo(
+            component_id="metric/core/2",
+            component_type="metric",
+            name="Core Metric Two",
+            data_views={"dv_001", "dv_003"},
+        ),
+        "metric/common/1": ComponentInfo(
+            component_id="metric/common/1",
+            component_type="metric",
+            name="Common Metric",
+            data_views={"dv_001", "dv_002"},
+        ),
+        "metric/limited/1": ComponentInfo(
+            component_id="metric/limited/1",
+            component_type="metric",
+            name="Limited Metric",
+            data_views={"dv_001", "dv_002"},
+        ),
+        "metric/isolated/1": ComponentInfo(
+            component_id="metric/isolated/1",
+            component_type="metric",
+            name="Isolated Metric",
+            data_views={"dv_003"},
+        ),
+        "dimension/core/1": ComponentInfo(
+            component_id="dimension/core/1",
+            component_type="dimension",
+            name="Core Dimension",
+            data_views={"dv_001", "dv_003"},
+        ),
+        "dimension/common/1": ComponentInfo(
+            component_id="dimension/common/1",
+            component_type="dimension",
+            name="Common Dimension",
+            data_views={"dv_001", "dv_002"},
+        ),
+        "dimension/limited/1": ComponentInfo(
+            component_id="dimension/limited/1",
+            component_type="dimension",
+            name="Limited Dimension",
+            data_views={"dv_001", "dv_002"},
+        ),
+        "dimension/isolated/1": ComponentInfo(
+            component_id="dimension/isolated/1",
+            component_type="dimension",
+            name="Isolated Dimension",
+            data_views={"dv_003"},
+        ),
+    }
+
+    similarity_pairs = [
+        SimilarityPair(
+            dv1_id="dv_001",
+            dv1_name="Primary Business Data View With A Very Long Name",
+            dv2_id="dv_003",
+            dv2_name="Tertiary Data View Also Quite Long",
+            jaccard_similarity=0.93,
+            shared_count=15,
+            union_count=18,
+            only_in_dv1=["metric/limited/1", "dimension/common/1", "metric/common/1", "metric/x"],
+            only_in_dv2=["metric/isolated/1", "dimension/isolated/1", "dimension/y", "metric/z"],
+            only_in_dv1_names={
+                "metric/limited/1": "Limited Metric",
+                "dimension/common/1": "Common Dimension",
+            },
+            only_in_dv2_names={
+                "metric/isolated/1": "Isolated Metric",
+                "dimension/isolated/1": "Isolated Dimension",
+            },
+        )
+    ]
+    similarity_pairs.extend(
+        [
+            SimilarityPair(
+                dv1_id=f"dv_{i:03d}",
+                dv1_name=f"Data View {i}",
+                dv2_id=f"dv_{i + 1:03d}",
+                dv2_name=f"Data View {i + 1}",
+                jaccard_similarity=0.90,
+                shared_count=20,
+                union_count=22,
+            )
+            for i in range(10, 31)
+        ]
+    )
+
+    clusters = [
+        DataViewCluster(
+            cluster_id=i,
+            cluster_name=f"Cluster {i}",
+            data_view_ids=[f"dv_{i:03d}", f"dv_{i + 100:03d}", f"dv_{i + 200:03d}", f"dv_{i + 300:03d}"],
+            data_view_names=[
+                f"Data View {i}",
+                f"Data View {i + 100}",
+                f"Data View {i + 200}",
+                f"Data View {i + 300}",
+            ],
+            cohesion_score=0.78,
+        )
+        for i in range(1, 12)
+    ]
+
+    owner_data = {
+        f"Owner {i}": {
+            "data_view_count": i,
+            "total_metrics": i * 10,
+            "total_dimensions": i * 5,
+            "avg_components_per_dv": float(i * 3),
+        }
+        for i in range(1, 18)
+    }
+
+    stale_components = [
+        {"pattern": "deprecated_prefix", "name": f"old_metric_{i}", "component_id": f"metric/old/{i}"} for i in range(6)
+    ]
+    stale_components.extend(
+        [{"pattern": "legacy_suffix", "name": f"segment_{i}_old", "component_id": f"segment/old/{i}"} for i in range(3)]
+    )
+
+    recommendations = [
+        {
+            "severity": "high",
+            "reason": "A data view has many isolated components",
+            "data_view": "dv_001",
+            "data_view_name": "Primary Business Data View",
+        },
+        {
+            "severity": "medium",
+            "reason": "Two data views are highly similar",
+            "data_view_1": "dv_001",
+            "data_view_1_name": "Primary Business Data View",
+            "data_view_2": "dv_003",
+            "data_view_2_name": "Tertiary Data View",
+        },
+    ]
+
+    return OrgReportResult(
+        timestamp="2026-02-16T12:00:00+00:00",
+        org_id="test_org@AdobeOrg",
+        parameters=config,
+        data_view_summaries=summaries,
+        component_index=component_index,
+        distribution=distribution,
+        similarity_pairs=similarity_pairs,
+        recommendations=recommendations,
+        duration=12.34,
+        clusters=clusters,
+        is_sampled=True,
+        total_available_data_views=25,
+        governance_violations=[
+            {"message": "Duplicate threshold exceeded", "threshold": 5, "actual": 11},
+        ],
+        naming_audit={
+            "case_styles": {"snake_case": 9, "camelCase": 4, "UPPER_CASE": 2},
+            "total_components": 15,
+            "recommendations": [{"severity": "medium", "message": "Prefer snake_case for new components"}],
+        },
+        owner_summary={
+            "by_owner": owner_data,
+            "owners_sorted_by_dv_count": list(owner_data.keys()),
+        },
+        stale_components=stale_components,
+    )
+
 
 @pytest.fixture
 def mock_config_file(tmp_path):

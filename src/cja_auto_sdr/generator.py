@@ -9260,9 +9260,9 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
 
         # Calculate column widths
         num_width = len(str(len(display_data))) + 2
-        max_id_width = max(len("ID"), max(len(item["id"]) for item in display_data)) + 2
-        max_name_width = max(len("Name"), max(len(item["name"]) for item in display_data)) + 2
-        max_owner_width = max(len("Owner"), max(len(item["owner"]) for item in display_data)) + 2
+        max_id_width = max(len("ID"), *(len(item["id"]) for item in display_data)) + 2
+        max_name_width = max(len("Name"), *(len(item["name"]) for item in display_data)) + 2
+        max_owner_width = max(len("Owner"), *(len(item["owner"]) for item in display_data)) + 2
 
         total_width = num_width + max_id_width + max_name_width + max_owner_width
 
@@ -9576,7 +9576,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
                         try:
                             range_parts = part.split("-")
                             if len(range_parts) != 2:
-                                raise ValueError()
+                                raise ValueError
                             start, end = int(range_parts[0]), int(range_parts[1])
                             if start > end:
                                 start, end = end, start
@@ -10240,8 +10240,8 @@ def show_stats(
             # Table format
             if stats_data:
                 # Calculate column widths
-                max_id_width = max(len("ID"), max(len(s["id"]) for s in stats_data)) + 2
-                max_name_width = min(40, max(len("Name"), max(len(s["name"]) for s in stats_data)) + 2)
+                max_id_width = max(len("ID"), *(len(s["id"]) for s in stats_data)) + 2
+                max_name_width = min(40, max(len("Name"), *(len(s["name"]) for s in stats_data)) + 2)
 
                 # Print header
                 header = (

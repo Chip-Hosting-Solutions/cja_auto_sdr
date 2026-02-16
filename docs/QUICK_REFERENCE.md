@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.2.6.
+Single-page command cheat sheet for CJA SDR Generator v3.2.7.
 
 ## Four Main Modes
 
@@ -476,11 +476,11 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and
 
 | Format | File Pattern | Description |
 |--------|--------------|-------------|
-| Excel | `SDR_<name>_<date>.xlsx` | Full report with Data Quality sheet |
-| CSV | `SDR_<name>_<date>.csv` | Flat component list |
-| JSON | `SDR_<name>_<date>.json` | Machine-readable format |
-| HTML | `SDR_<name>_<date>.html` | Browser-viewable report |
-| Markdown | `SDR_<name>_<date>.md` | Documentation-ready format |
+| Excel | `CJA_DataView_<Name>_<ID>_SDR.xlsx` | Full report with Data Quality sheet |
+| CSV | `CJA_DataView_<Name>_<ID>_SDR_csv/` | Directory with per-sheet CSV files |
+| JSON | `CJA_DataView_<Name>_<ID>_SDR.json` | Machine-readable format |
+| HTML | `CJA_DataView_<Name>_<ID>_SDR.html` | Browser-viewable report |
+| Markdown | `CJA_DataView_<Name>_<ID>_SDR.md` | Documentation-ready format |
 
 **Excel Sheet Order:**
 1. Metadata

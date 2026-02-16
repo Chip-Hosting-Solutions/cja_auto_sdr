@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.7] - 2026-02-15
+
+### Changed
+- **Lazy-forwarding standardization**: Converted 4 hand-rolled `__getattr__` implementations (`cli/`, `git/`, `data/`, `output/`) to use the centralized `make_getattr()` helper from `core/lazy.py`, narrowing open `hasattr()` catch-alls to explicit name lists
+- **Phantom export cleanup**: Removed 4 stale lazy exports (`DiffChange`, `format_output`, `OUTPUT_FORMATS`, `generate_output_files`) that referenced symbols never defined in `generator.py`
+- **Compatibility note**: The removed lazy exports were stale placeholders and not functional public APIs; supported import paths are unchanged
+
+### Added
+- **Ruff rule expansion**: Enabled ISC (implicit string concat), TID (tidy imports), A (builtins), PLE (pylint errors), RSE (unnecessary parens on raise), PLW (pylint warnings) — 6 new rule sets with targeted suppressions
+- **CI coverage threshold**: Raised `--cov-fail-under` from 73% to 80%
+
+### Fixed
+- **Documentation accuracy**: Corrected output filename patterns in `QUICK_REFERENCE.md` from `SDR_<name>_<date>` to actual `CJA_DataView_<Name>_<ID>_SDR` pattern; updated `PERFORMANCE.md` stale version reference
+- **PLW3301**: Flattened 5 nested `max()` calls to use star-unpacking
+- **RSE102**: Removed unnecessary parentheses on 2 bare `raise` statements
+
+### Tests
+- Added 55 tests in `test_lazy_forwarding.py`:
+  - 9 direct unit tests for `core/lazy.py` `make_getattr()` helper (target module, mapping, error cases, iterable types)
+  - 34 parametrized positive tests across all 12 lazy-forwarding modules
+  - 12 negative tests verifying `AttributeError` for unknown attributes
+
 ## [3.2.6] - 2026-02-14
 
 ### Changed

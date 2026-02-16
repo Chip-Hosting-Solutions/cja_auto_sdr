@@ -408,10 +408,10 @@ See which configuration source is being used:
 cja_auto_sdr --config-status
 # Shows: configuration source, all fields (masked), and validation status
 
-# Or with verbose output during a command
-cja_auto_sdr --list-dataviews --verbose
-# Output shows: "Using credentials from environment variables" or
-#              "Using credentials from config.json"
+# Or with debug logging during a command
+cja_auto_sdr --list-dataviews --log-level DEBUG
+# Output includes credential source details, such as
+# "Using credentials from environment variables" or "Using credentials from config.json"
 ```
 
 ---
@@ -707,11 +707,11 @@ jobs:
 ```bash
 # Pass environment variables at runtime
 docker run -e ORG_ID -e CLIENT_ID -e SECRET -e SCOPES \
-  cja-sdr-generator "My Data View" --format excel
+  cja_auto_sdr "My Data View" --format excel
 
 # Or use an env file
 docker run --env-file .env.production \
-  cja-sdr-generator "My Data View" --format excel
+  cja_auto_sdr "My Data View" --format excel
 ```
 
 ---
@@ -889,8 +889,8 @@ cja_auto_sdr --validate-config
 # Dry run (validate + simulate)
 cja_auto_sdr --dry-run
 
-# Verbose mode (see credential source)
-cja_auto_sdr --list-dataviews --verbose
+# Debug logging (see credential source)
+cja_auto_sdr --list-dataviews --log-level DEBUG
 
 # Test connection
 cja_auto_sdr --list-dataviews
@@ -913,7 +913,7 @@ cja_auto_sdr --list-dataviews --log-level DEBUG
 At launch, the tool logs a diagnostic line containing the tool version, Python version, platform, active log level, and inferred run mode (batch, single, or discovery). This appears automatically at `INFO` level and is useful for troubleshooting environment issues in CI/CD logs or support requests:
 
 ```text
-CJA SDR Generator v3.2.6 | Python 3.14.2 | darwin | log_level=INFO | mode=single
+CJA SDR Generator v3.2.7 | Python 3.14.2 | darwin | log_level=INFO | mode=single
 ```
 
 ### Structured JSON Logging

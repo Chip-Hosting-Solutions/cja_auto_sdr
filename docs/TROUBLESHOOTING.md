@@ -292,7 +292,7 @@ or
 Exception: OAuth response missing required fields. Response: {"error": "invalid_scope", "error_description": "..."}
 ```
 
-**Cause:** The OAuth token request to Adobe's authentication server failed. As of v3.1.0 (cjapy 0.2.4-3), you now receive the actual OAuth error response, making it much easier to diagnose credential issues.
+**Cause:** The OAuth token request to Adobe's authentication server failed. As of v3.1.0 (cjapy 0.2.4.post3), you now receive the actual OAuth error response, making it much easier to diagnose credential issues.
 
 **Common OAuth error responses and solutions:**
 
@@ -1731,7 +1731,7 @@ uv run cja_auto_sdr dv_1 dv_2 dv_3 --workers 2 --retry-base-delay 1.5
 
 ## Dependency Issues
 
-> **Recommended cjapy version:** v3.2.0 requires cjapy 0.2.4-3 or later for improved OAuth error handling. Users on older versions may see confusing errors when authentication fails. Upgrade with: `uv add --upgrade cjapy`
+> **Recommended cjapy version:** v3.2.7 requires cjapy 0.2.4.post3 or later for improved OAuth error handling. Users on older versions may see confusing errors when authentication fails. Upgrade with: `uv add --upgrade cjapy`
 
 ### Module Not Found
 
@@ -1853,7 +1853,7 @@ python -m pip install --upgrade pip
 pip install numpy>=2.2.0
 
 # Install other dependencies
-pip install cjapy>=0.2.4.post2 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0
+pip install cjapy>=0.2.4.post3 pandas>=2.3.3 xlsxwriter>=3.2.9 tqdm>=4.66.0
 
 # Verify numpy works
 python -c "import numpy; print(numpy.__version__)"
@@ -2126,7 +2126,7 @@ uv run cja_auto_sdr dv_12345 --log-level DEBUG --log-format json
 
 **JSON output format:**
 ```json
-{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_sdr_generator", "message": "Processing data view", "module": "cja_sdr_generator", "function": "process_single_dataview", "line": 6683}
+{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_auto_sdr.generator", "message": "Processing data view", "module": "generator", "function": "process_single_dataview", "line": 6683}
 ```
 
 **Benefits:**

@@ -2,7 +2,7 @@
 
 Technical details and optimization options for the CJA SDR Generator.
 
-> **Note:** Performance benchmarks in this guide were measured with v3.1.0. Actual performance may vary based on network conditions, API rate limits, and data view size.
+> **Note:** Performance benchmarks in this guide were originally measured with v3.1.0 and remain representative. Features added in v3.2.x (circuit breaker, API auto-tuning, shared validation cache) may improve performance further. Actual results vary based on network conditions, API rate limits, and data view size.
 
 ## Performance Overview
 
@@ -413,7 +413,7 @@ For log aggregation systems (Splunk, ELK, CloudWatch), use structured JSON loggi
 cja_auto_sdr dv_12345 --log-format json
 
 # Output format (one JSON object per line):
-{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_sdr_generator", "message": "Processing data view", "module": "cja_sdr_generator", "function": "process_single_dataview", "line": 6683}
+{"timestamp": "2026-01-23T15:11:50", "level": "INFO", "logger": "cja_auto_sdr.generator", "message": "Processing data view", "module": "generator", "function": "process_single_dataview", "line": 6683}
 ```
 
 **Benefits:**

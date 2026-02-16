@@ -1,0 +1,181 @@
+"""Focused branch coverage for org cache and lock helper logic."""
+
+from __future__ import annotations
+
+import errno
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
+from cja_auto_sdr.org.cache import OrgReportCache, OrgReportLock
+from cja_auto_sdr.org.models import DataViewSummary
+
+
+def _summary(dv_id: str) -> DataViewSummary:
+    return DataViewSummary(
+        data_view_id=dv_id,
+        data_view_name=f"Data View {dv_id}",
+        metric_ids={"metric/1"},
+        dimension_ids={"dimension/1"},
+        metric_count=1,
+        dimension_count=1,
+    )
+
+
+def test_cache_default_dir_uses_home(tmp_path: Path):
+    with patch("cja_auto_sdr.org.cache.Path.home", return_value=tmp_path):
+        cache = OrgReportCache()
+    assert cache.cache_dir == tmp_path / ".cja_auto_sdr" / "cache"
+
+
+def test_load_cache_invalid_json_logs_warning(tmp_path: Path):
+    cache_file = tmp_path / "org_report_cache.json"
+    cache_file.write_text("{not valid json")
+    logger = Mock()
+
+    cache = OrgReportCache(cache_dir=tmp_path, logger=logger)
+
+    assert cache._cache == {}
+    logger.warning.assert_called_once()
+    assert "Failed to load org report cache" in logger.warning.call_args[0][0]
+
+
+def test_get_returns_none_without_fetched_at(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+    cache._cache["dv_missing_fetched"] = {"data_view_id": "dv_missing_fetched"}
+    assert cache.get("dv_missing_fetched") is None
+
+
+def test_get_returns_none_for_stale_or_invalid_timestamp(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+
+    stale_time = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+    cache._cache["dv_stale"] = {"fetched_at": stale_time}
+    assert cache.get("dv_stale", max_age_hours=24) is None
+
+    cache._cache["dv_bad_ts"] = {"fetched_at": "definitely-not-iso"}
+    assert cache.get("dv_bad_ts", max_age_hours=24) is None
+
+
+@pytest.mark.parametrize(
+    "required_flags",
+    [
+        {"include_names": True},
+        {"include_metadata": True},
+        {"include_component_types": True},
+    ],
+)
+def test_get_rejects_when_required_flags_missing(tmp_path: Path, required_flags: dict[str, bool]):
+    cache = OrgReportCache(cache_dir=tmp_path)
+    cache._cache["dv_flags"] = {
+        "data_view_id": "dv_flags",
+        "data_view_name": "Flags DV",
+        "fetched_at": datetime.now(UTC).isoformat(),
+    }
+
+    assert cache.get("dv_flags", required_flags=required_flags) is None
+
+
+def test_get_logs_debug_on_deserialization_failure(tmp_path: Path):
+    logger = Mock()
+    cache = OrgReportCache(cache_dir=tmp_path, logger=logger)
+    cache._cache["dv_broken"] = {
+        "data_view_id": "dv_broken",
+        "data_view_name": "Broken DV",
+        "metric_ids": 123,  # not iterable -> set(123) raises
+        "fetched_at": datetime.now(UTC).isoformat(),
+    }
+
+    assert cache.get("dv_broken") is None
+    logger.debug.assert_called_once()
+
+
+def test_put_many_empty_skips_save(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+    with patch.object(cache, "_save_cache") as save:
+        cache.put_many([])
+    save.assert_not_called()
+
+
+def test_put_many_saves_once_for_multiple_entries(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+    with patch.object(cache, "_save_cache") as save:
+        cache.put_many(
+            [_summary("dv_one"), _summary("dv_two")],
+            include_names=True,
+            include_metadata=True,
+            include_component_types=True,
+        )
+
+    save.assert_called_once()
+    assert set(cache._cache) == {"dv_one", "dv_two"}
+    assert cache._cache["dv_one"]["include_names"] is True
+    assert cache._cache["dv_one"]["include_metadata"] is True
+    assert cache._cache["dv_one"]["include_component_types"] is True
+
+
+def test_has_valid_entry_handles_missing_and_invalid_timestamps(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+
+    cache._cache["dv_missing_fetched"] = {}
+    assert cache.has_valid_entry("dv_missing_fetched") is False
+
+    cache._cache["dv_invalid_fetched"] = {"fetched_at": "invalid"}
+    assert cache.has_valid_entry("dv_invalid_fetched") is False
+
+    stale_time = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
+    cache._cache["dv_stale"] = {"fetched_at": stale_time}
+    assert cache.has_valid_entry("dv_stale", max_age_hours=24) is False
+
+
+def test_get_stats_reports_file_size(tmp_path: Path):
+    cache = OrgReportCache(cache_dir=tmp_path)
+
+    stats_before = cache.get_stats()
+    assert stats_before["entries"] == 0
+    assert stats_before["cache_size_bytes"] == 0
+
+    cache.put(_summary("dv_stats"))
+
+    stats_after = cache.get_stats()
+    assert stats_after["entries"] == 1
+    assert stats_after["cache_size_bytes"] > 0
+    assert stats_after["cache_file"].endswith("org_report_cache.json")
+
+
+def test_lock_property_and_health_delegate_to_manager(tmp_path: Path):
+    lock = OrgReportLock("org@test", lock_dir=tmp_path)
+    manager = Mock()
+    manager.lock_lost = True
+    manager.read_info.return_value = {"pid": 1234}
+    lock._manager = manager
+
+    assert lock.lock_lost is True
+    assert lock.get_lock_info() == {"pid": 1234}
+    lock.ensure_healthy()
+    manager.ensure_held.assert_called_once()
+
+
+def test_is_process_running_covers_os_kill_branches():
+    with patch("cja_auto_sdr.org.cache.os.kill", return_value=None):
+        assert OrgReportLock._is_process_running(123) is True
+
+    with patch("cja_auto_sdr.org.cache.os.kill", side_effect=ProcessLookupError):
+        assert OrgReportLock._is_process_running(123) is False
+
+    with patch("cja_auto_sdr.org.cache.os.kill", side_effect=OSError(errno.EPERM, "permission")):
+        assert OrgReportLock._is_process_running(123) is True
+
+    with patch("cja_auto_sdr.org.cache.os.kill", side_effect=OSError(errno.ESRCH, "missing")):
+        assert OrgReportLock._is_process_running(123) is False
+
+
+def test_is_process_running_handles_int_conversion_failures():
+    class OverflowInt:
+        def __int__(self):
+            raise OverflowError
+
+    assert OrgReportLock._is_process_running("not-a-pid") is False
+    assert OrgReportLock._is_process_running(OverflowInt()) is False

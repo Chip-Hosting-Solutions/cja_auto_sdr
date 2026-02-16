@@ -59,10 +59,11 @@ tests/
 ├── test_logging_redaction.py        # Logging and sensitive data redaction tests
 ├── test_config_dataclasses.py       # Config dataclasses and constants tests
 ├── test_lock_manager.py             # Lock manager tests
+├── test_lazy_forwarding.py          # Lazy-forwarding infrastructure tests
 └── README.md                        # This file
 ```
 
-**Total: 2,651 comprehensive tests**
+**Total: 2,758 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -117,7 +118,8 @@ tests/
 | `test_logging_redaction.py` | 136 | Logging, sensitive data redaction, JSON formatter |
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
-| **Total** | **2,651** | **Collected via pytest --collect-only** |
+| `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
+| **Total** | **2,758** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -521,7 +523,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (2,651 tests total)
+- [x] Comprehensive test coverage (2,758 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

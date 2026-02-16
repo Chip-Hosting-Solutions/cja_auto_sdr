@@ -15,23 +15,13 @@ Example usage:
 # Deferred imports to avoid circular import with generator.py
 # Will be populated when code is fully extracted
 
-__all__ = []
+from cja_auto_sdr.core.lazy import make_getattr
 
+__all__: list[str] = []
 
-_ALLOWED_GENERATOR_IMPORTS = {
+_LAZY_EXPORTS = [
     "ProcessingResult",
     "DiffSummary",
-    "DiffChange",
-}
+]
 
-
-def __getattr__(name):
-    """Lazy import from generator for backwards compatibility.
-
-    Only exposes explicitly declared names to prevent accidental coupling.
-    """
-    if name in _ALLOWED_GENERATOR_IMPORTS:
-        from cja_auto_sdr import generator
-
-        return getattr(generator, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+__getattr__ = make_getattr(__name__, _LAZY_EXPORTS, target_module="cja_auto_sdr.generator")
