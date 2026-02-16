@@ -63,7 +63,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 2,758 comprehensive tests**
+**Total: 3,059 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -119,7 +119,10 @@ tests/
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
-| **Total** | **2,758** | **Collected via pytest --collect-only** |
+| `test_lock_backend_edge_cases.py` | 117 | Lock backend metadata I/O, stale detection, legacy parsing |
+| `test_derived_fields_coverage.py` | 114 | Derived field complexity scoring, logic summary, predicates |
+| `test_org_analyzer_coverage.py` | 70 | Org analyzer governance, naming audit, sampling, memory |
+| **Total** | **3,059** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -523,7 +526,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (2,758 tests total)
+- [x] Comprehensive test coverage (3,059 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

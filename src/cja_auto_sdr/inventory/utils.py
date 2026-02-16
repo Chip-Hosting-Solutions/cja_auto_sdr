@@ -44,7 +44,7 @@ def format_iso_date(iso_date: Any) -> str:
     try:
         # Handle various ISO formats including timezone
         if "T" in value:
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value)
             return dt.strftime("%Y-%m-%d %H:%M")
         return value[:10]  # Just the date part
     except ValueError, TypeError:
@@ -210,7 +210,7 @@ def coerce_scalar_text(value: Any) -> str:
 def coerce_display_text(value: Any, fallback: str = "") -> str:
     """Normalize text values for summaries/dataclass fields."""
     normalized = coerce_scalar_text(value)
-    return normalized if normalized else fallback
+    return normalized or fallback
 
 
 # ==================== COMPLEXITY SCORING ====================

@@ -1200,7 +1200,7 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
     except OSError:
         return None
 
-    return credentials if credentials else None
+    return credentials or None
 
 
 def load_profile_credentials(profile_name: str, logger: logging.Logger) -> dict[str, str] | None:
@@ -2000,7 +2000,7 @@ def apply_excel_formatting(
 
         # Use format cache if provided, otherwise create formats directly
         # Format cache improves performance by 15-25% when formatting multiple sheets
-        cache = format_cache if format_cache else ExcelFormatCache(workbook)
+        cache = format_cache or ExcelFormatCache(workbook)
 
         # Add summary section for Data Quality sheet
         if sheet_name == "Data Quality" and "Severity" in df.columns:
@@ -3443,7 +3443,7 @@ def write_diff_grouped_by_field_output(diff_result: DiffResult, use_color: bool 
     return "\n".join(lines)
 
 
-def write_diff_pr_comment_output(diff_result: DiffResult, changes_only: bool = False) -> str:
+def write_diff_pr_comment_output(diff_result: DiffResult, _changes_only: bool = False) -> str:
     """
     Write diff output in GitHub/GitLab PR comment format with collapsible details.
 
@@ -4894,7 +4894,7 @@ def display_inventory_summary(
         print()
 
         # Determine display order (default: segments, calculated, derived)
-        display_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
+        display_order = inventory_order or ["segments", "calculated", "derived"]
 
         # Helper functions for displaying each inventory type
         def display_segments():
@@ -5797,7 +5797,7 @@ def process_single_dataview(
                                 sheets_to_write.append((dimensions, "Dimensions"))
 
                         # Add inventory sheets at the end, ordered by CLI argument order
-                        inv_order = inventory_order if inventory_order else ["derived", "calculated", "segments"]
+                        inv_order = inventory_order or ["derived", "calculated", "segments"]
                         inventory_sheets = {
                             "derived": (derived_inventory_df, "Derived Fields", include_derived_inventory),
                             "calculated": (calculated_metrics_df, "Calculated Metrics", include_calculated_metrics),
@@ -13887,7 +13887,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         )
 
         # Determine output format (default to console for org reports)
-        output_format = args.format if args.format else "console"
+        output_format = args.format or "console"
 
         success, thresholds_exceeded = run_org_report(
             config_file=args.config_file,
@@ -14138,7 +14138,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             sys.exit(1)
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else "console"
+        diff_format = args.format or "console"
         success, has_changes, exit_code_override = handle_compare_snapshots_command(
             source_file=source_file,
             target_file=target_file,
@@ -14322,7 +14322,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             run_state["resolved_data_views"] = list(resolved_ids)
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else "console"
+        diff_format = args.format or "console"
         success, has_changes, exit_code_override = handle_diff_command(
             source_id=resolved_ids[0],
             target_id=resolved_ids[1],
@@ -14581,7 +14581,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 sys.exit(1)
 
         # Default to console for diff commands
-        diff_format = args.format if args.format else "console"
+        diff_format = args.format or "console"
         success, has_changes, exit_code_override = handle_diff_snapshot_command(
             data_view_id=resolved_ids[0],
             snapshot_file=args.diff_snapshot,
@@ -14777,7 +14777,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     quality_report_only = quality_report_format is not None
 
     # Default to excel for SDR generation
-    sdr_format = args.format if args.format else "excel"
+    sdr_format = args.format or "excel"
     if quality_report_only:
         sdr_format = "json"
     if run_state is not None:
@@ -15077,7 +15077,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
             include_segments_inventory=getattr(args, "include_segments_inventory", False),
             inventory_only=getattr(args, "inventory_only", False),
-            inventory_order=inventory_order if inventory_order else None,
+            inventory_order=inventory_order or None,
             quality_report_only=quality_report_only,
             production_mode=args.production,
         )
@@ -15143,7 +15143,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             include_calculated_metrics=getattr(args, "include_calculated_metrics", False),
             include_segments_inventory=getattr(args, "include_segments_inventory", False),
             inventory_only=getattr(args, "inventory_only", False),
-            inventory_order=inventory_order if inventory_order else None,
+            inventory_order=inventory_order or None,
             quality_report_only=quality_report_only,
             production_mode=args.production,
         )
@@ -15174,7 +15174,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 if include_segs or include_calc or include_derived:
                     inv_parts = []
                     # Use inventory_order to maintain consistent ordering with sheets
-                    inv_order = inventory_order if inventory_order else ["segments", "calculated", "derived"]
+                    inv_order = inventory_order or ["segments", "calculated", "derived"]
                     for inv_type in inv_order:
                         if inv_type == "segments" and include_segs:
                             seg_str = f"Segments: {result.segments_count}"

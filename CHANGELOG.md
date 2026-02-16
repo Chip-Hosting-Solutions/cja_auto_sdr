@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.8] - 2026-02-16
+
+### Changed
+- **Exception handler parenthesization (round 2)**: Parenthesized 38 remaining
+  `except A, B:` → `except (A, B):` across 12 source files, completing the
+  normalization started in v3.2.6
+
+### Added
+- **Ruff rule expansion**: Enabled 4 new rule sets — T (flake8-print),
+  LOG (flake8-logging), ARG (unused arguments), FURB (refurb) — with targeted
+  per-file suppressions for intentional CLI print output and test fixtures
+  (21 → 25 active rule sets)
+- **CI coverage threshold**: Raised `--cov-fail-under` from 80% → 81%
+
+### Tests
+- Added ~300 tests across 3 new test files:
+  - `test_lock_backend_edge_cases.py`: Metadata I/O failures, stale lock
+    reclamation, legacy format parsing, process detection edge cases
+  - `test_derived_fields_coverage.py`: Complexity scoring, logic summary
+    handlers, predicate description, type inference
+  - `test_org_analyzer_coverage.py`: Governance thresholds, stale detection,
+    naming audit, stratified sampling, memory warnings
+
 ## [3.2.7] - 2026-02-15
 
 ### Changed
