@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Ruff rule expansion**: Enabled ISC (implicit string concat), TID (tidy imports), A (builtins), PLE (pylint errors), RSE (unnecessary parens on raise), PLW (pylint warnings) — 6 new rule sets with targeted suppressions
-- **CI coverage threshold**: Raised `--cov-fail-under` from 75% to 80%
+- **CI coverage threshold**: Raised `--cov-fail-under` from 73% to 80%
 
 ### Fixed
 - **Documentation accuracy**: Corrected output filename patterns in `QUICK_REFERENCE.md` from `SDR_<name>_<date>` to actual `CJA_DataView_<Name>_<ID>_SDR` pattern; updated `PERFORMANCE.md` stale version reference
