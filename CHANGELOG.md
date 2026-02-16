@@ -11,11 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.2.8] - 2026-02-16
 
-### Changed
-- **Exception handler parenthesization (round 2)**: Parenthesized 38 remaining
-  `except A, B:` → `except (A, B):` across 12 source files, completing the
-  normalization started in v3.2.6
-
 ### Added
 - **Ruff rule expansion**: Enabled 4 new rule sets — T (flake8-print),
   LOG (flake8-logging), ARG (unused arguments), FURB (refurb) — with targeted
