@@ -214,8 +214,7 @@ def _build_rich_result() -> OrgReportResult:
     }
 
     stale_components = [
-        {"pattern": "deprecated_prefix", "name": f"old_metric_{i}", "component_id": f"metric/old/{i}"}
-        for i in range(6)
+        {"pattern": "deprecated_prefix", "name": f"old_metric_{i}", "component_id": f"metric/old/{i}"} for i in range(6)
     ]
     stale_components.extend(
         [{"pattern": "legacy_suffix", "name": f"segment_{i}_old", "component_id": f"segment/old/{i}"} for i in range(3)]
