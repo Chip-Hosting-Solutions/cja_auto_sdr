@@ -1678,10 +1678,12 @@ class TestMainImplDiffLabels:
     """Tests for --diff-labels parsing (lines 14073-14076)."""
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.handle_diff_command")
-    def test_diff_labels_parsed_as_tuple(self, mock_diff):
+    def test_diff_labels_parsed_as_tuple(self, mock_diff, mock_resolve):
         """--diff-labels should be parsed and passed as tuple."""
         mock_diff.return_value = (True, False, None)
+        mock_resolve.return_value = (["dv_a"], {})
 
         with pytest.raises(SystemExit):
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
