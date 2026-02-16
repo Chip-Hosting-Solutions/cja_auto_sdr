@@ -47,6 +47,11 @@ VERSION_LOCATIONS: list[tuple[str, str, str]] = [
         "Quickstart Guide version output",
     ),
     (
+        "docs/CONFIGURATION.md",
+        r"CJA SDR Generator v(\d+\.\d+\.\d+)",
+        "Configuration startup diagnostics version example",
+    ),
+    (
         "tests/test_ux_features.py",
         r'assert __version__ == "(\d+\.\d+\.\d+)"',
         "UX features version assertion",

@@ -166,6 +166,17 @@ POSITIVE_CASES = [
     ("cja_auto_sdr.org", "OrgComponentAnalyzer"),
     # inventory -> inventory.summary
     ("cja_auto_sdr.inventory", "display_inventory_summary"),
+    # pipeline package + modules -> generator
+    ("cja_auto_sdr.pipeline", "BatchProcessor"),
+    ("cja_auto_sdr.pipeline", "ProcessingResult"),
+    ("cja_auto_sdr.pipeline", "process_single_dataview"),
+    ("cja_auto_sdr.pipeline", "process_single_dataview_worker"),
+    ("cja_auto_sdr.pipeline", "run_dry_run"),
+    ("cja_auto_sdr.pipeline.batch", "BatchProcessor"),
+    ("cja_auto_sdr.pipeline.dry_run", "run_dry_run"),
+    ("cja_auto_sdr.pipeline.models", "ProcessingResult"),
+    ("cja_auto_sdr.pipeline.single", "process_single_dataview"),
+    ("cja_auto_sdr.pipeline.workers", "process_single_dataview_worker"),
 ]
 
 
@@ -196,6 +207,12 @@ NEGATIVE_MODULES = [
     "cja_auto_sdr.diff",
     "cja_auto_sdr.org",
     "cja_auto_sdr.inventory",
+    "cja_auto_sdr.pipeline",
+    "cja_auto_sdr.pipeline.batch",
+    "cja_auto_sdr.pipeline.dry_run",
+    "cja_auto_sdr.pipeline.models",
+    "cja_auto_sdr.pipeline.single",
+    "cja_auto_sdr.pipeline.workers",
 ]
 
 
