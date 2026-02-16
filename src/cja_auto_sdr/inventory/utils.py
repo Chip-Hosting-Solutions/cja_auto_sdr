@@ -310,7 +310,7 @@ class BatchProcessingStats:
         if self.skipped > 0:
             skip_pct = (self.skipped / total) * 100
             self.logger.warning(
-                f"Batch processing: {self.processed} {item_type} processed, {self.skipped} skipped ({skip_pct:.1f}%)"
+                f"Batch processing: {self.processed} {item_type} processed, {self.skipped} skipped ({skip_pct:.1f}%)",
             )
         else:
             self.logger.info(f"Batch processing: {self.processed} {item_type} processed successfully")

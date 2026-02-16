@@ -262,7 +262,9 @@ class TestConfigureCjapyProfileErrors:
         """CredentialSourceError is caught and returns failure tuple."""
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found", source="all", reason="All sources failed"
+            "No valid credentials found",
+            source="all",
+            reason="All sources failed",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -301,7 +303,10 @@ class TestInitializeCjaCredentialDetails:
 
     @patch("cja_auto_sdr.api.client.CredentialResolver")
     def test_credential_error_without_details_skips_details_line(
-        self, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """When CredentialSourceError has no .details, the details line is skipped."""
         mock_resolver = Mock()
@@ -426,7 +431,12 @@ class TestInitializeCjaGenericException:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_unexpected_error_during_api_test(
-        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Generic exception during post-CJA-creation flow triggers handler."""
         mock_resolver = Mock()
@@ -547,7 +557,11 @@ class TestConfigureCjapyEnvProfileResolution:
     @patch("cja_auto_sdr.api.client.CredentialResolver")
     @patch("cja_auto_sdr.api.client._config_from_env")
     def test_cja_profile_env_var_whitespace_ignored(
-        self, mock_config_env, mock_resolver_class, mock_dotenv, mock_logger
+        self,
+        mock_config_env,
+        mock_resolver_class,
+        mock_dotenv,
+        mock_logger,
     ):
         """CJA_PROFILE env var with only whitespace is treated as not set."""
         mock_resolver = Mock()
@@ -567,7 +581,11 @@ class TestConfigureCjapyEnvProfileResolution:
     @patch("cja_auto_sdr.api.client.CredentialResolver")
     @patch("cja_auto_sdr.api.client._config_from_env")
     def test_cja_profile_env_var_used_when_no_cli_profile(
-        self, mock_config_env, mock_resolver_class, mock_dotenv, mock_logger
+        self,
+        mock_config_env,
+        mock_resolver_class,
+        mock_dotenv,
+        mock_logger,
     ):
         """CJA_PROFILE env var is used when profile argument is None."""
         mock_resolver = Mock()

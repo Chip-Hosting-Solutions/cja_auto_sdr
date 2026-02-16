@@ -158,7 +158,7 @@ class TestListAndFilterDataViews:
             [
                 {"id": "dv1", "name": "Alpha"},
                 {"id": "dv2", "name": "Beta"},
-            ]
+            ],
         )
         mock_cja.getDataViews.return_value = df
         analyzer = _make_analyzer(mock_cja, logger)
@@ -870,7 +870,9 @@ class TestRunAnalysisImplFeatureFlags:
 
         patches = [
             patch.object(
-                analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv1"}, {"id": "dv2"}], False, 2)
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=([{"id": "dv1"}, {"id": "dv2"}], False, 2),
             ),
             patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
             patch.object(analyzer, "_check_memory_warning"),
@@ -1201,7 +1203,10 @@ class TestCachePaths:
         analyzer = _make_analyzer(mock_cja, logger, config=config)
 
         cached_summary = DataViewSummary(
-            data_view_id="dv1", data_view_name="Cached DV", metric_count=5, dimension_count=3
+            data_view_id="dv1",
+            data_view_name="Cached DV",
+            metric_count=5,
+            dimension_count=3,
         )
         mock_cache = MagicMock()
         mock_cache.get.return_value = cached_summary
@@ -2131,13 +2136,13 @@ class TestFetchDataViewComponentsNames:
             {
                 "id": ["m1", "m2"],
                 "name": ["Revenue", "Page Views"],
-            }
+            },
         )
         mock_cja.getDimensions.return_value = pd.DataFrame(
             {
                 "id": ["d1"],
                 "name": ["Browser"],
-            }
+            },
         )
 
         dv = {"id": "dv_test", "name": "Test DV"}
@@ -2161,7 +2166,7 @@ class TestFetchDataViewComponentsNames:
             {
                 "id": ["d1", "d2"],
                 "name": ["Browser", "Country"],
-            }
+            },
         )
 
         dv = {"id": "dv_test", "name": "Test DV"}

@@ -357,7 +357,11 @@ class TestProcessingResult:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, file_size_bytes=500
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            file_size_bytes=500,
         )
         assert result.file_size_formatted == "500 B"
 
@@ -366,7 +370,11 @@ class TestProcessingResult:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, file_size_bytes=2048
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            file_size_bytes=2048,
         )
         assert result.file_size_formatted == "2.0 KB"
 
@@ -375,7 +383,11 @@ class TestProcessingResult:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, file_size_bytes=1048576
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            file_size_bytes=1048576,
         )
         assert result.file_size_formatted == "1.0 MB"
 
@@ -384,7 +396,11 @@ class TestProcessingResult:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, file_size_bytes=0
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            file_size_bytes=0,
         )
         assert result.file_size_formatted == "0 B"
 
@@ -709,7 +725,10 @@ class TestQualityGateAndReport:
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_quality_report_continue_on_error_still_exits_1_on_processing_failure(
-        self, mock_resolve, mock_process, mock_write_report
+        self,
+        mock_resolve,
+        mock_process,
+        mock_write_report,
     ):
         """--continue-on-error should continue processing but still fail on processing errors."""
         from cja_auto_sdr.generator import ProcessingResult, main
@@ -804,7 +823,11 @@ class TestQualityGateAndReport:
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_quality_report_write_error_exits_cleanly_with_code_1(
-        self, mock_resolve, mock_process, mock_write_report, capsys
+        self,
+        mock_resolve,
+        mock_process,
+        mock_write_report,
+        capsys,
     ):
         """Quality report write failures should be handled with a clean exit code 1."""
         from cja_auto_sdr.generator import ProcessingResult, main
@@ -821,7 +844,9 @@ class TestQualityGateAndReport:
         )
 
         with patch.object(
-            sys, "argv", ["cja_auto_sdr", "dv_ok", "--quality-report", "json", "--output", "report.json"]
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_ok", "--quality-report", "json", "--output", "report.json"],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -960,7 +985,8 @@ class TestQualityGateAndReport:
 
         policy_path = tmp_path / "quality_policy.json"
         policy_path.write_text(
-            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}), encoding="utf-8"
+            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}),
+            encoding="utf-8",
         )
         mock_list_dataviews.return_value = True
 
@@ -984,7 +1010,9 @@ class TestQualityGateAndReport:
     @patch("cja_auto_sdr.generator.BatchProcessor")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_batch_failures_take_precedence_over_quality_gate_with_continue_on_error(
-        self, mock_resolve, mock_batch_cls
+        self,
+        mock_resolve,
+        mock_batch_cls,
     ):
         """Batch processing failures should keep exit code 1 precedence over quality gate exit 2."""
         from cja_auto_sdr.generator import ProcessingResult, main
@@ -1001,7 +1029,7 @@ class TestQualityGateAndReport:
                     dq_issues_count=1,
                     dq_issues=[{"Severity": "HIGH", "Issue": "Threshold issue"}],
                     dq_severity_counts={"HIGH": 1},
-                )
+                ),
             ],
             "failed": [
                 ProcessingResult(
@@ -1010,7 +1038,7 @@ class TestQualityGateAndReport:
                     success=False,
                     duration=0.1,
                     error_message="mock failure",
-                )
+                ),
             ],
             "total": 2,
             "total_duration": 0.2,
@@ -1054,7 +1082,7 @@ class TestQualityGateAndReport:
                     dq_issues_count=0,
                     dq_issues=[],
                     dq_severity_counts={},
-                )
+                ),
             ],
             "failed": [
                 ProcessingResult(
@@ -1063,7 +1091,7 @@ class TestQualityGateAndReport:
                     success=False,
                     duration=0.1,
                     error_message="mock failure",
-                )
+                ),
             ],
             "total": 2,
             "total_duration": 0.2,
@@ -1143,7 +1171,9 @@ class TestQualityGateAndReport:
         mock_handle_diff.return_value = (True, False, None)
 
         with patch.object(
-            sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--auto-prune", "--keep-last=0"]
+            sys,
+            "argv",
+            ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--auto-snapshot", "--auto-prune", "--keep-last=0"],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -1728,8 +1758,8 @@ class TestListConnectionsFunction:
                     "name": "Production Connection",
                     "ownerFullName": "John Doe",
                     "dataSets": [{"id": "ds_456", "name": "Web Events"}, {"id": "ds_789", "name": "Mobile Events"}],
-                }
-            ]
+                },
+            ],
         }
 
         import io
@@ -1756,7 +1786,7 @@ class TestListConnectionsFunction:
             "content": [
                 {"id": "conn_1", "name": "Prod Connection", "ownerFullName": "Owner A", "dataSets": []},
                 {"id": "conn_2", "name": "Staging Connection", "ownerFullName": "Owner B", "dataSets": []},
-            ]
+            ],
         }
 
         import io
@@ -1843,8 +1873,8 @@ class TestListConnectionsFunction:
                     "name": "Test Conn",
                     "ownerFullName": "Owner",
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         import io
@@ -1874,8 +1904,8 @@ class TestListConnectionsFunction:
                     "name": "Test Conn",
                     "ownerFullName": None,
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         import io
@@ -1897,7 +1927,7 @@ class TestListConnectionsFunction:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Test Conn", "ownerFullName": None, "dataSets": []}]
+            "content": [{"id": "conn_1", "name": "Test Conn", "ownerFullName": None, "dataSets": []}],
         }
 
         import io
@@ -1920,7 +1950,7 @@ class TestListConnectionsFunction:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Test Conn", "dataSets": []}]
+            "content": [{"id": "conn_1", "name": "Test Conn", "dataSets": []}],
         }
 
         import io
@@ -1948,8 +1978,8 @@ class TestListConnectionsFunction:
                     "name": "Test Conn",
                     "ownerFullName": "",
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         import io
@@ -1971,7 +2001,7 @@ class TestListConnectionsFunction:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Test Conn", "ownerFullName": "", "dataSets": []}]
+            "content": [{"id": "conn_1", "name": "Test Conn", "ownerFullName": "", "dataSets": []}],
         }
 
         import io
@@ -2037,11 +2067,11 @@ class TestListDatasetsFunction:
                     "id": "conn_456",
                     "name": "Production Connection",
                     "dataSets": [{"id": "ds_789", "name": "Web Events"}],
-                }
-            ]
+                },
+            ],
         }
         mock_cja_instance.getDataViews.return_value = [
-            {"id": "dv_123", "name": "Web Data View", "parentDataGroupId": "conn_456"}
+            {"id": "dv_123", "name": "Web Data View", "parentDataGroupId": "conn_456"},
         ]
 
         import io
@@ -2123,7 +2153,7 @@ class TestListDatasetsFunction:
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {"content": []}
         mock_cja_instance.getDataViews.return_value = pd.DataFrame(
-            [{"id": "dv_orphan_nan", "name": "Orphan NaN", "parentDataGroupId": float("nan")}]
+            [{"id": "dv_orphan_nan", "name": "Orphan NaN", "parentDataGroupId": float("nan")}],
         )
 
         import io
@@ -2148,10 +2178,10 @@ class TestListDatasetsFunction:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Conn One", "dataSets": [{"id": "ds_1", "name": "Dataset"}]}]
+            "content": [{"id": "conn_1", "name": "Conn One", "dataSets": [{"id": "ds_1", "name": "Dataset"}]}],
         }
         mock_cja_instance.getDataViews.return_value = [
-            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"}
+            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"},
         ]
 
         import io
@@ -2340,8 +2370,8 @@ class TestFileOutput:
                     "name": "Test Conn",
                     "ownerFullName": "Owner",
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         out_file = str(tmp_path / "connections.json")
@@ -2367,8 +2397,8 @@ class TestFileOutput:
                     "name": "Test Conn",
                     "ownerFullName": "Owner",
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         out_file = str(tmp_path / "connections.csv")
@@ -2389,10 +2419,10 @@ class TestFileOutput:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Conn One", "dataSets": [{"id": "ds_1", "name": "Dataset"}]}]
+            "content": [{"id": "conn_1", "name": "Conn One", "dataSets": [{"id": "ds_1", "name": "Dataset"}]}],
         }
         mock_cja_instance.getDataViews.return_value = [
-            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"}
+            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"},
         ]
 
         out_file = str(tmp_path / "datasets.json")
@@ -2412,7 +2442,7 @@ class TestFileOutput:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getDataViews.return_value = [
-            {"id": "dv_1", "name": "My View", "owner": {"name": "Test User"}}
+            {"id": "dv_1", "name": "My View", "owner": {"name": "Test User"}},
         ]
 
         out_file = str(tmp_path / "dataviews.json")
@@ -2438,8 +2468,8 @@ class TestFileOutput:
                     "name": "Test Conn",
                     "ownerFullName": "Owner",
                     "dataSets": [{"id": "ds_1", "name": "Dataset One"}],
-                }
-            ]
+                },
+            ],
         }
 
         out_file = str(tmp_path / "connections.txt")
@@ -2459,7 +2489,7 @@ class TestFileOutput:
         mock_configure.return_value = (True, "config", None)
         mock_cja_instance = mock_cjapy.CJA.return_value
         mock_cja_instance.getConnections.return_value = {
-            "content": [{"id": "conn_1", "name": "Test", "ownerFullName": "Owner", "dataSets": []}]
+            "content": [{"id": "conn_1", "name": "Test", "ownerFullName": "Owner", "dataSets": []}],
         }
 
         out_file = str(tmp_path / "subdir" / "nested" / "connections.json")
@@ -2483,11 +2513,11 @@ class TestFileOutput:
                     "id": "conn_1",
                     "name": "Conn One",
                     "dataSets": [{"id": "ds_1", "name": "Dataset A"}, {"id": "ds_2", "name": "Dataset B"}],
-                }
-            ]
+                },
+            ],
         }
         mock_cja_instance.getDataViews.return_value = [
-            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"}
+            {"id": "dv_1", "name": "View One", "parentDataGroupId": "conn_1"},
         ]
 
         out_file = str(tmp_path / "datasets.csv")
@@ -3003,7 +3033,8 @@ class TestRunSummaryOutput:
 
         policy_path = tmp_path / "quality_policy.json"
         policy_path.write_text(
-            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}), encoding="utf-8"
+            json.dumps({"fail_on_quality": "HIGH", "quality_report": "csv", "max_issues": 5}),
+            encoding="utf-8",
         )
         mock_list_dataviews.return_value = True
         summary_file = tmp_path / "run_summary_discovery_quality_policy.json"
@@ -3033,7 +3064,10 @@ class TestRunSummaryOutput:
     @patch("cja_auto_sdr.generator.run_org_report")
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_mode_precedence_matches_dispatch_order(
-        self, mock_list_dataviews, mock_run_org_report, tmp_path
+        self,
+        mock_list_dataviews,
+        mock_run_org_report,
+        tmp_path,
     ):
         """When multiple mode flags are present, summary mode should match the first dispatch branch."""
         from cja_auto_sdr.generator import main
@@ -3089,7 +3123,11 @@ class TestRunSummaryOutput:
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.interactive_wizard")
     def test_run_summary_interactive_refreshes_data_view_inputs(
-        self, mock_wizard, mock_resolve, mock_process, tmp_path
+        self,
+        mock_wizard,
+        mock_resolve,
+        mock_process,
+        tmp_path,
     ):
         """Interactive runs should record wizard-selected data view inputs in run summary."""
         from cja_auto_sdr.generator import ProcessingResult, WizardConfig, main
@@ -3216,7 +3254,11 @@ class TestRunSummaryOutput:
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_run_summary_quality_report_uses_quality_report_format(
-        self, mock_resolve, mock_process, mock_write_report, tmp_path
+        self,
+        mock_resolve,
+        mock_process,
+        mock_write_report,
+        tmp_path,
     ):
         """Run summary output_format should reflect --quality-report format, not internal SDR writer format."""
         from cja_auto_sdr.generator import ProcessingResult, main

@@ -272,7 +272,9 @@ class OrgComponentAnalyzer:
         if self.config.duplicate_threshold is not None or self.config.isolated_threshold is not None:
             self.logger.info("Checking governance thresholds...")
             governance_violations, thresholds_exceeded = self._check_governance_thresholds(
-                similarity_pairs, distribution, len(component_index)
+                similarity_pairs,
+                distribution,
+                len(component_index),
             )
             if thresholds_exceeded:
                 self.logger.warning(f"Governance thresholds exceeded: {len(governance_violations)} violation(s)")
@@ -347,7 +349,7 @@ class OrgComponentAnalyzer:
         for dp in dangerous_patterns:
             if re.search(dp, pattern):
                 self.logger.warning(
-                    f"Potentially dangerous {name} pattern rejected (may cause slow matching): {pattern}"
+                    f"Potentially dangerous {name} pattern rejected (may cause slow matching): {pattern}",
                 )
                 return None
 
@@ -492,7 +494,7 @@ class OrgComponentAnalyzer:
                 cache_stale = stale_count
                 if cache_hits > 0 or cache_stale > 0:
                     self.logger.info(
-                        f"Cache validation: {cache_hits} valid, {cache_stale} stale, {len(to_fetch)} to fetch"
+                        f"Cache validation: {cache_hits} valid, {cache_stale} stale, {len(to_fetch)} to fetch",
                     )
             else:
                 # Standard age-based cache lookup
@@ -572,7 +574,7 @@ class OrgComponentAnalyzer:
                                     data_view_id=dv.get("id", "unknown"),
                                     data_view_name=dv.get("name", "Unknown"),
                                     error=error_msg,
-                                )
+                                ),
                             )
                         pbar.update(1)
                         self._assert_lock_healthy()
@@ -657,7 +659,8 @@ class OrgComponentAnalyzer:
                         .str.lower()
                     )
                     is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
-                        "derived", na=False
+                        "derived",
+                        na=False,
                     )
                     derived_metric_count = int(is_derived.sum())
                     standard_metric_count = len(metrics_df) - derived_metric_count
@@ -696,7 +699,8 @@ class OrgComponentAnalyzer:
                         .str.lower()
                     )
                     is_derived = type_col.str.contains("derived", na=False) | source_col.str.contains(
-                        "derived", na=False
+                        "derived",
+                        na=False,
                     )
                     derived_dimension_count = int(is_derived.sum())
                     standard_dimension_count = len(dimensions_df) - derived_dimension_count
@@ -754,7 +758,10 @@ class OrgComponentAnalyzer:
         except Exception as e:
             error_msg = str(e) or f"{type(e).__name__}"
             return DataViewSummary(
-                data_view_id=dv_id, data_view_name=dv_name, error=error_msg, fetch_duration=time.time() - start_time
+                data_view_id=dv_id,
+                data_view_name=dv_name,
+                error=error_msg,
+                fetch_duration=time.time() - start_time,
             )
 
     def _build_component_index(self, summaries: list[DataViewSummary]) -> dict[str, ComponentInfo]:
@@ -780,7 +787,10 @@ class OrgComponentAnalyzer:
                     if summary.metric_names:
                         metric_name = summary.metric_names.get(metric_id)
                     index[metric_id] = ComponentInfo(
-                        component_id=metric_id, component_type="metric", name=metric_name, data_views=set()
+                        component_id=metric_id,
+                        component_type="metric",
+                        name=metric_name,
+                        data_views=set(),
                     )
                 index[metric_id].data_views.add(summary.data_view_id)
 
@@ -792,7 +802,10 @@ class OrgComponentAnalyzer:
                     if summary.dimension_names:
                         dim_name = summary.dimension_names.get(dim_id)
                     index[dim_id] = ComponentInfo(
-                        component_id=dim_id, component_type="dimension", name=dim_name, data_views=set()
+                        component_id=dim_id,
+                        component_type="dimension",
+                        name=dim_name,
+                        data_views=set(),
                     )
                 index[dim_id].data_views.add(summary.data_view_id)
 
@@ -1017,7 +1030,7 @@ class OrgComponentAnalyzer:
                         only_in_dv2=only_in_dv2,
                         only_in_dv1_names=only_in_dv1_names,
                         only_in_dv2_names=only_in_dv2_names,
-                    )
+                    ),
                 )
 
         return sorted(pairs, key=lambda p: p.jaccard_similarity, reverse=True)
@@ -1045,7 +1058,7 @@ class OrgComponentAnalyzer:
             from scipy.spatial.distance import squareform
         except ImportError:
             self.logger.warning(
-                "scipy not available - skipping clustering. Install with: uv pip install 'cja-auto-sdr[clustering]'"
+                "scipy not available - skipping clustering. Install with: uv pip install 'cja-auto-sdr[clustering]'",
             )
             return None
 
@@ -1113,7 +1126,7 @@ class OrgComponentAnalyzer:
                     data_view_ids=dv_ids,
                     data_view_names=dv_names,
                     cohesion_score=round(cohesion, 4),
-                )
+                ),
             )
 
         # Sort by cluster size descending
@@ -1196,7 +1209,7 @@ class OrgComponentAnalyzer:
                         "isolated_count": len(isolated),
                         "reason": f"Data view has {len(isolated)} components not used elsewhere. "
                         "Consider if these are needed or if this DV serves a specialized purpose.",
-                    }
+                    },
                 )
 
         # Recommendation: High overlap pairs
@@ -1235,7 +1248,7 @@ class OrgComponentAnalyzer:
                         "count": near_core_count,
                         "reason": f"{near_core_count} components are in 70-99% of data views. "
                         "Consider standardizing these across all data views.",
-                    }
+                    },
                 )
 
         # Recommendation: Fetch errors
@@ -1248,7 +1261,7 @@ class OrgComponentAnalyzer:
                     "count": error_count,
                     "reason": f"{error_count} data view(s) could not be analyzed due to errors. "
                     "Check permissions and data view status.",
-                }
+                },
             )
 
         # Recommendation: High derived ratio (if component types enabled)
@@ -1270,7 +1283,7 @@ class OrgComponentAnalyzer:
                             "ratio": round(derived_count / total_components, 2),
                             "reason": f"Data view has {derived_count}/{total_components} ({derived_count * 100 // total_components}%) derived components. "
                             "High derived ratios may indicate complex transformations or maintenance burden.",
-                        }
+                        },
                     )
 
         # Recommendation: Stale data views (if metadata enabled)
@@ -1293,7 +1306,7 @@ class OrgComponentAnalyzer:
                                 "modified": summary.modified,
                                 "reason": f"Data view not modified since {summary.modified[:10]}. "
                                 "Consider reviewing if still needed or if updates are required.",
-                            }
+                            },
                         )
                 except ValueError, TypeError:
                     pass
@@ -1309,7 +1322,7 @@ class OrgComponentAnalyzer:
                         "count": no_desc_count,
                         "reason": f"{no_desc_count} data view(s) have no description. "
                         "Adding descriptions improves discoverability and governance.",
-                    }
+                    },
                 )
 
         # Recommendation: Drift in high-overlap pairs (if drift enabled)
@@ -1331,7 +1344,10 @@ class OrgComponentAnalyzer:
         return recommendations
 
     def _check_governance_thresholds(
-        self, similarity_pairs: list[SimilarityPair] | None, distribution: ComponentDistribution, total_components: int
+        self,
+        similarity_pairs: list[SimilarityPair] | None,
+        distribution: ComponentDistribution,
+        total_components: int,
     ) -> tuple[list[dict[str, Any]], bool]:
         """Check if governance thresholds are exceeded (Feature 1).
 
@@ -1356,7 +1372,7 @@ class OrgComponentAnalyzer:
                         "threshold": self.config.duplicate_threshold,
                         "actual": len(high_sim_pairs),
                         "message": f"Found {len(high_sim_pairs)} high-similarity pairs (>=90%), threshold is {self.config.duplicate_threshold}",
-                    }
+                    },
                 )
                 exceeded = True
 
@@ -1373,7 +1389,7 @@ class OrgComponentAnalyzer:
                         "isolated_count": isolated_count,
                         "total_components": total_components,
                         "message": f"Isolated components at {isolated_pct * 100:.1f}% ({isolated_count}/{total_components}), threshold is {self.config.isolated_threshold * 100:.1f}%",
-                    }
+                    },
                 )
                 exceeded = True
 
@@ -1438,7 +1454,7 @@ class OrgComponentAnalyzer:
                         "name": name,
                         "pattern": "stale_keyword",
                         "data_views": list(info.data_views)[:3],  # First 3 DVs
-                    }
+                    },
                 )
             elif _VERSION_SUFFIX_RE.search(name):
                 audit["stale_patterns"].append(
@@ -1447,7 +1463,7 @@ class OrgComponentAnalyzer:
                         "name": name,
                         "pattern": "version_suffix",
                         "data_views": list(info.data_views)[:3],
-                    }
+                    },
                 )
             elif _DATE_PATTERN_RE.search(name):
                 audit["stale_patterns"].append(
@@ -1456,7 +1472,7 @@ class OrgComponentAnalyzer:
                         "name": name,
                         "pattern": "date_pattern",
                         "data_views": list(info.data_views)[:3],
-                    }
+                    },
                 )
 
         # Generate recommendations
@@ -1470,7 +1486,7 @@ class OrgComponentAnalyzer:
                     "severity": "low",
                     "message": f"Mixed naming conventions detected. Dominant style is {dominant_style}, "
                     f"but {non_dominant} components use different styles.",
-                }
+                },
             )
 
         if len(audit["stale_patterns"]) > 0:
@@ -1481,7 +1497,7 @@ class OrgComponentAnalyzer:
                     "count": len(audit["stale_patterns"]),
                     "message": f"Found {len(audit['stale_patterns'])} components with stale naming patterns "
                     "(test, old, temp, version suffixes, or date stamps).",
-                }
+                },
             )
 
         return audit
@@ -1536,12 +1552,15 @@ class OrgComponentAnalyzer:
             "by_owner": owner_stats,
             "total_owners": len(owner_stats),
             "owners_sorted_by_dv_count": sorted(
-                owner_stats.keys(), key=lambda o: owner_stats[o]["data_view_count"], reverse=True
+                owner_stats.keys(),
+                key=lambda o: owner_stats[o]["data_view_count"],
+                reverse=True,
             ),
         }
 
     def _validate_cache_entries(
-        self, data_views: list[dict[str, Any]]
+        self,
+        data_views: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], list[DataViewSummary], int, int]:
         """Validate cached entries using modification timestamps from getDataViews() response.
 
@@ -1588,7 +1607,10 @@ class OrgComponentAnalyzer:
 
             # Try to get from cache with validation
             cached = self.cache.get(
-                dv_id, self.config.cache_max_age_hours, required_flags=required_flags, current_modified=current_modified
+                dv_id,
+                self.config.cache_max_age_hours,
+                required_flags=required_flags,
+                current_modified=current_modified,
             )
 
             if cached:
@@ -1637,7 +1659,7 @@ class OrgComponentAnalyzer:
                         "pattern": pattern_matched,
                         "presence_count": info.presence_count,
                         "data_views": list(info.data_views)[:5],  # First 5 DVs
-                    }
+                    },
                 )
 
         return stale_components

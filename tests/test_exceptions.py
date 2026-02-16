@@ -146,7 +146,11 @@ class TestOutputError:
     def test_all_params(self):
         orig = PermissionError("denied")
         err = OutputError(
-            "write failed", output_path="/tmp/out.xlsx", output_format="excel", details="denied", original_error=orig
+            "write failed",
+            output_path="/tmp/out.xlsx",
+            output_format="excel",
+            details="denied",
+            original_error=orig,
         )
         assert err.output_path == "/tmp/out.xlsx"
         assert err.output_format == "excel"

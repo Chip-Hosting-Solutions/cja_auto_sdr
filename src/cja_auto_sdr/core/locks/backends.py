@@ -714,7 +714,8 @@ class LeaseFileLockBackend:
                 if lock_active is True:
                     return AcquireResult(status=AcquireStatus.CONTENDED)
                 if info_outcome.state == "missing" and not _is_missing_metadata_stale(
-                    lock_path, stale_threshold_seconds
+                    lock_path,
+                    stale_threshold_seconds,
                 ):
                     # Fresh missing metadata is usually a transient bootstrap window.
                     return AcquireResult(status=AcquireStatus.CONTENDED)

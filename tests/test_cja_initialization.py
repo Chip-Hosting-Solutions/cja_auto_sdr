@@ -61,7 +61,7 @@ def invalid_config_file(tmp_path):
 def incomplete_config_file(tmp_path):
     """Create a config file with missing required fields"""
     config_data = {
-        "org_id": "test_org@AdobeOrg"
+        "org_id": "test_org@AdobeOrg",
         # Missing client_id and secret
     }
     config_file = tmp_path / "incomplete_config.json"
@@ -99,7 +99,13 @@ class TestInitializeCjaSuccess:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_init_with_env_credentials(
-        self, mock_api_call, mock_cjapy, mock_config_env, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_config_env,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Test successful initialization with environment credentials"""
         # Mock CredentialResolver to return env credentials
@@ -123,7 +129,12 @@ class TestInitializeCjaSuccess:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_init_logs_connection_success(
-        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Test that successful connection is logged"""
         # Mock CredentialResolver
@@ -198,7 +209,9 @@ class TestInitializeCjaFailures:
         # Mock CredentialResolver to raise CredentialSourceError
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found", source="all", reason="Config validation failed"
+            "No valid credentials found",
+            source="all",
+            reason="Config validation failed",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -213,7 +226,9 @@ class TestInitializeCjaFailures:
         # Mock CredentialResolver to raise CredentialSourceError
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found", source="all", reason="Config file not found"
+            "No valid credentials found",
+            source="all",
+            reason="Config file not found",
         )
         mock_resolver_class.return_value = mock_resolver
 
@@ -365,7 +380,12 @@ class TestInitializeCjaConnectionTest:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_connection_test_returns_none(
-        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Test handling when connection test returns None"""
         mock_resolver = Mock()
@@ -389,7 +409,12 @@ class TestInitializeCjaConnectionTest:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_connection_test_raises_exception(
-        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Test handling when connection test raises exception"""
         mock_resolver = Mock()
@@ -557,7 +582,7 @@ class TestListDataviews:
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
         mock_cja.getDataViews.return_value = pd.DataFrame(
-            [{"id": "dv_1", "name": "Data View 1", "owner": {"name": "Owner 1"}}]
+            [{"id": "dv_1", "name": "Data View 1", "owner": {"name": "Owner 1"}}],
         )
 
         result = list_dataviews(mock_config_file)
@@ -611,7 +636,13 @@ class TestValidateConfigOnly:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("builtins.print")
     def test_validates_env_credentials(
-        self, mock_print, mock_cjapy, mock_config_env, mock_validate_env, mock_load_env, mock_config_file
+        self,
+        mock_print,
+        mock_cjapy,
+        mock_config_env,
+        mock_validate_env,
+        mock_load_env,
+        mock_config_file,
     ):
         """Test validation with environment credentials"""
         mock_load_env.return_value = {"org_id": "test@AdobeOrg", "client_id": "test_client", "secret": "test_secret"}
@@ -682,7 +713,12 @@ class TestInitializeCjaEnvFallback:
     @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
     def test_falls_back_to_config_when_env_incomplete(
-        self, mock_api_call, mock_cjapy, mock_resolver_class, mock_logger, mock_config_file
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
     ):
         """Test fallback to config file when env credentials incomplete"""
         # CredentialResolver handles fallback internally — mock it to return config source
@@ -708,7 +744,9 @@ class TestInitializeCjaEnvFallback:
         # CredentialResolver raises when no valid credentials found
         mock_resolver = Mock()
         mock_resolver.resolve.side_effect = CredentialSourceError(
-            "No valid credentials found", source="all", reason="All sources failed"
+            "No valid credentials found",
+            source="all",
+            reason="All sources failed",
         )
         mock_resolver_class.return_value = mock_resolver
 

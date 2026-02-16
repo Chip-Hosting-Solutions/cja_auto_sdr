@@ -681,8 +681,8 @@ class TestConfigValidation:
                     "org_id": "test_org",
                     "client_id": "test_client",
                     # Missing other required fields
-                }
-            )
+                },
+            ),
         )
 
         # Should fail when required fields are missing
@@ -864,12 +864,15 @@ class TestValidationSchema:
                 "name": ["Metric 1", "Metric 2"],
                 "type": ["int", "currency"],
                 "description": ["Desc 1", "Desc 2"],
-            }
+            },
         )
 
         # Use VALIDATION_SCHEMA values directly
         checker.check_all_quality_issues_optimized(
-            df, "Metrics", VALIDATION_SCHEMA["required_metric_fields"], VALIDATION_SCHEMA["critical_fields"]
+            df,
+            "Metrics",
+            VALIDATION_SCHEMA["required_metric_fields"],
+            VALIDATION_SCHEMA["critical_fields"],
         )
 
         # Should have no critical issues for valid data

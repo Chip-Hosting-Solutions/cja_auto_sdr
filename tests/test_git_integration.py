@@ -153,7 +153,10 @@ class TestSaveGitFriendlySnapshot:
     def test_sanitizes_data_view_name_for_directory(self, tmp_path):
         """Test that special characters in name are sanitized."""
         snapshot = DataViewSnapshot(
-            data_view_id="dv_12345", data_view_name="Test / Data View: With <Special> Chars!", metrics=[], dimensions=[]
+            data_view_id="dv_12345",
+            data_view_name="Test / Data View: With <Special> Chars!",
+            metrics=[],
+            dimensions=[],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
@@ -220,7 +223,10 @@ class TestSaveGitFriendlySnapshot:
     def test_no_inventory_files_when_not_present(self, tmp_path):
         """Test that inventory files are not created when data not present."""
         snapshot = DataViewSnapshot(
-            data_view_id="dv_12345", data_view_name="Test", metrics=[{"id": "cm1"}], dimensions=[{"id": "dim1"}]
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics=[{"id": "cm1"}],
+            dimensions=[{"id": "dim1"}],
         )
 
         saved_files = save_git_friendly_snapshot(snapshot, tmp_path)
@@ -277,7 +283,10 @@ class TestGenerateGitCommitMessage:
     def test_basic_message_structure(self):
         """Test that commit message has correct structure."""
         message = generate_git_commit_message(
-            data_view_id="dv_12345", data_view_name="Test Data View", metrics_count=10, dimensions_count=5
+            data_view_id="dv_12345",
+            data_view_name="Test Data View",
+            metrics_count=10,
+            dimensions_count=5,
         )
 
         assert "[dv_12345]" in message
@@ -334,7 +343,11 @@ class TestGenerateGitCommitMessage:
         mock_diff.summary = mock_summary
 
         message = generate_git_commit_message(
-            data_view_id="dv_12345", data_view_name="Test", metrics_count=10, dimensions_count=5, diff_result=mock_diff
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics_count=10,
+            dimensions_count=5,
+            diff_result=mock_diff,
         )
 
         assert "Changes:" in message
@@ -441,7 +454,11 @@ class TestGitCommitSnapshot:
         test_file.write_text('{"test": "data"}')
 
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
+            snapshot_dir=tmp_path,
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics_count=1,
+            dimensions_count=1,
         )
 
         assert success is True
@@ -449,7 +466,10 @@ class TestGitCommitSnapshot:
 
         # Verify commit exists
         log_result = subprocess.run(
-            ["git", "log", "--oneline", "-1"], cwd=str(tmp_path), capture_output=True, text=True
+            ["git", "log", "--oneline", "-1"],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
         )
         assert "dv_12345" in log_result.stdout
 
@@ -468,7 +488,11 @@ class TestGitCommitSnapshot:
 
         # Try to commit again without changes
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
+            snapshot_dir=tmp_path,
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics_count=1,
+            dimensions_count=1,
         )
 
         assert success is True
@@ -477,7 +501,11 @@ class TestGitCommitSnapshot:
     def test_fails_for_non_git_directory(self, tmp_path):
         """Test that function fails for non-Git directory."""
         success, result = git_commit_snapshot(
-            snapshot_dir=tmp_path, data_view_id="dv_12345", data_view_name="Test", metrics_count=1, dimensions_count=1
+            snapshot_dir=tmp_path,
+            data_view_id="dv_12345",
+            data_view_name="Test",
+            metrics_count=1,
+            dimensions_count=1,
         )
 
         assert success is False
@@ -505,7 +533,10 @@ class TestGitCommitSnapshot:
         )
 
         log_result = subprocess.run(
-            ["git", "log", "--oneline", "-1"], cwd=str(tmp_path), capture_output=True, text=True
+            ["git", "log", "--oneline", "-1"],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
         )
         assert "Custom commit message" in log_result.stdout
 

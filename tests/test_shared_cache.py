@@ -45,7 +45,7 @@ def sample_metrics_df():
             "name": ["Metric One", "Metric Two", "Metric Three"],
             "type": ["calculated", "standard", "calculated"],
             "description": ["First metric", "Second metric", "Third metric"],
-        }
+        },
     )
 
 
@@ -58,7 +58,7 @@ def sample_dimensions_df():
             "name": ["Dimension One", "Dimension Two"],
             "type": ["standard", "standard"],
             "description": ["First dimension", "Second dimension"],
-        }
+        },
     )
 
 
@@ -70,7 +70,10 @@ class TestSharedValidationCacheBasics:
         cache = SharedValidationCache(max_size=100, ttl_seconds=3600)
 
         result, cache_key = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         assert result is None
@@ -87,19 +90,30 @@ class TestSharedValidationCacheBasics:
 
         # First call - miss
         result, cache_key = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         assert result is None
 
         # Store result
         issues = [{"severity": "LOW", "message": "Test issue"}]
         cache.put(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"], issues, cache_key
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
+            issues,
+            cache_key,
         )
 
         # Second call - hit
         result2, _cache_key2 = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         assert result2 is not None

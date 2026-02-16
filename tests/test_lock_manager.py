@@ -155,7 +155,9 @@ class TestLockManagerAcquire:
     def test_contended_returns_false(self, tmp_path):
         mgr = self._make_manager(tmp_path)
         with patch.object(
-            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.CONTENDED)
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.CONTENDED),
         ):
             assert mgr.acquire() is False
             assert mgr.acquired is False
@@ -201,7 +203,9 @@ class TestLockManagerAcquire:
         mock_backend.requires_heartbeat = False
         mgr = self._make_manager(tmp_path, mock_backend)
         with patch.object(
-            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE)
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE),
         ):
             with pytest.raises(LockBackendUnavailableError, match="lock backend unavailable"):
                 mgr.acquire()
@@ -220,7 +224,9 @@ class TestLockManagerAcquire:
     def test_metadata_error_without_error_returns_false(self, tmp_path):
         mgr = self._make_manager(tmp_path)
         with patch.object(
-            LockManager, "_acquire_with_result", return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR)
+            LockManager,
+            "_acquire_with_result",
+            return_value=AcquireResult(status=AcquireStatus.METADATA_ERROR),
         ):
             assert mgr.acquire() is False
 

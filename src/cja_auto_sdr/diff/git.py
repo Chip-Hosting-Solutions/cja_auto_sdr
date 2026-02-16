@@ -23,7 +23,11 @@ def is_git_repository(path: Path) -> bool:
     """Check if the given path is inside a Git repository."""
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"], cwd=str(path), capture_output=True, text=True, timeout=10
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(path),
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired, FileNotFoundError:
@@ -84,7 +88,8 @@ def save_git_friendly_snapshot(
 
     if snapshot.calculated_metrics_inventory:
         calc_metrics_sorted = sorted(
-            snapshot.calculated_metrics_inventory, key=lambda x: x.get("id", x.get("metric_id", ""))
+            snapshot.calculated_metrics_inventory,
+            key=lambda x: x.get("id", x.get("metric_id", "")),
         )
         calc_metrics_file = dv_dir / "calculated-metrics.json"
         with open(calc_metrics_file, "w", encoding="utf-8") as f:
@@ -222,13 +227,20 @@ def git_commit_snapshot(
             return False, f"No snapshot directory found for data view '{data_view_id}' in {snapshot_dir}"
 
         result = subprocess.run(
-            ["git", "add", "-A", "--", *pathspecs], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=30
+            ["git", "add", "-A", "--", *pathspecs],
+            cwd=str(snapshot_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return False, f"git add failed: {result.stderr}"
 
         result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=str(snapshot_dir), capture_output=True, timeout=10
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(snapshot_dir),
+            capture_output=True,
+            timeout=10,
         )
         if result.returncode == 0:
             logger.info("No changes to commit (snapshot unchanged)")
@@ -246,13 +258,21 @@ def git_commit_snapshot(
 
         logger.info("Committing snapshot to Git")
         result = subprocess.run(
-            ["git", "commit", "-m", commit_message], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=30
+            ["git", "commit", "-m", commit_message],
+            cwd=str(snapshot_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return False, f"git commit failed: {result.stderr}"
 
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=10
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(snapshot_dir),
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         commit_sha = result.stdout.strip()[:8] if result.returncode == 0 else "unknown"
 
@@ -297,13 +317,21 @@ def git_init_snapshot_repo(directory: Path, logger: logging.Logger | None = None
             user_email = "cja-auto-sdr@local"
 
         result = subprocess.run(
-            ["git", "config", "user.name", user_name], cwd=str(directory), capture_output=True, text=True, timeout=30
+            ["git", "config", "user.name", user_name],
+            cwd=str(directory),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return False, f"git config user.name failed: {result.stderr}"
 
         result = subprocess.run(
-            ["git", "config", "user.email", user_email], cwd=str(directory), capture_output=True, text=True, timeout=30
+            ["git", "config", "user.email", user_email],
+            cwd=str(directory),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return False, f"git config user.email failed: {result.stderr}"

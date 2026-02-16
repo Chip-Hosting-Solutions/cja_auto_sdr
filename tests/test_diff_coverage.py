@@ -243,7 +243,11 @@ class TestInventoryItemDiffPostInit:
 
     def test_changed_fields_none_defaults_to_empty(self):
         diff = InventoryItemDiff(
-            id="i1", name="item", change_type=ChangeType.ADDED, inventory_type="calculated_metric", changed_fields=None
+            id="i1",
+            name="item",
+            change_type=ChangeType.ADDED,
+            inventory_type="calculated_metric",
+            changed_fields=None,
         )
         assert diff.changed_fields == {}
 
@@ -750,7 +754,10 @@ class TestBuildSummaryWithCalcMetrics:
 
         cm_diffs = [
             InventoryItemDiff(
-                id="cm1", name="CM1", change_type=ChangeType.UNCHANGED, inventory_type="calculated_metric"
+                id="cm1",
+                name="CM1",
+                change_type=ChangeType.UNCHANGED,
+                inventory_type="calculated_metric",
             ),
             InventoryItemDiff(id="cm2", name="CM2", change_type=ChangeType.REMOVED, inventory_type="calculated_metric"),
             InventoryItemDiff(id="cm3", name="CM3", change_type=ChangeType.REMOVED, inventory_type="calculated_metric"),

@@ -1136,7 +1136,10 @@ class TestIncludeAllInventory:
     @patch("cja_auto_sdr.generator.SnapshotManager")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_include_all_inventory_expands_for_compare_with_prev_mode(
-        self, mock_resolve, mock_snapshot_manager_cls, mock_handle_diff_snapshot
+        self,
+        mock_resolve,
+        mock_snapshot_manager_cls,
+        mock_handle_diff_snapshot,
     ):
         """Test include-all enables calculated+segments for --compare-with-prev mode."""
         from cja_auto_sdr.generator import main
@@ -1174,7 +1177,11 @@ class TestProcessingResultInventory:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, segments_count=10
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            segments_count=10,
         )
         assert result.has_inventory is True
 
@@ -1183,7 +1190,11 @@ class TestProcessingResultInventory:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, calculated_metrics_count=5
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            calculated_metrics_count=5,
         )
         assert result.has_inventory is True
 
@@ -1192,7 +1203,11 @@ class TestProcessingResultInventory:
         from cja_auto_sdr.generator import ProcessingResult
 
         result = ProcessingResult(
-            data_view_id="dv_test", data_view_name="Test", success=True, duration=1.0, derived_fields_count=15
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            derived_fields_count=15,
         )
         assert result.has_inventory is True
 

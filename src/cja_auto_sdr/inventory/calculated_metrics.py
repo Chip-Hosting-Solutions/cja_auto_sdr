@@ -320,7 +320,7 @@ class CalculatedMetricsInventory:
                     "modified",
                     "shared_to",
                     "definition_json",
-                ]
+                ],
             )
 
         # Sort by complexity score descending
@@ -519,7 +519,8 @@ class CalculatedMetricsInventoryBuilder:
         # Extract timestamps
         created = self._coerce_display_text(metric_data.get("created", metric_data.get("createdDate", "")), fallback="")
         modified = self._coerce_display_text(
-            metric_data.get("modified", metric_data.get("modifiedDate", "")), fallback=""
+            metric_data.get("modified", metric_data.get("modifiedDate", "")),
+            fallback="",
         )
 
         # Extract sharing info

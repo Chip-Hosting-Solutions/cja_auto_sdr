@@ -335,7 +335,10 @@ class TestDataViewComparator:
         """Test comparing with custom labels"""
         comparator = DataViewComparator(logger)
         result = comparator.compare(
-            source_snapshot, target_snapshot_identical, source_label="Production", target_label="Staging"
+            source_snapshot,
+            target_snapshot_identical,
+            source_label="Production",
+            target_label="Staging",
         )
 
         assert result.source_label == "Production"
@@ -408,7 +411,10 @@ class TestDiffOutputWriters:
         """Create a sample diff result for output testing"""
         comparator = DataViewComparator(logger)
         return comparator.compare(
-            source_snapshot, target_snapshot_with_changes, source_label="Source", target_label="Target"
+            source_snapshot,
+            target_snapshot_with_changes,
+            source_label="Source",
+            target_label="Target",
         )
 
     def test_console_output(self, sample_diff_result):
@@ -566,7 +572,10 @@ class TestEdgeCases:
         """Test when all items are added (empty source)"""
         source = DataViewSnapshot(data_view_id="dv_empty", data_view_name="Empty", metrics=[], dimensions=[])
         target = DataViewSnapshot(
-            data_view_id="dv_full", data_view_name="Full", metrics=sample_metrics, dimensions=sample_dimensions
+            data_view_id="dv_full",
+            data_view_name="Full",
+            metrics=sample_metrics,
+            dimensions=sample_dimensions,
         )
 
         comparator = DataViewComparator(logger)
@@ -579,7 +588,10 @@ class TestEdgeCases:
     def test_all_removed(self, logger, sample_metrics, sample_dimensions):
         """Test when all items are removed (empty target)"""
         source = DataViewSnapshot(
-            data_view_id="dv_full", data_view_name="Full", metrics=sample_metrics, dimensions=sample_dimensions
+            data_view_id="dv_full",
+            data_view_name="Full",
+            metrics=sample_metrics,
+            dimensions=sample_dimensions,
         )
         target = DataViewSnapshot(data_view_id="dv_empty", data_view_name="Empty", metrics=[], dimensions=[])
 
@@ -632,7 +644,7 @@ class TestComparisonFields:
                     "description": "Original Description",
                     "type": "int",
                     "schemaPath": "/path/original",
-                }
+                },
             ],
             dimensions=[],
         )
@@ -647,7 +659,7 @@ class TestComparisonFields:
                     "description": "Changed Description",
                     "type": "decimal",
                     "schemaPath": "/path/changed",
-                }
+                },
             ],
             dimensions=[],
         )
@@ -993,7 +1005,7 @@ class TestExtendedFieldComparison:
                     "type": "int",
                     "hidden": True,
                     "precision": 4,  # Changed
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1027,7 +1039,7 @@ class TestExtendedFieldComparison:
                     "id": "m1",
                     "name": "Metric",
                     "attribution": {"model": "firstTouch", "lookback": 30},  # Model changed
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1059,7 +1071,7 @@ class TestExtendedFieldComparison:
                     "segment_references": ["segments/x", "segments/y"],
                     "nesting_depth": 1,
                     "tags": ["Finance", "KPI"],
-                }
+                },
             ],
         )
         target = DataViewSnapshot(
@@ -1081,7 +1093,7 @@ class TestExtendedFieldComparison:
                     "segment_references": ["segments/y", "segments/x"],  # Reordered only
                     "nesting_depth": 1,
                     "tags": ["KPI", "Finance"],  # Reordered only
-                }
+                },
             ],
         )
 
@@ -1183,7 +1195,10 @@ class TestMetricsOnlyAndDimensionsOnly:
     def test_metrics_only_flag(self, logger, sample_metrics, sample_dimensions):
         """Test that --metrics-only excludes dimensions"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
+            data_view_id="dv_1",
+            data_view_name="Source",
+            metrics=sample_metrics,
+            dimensions=sample_dimensions,
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
@@ -1203,7 +1218,10 @@ class TestMetricsOnlyAndDimensionsOnly:
     def test_dimensions_only_flag(self, logger, sample_metrics, sample_dimensions):
         """Test that --dimensions-only excludes metrics"""
         source = DataViewSnapshot(
-            data_view_id="dv_1", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
+            data_view_id="dv_1",
+            data_view_name="Source",
+            metrics=sample_metrics,
+            dimensions=sample_dimensions,
         )
         target = DataViewSnapshot(
             data_view_id="dv_2",
@@ -1324,7 +1342,10 @@ class TestLargeDatasetPerformance:
         import time
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
+            data_view_id="dv_large_1",
+            data_view_name="Large Source",
+            metrics=large_metrics,
+            dimensions=large_dimensions,
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
@@ -1360,11 +1381,14 @@ class TestLargeDatasetPerformance:
                     "name": f"New Metric {i}",
                     "type": "int",
                     "description": f"New description {i}",
-                }
+                },
             )
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
+            data_view_id="dv_large_1",
+            data_view_name="Large Source",
+            metrics=large_metrics,
+            dimensions=large_dimensions,
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
@@ -1388,7 +1412,10 @@ class TestLargeDatasetPerformance:
         """Test that large dataset comparison doesn't consume excessive memory"""
 
         source = DataViewSnapshot(
-            data_view_id="dv_large_1", data_view_name="Large Source", metrics=large_metrics, dimensions=large_dimensions
+            data_view_id="dv_large_1",
+            data_view_name="Large Source",
+            metrics=large_metrics,
+            dimensions=large_dimensions,
         )
         target = DataViewSnapshot(
             data_view_id="dv_large_2",
@@ -1465,7 +1492,7 @@ class TestUnicodeEdgeCases:
                     "name": 'Metric with <html> & "quotes"',
                     "description": "Line1\nLine2\tTabbed",
                     "type": "int",
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1478,7 +1505,7 @@ class TestUnicodeEdgeCases:
                     "name": 'Metric with <html> & "quotes"',
                     "description": "Different\nContent",
                     "type": "int",
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1535,7 +1562,7 @@ class TestDeeplyNestedStructures:
                         "model": "lastTouch",
                         "lookback": {"type": "visitor", "granularity": "day", "numPeriods": 30},
                     },
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1554,7 +1581,7 @@ class TestDeeplyNestedStructures:
                             "numPeriods": 60,  # Changed from 30 to 60
                         },
                     },
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1575,7 +1602,7 @@ class TestDeeplyNestedStructures:
                     "id": "m1",
                     "name": "Currency",
                     "format": {"type": "currency", "currency": "USD", "precision": 2, "negativeFormat": "parentheses"},
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1592,7 +1619,7 @@ class TestDeeplyNestedStructures:
                         "precision": 2,
                         "negativeFormat": "parentheses",
                     },
-                }
+                },
             ],
             dimensions=[],
         )
@@ -1617,7 +1644,7 @@ class TestDeeplyNestedStructures:
                         "buckets": [0, 100, 500, 1000],
                         "labels": ["Low", "Medium", "High", "Premium"],
                     },
-                }
+                },
             ],
         )
         target = DataViewSnapshot(
@@ -1633,7 +1660,7 @@ class TestDeeplyNestedStructures:
                         "buckets": [0, 50, 200, 500, 1000],  # Changed
                         "labels": ["Very Low", "Low", "Medium", "High", "Premium"],  # Changed
                     },
-                }
+                },
             ],
         )
 
@@ -1654,7 +1681,10 @@ class TestConcurrentComparison:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         source = DataViewSnapshot(
-            data_view_id="dv_source", data_view_name="Source", metrics=sample_metrics, dimensions=sample_dimensions
+            data_view_id="dv_source",
+            data_view_name="Source",
+            metrics=sample_metrics,
+            dimensions=sample_dimensions,
         )
 
         targets = [
@@ -1865,7 +1895,11 @@ class TestDiffSummaryPercentages:
         from cja_auto_sdr.generator import DiffSummary
 
         summary = DiffSummary(
-            source_metrics_count=100, target_metrics_count=100, metrics_added=5, metrics_removed=3, metrics_modified=2
+            source_metrics_count=100,
+            target_metrics_count=100,
+            metrics_added=5,
+            metrics_removed=3,
+            metrics_modified=2,
         )
 
         assert summary.metrics_changed == 10
@@ -2842,7 +2876,10 @@ class TestSnapshotToSnapshotComparison:
 
         source_file, target_file = temp_snapshots
         success, has_changes, _exit_code = handle_compare_snapshots_command(
-            source_file=source_file, target_file=target_file, quiet=True, quiet_diff=True
+            source_file=source_file,
+            target_file=target_file,
+            quiet=True,
+            quiet_diff=True,
         )
 
         assert success is True
@@ -2873,7 +2910,10 @@ class TestSnapshotToSnapshotComparison:
             json.dump(snapshot_data, f)
 
         success, has_changes, _ = handle_compare_snapshots_command(
-            source_file=str(file1), target_file=str(file2), quiet=True, quiet_diff=True
+            source_file=str(file1),
+            target_file=str(file2),
+            quiet=True,
+            quiet_diff=True,
         )
 
         assert success is True
@@ -2898,7 +2938,11 @@ class TestSnapshotToSnapshotComparison:
 
         source_file, target_file = temp_snapshots
         success, has_changes, _ = handle_compare_snapshots_command(
-            source_file=source_file, target_file=target_file, reverse_diff=True, quiet=True, quiet_diff=True
+            source_file=source_file,
+            target_file=target_file,
+            reverse_diff=True,
+            quiet=True,
+            quiet_diff=True,
         )
 
         assert success is True

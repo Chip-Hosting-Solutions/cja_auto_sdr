@@ -160,7 +160,10 @@ class ConfigValidator:
 
 
 def validate_credentials(
-    credentials: dict[str, str], logger: logging.Logger, strict: bool = False, source: str = "unknown"
+    credentials: dict[str, str],
+    logger: logging.Logger,
+    strict: bool = False,
+    source: str = "unknown",
 ) -> tuple[bool, list[str]]:
     """Unified validation for credentials from any source.
 
@@ -193,7 +196,7 @@ def validate_credentials(
     if "scopes" not in credentials or not credentials.get("scopes", "").strip():
         logger.warning(
             f"Credentials from {source} missing OAuth scopes - "
-            "recommend setting scopes (copy from Adobe Developer Console)"
+            "recommend setting scopes (copy from Adobe Developer Console)",
         )
 
     # Filter credentials to known fields only
@@ -247,7 +250,8 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
         # Check if file exists
         if not config_path.exists():
             error_msg = ErrorMessageHelper.get_config_error_message(
-                "file_not_found", details=f"Looking for: {config_path.absolute()}"
+                "file_not_found",
+                details=f"Looking for: {config_path.absolute()}",
             )
             logger.error("\n" + error_msg)
             return False
@@ -263,7 +267,8 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
                 config_data = json.load(f)
         except json.JSONDecodeError as e:
             error_msg = ErrorMessageHelper.get_config_error_message(
-                "invalid_json", details=f"Line {e.lineno}, Column {e.colno}: {e.msg}"
+                "invalid_json",
+                details=f"Line {e.lineno}, Column {e.colno}: {e.msg}",
             )
             logger.error("\n" + error_msg)
             return False
@@ -280,7 +285,7 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
             elif not isinstance(config_data[field_name], field_info["type"]):
                 validation_errors.append(
                     f"Invalid type for '{field_name}': expected {field_info['type'].__name__}, "
-                    f"got {type(config_data[field_name]).__name__}"
+                    f"got {type(config_data[field_name]).__name__}",
                 )
             elif not config_data[field_name] or (
                 isinstance(config_data[field_name], str) and not config_data[field_name].strip()
@@ -291,14 +296,14 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
         if "scopes" not in config_data or not config_data.get("scopes", "").strip():
             validation_warnings.append(
                 "OAuth Server-to-Server auth: 'scopes' field not set. "
-                "Copy scopes from your Adobe Developer Console project."
+                "Copy scopes from your Adobe Developer Console project.",
             )
 
         # Validate optional fields if present
         for field_name, field_info in CONFIG_SCHEMA["optional_fields"].items():
             if field_name in config_data and not isinstance(config_data[field_name], field_info["type"]):
                 validation_warnings.append(
-                    f"Invalid type for optional field '{field_name}': expected {field_info['type'].__name__}"
+                    f"Invalid type for optional field '{field_name}': expected {field_info['type'].__name__}",
                 )
 
         # Check for deprecated JWT authentication fields
@@ -311,7 +316,7 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
                 f"DEPRECATED: JWT authentication was removed in v3.0.8. "
                 f"Found JWT fields: {', '.join(deprecated_found)}. "
                 f"Please migrate to OAuth Server-to-Server authentication. "
-                f"See docs/QUICKSTART_GUIDE.md for setup instructions."
+                f"See docs/QUICKSTART_GUIDE.md for setup instructions.",
             )
 
         # Check for unknown fields (potential typos)
@@ -334,12 +339,14 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
             # Provide enhanced error message if missing credentials
             if any("Missing required field" in err for err in validation_errors):
                 error_msg = ErrorMessageHelper.get_config_error_message(
-                    "missing_credentials", details="One or more required fields are missing from your config file"
+                    "missing_credentials",
+                    details="One or more required fields are missing from your config file",
                 )
                 logger.error(error_msg)
             elif any("Empty value" in err for err in validation_errors):
                 error_msg = ErrorMessageHelper.get_config_error_message(
-                    "invalid_format", details="One or more fields have empty or invalid values"
+                    "invalid_format",
+                    details="One or more fields have empty or invalid values",
                 )
                 logger.error(error_msg)
             return False

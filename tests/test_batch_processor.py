@@ -119,7 +119,11 @@ class TestBatchProcessorInit:
         mock_setup_logging.return_value = Mock()
 
         processor = BatchProcessor(
-            config_file=mock_config_file, output_dir=temp_output_dir, enable_cache=True, cache_size=500, cache_ttl=1800
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            enable_cache=True,
+            cache_size=500,
+            cache_ttl=1800,
         )
 
         assert processor.enable_cache is True
@@ -165,7 +169,13 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_single_success(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir, successful_result
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
     ):
         """Test processing a single data view successfully"""
         mock_setup_logging.return_value = Mock()
@@ -197,7 +207,13 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_single_failure(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir, failed_result
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        failed_result,
     ):
         """Test processing a single data view that fails"""
         mock_setup_logging.return_value = Mock()
@@ -264,7 +280,12 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_exception_handling(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Test handling of exceptions during batch processing"""
         mock_setup_logging.return_value = Mock()
@@ -293,7 +314,12 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_exception_cancels_remaining_when_continue_on_error_false(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Exceptions should cancel outstanding futures when stopping early."""
         mock_setup_logging.return_value = Mock()
@@ -314,7 +340,9 @@ class TestBatchProcessorProcessBatch:
 
         with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
             processor = BatchProcessor(
-                config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=False
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                continue_on_error=False,
             )
             processor.process_batch(["dv_test_12345"])
 
@@ -324,7 +352,12 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_shared_cache_shutdown_on_interrupt(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Shared cache should be shutdown even when processing is interrupted."""
         mock_setup_logging.return_value = Mock()
@@ -364,7 +397,13 @@ class TestBatchProcessorProcessBatch:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_process_batch_calculates_total_duration(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir, successful_result
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
     ):
         """Test that total duration is calculated"""
         mock_setup_logging.return_value = Mock()
@@ -395,7 +434,12 @@ class TestBatchProcessorPrintSummary:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("builtins.print")
     def test_print_summary_all_successful(
-        self, mock_print, mock_setup_logging, mock_config_file, temp_output_dir, successful_result
+        self,
+        mock_print,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
     ):
         """Test summary output with all successful results"""
         mock_setup_logging.return_value = Mock()
@@ -413,7 +457,13 @@ class TestBatchProcessorPrintSummary:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("builtins.print")
     def test_print_summary_with_failures(
-        self, mock_print, mock_setup_logging, mock_config_file, temp_output_dir, successful_result, failed_result
+        self,
+        mock_print,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
+        failed_result,
     ):
         """Test summary output with some failures"""
         mock_setup_logging.return_value = Mock()
@@ -430,7 +480,13 @@ class TestBatchProcessorPrintSummary:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("builtins.print")
     def test_print_summary_calculates_success_rate(
-        self, mock_print, mock_setup_logging, mock_config_file, temp_output_dir, successful_result, failed_result
+        self,
+        mock_print,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
+        failed_result,
     ):
         """Test that success rate is calculated correctly"""
         mock_setup_logging.return_value = Mock()
@@ -463,7 +519,11 @@ class TestBatchProcessorPrintSummary:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("builtins.print")
     def test_print_summary_calculates_total_file_size(
-        self, mock_print, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_print,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Test that total file size is calculated"""
         mock_setup_logging.return_value = Mock()
@@ -471,10 +531,18 @@ class TestBatchProcessorPrintSummary:
         processor = BatchProcessor(config_file=mock_config_file, output_dir=temp_output_dir)
 
         result1 = ProcessingResult(
-            data_view_id="dv_1", data_view_name="DV1", success=True, duration=1.0, file_size_bytes=1024
+            data_view_id="dv_1",
+            data_view_name="DV1",
+            success=True,
+            duration=1.0,
+            file_size_bytes=1024,
         )
         result2 = ProcessingResult(
-            data_view_id="dv_2", data_view_name="DV2", success=True, duration=1.0, file_size_bytes=2048
+            data_view_id="dv_2",
+            data_view_name="DV2",
+            success=True,
+            duration=1.0,
+            file_size_bytes=2048,
         )
 
         results = {"successful": [result1, result2], "failed": [], "total": 2, "total_duration": 2.0}
@@ -492,7 +560,13 @@ class TestBatchProcessorWorkerArgs:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_worker_args_include_all_settings(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir, successful_result
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        successful_result,
     ):
         """Test that worker args include all processor settings"""
         mock_setup_logging.return_value = Mock()
@@ -543,7 +617,12 @@ class TestBatchProcessorEdgeCases:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_empty_data_view_list(
-        self, mock_tqdm, mock_executor, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Test processing with empty data view list"""
         mock_setup_logging.return_value = Mock()

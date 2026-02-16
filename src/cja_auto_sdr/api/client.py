@@ -69,7 +69,9 @@ def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
 
 
 def configure_cjapy(
-    profile: str | None = None, config_file: str = "config.json", logger: logging.Logger | None = None
+    profile: str | None = None,
+    config_file: str = "config.json",
+    logger: logging.Logger | None = None,
 ) -> tuple[bool, str, dict[str, str] | None]:
     """
     Configure cjapy with credentials using priority: profile > env > config file.
@@ -142,7 +144,9 @@ def configure_cjapy(
 
 
 def initialize_cja(
-    config_file: str | Path = "config.json", logger: logging.Logger | None = None, profile: str | None = None
+    config_file: str | Path = "config.json",
+    logger: logging.Logger | None = None,
+    profile: str | None = None,
 ) -> cjapy.CJA | None:
     """Initialize CJA connection with comprehensive error handling.
 
@@ -221,11 +225,13 @@ def initialize_cja(
         try:
             # Attempt to list data views to verify connection with retry
             test_call = make_api_call_with_retry(
-                cja.getDataViews, logger=logger, operation_name="getDataViews (connection test)"
+                cja.getDataViews,
+                logger=logger,
+                operation_name="getDataViews (connection test)",
             )
             if test_call is not None:
                 logger.info(
-                    f"\u2713 API connection successful! Found {len(test_call) if hasattr(test_call, '__len__') else 'multiple'} data view(s)"
+                    f"\u2713 API connection successful! Found {len(test_call) if hasattr(test_call, '__len__') else 'multiple'} data view(s)",
                 )
             else:
                 logger.warning("API connection test returned None - connection may be unstable")

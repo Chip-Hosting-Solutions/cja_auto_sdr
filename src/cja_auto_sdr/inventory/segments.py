@@ -302,7 +302,7 @@ class SegmentsInventory:
                     "modified",
                     "shared_to",
                     "definition_json",
-                ]
+                ],
             )
 
         # Sort by complexity score descending
@@ -475,10 +475,12 @@ class SegmentsInventoryBuilder:
 
         # Extract timestamps
         created = self._coerce_display_text(
-            segment_data.get("created", segment_data.get("createdDate", "")), fallback=""
+            segment_data.get("created", segment_data.get("createdDate", "")),
+            fallback="",
         )
         modified = self._coerce_display_text(
-            segment_data.get("modified", segment_data.get("modifiedDate", "")), fallback=""
+            segment_data.get("modified", segment_data.get("modifiedDate", "")),
+            fallback="",
         )
 
         # Extract sharing info

@@ -30,7 +30,11 @@ class ConfigurationError(CJASDRError):
     """
 
     def __init__(
-        self, message: str, config_file: str | None = None, field: str | None = None, details: str | None = None
+        self,
+        message: str,
+        config_file: str | None = None,
+        field: str | None = None,
+        details: str | None = None,
     ):
         self.config_file = config_file
         self.field = field

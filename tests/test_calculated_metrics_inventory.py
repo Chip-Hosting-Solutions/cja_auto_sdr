@@ -2875,7 +2875,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_1",
                 "name": "No Formula",
                 "definition": {"func": "calc-metric"},
-            }
+            },
         )
         assert result is None
 
@@ -2886,7 +2886,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_1",
                 "name": "Empty Formula",
                 "definition": {"formula": "   "},
-            }
+            },
         )
         assert result is None
 
@@ -2897,7 +2897,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_1",
                 "name": "Empty List Formula",
                 "definition": {"formula": []},
-            }
+            },
         )
         assert result is None
 
@@ -2908,7 +2908,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_1",
                 "name": "String Definition",
                 "definition": "not a dict",
-            }
+            },
         )
         assert result is None
 
@@ -2919,7 +2919,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_1",
                 "name": "None Definition",
                 "definition": None,
-            }
+            },
         )
         assert result is None
 
@@ -2933,7 +2933,7 @@ class TestProcessMetricEdgeCases:
                 "approved": True,
                 "favorite": True,
                 "tags": [{"name": "production"}, {"name": "kpi"}],
-            }
+            },
         )
         assert result is not None
         assert result.approved is True
@@ -2948,7 +2948,7 @@ class TestProcessMetricEdgeCases:
                 "name": "Shared Metric",
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "shares": [{"type": "user", "id": "u1"}, {"type": "group", "id": "g1"}],
-            }
+            },
         )
         assert result is not None
         assert result.shared_to_count == 2
@@ -2962,7 +2962,7 @@ class TestProcessMetricEdgeCases:
                 "name": "Bad Shares",
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "shares": "not a list",
-            }
+            },
         )
         assert result is not None
         assert result.shares == []
@@ -2976,7 +2976,7 @@ class TestProcessMetricEdgeCases:
                 "name": "DV Metric",
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "dataId": "dv_12345",
-            }
+            },
         )
         assert result is not None
         assert result.data_view_id == "dv_12345"
@@ -2989,7 +2989,7 @@ class TestProcessMetricEdgeCases:
                 "name": "RSID Metric",
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "rsid": "rsid_67890",
-            }
+            },
         )
         assert result is not None
         assert result.data_view_id == "rsid_67890"
@@ -3002,7 +3002,7 @@ class TestProcessMetricEdgeCases:
                 "name": "Site Title Metric",
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "siteTitle": "My Analytics Site",
-            }
+            },
         )
         assert result is not None
         assert result.site_title == "My Analytics Site"
@@ -3016,7 +3016,7 @@ class TestProcessMetricEdgeCases:
                 "definition": {"formula": {"func": "metric", "name": "metrics/a"}},
                 "createdDate": "2025-01-01T00:00:00Z",
                 "modifiedDate": "2025-06-01T00:00:00Z",
-            }
+            },
         )
         assert result is not None
         assert "2025-01-01" in result.created
@@ -3032,7 +3032,7 @@ class TestProcessMetricEdgeCases:
                 "polarity": "negative",
                 "type": "percent",
                 "precision": 4,
-            }
+            },
         )
         assert result is not None
         assert result.polarity == "negative"
@@ -3058,7 +3058,7 @@ class TestProcessMetricEdgeCases:
                     "formula": {"func": "metric", "name": "metrics/a"},
                     "version": [1, 0, 0],
                 },
-            }
+            },
         )
         assert result is not None
         assert '"formula"' in result.definition_json
@@ -3071,7 +3071,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_str_formula",
                 "name": "String Formula",
                 "definition": {"formula": "metrics/revenue"},
-            }
+            },
         )
         assert result is not None
         assert "revenue" in result.formula_summary.lower()
@@ -3083,7 +3083,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_list_formula",
                 "name": "List Formula",
                 "definition": {"formula": [{"func": "metric", "name": "metrics/revenue"}]},
-            }
+            },
         )
         assert result is not None
         assert "revenue" in result.formula_summary.lower()
@@ -3095,7 +3095,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_bool",
                 "name": "Bool Formula",
                 "definition": {"formula": True},
-            }
+            },
         )
         assert result is not None
 
@@ -3106,7 +3106,7 @@ class TestProcessMetricEdgeCases:
                 "id": "cm_int",
                 "name": "Int Formula",
                 "definition": {"formula": 99},
-            }
+            },
         )
         assert result is not None
         assert "99" in result.formula_summary

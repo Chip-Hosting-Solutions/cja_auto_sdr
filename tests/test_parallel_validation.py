@@ -29,10 +29,16 @@ class TestParallelValidation:
         # Sequential validation
         sequential_checker = DataQualityChecker(logger)
         sequential_checker.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         sequential_checker.check_all_quality_issues_optimized(
-            sample_dimensions_df, "Dimensions", ["id", "name", "type"], ["id", "name", "description"]
+            sample_dimensions_df,
+            "Dimensions",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         sequential_issues = sorted(sequential_checker.issues, key=lambda x: (x["Type"], x["Item Name"]))
 
@@ -100,13 +106,13 @@ class TestParallelValidation:
             [
                 {"id": "m1", "name": "dup_metric", "type": "metric", "title": "Metric One", "description": ""},
                 {"id": "", "name": "dup_metric", "type": "metric", "title": None, "description": ""},
-            ]
+            ],
         )
         dimensions_df = pd.DataFrame(
             [
                 {"id": "d1", "name": "dimension_a", "type": "dimension", "title": "Dim A", "description": ""},
                 {"id": "d2", "name": "dimension_b", "type": "dimension", "title": "Dim B", "description": ""},
-            ]
+            ],
         )
 
         required_fields = ["id", "name", "type"]
@@ -149,10 +155,16 @@ class TestParallelValidation:
             seq_checker = DataQualityChecker(logger)
             seq_start = time.time()
             seq_checker.check_all_quality_issues_optimized(
-                large_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+                large_metrics_df,
+                "Metrics",
+                ["id", "name", "type"],
+                ["id", "name", "description"],
             )
             seq_checker.check_all_quality_issues_optimized(
-                large_dimensions_df, "Dimensions", ["id", "name", "type"], ["id", "name", "description"]
+                large_dimensions_df,
+                "Dimensions",
+                ["id", "name", "type"],
+                ["id", "name", "description"],
             )
             seq_times.append(time.time() - seq_start)
 
@@ -265,7 +277,7 @@ class TestParallelValidationIntegration:
                 {"id": "m2", "name": "Metric 2", "type": "calculated", "description": ""},  # Missing description
                 {"id": "m3", "name": "Metric 1", "type": "calculated", "description": "Duplicate name"},  # Duplicate
                 {"id": "", "name": "Metric 4", "type": "calculated", "description": "Invalid ID"},  # Invalid ID
-            ]
+            ],
         )
 
         dimensions_with_issues = pd.DataFrame(
@@ -273,7 +285,7 @@ class TestParallelValidationIntegration:
                 {"id": "d1", "name": "Dimension 1", "type": "string", "description": "Valid dimension"},
                 {"id": "d2", "name": "Dimension 2", "type": "string", "description": None},  # Null description
                 {"id": "d3", "name": "Dimension 1", "type": "string", "description": "Duplicate"},  # Duplicate
-            ]
+            ],
         )
 
         checker.check_all_parallel(

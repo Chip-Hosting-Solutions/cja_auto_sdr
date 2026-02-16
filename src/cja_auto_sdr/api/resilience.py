@@ -47,7 +47,7 @@ def _effective_retry_config() -> dict[str, Any]:
         cfg["max_retries"] = parsed_max_retries
     elif "MAX_RETRIES" in os.environ:
         logger.warning(
-            f"Ignoring invalid MAX_RETRIES={os.environ.get('MAX_RETRIES')!r}; using default {cfg['max_retries']}"
+            f"Ignoring invalid MAX_RETRIES={os.environ.get('MAX_RETRIES')!r}; using default {cfg['max_retries']}",
         )
 
     parsed_base_delay = _parse_env_numeric(os.environ.get("RETRY_BASE_DELAY"), float)
@@ -56,7 +56,7 @@ def _effective_retry_config() -> dict[str, Any]:
     elif "RETRY_BASE_DELAY" in os.environ:
         logger.warning(
             f"Ignoring invalid RETRY_BASE_DELAY={os.environ.get('RETRY_BASE_DELAY')!r}; "
-            f"using default {cfg['base_delay']}"
+            f"using default {cfg['base_delay']}",
         )
 
     parsed_max_delay = _parse_env_numeric(os.environ.get("RETRY_MAX_DELAY"), float)
@@ -64,14 +64,14 @@ def _effective_retry_config() -> dict[str, Any]:
         cfg["max_delay"] = parsed_max_delay
     elif "RETRY_MAX_DELAY" in os.environ:
         logger.warning(
-            f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; using default {cfg['max_delay']}"
+            f"Ignoring invalid RETRY_MAX_DELAY={os.environ.get('RETRY_MAX_DELAY')!r}; using default {cfg['max_delay']}",
         )
 
     # Guard against invalid windows that can otherwise cause negative sleep.
     if cfg["max_delay"] < cfg["base_delay"]:
         logger.warning(
             f"Ignoring invalid retry delay window (max_delay={cfg['max_delay']} < base_delay={cfg['base_delay']}); "
-            f"using max_delay={cfg['base_delay']}"
+            f"using max_delay={cfg['base_delay']}",
         )
         cfg["max_delay"] = cfg["base_delay"]
 
@@ -398,7 +398,7 @@ class ErrorMessageHelper:
                 f"  {error_info['reason']}",
                 "",
                 "How to fix it:",
-            ]
+            ],
         )
 
         for suggestion in error_info["suggestions"]:
@@ -434,7 +434,7 @@ class ErrorMessageHelper:
                     "  2. Verify you have access to this data view in CJA",
                     "  3. List available data views to confirm the ID:",
                     "       cja_auto_sdr --list-dataviews",
-                ]
+                ],
             )
         else:
             output.extend(
@@ -447,7 +447,7 @@ class ErrorMessageHelper:
                     "       cja_auto_sdr --list-dataviews",
                     "  4. Use quotes around names with spaces:",
                     '       cja_auto_sdr "Production Analytics"',
-                ]
+                ],
             )
 
         if available_count is not None:
@@ -461,14 +461,14 @@ class ErrorMessageHelper:
                         "  - Your API credentials don't have CJA access",
                         "  - You're connected to the wrong Adobe organization",
                         "  - No data views exist in this organization",
-                    ]
+                    ],
                 )
 
         output.extend(
             [
                 "",
                 f"For more help: {ErrorMessageHelper.TROUBLESHOOTING_URL}#data-view-errors",
-            ]
+            ],
         )
 
         return "\n".join(output)
@@ -639,7 +639,7 @@ class CircuitBreaker:
         if old_state != new_state:
             self.logger.info(
                 f"Circuit breaker state: {old_state.value} → {new_state.value} "
-                f"(failures={self._failure_count}, successes={self._success_count})"
+                f"(failures={self._failure_count}, successes={self._success_count})",
             )
 
     def get_statistics(self) -> dict[str, Any]:
@@ -770,7 +770,8 @@ def retry_with_backoff(
                         # Provide enhanced error message based on exception type
                         if isinstance(e, RetryableHTTPError):
                             error_msg = ErrorMessageHelper.get_http_error_message(
-                                e.status_code, operation=func.__name__
+                                e.status_code,
+                                operation=func.__name__,
                             )
                             _logger.error("\n" + error_msg)
                         elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
@@ -779,7 +780,7 @@ def retry_with_backoff(
                         else:
                             _logger.error(f"Error: {e!s}")
                             _logger.error(
-                                "Troubleshooting: Check network connectivity, verify API credentials, or try again later"
+                                "Troubleshooting: Check network connectivity, verify API credentials, or try again later",
                             )
                         raise
 
@@ -792,7 +793,7 @@ def retry_with_backoff(
 
                     _logger.warning(
                         f"⚠ {func.__name__} attempt {attempt + 1}/{_max_retries + 1} failed: {e!s}. "
-                        f"Retrying in {delay:.1f}s..."
+                        f"Retrying in {delay:.1f}s...",
                     )
                     time.sleep(delay)
                 except Exception as e:
@@ -906,7 +907,7 @@ def make_api_call_with_retry[T](
                 else:
                     _logger.error(f"Error: {e!s}")
                     _logger.error(
-                        "Troubleshooting: Check network connectivity, verify API credentials, or try again later"
+                        "Troubleshooting: Check network connectivity, verify API credentials, or try again later",
                     )
 
                 # Record failure to circuit breaker (only after all retries exhausted)
@@ -919,7 +920,7 @@ def make_api_call_with_retry[T](
                 delay = delay * random.uniform(0.5, 1.5)
 
             _logger.warning(
-                f"⚠ {operation_name} attempt {attempt + 1}/{max_retries + 1} failed: {e!s}. Retrying in {delay:.1f}s..."
+                f"⚠ {operation_name} attempt {attempt + 1}/{max_retries + 1} failed: {e!s}. Retrying in {delay:.1f}s...",
             )
             time.sleep(delay)
         except Exception as e:

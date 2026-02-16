@@ -145,7 +145,7 @@ class TestCredentialResolverFallbacks:
                     "client_id": "a" * 32,
                     "secret": "b" * 32,
                     "scopes": "openid",
-                }
+                },
             ),
             encoding="utf-8",
         )

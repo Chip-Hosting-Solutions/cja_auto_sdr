@@ -31,8 +31,8 @@ class TestDataQualityValidation:
                             "type": "calculated",
                             "title": "Duplicate Metric",
                             "description": "Duplicate",
-                        }
-                    ]
+                        },
+                    ],
                 ),
             ],
             ignore_index=True,
@@ -130,8 +130,8 @@ class TestDataQualityValidation:
                     "id": "metric1",
                     "name": None,  # Missing required field
                     "type": "calculated",
-                }
-            ]
+                },
+            ],
         )
 
         validator.check_required_fields(incomplete_df, "Metrics", ["id", "name", "type"])
@@ -151,7 +151,7 @@ class TestDataQualityValidation:
                 {"id": None, "name": "Test 1", "type": "metric"},
                 {"id": "", "name": "Test 2", "type": "metric"},
                 {"id": "valid_id", "name": "Test 3", "type": "metric"},
-            ]
+            ],
         )
 
         validator.check_id_validity(df_with_invalid_ids, "Metrics")

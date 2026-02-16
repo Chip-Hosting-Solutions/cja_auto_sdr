@@ -48,7 +48,7 @@ def sample_metrics_data():
         [
             {"id": "metric1", "name": "Metric 1", "type": "calculated", "description": "Test"},
             {"id": "metric2", "name": "Metric 2", "type": "standard", "description": "Test 2"},
-        ]
+        ],
     )
 
 
@@ -59,7 +59,7 @@ def sample_dimensions_data():
         [
             {"id": "dim1", "name": "Dimension 1", "type": "string", "description": "Test"},
             {"id": "dim2", "name": "Dimension 2", "type": "string", "description": "Test 2"},
-        ]
+        ],
     )
 
 
@@ -365,7 +365,12 @@ class TestParallelAPIFetcherFetchDimensions:
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dimensions_success(
-        self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker, sample_dimensions_data
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+        sample_dimensions_data,
     ):
         """Test successful dimensions fetching"""
         mock_api_call.return_value = sample_dimensions_data
@@ -413,7 +418,12 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_success(
-        self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker, sample_dataview_info
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+        sample_dataview_info,
     ):
         """Test successful dataview info fetching"""
         mock_api_call.return_value = sample_dataview_info
@@ -545,7 +555,13 @@ class TestParallelAPIFetcherLogging:
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     @patch("cja_auto_sdr.api.fetch.tqdm")
     def test_logs_completion_summary(
-        self, mock_tqdm, mock_api_call, mock_cja, mock_logger, mock_perf_tracker, sample_metrics_data
+        self,
+        mock_tqdm,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+        sample_metrics_data,
     ):
         """Test that completion summary is logged"""
         mock_pbar = MagicMock()

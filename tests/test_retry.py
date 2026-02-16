@@ -186,7 +186,7 @@ class TestMakeApiCallWithRetry:
     def test_api_call_with_retry(self):
         """Test API call retries on network error"""
         mock_api = Mock(
-            side_effect=[ConnectionError("Network error"), ConnectionError("Network error"), {"data": "success"}]
+            side_effect=[ConnectionError("Network error"), ConnectionError("Network error"), {"data": "success"}],
         )
 
         with patch("time.sleep"):  # Skip actual delays

@@ -62,7 +62,7 @@ def sample_metrics_df():
                 "description": "Test metric 2",
                 "title": "Metric 2",
             },
-        ]
+        ],
     )
 
 
@@ -79,7 +79,7 @@ def sample_dimensions_df():
                 "description": "Test dim 2",
                 "title": "Dimension 2",
             },
-        ]
+        ],
     )
 
 
@@ -137,7 +137,7 @@ class TestProcessSingleDataviewSuccess:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -147,7 +147,9 @@ class TestProcessSingleDataviewSuccess:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is True
@@ -193,7 +195,7 @@ class TestProcessSingleDataviewSuccess:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -225,7 +227,9 @@ class TestProcessSingleDataviewFailures:
         mock_init_cja.return_value = None
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is False
@@ -235,7 +239,12 @@ class TestProcessSingleDataviewFailures:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.validate_data_view")
     def test_data_view_validation_failure(
-        self, mock_validate_dv, mock_init_cja, mock_setup_logging, mock_config_file, temp_output_dir
+        self,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
     ):
         """Test handling of data view validation failure"""
         mock_logger = Mock()
@@ -245,7 +254,9 @@ class TestProcessSingleDataviewFailures:
         mock_validate_dv.return_value = False
 
         result = process_single_dataview(
-            data_view_id="dv_invalid", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_invalid",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is False
@@ -278,7 +289,9 @@ class TestProcessSingleDataviewFailures:
         mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is False
@@ -319,14 +332,16 @@ class TestProcessSingleDataviewFailures:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_excel_writer.side_effect = PermissionError("File is open")
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is False
@@ -370,14 +385,17 @@ class TestProcessSingleDataviewOutputFormats:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_csv.return_value = f"{temp_output_dir}/test_csv"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="csv"
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="csv",
         )
 
         assert result.success is True
@@ -417,14 +435,17 @@ class TestProcessSingleDataviewOutputFormats:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_json.return_value = f"{temp_output_dir}/test.json"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="json"
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
         )
 
         assert result.success is True
@@ -464,14 +485,17 @@ class TestProcessSingleDataviewOutputFormats:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
         mock_write_html.return_value = f"{temp_output_dir}/test.html"
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, output_format="html"
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="html",
         )
 
         assert result.success is True
@@ -511,7 +535,7 @@ class TestProcessSingleDataviewOutputFormats:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -572,7 +596,7 @@ class TestProcessSingleDataviewCaching:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -633,7 +657,7 @@ class TestProcessSingleDataviewCaching:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -660,7 +684,10 @@ class TestProcessSingleDataviewWorker:
     def test_worker_unpacks_args(self, mock_process):
         """Test that worker correctly unpacks arguments"""
         expected_result = ProcessingResult(
-            data_view_id="dv_test_12345", data_view_name="Test", success=True, duration=1.0
+            data_view_id="dv_test_12345",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
         )
         mock_process.return_value = expected_result
 
@@ -750,7 +777,7 @@ class TestProcessSingleDataviewFilenaming:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -759,7 +786,9 @@ class TestProcessSingleDataviewFilenaming:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
         )
 
         assert result.success is True
@@ -808,7 +837,7 @@ class TestProcessSingleDataviewMaxIssues:
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
@@ -817,7 +846,10 @@ class TestProcessSingleDataviewMaxIssues:
         mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
         result = process_single_dataview(
-            data_view_id="dv_test_12345", config_file=mock_config_file, output_dir=temp_output_dir, max_issues=10
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            max_issues=10,
         )
 
         assert result.success is True
@@ -931,7 +963,7 @@ class TestProcessSingleDataviewMaxIssues:
         mock_dq_checker.issues = []
         mock_dq_checker.check_all_parallel.side_effect = RuntimeError("unexpected validation failure")
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
-            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"]
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )
         mock_dq_checker_class.return_value = mock_dq_checker
 
