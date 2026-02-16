@@ -21,10 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   LOG (flake8-logging), ARG (unused arguments), FURB (refurb) — with targeted
   per-file suppressions for intentional CLI print output and test fixtures
   (21 → 25 active rule sets)
-- **CI coverage threshold**: Raised `--cov-fail-under` from 80% → 83%
+- **CI coverage threshold**: Raised `--cov-fail-under` from 80% → 85%
 
 ### Tests
-- Added ~750 tests across 8 new/expanded test files:
+- Added ~900 tests across 8 new/expanded test files:
   - `test_lock_backend_edge_cases.py`: Metadata I/O failures, stale lock
     reclamation, legacy format parsing, process detection edge cases
   - `test_derived_fields_coverage.py`: Complexity scoring, logic summary

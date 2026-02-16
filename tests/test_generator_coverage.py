@@ -596,3 +596,352 @@ class TestFindSimilarNames:
         result = find_similar_names("test", ["test", "tset", "xxxx"], max_distance=5)
         distances = [d for _, d in result]
         assert distances == sorted(distances)
+
+
+# ==================== _build_quality_report_dataframe ====================
+
+
+class TestBuildQualityReportDataframe:
+    """Tests for _build_quality_report_dataframe() — stable column ordering."""
+
+    def test_empty_issues_returns_preferred_columns(self):
+        from cja_auto_sdr.generator import (
+            QUALITY_REPORT_PREFERRED_COLUMNS,
+            _build_quality_report_dataframe,
+        )
+
+        df = _build_quality_report_dataframe([])
+        assert list(df.columns) == list(QUALITY_REPORT_PREFERRED_COLUMNS)
+        assert len(df) == 0
+
+    def test_issues_with_preferred_columns_first(self):
+        from cja_auto_sdr.generator import (
+            QUALITY_REPORT_PREFERRED_COLUMNS,
+            _build_quality_report_dataframe,
+        )
+
+        issues = [
+            {
+                "Extra": "val",
+                "Severity": "HIGH",
+                "Category": "naming",
+                "Data View ID": "dv_1",
+                "Data View Name": "Test",
+                "Type": "dim",
+                "Item Name": "x",
+                "Issue": "bad",
+                "Details": "d",
+            }
+        ]
+        df = _build_quality_report_dataframe(issues)
+        # Preferred columns come first, then extras
+        cols = list(df.columns)
+        preferred = [c for c in QUALITY_REPORT_PREFERRED_COLUMNS if c in cols]
+        assert cols[: len(preferred)] == preferred
+        assert "Extra" in cols
+        assert cols.index("Extra") >= len(preferred)
+
+    def test_issues_with_subset_of_preferred_columns(self):
+        from cja_auto_sdr.generator import _build_quality_report_dataframe
+
+        issues = [{"Severity": "LOW", "Custom": "abc"}]
+        df = _build_quality_report_dataframe(issues)
+        assert list(df.columns) == ["Severity", "Custom"]
+        assert len(df) == 1
+
+
+# ==================== write_quality_report_output ====================
+
+
+class TestWriteQualityReportOutput:
+    """Tests for write_quality_report_output() — format validation + output routing."""
+
+    def test_unsupported_format_raises(self):
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        with pytest.raises(ValueError, match="Unsupported quality report format"):
+            write_quality_report_output([], "xml", None, ".")
+
+    def test_stdout_json(self, capsys):
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        issues = [{"Severity": "HIGH", "Issue": "test"}]
+        result = write_quality_report_output(issues, "json", "-", ".")
+        assert result == "stdout"
+        captured = capsys.readouterr()
+        assert '"Severity": "HIGH"' in captured.out
+
+    def test_stdout_csv(self, capsys):
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        issues = [{"Severity": "LOW", "Issue": "missing"}]
+        result = write_quality_report_output(issues, "csv", "stdout", ".")
+        assert result == "stdout"
+        captured = capsys.readouterr()
+        assert "Severity" in captured.out
+        assert "LOW" in captured.out
+
+    def test_auto_generated_filename(self, tmp_path):
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        result = write_quality_report_output([], "json", None, str(tmp_path))
+        assert result.startswith(str(tmp_path))
+        assert "quality_report_" in result
+        assert result.endswith(".json")
+
+    def test_auto_generated_filename_csv(self, tmp_path):
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        result = write_quality_report_output([], "csv", None, str(tmp_path))
+        assert result.endswith(".csv")
+        assert "quality_report_" in result
+
+    def test_explicit_output_path(self, tmp_path):
+        import json
+
+        from cja_auto_sdr.generator import write_quality_report_output
+
+        out_file = str(tmp_path / "my_report.json")
+        issues = [{"Severity": "HIGH"}]
+        result = write_quality_report_output(issues, "json", out_file, ".")
+        assert result == out_file
+        with open(out_file) as f:
+            data = json.load(f)
+        assert data == issues
+
+
+# ==================== write_run_summary_output ====================
+
+
+class TestWriteRunSummaryOutput:
+    """Tests for write_run_summary_output() — stdout + file routing."""
+
+    def test_stdout_dash(self, capsys):
+        from cja_auto_sdr.generator import write_run_summary_output
+
+        summary = {"status": "success", "exit_code": 0}
+        result = write_run_summary_output(summary, "-")
+        assert result == "stdout"
+        captured = capsys.readouterr()
+        assert '"status": "success"' in captured.out
+
+    def test_stdout_keyword(self, capsys):
+        from cja_auto_sdr.generator import write_run_summary_output
+
+        result = write_run_summary_output({"k": "v"}, "stdout")
+        assert result == "stdout"
+
+    def test_relative_path_resolved_with_output_dir(self, tmp_path):
+        import json
+
+        from cja_auto_sdr.generator import write_run_summary_output
+
+        summary = {"mode": "sdr"}
+        result = write_run_summary_output(summary, "summary.json", output_dir=str(tmp_path))
+        assert result == str(tmp_path / "summary.json")
+        with open(result) as f:
+            data = json.load(f)
+        assert data == summary
+
+    def test_absolute_path_not_changed(self, tmp_path):
+        import json
+
+        from cja_auto_sdr.generator import write_run_summary_output
+
+        out = str(tmp_path / "abs_summary.json")
+        summary = {"exit_code": 0}
+        result = write_run_summary_output(summary, out, output_dir="/should/not/matter")
+        assert result == out
+        with open(out) as f:
+            assert json.load(f) == summary
+
+
+# ==================== append_github_step_summary ====================
+
+
+class TestAppendGithubStepSummary:
+    """Tests for append_github_step_summary() — env var + file append + error."""
+
+    def test_returns_false_when_env_not_set(self, monkeypatch):
+        from cja_auto_sdr.generator import append_github_step_summary
+
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+        assert append_github_step_summary("# Summary") is False
+
+    def test_appends_to_file(self, monkeypatch, tmp_path):
+        from cja_auto_sdr.generator import append_github_step_summary
+
+        summary_file = tmp_path / "summary.md"
+        summary_file.write_text("")
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+        result = append_github_step_summary("# Quality Report")
+        assert result is True
+        content = summary_file.read_text()
+        assert "# Quality Report" in content
+        assert content.endswith("\n\n")
+
+    def test_oserror_returns_false_with_logger(self, monkeypatch):
+        import logging
+
+        from cja_auto_sdr.generator import append_github_step_summary
+
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", "/nonexistent/path/summary.md")
+        logger = logging.getLogger("test_github_summary")
+        result = append_github_step_summary("# Test", logger=logger)
+        assert result is False
+
+    def test_oserror_returns_false_without_logger(self, monkeypatch):
+        from cja_auto_sdr.generator import append_github_step_summary
+
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", "/nonexistent/path/summary.md")
+        result = append_github_step_summary("# Test", logger=None)
+        assert result is False
+
+
+# ==================== load_profile_config_json ====================
+
+
+class TestLoadProfileConfigJson:
+    """Tests for load_profile_config_json() — error paths."""
+
+    def test_missing_config_returns_none(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_config_json
+
+        assert load_profile_config_json(tmp_path) is None
+
+    def test_valid_dict_returns_credentials(self, tmp_path):
+        import json
+
+        from cja_auto_sdr.generator import load_profile_config_json
+
+        config = {"client_id": "abc123", "org_id": "org1"}
+        (tmp_path / "config.json").write_text(json.dumps(config))
+        result = load_profile_config_json(tmp_path)
+        assert result is not None
+        assert result["client_id"] == "abc123"
+        assert result["org_id"] == "org1"
+
+    def test_non_dict_json_returns_none(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_config_json
+
+        (tmp_path / "config.json").write_text('["not", "a", "dict"]')
+        result = load_profile_config_json(tmp_path)
+        assert result is None
+
+    def test_invalid_json_returns_none(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_config_json
+
+        (tmp_path / "config.json").write_text("{invalid json!!!")
+        result = load_profile_config_json(tmp_path)
+        assert result is None
+
+
+# ==================== load_profile_dotenv ====================
+
+
+class TestLoadProfileDotenv:
+    """Tests for load_profile_dotenv() — OSError handling."""
+
+    def test_missing_env_returns_none(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_dotenv
+
+        assert load_profile_dotenv(tmp_path) is None
+
+    def test_oserror_returns_none(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from cja_auto_sdr.generator import load_profile_dotenv
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("client_id=abc")
+
+        with patch("builtins.open", side_effect=OSError("permission denied")):
+            result = load_profile_dotenv(tmp_path)
+        # When open raises OSError, returns None
+        assert result is None
+
+    def test_valid_env_returns_credentials(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_dotenv
+
+        (tmp_path / ".env").write_text("client_id=abc123\norg_id=org1\n")
+        result = load_profile_dotenv(tmp_path)
+        assert result is not None
+        assert result["client_id"] == "abc123"
+
+    def test_empty_env_returns_none(self, tmp_path):
+        from cja_auto_sdr.generator import load_profile_dotenv
+
+        (tmp_path / ".env").write_text("# just a comment\n\n")
+        result = load_profile_dotenv(tmp_path)
+        assert result is None
+
+
+# ==================== list_profiles ====================
+
+
+class TestListProfiles:
+    """Tests for list_profiles() — branch coverage for no-dir and format."""
+
+    def test_no_profiles_dir_json(self, monkeypatch, capsys):
+        from cja_auto_sdr.generator import list_profiles
+
+        # Point profiles dir to a nonexistent directory
+        monkeypatch.setattr(
+            "cja_auto_sdr.generator.get_profiles_dir",
+            lambda: __import__("pathlib").Path("/nonexistent/profiles/dir"),
+        )
+        result = list_profiles(output_format="json")
+        assert result is True
+        captured = capsys.readouterr()
+        assert '"profiles": []' in captured.out
+        assert '"count": 0' in captured.out
+
+    def test_no_profiles_dir_table(self, monkeypatch, capsys):
+        from cja_auto_sdr.generator import list_profiles
+
+        monkeypatch.setattr(
+            "cja_auto_sdr.generator.get_profiles_dir",
+            lambda: __import__("pathlib").Path("/nonexistent/profiles/dir"),
+        )
+        result = list_profiles(output_format="table")
+        assert result is True
+        captured = capsys.readouterr()
+        assert "No profiles directory found" in captured.out
+
+    def test_skips_non_directory_entries(self, monkeypatch, tmp_path, capsys):
+        import json
+
+        from cja_auto_sdr.generator import list_profiles
+
+        # Create a file (not a directory) inside profiles dir
+        (tmp_path / "not_a_dir.txt").write_text("hi")
+        # Create a valid profile directory
+        profile_dir = tmp_path / "myprofile"
+        profile_dir.mkdir()
+        (profile_dir / "config.json").write_text('{"client_id": "x"}')
+
+        monkeypatch.setattr("cja_auto_sdr.generator.get_profiles_dir", lambda: tmp_path)
+        monkeypatch.delenv("CJA_PROFILE", raising=False)
+        result = list_profiles(output_format="json")
+        assert result is True
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["count"] == 1
+        assert data["profiles"][0]["name"] == "myprofile"
+
+    def test_profile_with_both_sources(self, monkeypatch, tmp_path, capsys):
+        import json
+
+        from cja_auto_sdr.generator import list_profiles
+
+        profile_dir = tmp_path / "dual"
+        profile_dir.mkdir()
+        (profile_dir / "config.json").write_text('{"client_id": "x"}')
+        (profile_dir / ".env").write_text("org_id=y\n")
+
+        monkeypatch.setattr("cja_auto_sdr.generator.get_profiles_dir", lambda: tmp_path)
+        monkeypatch.delenv("CJA_PROFILE", raising=False)
+        result = list_profiles(output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["profiles"][0]["sources"] == ["config.json", ".env"]

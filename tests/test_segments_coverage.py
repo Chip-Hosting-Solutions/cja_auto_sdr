@@ -739,3 +739,293 @@ class TestOperatorsEndToEnd:
         summary = _summary_for(definition)
         assert "NOT" in summary
         assert "exists" in summary
+
+
+# ==================== Additional coverage — uncovered lines ====================
+
+
+class TestGetSummaryTagCounting:
+    """Cover line 325: tag_counts accumulation in get_summary()."""
+
+    def test_tags_counted_in_summary(self):
+        """Line 325: segments with tags produce tag_counts in get_summary()."""
+        builder = SegmentsInventoryBuilder()
+        seg1 = _make_segment(
+            {"func": "container", "context": "hits", "pred": {"func": "eq", "dimension": "variables/page", "val": "A"}},
+            segment_id="s_tag1",
+            name="Tagged1",
+        )
+        seg1["tags"] = [{"id": 1, "name": "Production"}, {"id": 2, "name": "KPI"}]
+        seg2 = _make_segment(
+            {"func": "container", "context": "hits", "pred": {"func": "eq", "dimension": "variables/page", "val": "B"}},
+            segment_id="s_tag2",
+            name="Tagged2",
+        )
+        seg2["tags"] = [{"id": 1, "name": "Production"}]
+
+        summary1 = builder._process_segment(seg1)
+        summary2 = builder._process_segment(seg2)
+        assert summary1 is not None
+        assert summary2 is not None
+
+        from cja_auto_sdr.inventory.segments import SegmentsInventory
+
+        inventory = SegmentsInventory(
+            data_view_id="dv_test",
+            data_view_name="Test DV",
+            segments=[summary1, summary2],
+        )
+        result = inventory.get_summary()
+        assert "Production" in result["tag_usage"]
+        assert result["tag_usage"]["Production"] == 2
+        assert result["tag_usage"]["KPI"] == 1
+
+
+class TestSegmentJsonSerializationFallback:
+    """Cover lines 499-500: JSON serialization TypeError/ValueError fallback."""
+
+    def test_unserializable_definition_fallback(self):
+        """Lines 499-500: definition with non-serializable value falls back to str()."""
+        import json
+        from unittest.mock import patch
+
+        seg = _make_segment(
+            {"func": "container", "context": "hits", "pred": {"func": "eq", "dimension": "variables/page", "val": "X"}},
+            segment_id="s_serial",
+            name="Serial Test",
+        )
+
+        original_dumps = json.dumps
+        call_count = {"n": 0}
+
+        def patched_dumps(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("bad type")
+            return original_dumps(*args, **kwargs)
+
+        with patch("cja_auto_sdr.inventory.segments.json.dumps", side_effect=patched_dumps):
+            result = _process(seg)
+        assert result is not None
+        assert result.definition_json  # fallback produces a non-empty string
+
+
+class TestSegmentCoerceScalarTextOnBuilder:
+    """Cover line 538: _coerce_scalar_text called on SegmentsInventoryBuilder."""
+
+    def test_coerce_scalar_text_passthrough(self):
+        """Line 538: builder method delegates to module-level coerce_scalar_text."""
+        builder = SegmentsInventoryBuilder()
+        assert builder._coerce_scalar_text("hello") == "hello"
+        assert builder._coerce_scalar_text(None) == ""
+
+
+class TestSegmentNormalizeReferenceValueEdgeCases:
+    """Cover lines 547, 549-553, 560, 563: _normalize_reference_value edge cases."""
+
+    def test_none_returns_empty(self):
+        """Line 547: None input returns empty string."""
+        builder = SegmentsInventoryBuilder()
+        assert builder._normalize_reference_value(None) == ""
+
+    def test_list_extracts_first_valid(self):
+        """Lines 549-553: list input traverses to find first valid."""
+        builder = SegmentsInventoryBuilder()
+        result = builder._normalize_reference_value([None, "", "variables/channel"])
+        assert result == "channel"
+
+    def test_empty_list_returns_empty(self):
+        """Lines 549-553: empty list returns empty string."""
+        builder = SegmentsInventoryBuilder()
+        assert builder._normalize_reference_value([]) == ""
+
+    def test_dict_extracts_from_known_keys(self):
+        """Line 560: dict with no matching keys returns empty."""
+        builder = SegmentsInventoryBuilder()
+        assert builder._normalize_reference_value({"unknown_key": "val"}) == ""
+
+    def test_nan_like_returns_empty(self):
+        """Line 563: value that normalizes to 'nan' returns empty."""
+        builder = SegmentsInventoryBuilder()
+        assert builder._normalize_reference_value("nan") == ""
+        assert builder._normalize_reference_value("None") == ""
+        assert builder._normalize_reference_value("null") == ""
+
+
+class TestSegmentTraverseNonDict:
+    """Cover line 593: traverse called with non-dict node returns early."""
+
+    def test_non_dict_in_preds_list(self):
+        """Line 593: non-dict items in preds list are skipped."""
+        definition = {
+            "func": "and",
+            "preds": [
+                "not_a_dict",
+                42,
+                {"func": "eq", "dimension": "variables/page", "val": "Home"},
+            ],
+        }
+        parsed = _parse(definition)
+        assert parsed["predicate_count"] >= 1
+        assert "page" in parsed["dimension_references"]
+
+
+class TestSegmentExcludeTraversal:
+    """Cover line 685: exclude dict traversal in traverse()."""
+
+    def test_exclude_node_traversed(self):
+        """Line 685: exclude content is traversed for refs."""
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "exclude": {"func": "eq", "dimension": "variables/channel", "val": "internal"},
+        }
+        parsed = _parse(definition)
+        assert "channel" in parsed["dimension_references"]
+
+
+class TestSegmentSummarySequenceWithDimensionRefs:
+    """Cover lines 795-796: sequence with dimension_refs in fallback summary."""
+
+    def test_sequence_with_dim_refs(self):
+        """Lines 795-796: sequence in functions_internal with dimension_refs present."""
+        definition = {
+            "func": "container",
+            "context": "visits",
+            "pred": {
+                "func": "sequence",
+                "checkpoints": [
+                    {
+                        "func": "and",
+                        "preds": [
+                            {
+                                "func": "and",
+                                "preds": [
+                                    {
+                                        "func": "and",
+                                        "preds": [
+                                            {"func": "eq", "dimension": "variables/pagename", "val": "Home"},
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "func": "and",
+                        "preds": [
+                            {
+                                "func": "and",
+                                "preds": [
+                                    {
+                                        "func": "and",
+                                        "preds": [
+                                            {"func": "eq", "dimension": "variables/pagename", "val": "Cart"},
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        summary = _summary_for(definition)
+        assert "sequential" in summary.lower()
+
+
+class TestSegmentSummaryExcludeWithDimensionRefs:
+    """Cover lines 800-802: exclude with and without dimension_refs."""
+
+    def test_exclude_with_dim_refs(self):
+        """Lines 800-801: exclude in functions with dimension_refs."""
+        # Deep nesting so _describe_definition returns ""
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "and",
+                        "preds": [
+                            {
+                                "func": "and",
+                                "preds": [
+                                    {
+                                        "func": "and",
+                                        "preds": [
+                                            {
+                                                "func": "exclude",
+                                                "container": {
+                                                    "func": "eq",
+                                                    "dimension": "variables/channel",
+                                                    "val": "internal",
+                                                },
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        summary = _summary_for(definition)
+        assert len(summary) > 0
+
+
+class TestSegmentSummaryPredicateConditionsFallback:
+    """Cover lines 820-822: predicate_count > 0 with and without logic operators."""
+
+    def test_predicates_with_logic_operators(self):
+        """Lines 820-821: predicate_count > 0, logic_operator_count > 0."""
+        # Need a definition where:
+        # - _describe_definition returns "" (depth exceeded)
+        # - No dimension_refs or metric_refs
+        # - Has predicate_count > 0 and logic_operator_count > 0
+        # Use "exists" which counts as predicate but doesn't extract dim refs
+        # when dimension key is missing
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "and",
+                        "preds": [
+                            {
+                                "func": "and",
+                                "preds": [
+                                    {
+                                        "func": "and",
+                                        "preds": [
+                                            {"func": "exists", "val": "something"},
+                                            {"func": "exists", "val": "other"},
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        summary = _summary_for(definition)
+        assert "condition" in summary.lower() or len(summary) > 0
+
+
+class TestSegmentDescribeDefinitionContainerKey:
+    """Cover line 843: container node with 'container' key instead of 'pred'."""
+
+    def test_container_with_container_key(self):
+        """Line 843: container func with 'container' key instead of 'pred'."""
+        defn = {
+            "func": "container",
+            "context": "hits",
+            "container": {"func": "eq", "dimension": "variables/page", "val": "Home"},
+        }
+        result = _describe(defn)
+        assert "page" in result and "Home" in result

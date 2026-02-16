@@ -68,7 +68,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 3,522 comprehensive tests**
+**Total: 3,678 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -124,15 +124,15 @@ tests/
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
-| `test_lock_backend_edge_cases.py` | 117 | Lock backend metadata I/O, stale detection, legacy parsing |
-| `test_derived_fields_coverage.py` | 114 | Derived field complexity scoring, logic summary, predicates |
-| `test_org_analyzer_coverage.py` | 114 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
+| `test_lock_backend_edge_cases.py` | 139 | Lock backend metadata I/O, stale detection, legacy parsing |
+| `test_derived_fields_coverage.py` | 161 | Derived field complexity scoring, logic summary, predicates |
+| `test_org_analyzer_coverage.py` | 136 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
 | `test_api_coverage.py` | 94 | API cache, quality, fetch, resilience exception paths |
 | `test_diff_coverage.py` | 61 | Diff comparator, models, git integration edge cases |
-| `test_generator_coverage.py` | 114 | Generator utility functions — coercion, normalization, diff formatting |
-| `test_segments_coverage.py` | 59 | Segment comparison operators, container types, sequence variants |
-| `test_small_module_coverage.py` | 91 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
-| **Total** | **3,522** | **Collected via pytest --collect-only** |
+| `test_generator_coverage.py` | 143 | Generator utility functions — coercion, normalization, diff formatting |
+| `test_segments_coverage.py` | 73 | Segment comparison operators, container types, sequence variants |
+| `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
+| **Total** | **3,678** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -536,7 +536,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (3,522 tests total)
+- [x] Comprehensive test coverage (3,678 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

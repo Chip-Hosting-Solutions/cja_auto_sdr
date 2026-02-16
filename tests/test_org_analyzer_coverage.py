@@ -1746,3 +1746,543 @@ def _make_scipy_import_error():
         return _real_import(name, *args, **kwargs)
 
     return _fake_import
+
+
+# ===================================================================
+# 17. __init__ cache clear when config.clear_cache=True (lines 91-92)
+# ===================================================================
+
+
+class TestInitCacheClear:
+    """Tests for __init__ cache clear when config.clear_cache=True."""
+
+    def test_clear_cache_true_calls_invalidate(self, mock_cja, logger, caplog):
+        """clear_cache=True should call cache.invalidate() and log info."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(clear_cache=True, skip_lock=True, cja_per_thread=False)
+        mock_cache = MagicMock()
+
+        with caplog.at_level(logging.INFO):
+            analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test@Org", cache=mock_cache)
+
+        mock_cache.invalidate.assert_called_once()
+        assert "Cache cleared" in caplog.text
+        assert analyzer.cache is mock_cache
+
+    def test_clear_cache_true_no_cache_object_no_error(self, mock_cja, logger):
+        """clear_cache=True with cache=None should not raise."""
+        config = OrgReportConfig(clear_cache=True, skip_lock=True, cja_per_thread=False)
+        # Should not raise even though cache is None
+        analyzer = OrgComponentAnalyzer(mock_cja, config, logger, org_id="test@Org", cache=None)
+        assert analyzer.cache is None
+
+    def test_clear_cache_false_does_not_call_invalidate(self, mock_cja, logger):
+        """clear_cache=False should not call cache.invalidate()."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(clear_cache=False, skip_lock=True, cja_per_thread=False)
+        mock_cache = MagicMock()
+
+        OrgComponentAnalyzer(mock_cja, config, logger, org_id="test@Org", cache=mock_cache)
+        mock_cache.invalidate.assert_not_called()
+
+
+# ===================================================================
+# 18. _run_analysis_impl - clustering success logging (lines 259-262)
+# ===================================================================
+
+
+class TestRunAnalysisImplClustering:
+    """Tests for clustering success logging in _run_analysis_impl."""
+
+    def _setup_analyzer_with_3_dvs(self, mock_cja, logger, **config_kwargs):
+        """Create analyzer with 3 DVs suitable for clustering."""
+        from unittest.mock import patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, **config_kwargs)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="Prod East",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids={"d1"},
+                metric_count=3,
+                dimension_count=1,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Prod West",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids={"d1", "d2"},
+                metric_count=3,
+                dimension_count=2,
+            ),
+            DataViewSummary(
+                data_view_id="dv3",
+                data_view_name="Dev Analytics",
+                metric_ids={"m10"},
+                dimension_ids={"d10"},
+                metric_count=1,
+                dimension_count=1,
+            ),
+        ]
+
+        patches = [
+            patch.object(
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=([{"id": "dv1"}, {"id": "dv2"}, {"id": "dv3"}], False, 3),
+            ),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_check_memory_warning"),
+        ]
+        return analyzer, patches
+
+    def test_clustering_success_logging(self, mock_cja, logger, caplog):
+        """enable_clustering=True with 3+ DVs should log cluster count."""
+        scipy = pytest.importorskip("scipy")  # noqa: F841
+
+        analyzer, patches = self._setup_analyzer_with_3_dvs(
+            mock_cja,
+            logger,
+            enable_clustering=True,
+            skip_similarity=True,
+        )
+        with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO):
+            result = analyzer.run_analysis()
+        assert result.clusters is not None
+        assert "Found" in caplog.text and "clusters" in caplog.text
+
+    def test_clustering_disabled_no_clusters(self, mock_cja, logger, caplog):
+        """enable_clustering=False should result in no clusters."""
+        analyzer, patches = self._setup_analyzer_with_3_dvs(
+            mock_cja,
+            logger,
+            enable_clustering=False,
+            skip_similarity=True,
+        )
+        with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO):
+            result = analyzer.run_analysis()
+        assert result.clusters is None
+
+
+# ===================================================================
+# 19. _run_analysis_impl - stale components logging (line 303)
+# ===================================================================
+
+
+class TestRunAnalysisImplStaleLogging:
+    """Tests for stale components logging in _run_analysis_impl."""
+
+    def _setup_analyzer_with_stale_data(self, mock_cja, logger, **config_kwargs):
+        """Create analyzer with data containing stale-named components."""
+        from unittest.mock import patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, **config_kwargs)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Components with stale naming patterns
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"test_metric", "old_metric"},
+                dimension_ids={"temp_dim"},
+                metric_count=2,
+                dimension_count=1,
+            ),
+        ]
+
+        patches = [
+            patch.object(
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=([{"id": "dv1"}], False, 1),
+            ),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_check_memory_warning"),
+        ]
+        return analyzer, patches
+
+    def test_stale_components_logging(self, mock_cja, logger, caplog):
+        """flag_stale=True with stale components should log their count."""
+        analyzer, patches = self._setup_analyzer_with_stale_data(
+            mock_cja,
+            logger,
+            flag_stale=True,
+            skip_similarity=True,
+        )
+        with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO):
+            result = analyzer.run_analysis()
+        assert result.stale_components is not None
+        assert len(result.stale_components) > 0
+        assert "stale naming patterns" in caplog.text
+
+
+# ===================================================================
+# 20. _list_and_filter_data_views - stratified sampling path (line 406)
+# ===================================================================
+
+
+class TestListAndFilterStratified:
+    """Tests for the stratified sampling path in _list_and_filter_data_views."""
+
+    def test_stratified_sampling_triggered(self, mock_cja, logger):
+        """sample_stratified=True should use _stratified_sample."""
+        dvs = [{"id": f"dv{i}", "name": f"Group{i % 3} Item {i}"} for i in range(20)]
+        mock_cja.getDataViews.return_value = dvs
+        config = OrgReportConfig(
+            sample_size=5,
+            sample_stratified=True,
+            sample_seed=42,
+            skip_lock=True,
+            cja_per_thread=False,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result, is_sampled, total = analyzer._list_and_filter_data_views()
+        assert len(result) == 5
+        assert is_sampled is True
+        assert total == 20
+
+    def test_stratified_vs_random_may_differ(self, mock_cja, logger):
+        """Stratified and random sampling should potentially select different items."""
+        dvs = [{"id": f"a{i}", "name": f"Alpha Item {i}"} for i in range(15)] + [
+            {"id": f"b{i}", "name": f"Beta Item {i}"} for i in range(5)
+        ]
+        mock_cja.getDataViews.return_value = dvs
+
+        # Stratified
+        config_strat = OrgReportConfig(
+            sample_size=5,
+            sample_stratified=True,
+            sample_seed=0,
+            skip_lock=True,
+            cja_per_thread=False,
+        )
+        analyzer_strat = _make_analyzer(mock_cja, logger, config=config_strat)
+        strat_result, _, _ = analyzer_strat._list_and_filter_data_views()
+
+        # Random
+        config_rand = OrgReportConfig(
+            sample_size=5,
+            sample_stratified=False,
+            sample_seed=0,
+            skip_lock=True,
+            cja_per_thread=False,
+        )
+        analyzer_rand = _make_analyzer(mock_cja, logger, config=config_rand)
+        rand_result, _, _ = analyzer_rand._list_and_filter_data_views()
+
+        # Both should give 5 results
+        assert len(strat_result) == 5
+        assert len(rand_result) == 5
+
+
+# ===================================================================
+# 21. _stratified_sample - prefix separator splitting (lines 442-443)
+# ===================================================================
+
+
+class TestStratifiedSamplePrefixSeparator:
+    """Tests for prefix separator splitting in _stratified_sample."""
+
+    def _make_dvs(self, names: list[str]) -> list[dict]:
+        return [{"id": f"dv_{i}", "name": n} for i, n in enumerate(names)]
+
+    def test_hyphen_separator_splits_prefix(self, mock_cja, logger):
+        """Names with hyphens should be split at the hyphen for grouping."""
+        names = [f"prod-east-item{i}" for i in range(5)] + [f"dev-west-item{i}" for i in range(5)]
+        dvs = self._make_dvs(names)
+        config = OrgReportConfig(sample_size=4, sample_seed=1, skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._stratified_sample(dvs, 4)
+        assert len(result) == 4
+
+    def test_underscore_separator_splits_prefix(self, mock_cja, logger):
+        """Names with underscores should be split at the underscore for grouping."""
+        names = [f"analytics_east_{i}" for i in range(6)] + [f"reporting_west_{i}" for i in range(4)]
+        dvs = self._make_dvs(names)
+        config = OrgReportConfig(sample_size=3, sample_seed=2, skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._stratified_sample(dvs, 3)
+        assert len(result) == 3
+
+    def test_space_separator_splits_prefix(self, mock_cja, logger):
+        """Names with spaces should be split at the space for grouping."""
+        names = [f"Production View {i}" for i in range(4)] + [f"Staging View {i}" for i in range(4)]
+        dvs = self._make_dvs(names)
+        config = OrgReportConfig(sample_size=4, sample_seed=3, skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._stratified_sample(dvs, 4)
+        assert len(result) == 4
+
+
+# ===================================================================
+# 22. _stratified_sample - under-sampling adjustment backfill (lines 462-464)
+# ===================================================================
+
+
+class TestStratifiedSampleBackfill:
+    """Tests for under-sampling adjustment backfill in _stratified_sample."""
+
+    def _make_dvs(self, names: list[str]) -> list[dict]:
+        return [{"id": f"dv_{i}", "name": n} for i, n in enumerate(names)]
+
+    def test_backfill_from_remaining_when_proportional_underallocates(self, mock_cja, logger):
+        """When proportional gives fewer than sample_size, backfill adds from remaining."""
+        # Two large groups of 50 each. Proportional allocation for sample_size=10
+        # gives max(1, int(10*50/100))=5 per group = 10 total.
+        # But with sample_size=12, proportional gives max(1, int(12*50/100))=6 per group = 12.
+        # With sample_size=15 proportional: max(1, int(15*50/100))=7 per group = 14 < 15 => backfill
+        names = [f"Alpha DV {i}" for i in range(50)] + [f"Beta DV {i}" for i in range(50)]
+        dvs = self._make_dvs(names)
+        config = OrgReportConfig(sample_size=15, sample_seed=42, skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._stratified_sample(dvs, 15)
+        assert len(result) == 15
+
+    def test_backfill_many_small_groups(self, mock_cja, logger):
+        """Many single-item groups where proportional gives less than needed, triggering backfill."""
+        # 20 unique single-word prefixes with 1 item each.
+        # Proportional: max(1, int(8*1/20))=max(1,0)=1 each = 20 items > 8 => over-sampling trim.
+        # But if each group has 2 items: max(1, int(8*2/20))=max(1,0)=1 each = 20 items > 8 => trim.
+        # Actually need a case where proportional < sample.
+        # 3 groups of 30 items. sample=10. Proportional: max(1, int(10*30/90))=3 each = 9 < 10 => backfill
+        names = (
+            [f"Alpha DV {i}" for i in range(30)]
+            + [f"Beta DV {i}" for i in range(30)]
+            + [f"Gamma DV {i}" for i in range(30)]
+        )
+        dvs = self._make_dvs(names)
+        config = OrgReportConfig(sample_size=10, sample_seed=7, skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._stratified_sample(dvs, 10)
+        assert len(result) == 10
+
+
+# ===================================================================
+# 23. _fetch_all_data_views - future exception handling (lines 566-570)
+# ===================================================================
+
+
+class TestFetchAllDataViewsFutureException:
+    """Tests for non-LockOwnershipLostError exception in _fetch_all_data_views futures."""
+
+    def test_future_exception_creates_error_summary(self, mock_cja, logger):
+        """When a future raises a non-lock exception, an error summary should be appended."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, quiet=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        analyzer.cache = None
+
+        # Make the fetch method raise an exception
+        from unittest.mock import patch
+
+        def failing_fetch(dv):
+            raise RuntimeError("API connection lost")
+
+        with patch.object(analyzer, "_fetch_data_view_components", side_effect=failing_fetch):
+            result = analyzer._fetch_all_data_views([{"id": "dv1", "name": "Failing DV"}])
+
+        assert len(result) == 1
+        assert result[0].error is not None
+        assert "API connection lost" in result[0].error
+
+    def test_future_exception_with_empty_message(self, mock_cja, logger):
+        """Exception with empty message should fallback to type name."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, quiet=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        analyzer.cache = None
+
+        from unittest.mock import patch
+
+        def empty_msg_fetch(dv):
+            raise ValueError("")
+
+        with patch.object(analyzer, "_fetch_data_view_components", side_effect=empty_msg_fetch):
+            result = analyzer._fetch_all_data_views([{"id": "dv2", "name": "Empty Error DV"}])
+
+        assert len(result) == 1
+        assert result[0].error is not None
+        assert "ValueError" in result[0].error
+
+
+# ===================================================================
+# 24. _fetch_data_view_components - metric/dimension names with include_names (lines 637-638, 676-677)
+# ===================================================================
+
+
+class TestFetchDataViewComponentsNames:
+    """Tests for metric/dimension name capture with include_names=True."""
+
+    def test_include_names_populates_metric_names(self, mock_cja, logger):
+        """include_names=True should populate metric_names dict."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_names=True,
+            include_metadata=False,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame(
+            {
+                "id": ["m1", "m2"],
+                "name": ["Revenue", "Page Views"],
+            }
+        )
+        mock_cja.getDimensions.return_value = pd.DataFrame(
+            {
+                "id": ["d1"],
+                "name": ["Browser"],
+            }
+        )
+
+        dv = {"id": "dv_test", "name": "Test DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.metric_names is not None
+        assert result.metric_names["m1"] == "Revenue"
+        assert result.metric_names["m2"] == "Page Views"
+
+    def test_include_names_populates_dimension_names(self, mock_cja, logger):
+        """include_names=True should populate dimension_names dict."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_names=True,
+            include_metadata=False,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"], "name": ["Revenue"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame(
+            {
+                "id": ["d1", "d2"],
+                "name": ["Browser", "Country"],
+            }
+        )
+
+        dv = {"id": "dv_test", "name": "Test DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.dimension_names is not None
+        assert result.dimension_names["d1"] == "Browser"
+        assert result.dimension_names["d2"] == "Country"
+
+    def test_include_names_false_leaves_names_none(self, mock_cja, logger):
+        """include_names=False should leave metric_names and dimension_names as None."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_names=False,
+            include_metadata=False,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"], "name": ["Revenue"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"], "name": ["Browser"]})
+
+        dv = {"id": "dv_test", "name": "Test DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.metric_names is None
+        assert result.dimension_names is None
+
+
+# ===================================================================
+# 25. _fetch_data_view_components - metadata fetch (lines 713-729)
+# ===================================================================
+
+
+class TestFetchDataViewComponentsMetadata:
+    """Tests for metadata fetch with include_metadata=True."""
+
+    def test_include_metadata_extracts_owner_and_dates(self, mock_cja, logger):
+        """include_metadata=True should extract owner, dates, and description."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_metadata=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cja.getDataView.return_value = {
+            "owner": {"name": "Alice Smith", "id": "alice@example.com"},
+            "created": "2025-01-15T10:00:00Z",
+            "modified": "2025-06-01T12:00:00Z",
+            "description": "Production analytics view",
+        }
+
+        dv = {"id": "dv_meta", "name": "Metadata DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.owner == "Alice Smith"
+        assert result.owner_id == "alice@example.com"
+        assert result.created == "2025-01-15T10:00:00Z"
+        assert result.modified == "2025-06-01T12:00:00Z"
+        assert result.has_description is True
+
+    def test_include_metadata_fallback_dates(self, mock_cja, logger):
+        """Metadata should try createdDate/modifiedDate fallbacks."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_metadata=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cja.getDataView.return_value = {
+            "createdDate": "2025-02-01T00:00:00Z",
+            "modifiedDate": "2025-07-01T00:00:00Z",
+            "description": "",
+        }
+
+        dv = {"id": "dv_fb", "name": "Fallback DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.created == "2025-02-01T00:00:00Z"
+        assert result.modified == "2025-07-01T00:00:00Z"
+        assert result.has_description is False
+
+    def test_include_metadata_exception_continues(self, mock_cja, logger):
+        """Metadata fetch failure should not prevent the summary from being returned."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_metadata=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cja.getDataView.side_effect = ConnectionError("metadata API down")
+
+        dv = {"id": "dv_err", "name": "Error Metadata DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        # Should still return a valid summary with metrics/dimensions
+        assert result.metric_count == 1
+        assert result.dimension_count == 1
+        assert result.owner is None
+        assert result.error is None  # metadata failure should not set error
+
+    def test_include_metadata_none_response(self, mock_cja, logger):
+        """getDataView returning None should leave metadata fields as defaults."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_metadata=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cja.getDataView.return_value = None
+
+        dv = {"id": "dv_none", "name": "None Response DV"}
+        result = analyzer._fetch_data_view_components(dv)
+        assert result.owner is None
+        assert result.created is None
+        assert result.modified is None
+        assert result.has_description is False

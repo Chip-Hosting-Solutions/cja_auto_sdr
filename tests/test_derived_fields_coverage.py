@@ -996,3 +996,575 @@ class TestInventoryProperties:
         summary = inv.get_summary()
         assert summary["complexity"]["high_complexity_count"] == 2  # 75 and 90
         assert summary["complexity"]["elevated_complexity_count"] == 2  # 50 and 60
+
+
+# ==================== _process_row() empty functions list ====================
+
+
+class TestProcessRowEmptyFunctions:
+    """Cover _process_row() returning None for empty function lists (line 404)."""
+
+    def test_empty_json_array_returns_none(self):
+        """fieldDefinition='[]' should parse to an empty list and return None."""
+        builder = _builder()
+        row = pd.Series(
+            {
+                "id": "dimensions/test_empty",
+                "name": "Empty Field",
+                "sourceFieldType": "derived",
+                "fieldDefinition": "[]",
+                "dataSetType": "event",
+            }
+        )
+        result = builder._process_row(row, "Dimension")
+        assert result is None
+
+    def test_non_list_definition_returns_none(self):
+        """fieldDefinition that parses to a dict (not list) should return None."""
+        builder = _builder()
+        row = pd.Series(
+            {
+                "id": "dimensions/test_dict",
+                "name": "Dict Field",
+                "sourceFieldType": "derived",
+                "fieldDefinition": '{"func": "raw-field"}',
+                "dataSetType": "event",
+            }
+        )
+        result = builder._process_row(row, "Dimension")
+        assert result is None
+
+
+# ==================== _parse_definition() branches not a list ====================
+
+
+class TestParseDefinitionBranchesNotList:
+    """Cover _parse_definition() coercing non-list branches to [] (line 530)."""
+
+    def test_branches_string_coerced_to_empty(self):
+        """Non-list branches should be treated as empty."""
+        builder = _builder()
+        functions = [
+            {"func": "match", "branches": "not_a_list"},
+        ]
+        parsed = builder._parse_definition(functions)
+        # With no valid branches, branch_count should be 0
+        assert parsed["branch_count"] == 0
+
+
+# ==================== _count_predicate_operators() non-dict ====================
+
+
+class TestCountPredicateOperatorsNonDict:
+    """Cover _count_predicate_operators() returning (0, depth) for non-dict (line 640)."""
+
+    def test_string_predicate_returns_zero(self):
+        builder = _builder()
+        count, depth = builder._count_predicate_operators("not a dict")
+        assert count == 0
+        assert depth == 0
+
+    def test_none_predicate_returns_zero(self):
+        builder = _builder()
+        count, depth = builder._count_predicate_operators(None)
+        assert count == 0
+        assert depth == 0
+
+    def test_list_predicate_returns_zero(self):
+        builder = _builder()
+        count, depth = builder._count_predicate_operators([1, 2, 3])
+        assert count == 0
+        assert depth == 0
+
+
+# ==================== _get_field_short_name() empty field_id ====================
+
+
+class TestGetFieldShortName:
+    """Cover _get_field_short_name() returning 'unknown' for empty field_id (line 887)."""
+
+    def test_empty_string_returns_unknown(self):
+        builder = _builder()
+        assert builder._get_field_short_name("") == "unknown"
+
+    def test_none_returns_unknown(self):
+        builder = _builder()
+        assert builder._get_field_short_name(None) == "unknown"
+
+    def test_valid_field_returns_short_name(self):
+        builder = _builder()
+        result = builder._get_field_short_name("web.pageURL")
+        assert result == "pageURL"
+
+
+# ==================== _describe_match_logic() edge cases ====================
+
+
+class TestDescribeMatchLogicEdgeCases:
+    """Cover non-list branches and 'true' predicate paths (lines 955, 983)."""
+
+    def test_non_list_branches_skipped(self):
+        """Match with non-list branches should be skipped entirely."""
+        builder = _builder()
+        result = builder._describe_match_logic(
+            [
+                {"func": "match", "branches": "invalid"},
+            ]
+        )
+        assert result == ""
+
+    def test_true_predicate_shows_default_arrow(self):
+        """A 'true' predicate with no condition desc should show 'default->' prefix."""
+        builder = _builder()
+        result = builder._describe_match_logic(
+            [
+                {
+                    "func": "match",
+                    "branches": [
+                        {"pred": {"func": "true"}, "map-to": "fallback_value"},
+                    ],
+                },
+            ]
+        )
+        assert "default" in result.lower()
+        assert "fallback_value" in result
+
+
+# ==================== _format_map_to_value() edge cases ====================
+
+
+class TestFormatMapToValue:
+    """Cover None map_to and field ref not in label_map (lines 1031, 1042-1043)."""
+
+    def test_none_returns_empty_string(self):
+        builder = _builder()
+        result = builder._format_map_to_value(None, {})
+        assert result == ""
+
+    def test_field_ref_not_in_label_map_shows_short_name(self):
+        """type='field' with value not in label_map should show [short_name]."""
+        builder = _builder()
+        result = builder._format_map_to_value(
+            {"type": "field", "value": {"label": "web.pageName"}},
+            {},
+        )
+        assert "[" in result
+        assert "]" in result
+
+    def test_field_ref_in_label_map_resolved(self):
+        """type='field' with value in label_map should show resolved name."""
+        builder = _builder()
+        result = builder._format_map_to_value(
+            {"type": "field", "value": {"label": "pg"}},
+            {"pg": "pageName"},
+        )
+        assert result == "[pageName]"
+
+
+# ==================== _get_field_from_arg() edge cases ====================
+
+
+class TestGetFieldFromArg:
+    """Cover non-dict, field-def-reference, and direct 'id' key (lines 1184, 1188-1193)."""
+
+    def test_non_dict_returns_empty(self):
+        builder = _builder()
+        assert builder._get_field_from_arg("not_a_dict") == ""
+
+    def test_none_returns_empty(self):
+        builder = _builder()
+        assert builder._get_field_from_arg(None) == ""
+
+    def test_raw_field_extracts_name(self):
+        builder = _builder()
+        result = builder._get_field_from_arg({"func": "raw-field", "id": "web.pageURL"})
+        assert result == "pageURL"
+
+    def test_field_def_reference_extracts_name(self):
+        builder = _builder()
+        result = builder._get_field_from_arg({"func": "field-def-reference", "id": "commerce.order.total"})
+        assert result == "total"
+
+    def test_direct_id_key_extracts_name(self):
+        """Dict with 'id' but no 'func' should still extract via _get_field_short_name."""
+        builder = _builder()
+        result = builder._get_field_from_arg({"id": "event.timestamp"})
+        assert result == "timestamp"
+
+
+# ==================== _describe_lookup_logic() no classify ====================
+
+
+class TestDescribeLookupLogicNoClassify:
+    """Cover _describe_lookup_logic() returning '' when no classify found (line 1212)."""
+
+    def test_no_classify_returns_empty(self):
+        builder = _builder()
+        result = builder._describe_lookup_logic(
+            [
+                {"func": "raw-field", "id": "some_field"},
+            ]
+        )
+        assert result == ""
+
+    def test_empty_functions_returns_empty(self):
+        builder = _builder()
+        result = builder._describe_lookup_logic([])
+        assert result == ""
+
+
+# ==================== _describe_sequential_logic() ====================
+
+
+class TestDescribeSequentialLogic:
+    """Cover next/previous with persistence and field name variants (lines 1300-1320)."""
+
+    def test_next_with_persistence(self):
+        builder = _builder()
+        result = builder._describe_sequential_logic(
+            [
+                {
+                    "func": "next",
+                    "persistence": "first",
+                    "args": [{"func": "raw-field", "id": "marketing.channel"}],
+                },
+            ]
+        )
+        assert "Next" in result
+        assert "channel" in result
+        assert "first" in result
+
+    def test_previous_with_persistence(self):
+        builder = _builder()
+        result = builder._describe_sequential_logic(
+            [
+                {
+                    "func": "previous",
+                    "persistence": "last",
+                    "args": [{"func": "raw-field", "id": "page.section"}],
+                },
+            ]
+        )
+        assert "Previous" in result
+        assert "section" in result
+        assert "last" in result
+
+    def test_next_without_args_fallback(self):
+        builder = _builder()
+        result = builder._describe_sequential_logic(
+            [
+                {"func": "next"},
+            ]
+        )
+        assert result == "Next value lookup"
+
+    def test_previous_without_persistence(self):
+        builder = _builder()
+        result = builder._describe_sequential_logic(
+            [
+                {
+                    "func": "previous",
+                    "args": [{"func": "raw-field", "id": "web.pageName"}],
+                },
+            ]
+        )
+        assert "Previous value of pageName" == result
+
+    def test_no_sequential_function_returns_fallback(self):
+        builder = _builder()
+        result = builder._describe_sequential_logic(
+            [
+                {"func": "raw-field", "id": "some_field"},
+            ]
+        )
+        assert result == "Sequential value lookup"
+
+
+# ==================== _describe_split_logic() ====================
+
+
+class TestDescribeSplitLogic:
+    """Cover split with field name and without (lines 1369-1371)."""
+
+    def test_split_with_field_name(self):
+        builder = _builder()
+        result = builder._describe_split_logic(
+            [
+                {
+                    "func": "split",
+                    "delimiter": "|",
+                    "index": 1,
+                    "args": [{"func": "raw-field", "id": "site.section"}],
+                },
+            ]
+        )
+        assert "Split section" in result
+        assert '"|"' in result
+        assert "part 2" in result
+
+    def test_split_without_args_no_field_name(self):
+        builder = _builder()
+        result = builder._describe_split_logic(
+            [
+                {
+                    "func": "split",
+                    "delimiter": "/",
+                    "index": 0,
+                },
+            ]
+        )
+        assert result == 'Split by "/", get part 1'
+
+    def test_split_fallback_no_split_func(self):
+        builder = _builder()
+        result = builder._describe_split_logic(
+            [
+                {"func": "raw-field", "id": "x"},
+            ]
+        )
+        assert result == "Split string"
+
+
+# ==================== _describe_math_logic() ====================
+
+
+class TestDescribeMathLogic:
+    """Cover divide/multiply/add/subtract with fields (lines 1381, 1383, 1385, 1389)."""
+
+    def _parsed_with_fields(self, *field_ids):
+        return {"schema_fields": list(field_ids)}
+
+    def test_divide_two_fields(self):
+        builder = _builder()
+        parsed = self._parsed_with_fields("commerce.revenue", "commerce.orders")
+        result = builder._describe_math_logic(
+            [{"func": "divide"}],
+            parsed,
+        )
+        assert result == "Math: revenue / orders"
+
+    def test_multiply_two_fields(self):
+        builder = _builder()
+        parsed = self._parsed_with_fields("web.visits", "rate.conversion")
+        result = builder._describe_math_logic(
+            [{"func": "multiply"}],
+            parsed,
+        )
+        assert result == "Math: visits x conversion"
+
+    def test_add_two_fields(self):
+        builder = _builder()
+        parsed = self._parsed_with_fields("metric.a", "metric.b")
+        result = builder._describe_math_logic(
+            [{"func": "add"}],
+            parsed,
+        )
+        assert result == "Math: a + b"
+
+    def test_subtract_two_fields(self):
+        builder = _builder()
+        parsed = self._parsed_with_fields("metric.total", "metric.discount")
+        result = builder._describe_math_logic(
+            [{"func": "subtract"}],
+            parsed,
+        )
+        assert result == "Math: total - discount"
+
+    def test_math_no_fields_returns_empty(self):
+        """Math functions with fewer than 2 schema fields returns empty."""
+        builder = _builder()
+        parsed = self._parsed_with_fields("only_one_field")
+        result = builder._describe_math_logic(
+            [{"func": "divide"}],
+            parsed,
+        )
+        assert result == ""
+
+
+# ==================== _describe_typecast_logic() ====================
+
+
+class TestDescribeTypecastLogic:
+    """Cover various input sources (lines 1404, 1410-1413)."""
+
+    def test_typecast_with_args(self):
+        builder = _builder()
+        result = builder._describe_typecast_logic(
+            [
+                {
+                    "func": "typecast",
+                    "type": "integer",
+                    "args": [{"func": "raw-field", "id": "web.pageViews"}],
+                },
+            ]
+        )
+        assert result == "Converts pageViews to integer"
+
+    def test_typecast_with_field_ref(self):
+        builder = _builder()
+        result = builder._describe_typecast_logic(
+            [
+                {
+                    "func": "typecast",
+                    "type": "string",
+                    "field": "order_id_label",
+                },
+            ]
+        )
+        assert result == "Converts order_id_label to string"
+
+    def test_typecast_type_only(self):
+        builder = _builder()
+        result = builder._describe_typecast_logic(
+            [
+                {
+                    "func": "typecast",
+                    "type": "double",
+                },
+            ]
+        )
+        assert result == "Converts to double"
+
+    def test_typecast_fallback(self):
+        """No typecast func should return 'Type conversion'."""
+        builder = _builder()
+        result = builder._describe_typecast_logic(
+            [
+                {"func": "raw-field", "id": "some_field"},
+            ]
+        )
+        assert result == "Type conversion"
+
+
+# ==================== _describe_datetime_bucket_logic() ====================
+
+
+class TestDescribeDatetimeBucketLogic:
+    """Cover field and interval variants (lines 1427, 1433-1436)."""
+
+    def test_bucket_with_field_and_interval(self):
+        builder = _builder()
+        result = builder._describe_datetime_bucket_logic(
+            [
+                {
+                    "func": "datetime-bucket",
+                    "bucket": "week",
+                    "args": [{"func": "raw-field", "id": "event.timestamp"}],
+                },
+            ]
+        )
+        assert result == "Buckets timestamp by week"
+
+    def test_bucket_with_field_ref_and_interval(self):
+        builder = _builder()
+        result = builder._describe_datetime_bucket_logic(
+            [
+                {
+                    "func": "datetime-bucket",
+                    "interval": "month",
+                    "field": "ts_label",
+                },
+            ]
+        )
+        assert result == "Buckets ts_label by month"
+
+    def test_bucket_interval_only(self):
+        builder = _builder()
+        result = builder._describe_datetime_bucket_logic(
+            [
+                {
+                    "func": "datetime-bucket",
+                    "granularity": "day",
+                },
+            ]
+        )
+        assert result == "Date bucketing by day"
+
+    def test_bucket_fallback(self):
+        builder = _builder()
+        result = builder._describe_datetime_bucket_logic(
+            [
+                {"func": "raw-field", "id": "f"},
+            ]
+        )
+        assert result == "Date bucketing"
+
+
+# ==================== _generate_logic_summary() match/classify with rule_names ====================
+
+
+class TestLogicSummaryMatchClassifyRuleNames:
+    """Cover match/classify with rule_names and no detail (lines 767, 772-774, 780-791)."""
+
+    def test_match_with_rule_names_no_detail(self):
+        """Match with rule names but no describable branches should show conditional logic."""
+        builder = _builder()
+        functions = [
+            {"func": "raw-field", "id": "f", "label": "f"},
+            {
+                "func": "match",
+                "#rule_name": "MyRule",
+                "branches": [],
+            },
+        ]
+        parsed = builder._parse_definition(functions)
+        summary = builder._generate_logic_summary(functions, parsed, "Test")
+        assert "conditional" in summary.lower() or "MyRule" in summary
+
+    def test_match_no_rules_no_detail_shows_branch_count(self):
+        """Match with no rule names and no describable branches shows branch count."""
+        builder = _builder()
+        functions = [
+            {"func": "raw-field", "id": "f", "label": "f"},
+            {
+                "func": "match",
+                "branches": [
+                    {"pred": {}, "map-to": None},
+                    {"pred": {}, "map-to": None},
+                ],
+            },
+        ]
+        parsed = builder._parse_definition(functions)
+        summary = builder._generate_logic_summary(functions, parsed, "Test")
+        assert "2 branches" in summary.lower() or "conditional" in summary.lower()
+
+    def test_classify_with_rule_names(self):
+        """Classify with rule names and no lookup detail should show classification rules."""
+        builder = _builder()
+        functions = [
+            {"func": "raw-field", "id": "f", "label": "f"},
+            {
+                "func": "classify",
+                "#rule_name": "LookupRule",
+            },
+        ]
+        parsed = builder._parse_definition(functions)
+        summary = builder._generate_logic_summary(functions, parsed, "Test")
+        assert "lookup" in summary.lower() or "LookupRule" in summary
+
+    def test_classify_no_rules_with_lookup_ref(self):
+        """Classify with lookup_references but no rules should show dataset name."""
+        builder = _builder()
+        functions = [
+            {"func": "raw-field", "id": "f", "label": "f"},
+            {
+                "func": "classify",
+                "mapping": {"dataset": "datasets/my_lookup_table"},
+            },
+        ]
+        parsed = builder._parse_definition(functions)
+        summary = builder._generate_logic_summary(functions, parsed, "Test")
+        assert "lookup" in summary.lower() or "my_lookup_table" in summary.lower()
+
+    def test_classify_fallback(self):
+        """Classify with no rules, no lookup refs, and no detail should show fallback."""
+        builder = _builder()
+        functions = [
+            {"func": "raw-field", "id": "f", "label": "f"},
+            {
+                "func": "classify",
+            },
+        ]
+        parsed = builder._parse_definition(functions)
+        summary = builder._generate_logic_summary(functions, parsed, "Test")
+        assert "lookup" in summary.lower() or "classify" in summary.lower()

@@ -1092,3 +1092,332 @@ class TestParseIso:
         from cja_auto_sdr.core.locks.backends import _parse_iso
 
         assert _parse_iso("") is None
+
+
+# ---------------------------------------------------------------------------
+# 23. _is_process_running() - TypeError/ValueError/OverflowError from int(pid)
+#     Lines 311-312
+# ---------------------------------------------------------------------------
+
+
+class TestIsProcessRunningIntConversionErrors:
+    def test_none_pid_returns_false(self) -> None:
+        """int(None) raises TypeError -> should return False."""
+        assert _is_process_running(None) is False  # type: ignore[arg-type]
+
+    def test_string_pid_returns_false(self) -> None:
+        """int('abc') raises ValueError -> should return False."""
+        assert _is_process_running("abc") is False  # type: ignore[arg-type]
+
+    def test_list_pid_returns_false(self) -> None:
+        """int([]) raises TypeError -> should return False."""
+        assert _is_process_running([]) is False  # type: ignore[arg-type]
+
+    def test_dict_pid_returns_false(self) -> None:
+        """int({}) raises TypeError -> should return False."""
+        assert _is_process_running({}) is False  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# 24. _is_fcntl_lock_active() - fcntl is None (line 332)
+# ---------------------------------------------------------------------------
+
+
+class TestIsFcntlLockActiveFcntlNone:
+    def test_returns_none_when_fcntl_is_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When fcntl module is None, _is_fcntl_lock_active returns None."""
+        from cja_auto_sdr.core.locks.backends import _is_fcntl_lock_active
+
+        monkeypatch.setattr(backends_module, "fcntl", None)
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        result = _is_fcntl_lock_active(lock_file)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 25. _is_fcntl_lock_active() - EAGAIN via OSError (line 347)
+#     (already partially covered, but this ensures the EWOULDBLOCK path)
+# ---------------------------------------------------------------------------
+
+
+class TestIsFcntlLockActiveEwouldblock:
+    def test_ewouldblock_returns_true(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """OSError with EWOULDBLOCK should return True (lock held)."""
+        from cja_auto_sdr.core.locks.backends import _is_fcntl_lock_active
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+        f = tmp_path / "locked"
+        f.write_text("x", encoding="utf-8")
+
+        def _ewouldblock_flock(fd: int, operation: int) -> None:
+            if operation & backends_module.fcntl.LOCK_NB:
+                raise OSError(errno.EWOULDBLOCK, "would block")
+
+        monkeypatch.setattr(backends_module.fcntl, "flock", _ewouldblock_flock)
+        result = _is_fcntl_lock_active(f)
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# 26. FcntlFileLockBackend.acquire_result() - _open_lock_file returns (None, False)
+#     Line 453
+# ---------------------------------------------------------------------------
+
+
+class TestFcntlAcquireResultOpenFails:
+    def test_open_lock_file_returns_none_yields_contended(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When _open_lock_file returns (None, False), acquire_result returns CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        backend = FcntlFileLockBackend()
+        monkeypatch.setattr(FcntlFileLockBackend, "_open_lock_file", staticmethod(lambda path: (None, False)))
+        result = backend.acquire_result(tmp_path / "lock", stale_threshold_seconds=10)
+        assert result.status == AcquireStatus.CONTENDED
+        assert result.handle is None
+
+
+# ---------------------------------------------------------------------------
+# 27. _fd_matches_path() - os.fstat raises OSError (lines 554-555)
+#     and lock_path.stat() raises OSError (lines 560-561)
+# ---------------------------------------------------------------------------
+
+
+class TestFdMatchesPathOSErrors:
+    def test_fstat_oserror_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When os.fstat raises OSError, _fd_matches_path returns False."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        def _fstat_fail(fd: int) -> None:
+            raise OSError(errno.EBADF, "bad fd")
+
+        monkeypatch.setattr(os, "fstat", _fstat_fail)
+        result = FcntlFileLockBackend._fd_matches_path(999, Path("/nonexistent"))
+        assert result is False
+
+    def test_path_stat_oserror_returns_false(self, tmp_path: Path) -> None:
+        """When lock_path.stat() raises OSError (file gone), _fd_matches_path returns False."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        # Create a file so we can get a valid fd
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        fd = os.open(str(lock_file), os.O_RDWR)
+        try:
+            # Delete the file so stat fails on path
+            lock_file.unlink()
+            result = FcntlFileLockBackend._fd_matches_path(fd, lock_file)
+            # st_nlink goes to 0 when unlinked, so returns False
+            assert result is False
+        finally:
+            os.close(fd)
+
+    def test_path_stat_missing_file_returns_false(self) -> None:
+        """When lock_path points to a nonexistent file, stat() raises OSError -> False."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        # Use a real fd from a temp file but point to a different nonexistent path
+        import tempfile
+
+        with tempfile.NamedTemporaryFile() as tf:
+            fd = os.open(tf.name, os.O_RDWR)
+            try:
+                result = FcntlFileLockBackend._fd_matches_path(fd, Path("/no/such/path"))
+                assert result is False
+            finally:
+                os.close(fd)
+
+
+# ---------------------------------------------------------------------------
+# 28. FcntlFileLockBackend.release() - already closed + flock LOCK_UN OSError
+#     Lines 574, 578-579
+# ---------------------------------------------------------------------------
+
+
+class TestFcntlReleaseEdgeCases:
+    def test_release_already_closed_is_noop(self) -> None:
+        """Releasing an already-closed handle does nothing."""
+        from cja_auto_sdr.core.locks.backends import _FcntlLockHandle
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        handle = _FcntlLockHandle(lock_path=Path("/tmp/lock"), fd=-1, lock_id="test", closed=True)
+        backend = FcntlFileLockBackend()
+        # Should not raise
+        backend.release(handle)
+        assert handle.closed is True
+
+    def test_release_flock_un_oserror_still_closes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When flock(LOCK_UN) raises OSError, release still closes fd and marks closed."""
+        from cja_auto_sdr.core.locks.backends import _FcntlLockHandle
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available on this platform")
+
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        fd = os.open(str(lock_file), os.O_RDWR)
+
+        def _flock_fail(fd_: int, operation: int) -> None:
+            raise OSError(errno.EIO, "I/O error during unlock")
+
+        monkeypatch.setattr(backends_module.fcntl, "flock", _flock_fail)
+        handle = _FcntlLockHandle(lock_path=lock_file, fd=fd, lock_id="test", closed=False)
+        backend = FcntlFileLockBackend()
+        backend.release(handle)
+        assert handle.closed is True
+
+
+# ---------------------------------------------------------------------------
+# 29. LeaseFileLockBackend.acquire() - error propagation (line 662)
+# ---------------------------------------------------------------------------
+
+
+class TestLeaseAcquireErrorPropagation:
+    def test_acquire_raises_when_acquire_result_has_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When acquire_result returns non-ACQUIRED with error, acquire() raises it."""
+        from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        test_error = OSError(errno.EIO, "disk error")
+        monkeypatch.setattr(
+            backend,
+            "acquire_result",
+            lambda lock_path, stale_threshold_seconds: AcquireResult(
+                status=AcquireStatus.METADATA_ERROR, error=test_error
+            ),
+        )
+        with pytest.raises(OSError, match="disk error"):
+            backend.acquire(tmp_path / "lock", stale_threshold_seconds=10)
+
+    def test_acquire_returns_none_when_contended_no_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When acquire_result returns CONTENDED with no error, acquire() returns None."""
+        from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        monkeypatch.setattr(
+            backend,
+            "acquire_result",
+            lambda lock_path, stale_threshold_seconds: AcquireResult(status=AcquireStatus.CONTENDED),
+        )
+        result = backend.acquire(tmp_path / "lock", stale_threshold_seconds=10)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 30. _safe_unlink() - FileNotFoundError -> True, other OSError -> False
+#     Lines 842-845
+# ---------------------------------------------------------------------------
+
+
+class TestSafeUnlink:
+    def test_successful_unlink_returns_true(self, tmp_path: Path) -> None:
+        f = tmp_path / "to_delete"
+        f.write_text("x", encoding="utf-8")
+        assert LeaseFileLockBackend._safe_unlink(f) is True
+        assert not f.exists()
+
+    def test_file_not_found_returns_true(self, tmp_path: Path) -> None:
+        """FileNotFoundError (already gone) returns True."""
+        f = tmp_path / "nonexistent"
+        assert LeaseFileLockBackend._safe_unlink(f) is True
+
+    def test_other_oserror_returns_false(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-FileNotFoundError OSError returns False."""
+        f = tmp_path / "fail"
+        f.write_text("x", encoding="utf-8")
+
+        original_unlink = Path.unlink
+
+        def _unlink_fail(self_path: Path, missing_ok: bool = False) -> None:
+            if self_path == f:
+                raise OSError(errno.EACCES, "permission denied")
+            return original_unlink(self_path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", _unlink_fail)
+        assert LeaseFileLockBackend._safe_unlink(f) is False
+
+
+# ---------------------------------------------------------------------------
+# 31. _safe_unlink_if_inode() - inode mismatch returns False (line 852)
+# ---------------------------------------------------------------------------
+
+
+class TestSafeUnlinkIfInode:
+    def test_inode_mismatch_returns_false(self, tmp_path: Path) -> None:
+        """When current inode differs from expected, returns False without unlinking."""
+        f = tmp_path / "lock"
+        f.write_text("x", encoding="utf-8")
+        # Use a fake expected inode that won't match
+        fake_inode = (0, 0)
+        backend = LeaseFileLockBackend()
+        result = backend._safe_unlink_if_inode(f, fake_inode)
+        assert result is False
+        # File should still exist
+        assert f.exists()
+
+    def test_file_gone_returns_true(self, tmp_path: Path) -> None:
+        """When file is already gone (stat returns None), returns True."""
+        f = tmp_path / "gone"
+        backend = LeaseFileLockBackend()
+        result = backend._safe_unlink_if_inode(f, (0, 0))
+        assert result is True
+
+    def test_matching_inode_unlinks(self, tmp_path: Path) -> None:
+        """When inodes match, the file is unlinked and returns True."""
+        f = tmp_path / "lock"
+        f.write_text("x", encoding="utf-8")
+        st = f.stat()
+        real_inode = (st.st_dev, st.st_ino)
+        backend = LeaseFileLockBackend()
+        result = backend._safe_unlink_if_inode(f, real_inode)
+        assert result is True
+        assert not f.exists()
+
+
+# ---------------------------------------------------------------------------
+# 32. LeaseFileLockBackend.release() - already closed + fstat returns None
+#     Lines 787, 794-795
+# ---------------------------------------------------------------------------
+
+
+class TestLeaseReleaseEdgeCases:
+    def test_release_already_closed_is_noop(self) -> None:
+        """Releasing an already-closed handle does nothing."""
+        from cja_auto_sdr.core.locks.backends import _LeaseLockHandle
+
+        handle = _LeaseLockHandle(lock_path=Path("/tmp/lock"), fd=-1, lock_id="test", closed=True)
+        backend = LeaseFileLockBackend()
+        backend.release(handle)
+        assert handle.closed is True
+
+    def test_release_fstat_returns_none_early_exit(self, tmp_path: Path) -> None:
+        """When fstat_inode returns None (bad fd), release closes and exits early."""
+        from cja_auto_sdr.core.locks.backends import _LeaseLockHandle
+
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        fd = os.open(str(lock_file), os.O_RDWR)
+        # Close the fd first so fstat will fail inside release
+        os.close(fd)
+        handle = _LeaseLockHandle(lock_path=lock_file, fd=fd, lock_id="test", closed=False)
+        backend = LeaseFileLockBackend()
+        # Should not raise, should mark closed and return early
+        backend.release(handle)
+        assert handle.closed is True
+        # File should still exist since we took the early-return path
+        assert lock_file.exists()
