@@ -288,8 +288,8 @@ class TestConsoleOutputWithInventory:
         output = write_diff_console_output(result, use_color=False)
 
         assert "CALCULATED METRICS" in output
-        # Should not have SEGMENTS section in inventory changes
-        assert "SEGMENTS" not in output or output.index("CALCULATED METRICS") < output.rindex("=")
+        # Should not have SEGMENTS section when segments_diffs is None
+        assert "SEGMENTS" not in output
 
     def test_console_output_only_segments_no_calc_metrics(self):
         """Test output when only segments_diffs is present, no calc metrics."""
@@ -946,8 +946,9 @@ class TestGetInventoryChangeDetail:
             changed_fields={"field": (long_val, "short")},
         )
         detail = _get_inventory_change_detail(diff, truncate=True)
-        # Truncated to max_len=30 by default
-        assert len(detail) < len(long_val) + 50  # rough check
+        # Value should be truncated to max_len=30 — full 100-char value must not appear
+        assert long_val not in detail
+        assert "x" * 30 in detail
 
     def test_no_truncation(self):
         long_val = "x" * 100
@@ -1396,8 +1397,9 @@ class TestSideBySideWithInventory:
 
         # Should still contain inventory section
         assert "INVENTORY CHANGES" in output
-        # Modified metric should get side-by-side treatment
-        assert "Before" in output or "After" in output
+        # Source/target labels should appear in side-by-side columns
+        assert "Before" in output
+        assert "After" in output
 
 
 # ==================== Edge cases ====================

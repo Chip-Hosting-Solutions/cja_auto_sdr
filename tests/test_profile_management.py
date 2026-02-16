@@ -10,14 +10,12 @@ Covers uncovered lines in generator.py:
 
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import (
     add_profile_interactive,
     import_profile_non_interactive,

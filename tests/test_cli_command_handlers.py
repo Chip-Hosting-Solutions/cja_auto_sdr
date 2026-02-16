@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -264,7 +262,7 @@ class TestProcessInventorySummary:
 
         # Should use data_view_id as the name fallback
         call_kwargs = mock_display.call_args
-        assert call_kwargs[1]["data_view_name"] == "dv_test123" or call_kwargs[1]["data_view_id"] == "dv_test123"
+        assert call_kwargs[1]["data_view_name"] == "dv_test123"
 
 
 # ==================== handle_diff_command ====================
@@ -670,7 +668,7 @@ class TestHandleDiffCommand:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     def test_diff_non_console_format_prints_success(
-        self, mock_conf, mock_cjapy, mock_sm_cls, mock_comp_cls, mock_write, mock_build, mock_append
+        self, mock_conf, mock_cjapy, mock_sm_cls, mock_comp_cls, mock_write, mock_build, mock_append, capsys
     ):
         """Non-console output format should print success message when not quiet."""
         mock_conf.return_value = (True, "config_path", {})
@@ -686,17 +684,15 @@ class TestHandleDiffCommand:
         mock_comp_cls.return_value = mock_comp
         mock_write.return_value = ""
 
-        stdout_buf = StringIO()
-        with redirect_stdout(stdout_buf):
-            handle_diff_command(
-                source_id="dv_a",
-                target_id="dv_b",
-                output_format="json",
-                quiet=False,
-            )
+        handle_diff_command(
+            source_id="dv_a",
+            target_id="dv_b",
+            output_format="json",
+            quiet=False,
+        )
 
-        output = stdout_buf.getvalue()
-        assert "Diff report generated successfully" in output or "COMPARING" in output
+        captured = capsys.readouterr()
+        assert "Diff report generated successfully" in captured.out
 
 
 # ==================== handle_diff_snapshot_command ====================
@@ -774,7 +770,7 @@ class TestHandleDiffSnapshotCommand:
         assert success is False
 
     @patch("cja_auto_sdr.generator.SnapshotManager")
-    def test_missing_inventory_blocks_diff(self, mock_sm_cls):
+    def test_missing_inventory_blocks_diff(self, mock_sm_cls, capsys):
         """Requesting calc metrics from snapshot that lacks them returns failure."""
         snap = _make_mock_snapshot()
         snap.has_calculated_metrics_inventory = False
@@ -784,17 +780,16 @@ class TestHandleDiffSnapshotCommand:
         mock_sm.load_snapshot.return_value = snap
         mock_sm_cls.return_value = mock_sm
 
-        stderr_buf = StringIO()
-        with redirect_stderr(stderr_buf):
-            success, _, _ = handle_diff_snapshot_command(
-                data_view_id="dv_test",
-                snapshot_file="snap.json",
-                include_calc_metrics=True,
-                quiet=True,
-            )
+        success, _, _ = handle_diff_snapshot_command(
+            data_view_id="dv_test",
+            snapshot_file="snap.json",
+            include_calc_metrics=True,
+            quiet=True,
+        )
 
         assert success is False
-        assert "missing" in stderr_buf.getvalue().lower() or "ERROR" in stderr_buf.getvalue()
+        captured = capsys.readouterr()
+        assert "snapshot missing requested data" in captured.err
 
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_diff_step_summary")
@@ -1016,37 +1011,33 @@ class TestMainImplGitInit:
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
-    def test_git_init_success(self, mock_git_init):
+    def test_git_init_success(self, mock_git_init, capsys):
         mock_git_init.return_value = (True, "Repository initialized")
         run_state = {"mode": "unknown", "details": {}}
 
-        stdout_buf = StringIO()
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stdout(stdout_buf):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    mock_pa.return_value = parse_arguments(["--git-init"])
-                    _main_impl(run_state=run_state)
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--git-init"])
+                _main_impl(run_state=run_state)
 
         assert exc_info.value.code == 0
-        output = stdout_buf.getvalue()
-        assert "SUCCESS" in output or "Repository initialized" in output
+        captured = capsys.readouterr()
+        assert "SUCCESS: Repository initialized" in captured.out
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.git_init_snapshot_repo")
-    def test_git_init_failure(self, mock_git_init):
+    def test_git_init_failure(self, mock_git_init, capsys):
         mock_git_init.return_value = (False, "Directory not empty")
         run_state = {"mode": "unknown", "details": {}}
 
-        stdout_buf = StringIO()
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stdout(stdout_buf):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    mock_pa.return_value = parse_arguments(["--git-init"])
-                    _main_impl(run_state=run_state)
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--git-init"])
+                _main_impl(run_state=run_state)
 
         assert exc_info.value.code == 1
-        output = stdout_buf.getvalue()
-        assert "FAILED" in output
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.out
 
 
 # ==================== _main_impl: --git-push without --git-commit ====================
@@ -1058,15 +1049,13 @@ class TestMainImplGitPushValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_git_push_without_commit_errors(self):
         """--git-push without --git-commit should exit 1."""
-        stderr_buf = StringIO()
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stderr(stderr_buf):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    args = parse_arguments(["dv_test123"])
-                    args.git_push = True
-                    args.git_commit = False
-                    mock_pa.return_value = args
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["dv_test123"])
+                args.git_push = True
+                args.git_commit = False
+                mock_pa.return_value = args
+                _main_impl()
 
         assert exc_info.value.code == 1
 
@@ -1200,10 +1189,9 @@ class TestMainImplStats:
         mock_resolve.return_value = ([], {})
 
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stderr(StringIO()):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    mock_pa.return_value = parse_arguments(["--stats", "nonexistent_dv"])
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--stats", "nonexistent_dv"])
+                _main_impl()
 
         assert exc_info.value.code == 1
 
@@ -1211,10 +1199,9 @@ class TestMainImplStats:
     def test_stats_no_data_views_exits_one(self):
         """--stats without data views should exit 1."""
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stderr(StringIO()):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    mock_pa.return_value = parse_arguments(["--stats"])
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--stats"])
+                _main_impl()
 
         assert exc_info.value.code == 1
 
@@ -1485,14 +1472,13 @@ class TestMainImplShowOnlyAndInventory:
     def test_show_only_invalid_types_exits_one(self):
         """Invalid --show-only types should exit 1."""
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stderr(StringIO()):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    args = parse_arguments(["dv_test123"])
-                    # Simulate diff mode with invalid show_only
-                    args.diff = ["dv_a", "dv_b"]
-                    args.show_only = "added,invalid_type"
-                    mock_pa.return_value = args
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["dv_test123"])
+                # Simulate diff mode with invalid show_only
+                args.diff = ["dv_a", "dv_b"]
+                args.show_only = "added,invalid_type"
+                mock_pa.return_value = args
+                _main_impl()
 
         assert exc_info.value.code == 1
 
@@ -1506,13 +1492,12 @@ class TestMainImplShowOnlyAndInventory:
         mock_sm_cls.return_value = mock_sm
 
         with pytest.raises(SystemExit):
-            with redirect_stdout(StringIO()):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    args = parse_arguments(["--list-snapshots"])
-                    args.include_all_inventory = True
-                    args.snapshot = "dv_test123"  # snapshot-like mode
-                    mock_pa.return_value = args
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-snapshots"])
+                args.include_all_inventory = True
+                args.snapshot = "dv_test123"  # snapshot-like mode
+                mock_pa.return_value = args
+                _main_impl()
 
         # In snapshot-like mode, include_derived_inventory should remain unset
 
@@ -1610,11 +1595,10 @@ class TestMainImplPruneSnapshots:
         mock_sm_cls.return_value = mock_sm
 
         with pytest.raises(SystemExit) as exc_info:
-            with redirect_stderr(StringIO()):
-                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                    args = parse_arguments(["--prune-snapshots"])
-                    mock_pa.return_value = args
-                    _main_impl()
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--prune-snapshots"])
+                mock_pa.return_value = args
+                _main_impl()
 
         assert exc_info.value.code == 1
 

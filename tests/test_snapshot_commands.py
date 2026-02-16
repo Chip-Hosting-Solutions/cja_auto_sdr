@@ -32,9 +32,11 @@ from cja_auto_sdr.generator import (
     parse_arguments as _real_parse_arguments,
 )
 
-# Warm the lru_cache on _known_long_options before any @patch on parse_arguments
-# can interfere.  The cached frozenset is used by _cli_option_value /
-# _cli_option_specified inside main() and _main_impl().
+# _known_long_options() internally calls parse_arguments(return_parser=True).
+# When tests @patch parse_arguments, that internal call would return a MagicMock
+# instead of a real parser, breaking _cli_option_value / _cli_option_specified.
+# Pre-populating the lru_cache here avoids that — the real frozenset is cached
+# once and reused across all tests regardless of patches.
 _known_long_options()
 
 # ==================== Helpers ====================
