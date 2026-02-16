@@ -331,7 +331,7 @@ class DataViewComparator:
         return [d for d in diffs if d.change_type in allowed_types]
 
     def _compare_components(
-        self, source_list: list[dict], target_list: list[dict], component_type: str
+        self, source_list: list[dict], target_list: list[dict], _component_type: str
     ) -> list[ComponentDiff]:
         def name_extractor(item: dict) -> str:
             return item.get("name", item.get("title", "Unknown"))

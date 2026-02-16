@@ -182,8 +182,8 @@ class SegmentSummary:
         return {
             "name": self.segment_name,
             "id": self.segment_id,
-            "description": self.description if self.description else "-",
-            "owner": self.owner if self.owner else "-",
+            "description": self.description or "-",
+            "owner": self.owner or "-",
             "approved": "Yes" if self.approved else "No",
             "tags": ", ".join(self.tags) if self.tags else "-",
             "complexity_score": self.complexity_score,
@@ -192,7 +192,7 @@ class SegmentSummary:
             "dimension_references": ", ".join(self.dimension_references) if self.dimension_references else "-",
             "metric_references": ", ".join(self.metric_references) if self.metric_references else "-",
             "segment_references": ", ".join(self.other_segment_references) if self.other_segment_references else "-",
-            "definition_summary": self.definition_summary if self.definition_summary else "-",
+            "definition_summary": self.definition_summary or "-",
             "created": format_iso_date(self.created),
             "modified": format_iso_date(self.modified),
             "shared_to": self.shared_to_count if self.shared_to_count > 0 else "-",
@@ -900,7 +900,7 @@ class SegmentsInventoryBuilder:
         elif func in ("ne", "strne"):
             if field_name and val:
                 return f"{field_name} != '{val}'" if isinstance(val, str) else f"{field_name} != {val}"
-        elif func in ("streq-in",):
+        elif func == "streq-in":
             if field_name and val:
                 return f"{field_name} in ({val})"
         elif func == "contains":

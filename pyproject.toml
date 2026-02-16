@@ -101,6 +101,10 @@ select = [
     "PLE",  # pylint errors
     "RSE",  # unnecessary parens on raise
     "PLW",  # pylint warnings
+    "T",    # flake8-print (catch stray print statements)
+    "LOG",  # flake8-logging (logging best practices)
+    "ARG",  # flake8-unused-arguments
+    "FURB", # refurb (modern Python idioms)
 ]
 ignore = [
     "E501",    # line too long (handled by formatter)
@@ -116,17 +120,18 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105", "PLW2901"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive; PLW2901: line=line.strip() pattern
+"src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105", "PLW2901", "T201"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive; PLW2901: line=line.strip() pattern; T201: intentional CLI console output
 "src/cja_auto_sdr/core/credentials.py" = ["PLW2901"]  # line=line.strip() pattern
-"src/cja_auto_sdr/core/logging.py" = ["PLW0603"]      # legitimate global state for logging init
+"src/cja_auto_sdr/core/logging.py" = ["PLW0603", "T201"]  # legitimate global state for logging init; T201: fallback console output before logger is ready
 "src/cja_auto_sdr/api/*.py" = ["F822"]       # lazy forwarding modules (resolved via __getattr__)
 "src/cja_auto_sdr/cli/*.py" = ["F822"]       # lazy forwarding modules
 "src/cja_auto_sdr/core/profiles.py" = ["F822"]  # lazy forwarding module
 "src/cja_auto_sdr/diff/*.py" = ["F822"]      # lazy forwarding modules
+"src/cja_auto_sdr/diff/snapshot.py" = ["F822", "T201"]  # lazy forwarding + intentional CLI progress output
 "src/cja_auto_sdr/inventory/*.py" = ["F822"] # lazy forwarding modules
 "src/cja_auto_sdr/output/**/*.py" = ["F822"] # lazy forwarding modules
 "src/cja_auto_sdr/pipeline/*.py" = ["F822"]  # lazy forwarding modules
-"tests/**" = ["B", "SIM", "RUF012", "PERF", "DTZ", "S105", "S108", "S110", "S314", "PT017", "PT018", "PT019"]
+"tests/**" = ["B", "SIM", "RUF012", "PERF", "DTZ", "S105", "S108", "S110", "S314", "PT017", "PT018", "PT019", "ARG", "T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["cja_auto_sdr"]

@@ -108,7 +108,7 @@ class JsonFileCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return f"json:{self.file_path.name}"
 
-    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
+    def _load_impl(self, _logger: logging.Logger) -> dict[str, Any] | None:
         if not self.file_path.exists():
             return None
 
@@ -130,7 +130,7 @@ class DotenvCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return f"dotenv:{self.file_path.name}"
 
-    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
+    def _load_impl(self, _logger: logging.Logger) -> dict[str, Any] | None:
         if not self.file_path.exists():
             return None
 
@@ -157,7 +157,7 @@ class DotenvCredentialLoader(CredentialLoader):
                     if key and value:
                         credentials[key] = value
 
-        return credentials if credentials else None
+        return credentials or None
 
 
 class EnvironmentCredentialLoader(CredentialLoader):
@@ -167,14 +167,14 @@ class EnvironmentCredentialLoader(CredentialLoader):
     def source_name(self) -> str:
         return "environment"
 
-    def _load_impl(self, logger: logging.Logger) -> dict[str, Any] | None:
+    def _load_impl(self, _logger: logging.Logger) -> dict[str, Any] | None:
         credentials = {}
         for config_key, env_var in ENV_VAR_MAPPING.items():
             value = os.environ.get(env_var)
             if value and value.strip():
                 credentials[config_key] = value.strip()
 
-        return credentials if credentials else None
+        return credentials or None
 
 
 # ==================== CREDENTIAL RESOLVER ====================

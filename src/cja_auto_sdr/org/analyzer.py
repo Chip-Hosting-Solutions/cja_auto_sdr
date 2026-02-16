@@ -140,7 +140,7 @@ class OrgComponentAnalyzer:
             try:
                 future.cancel()
             except Exception as e:
-                logging.debug("Best-effort future cancel failed: %s", e)
+                logging.getLogger(__name__).debug("Best-effort future cancel failed: %s", e)
                 continue
 
     def _quick_check_empty_org(self) -> OrgReportResult | None:
@@ -1158,7 +1158,7 @@ class OrgComponentAnalyzer:
         self,
         summaries: list[DataViewSummary],
         index: dict[str, ComponentInfo],
-        distribution: ComponentDistribution,
+        _distribution: ComponentDistribution,
         similarity_pairs: list[SimilarityPair] | None,
     ) -> list[dict[str, Any]]:
         """Generate governance recommendations based on analysis.
@@ -1280,7 +1280,7 @@ class OrgComponentAnalyzer:
                 if summary.error or not summary.modified:
                     continue
                 try:
-                    modified_date = datetime.fromisoformat(summary.modified.replace("Z", "+00:00"))
+                    modified_date = datetime.fromisoformat(summary.modified)
                     if modified_date.tzinfo is None:
                         modified_date = modified_date.replace(tzinfo=UTC)
                     if modified_date < six_months_ago:

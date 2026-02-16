@@ -150,7 +150,7 @@ class DerivedFieldSummary:
             "name": self.component_name,
             "type": self.component_type,
             "id": self.component_id,
-            "description": self.description if self.description else "-",
+            "description": self.description or "-",
             "complexity_score": self.complexity_score,
             "functions_used": ", ".join(self.functions_used) if self.functions_used else "-",
             "branch_count": self.branch_count,  # Keep as number (0 is valid)
@@ -160,7 +160,7 @@ class DerivedFieldSummary:
             else "-",
             "lookup_references": ", ".join(self.lookup_references) if self.lookup_references else "-",
             "rule_names": ", ".join(self.rule_names) if self.rule_names else "-",
-            "logic_summary": self.logic_summary if self.logic_summary else "-",
+            "logic_summary": self.logic_summary or "-",
             "output_type": self.inferred_output_type.title() if self.inferred_output_type else "-",
             "definition_json": self.definition_json,  # Keep empty string for raw JSON
         }
@@ -419,7 +419,7 @@ class DerivedFieldInventoryBuilder:
         logic_summary = self._generate_logic_summary(
             functions=functions,
             parsed=parsed,
-            component_name=component_name,
+            _component_name=component_name,
         )
 
         # Prepare definition JSON string
@@ -746,7 +746,7 @@ class DerivedFieldInventoryBuilder:
         self,
         functions: list[dict[str, Any]],
         parsed: dict[str, Any],
-        component_name: str,
+        _component_name: str,
     ) -> str:
         """Generate a brief human-readable summary of what the derived field does."""
         parts = []
@@ -887,7 +887,7 @@ class DerivedFieldInventoryBuilder:
             return "unknown"
         # Use shared utility for consistent name extraction
         short_name = extract_short_name(field_id)
-        return short_name if short_name else "unknown"
+        return short_name or "unknown"
 
     def _normalize_label_key(self, value: Any) -> str:
         """Normalize dynamic label/reference values to hashable string keys."""
@@ -1242,7 +1242,7 @@ class DerivedFieldInventoryBuilder:
                     param_str = self._coerce_scalar_text(component.get("param", ""))
                     component_desc = f"query param '{param_str}'" if param_str else "query string"
                 else:
-                    component_desc = component_names.get(comp_func, comp_func if comp_func else "URL component")
+                    component_desc = component_names.get(comp_func, comp_func or "URL component")
             elif isinstance(component, str):
                 component_desc = component_names.get(component, component)
             else:
@@ -1254,7 +1254,7 @@ class DerivedFieldInventoryBuilder:
 
         return "URL parsing"
 
-    def _describe_concat_logic(self, functions: list[dict[str, Any]], parsed: dict[str, Any]) -> str:
+    def _describe_concat_logic(self, functions: list[dict[str, Any]], _parsed: dict[str, Any]) -> str:
         """Generate detailed description of concatenation logic."""
         for func_obj in self._iter_function_dicts(functions):
             if func_obj.get("func") != "concatenate":
@@ -1338,7 +1338,7 @@ class DerivedFieldInventoryBuilder:
 
         return "Deduplicates values"
 
-    def _describe_merge_logic(self, functions: list[dict[str, Any]], parsed: dict[str, Any]) -> str:
+    def _describe_merge_logic(self, _functions: list[dict[str, Any]], parsed: dict[str, Any]) -> str:
         """Generate detailed description of merge fields logic."""
         schema_fields = parsed.get("schema_fields", [])
         if len(schema_fields) >= 2:

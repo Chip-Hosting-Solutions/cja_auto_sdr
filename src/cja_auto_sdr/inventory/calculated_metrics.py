@@ -199,17 +199,17 @@ class CalculatedMetricSummary:
         return {
             "name": self.metric_name,
             "id": self.metric_id,
-            "description": self.description if self.description else "-",
-            "owner": self.owner if self.owner else "-",
+            "description": self.description or "-",
+            "owner": self.owner or "-",
             "approved": "Yes" if self.approved else "No",
             "tags": ", ".join(self.tags) if self.tags else "-",
             "complexity_score": self.complexity_score,
             "functions_used": ", ".join(self.functions_used) if self.functions_used else "-",
             "metric_references": ", ".join(self.metric_references) if self.metric_references else "-",
             "segment_references": ", ".join(self.segment_references) if self.segment_references else "-",
-            "formula_summary": self.formula_summary if self.formula_summary else "-",
+            "formula_summary": self.formula_summary or "-",
             "polarity": self.polarity.title() if self.polarity else "-",
-            "format": self.metric_type if self.metric_type else "-",
+            "format": self.metric_type or "-",
             "created": format_iso_date(self.created),
             "modified": format_iso_date(self.modified),
             "shared_to": self.shared_to_count if self.shared_to_count > 0 else "-",
@@ -704,7 +704,7 @@ class CalculatedMetricsInventoryBuilder:
         functions_display = [
             CALC_METRIC_FUNCTION_DISPLAY_NAMES.get(f, f.replace("-", " ").title())
             for f in functions_internal
-            if f not in ("number",)  # Don't show static numbers
+            if f != "number"  # Don't show static numbers
         ]
 
         # Compute complexity score

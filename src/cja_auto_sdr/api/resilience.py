@@ -599,7 +599,7 @@ class CircuitBreaker:
                     self._failure_count = 0
                     self._success_count = 0
 
-    def record_failure(self, exception: Exception | None = None) -> None:
+    def record_failure(self, _exception: Exception | None = None) -> None:
         """
         Record a failed request.
 
