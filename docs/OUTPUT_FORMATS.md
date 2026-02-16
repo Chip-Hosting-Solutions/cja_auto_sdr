@@ -1,6 +1,6 @@
 # Output Format Flexibility
 
-Version 3.2 supports multiple output formats beyond Excel, providing flexible integration options for different use cases including SDR generation, diff comparison, and org-wide analysis.
+The tool supports multiple output formats beyond Excel, providing flexible integration options for SDR generation, diff comparison, and org-wide analysis.
 
 ## Supported Formats
 
@@ -26,7 +26,7 @@ Version 3.2 supports multiple output formats beyond Excel, providing flexible in
 | Console | ✗ | ✓ (default) | ✓ (default) |
 | All | ✓ | ✓ | ✓ |
 
-### Format Aliases (v3.2.0)
+### Format Aliases (introduced in v3.2.0)
 
 For convenience, format aliases provide shortcuts to common format combinations:
 
@@ -109,7 +109,7 @@ cja_auto_sdr dv_12345 --stats --format csv --output stats.csv
 **Default format** - Professional formatted workbook with color-coding and styling.
 
 **Output:**
-- Single file: `CJA_DataView_{name}_SDR.xlsx`
+- Single file: `CJA_DataView_{name}_{id}_SDR.xlsx`
 - Multiple sheets (in order):
   1. Metadata
   2. Data Quality (color-coded by severity)
@@ -172,7 +172,7 @@ cja_auto_sdr dv_12345 --format csv
 
 # Then in Python:
 import pandas as pd
-metrics = pd.read_csv('CJA_DataView_myview_SDR_csv/metrics.csv')
+metrics = pd.read_csv('CJA_DataView_myview_dv_12345_SDR_csv/metrics.csv')
 # Perform custom analysis...
 ```
 
@@ -191,7 +191,7 @@ metrics = pd.read_csv('CJA_DataView_myview_SDR_csv/metrics.csv')
     "Generated At": "2024-01-01 12:00:00",
     "Data View ID": "dv_12345",
     "Data View Name": "My Data View",
-    "Tool Version": "3.0",
+    "Tool Version": "3.2.7",
     "Metrics Count": "150",
     "Dimensions Count": "75"
   },
@@ -249,11 +249,11 @@ metrics = pd.read_csv('CJA_DataView_myview_SDR_csv/metrics.csv')
 # 1. API Integration
 curl -X POST https://api.example.com/dataviews \
   -H "Content-Type: application/json" \
-  -d @CJA_DataView_myview_SDR.json
+  -d @CJA_DataView_myview_dv_12345_SDR.json
 
 # 2. Python Processing
 import json
-with open('CJA_DataView_myview_SDR.json') as f:
+with open('CJA_DataView_myview_dv_12345_SDR.json') as f:
     data = json.load(f)
     metrics = data['metrics']
     for metric in metrics:
@@ -261,7 +261,7 @@ with open('CJA_DataView_myview_SDR.json') as f:
 
 # 3. JavaScript/Node.js
 const fs = require('fs');
-const data = JSON.parse(fs.readFileSync('CJA_DataView_myview_SDR.json'));
+const data = JSON.parse(fs.readFileSync('CJA_DataView_myview_dv_12345_SDR.json'));
 console.log(`Metrics: ${data.metrics.length}`);
 ```
 
@@ -308,11 +308,11 @@ console.log(`Metrics: ${data.metrics.length}`);
 ```bash
 # Generate HTML and open in browser
 cja_auto_sdr dv_12345 --format html
-open CJA_DataView_myview_SDR.html  # macOS
+open CJA_DataView_myview_dv_12345_SDR.html  # macOS
 # or
-xdg-open CJA_DataView_myview_SDR.html  # Linux
+xdg-open CJA_DataView_myview_dv_12345_SDR.html  # Linux
 # or
-start CJA_DataView_myview_SDR.html  # Windows
+start CJA_DataView_myview_dv_12345_SDR.html  # Windows
 ```
 
 ---
@@ -379,10 +379,10 @@ start CJA_DataView_myview_SDR.html  # Windows
 cja_auto_sdr dv_12345 --format markdown
 
 # View in terminal
-cat CJA_DataView_myview_SDR.md
+cat CJA_DataView_myview_dv_12345_SDR.md
 
 # Convert to PDF with pandoc (if installed)
-pandoc CJA_DataView_myview_SDR.md -o report.pdf
+pandoc CJA_DataView_myview_dv_12345_SDR.md -o report.pdf
 ```
 
 ---
@@ -392,11 +392,11 @@ pandoc CJA_DataView_myview_SDR.md -o report.pdf
 Generate all output formats in a single run for complete documentation packages.
 
 **Output (SDR mode):**
-- `CJA_DataView_{name}_SDR.xlsx` (Excel)
-- `CJA_DataView_{name}_SDR_csv/` (CSV directory)
-- `CJA_DataView_{name}_SDR.json` (JSON)
-- `CJA_DataView_{name}_SDR.html` (HTML)
-- `CJA_DataView_{name}_SDR.md` (Markdown)
+- `CJA_DataView_{name}_{id}_SDR.xlsx` (Excel)
+- `CJA_DataView_{name}_{id}_SDR_csv/` (CSV directory)
+- `CJA_DataView_{name}_{id}_SDR.json` (JSON)
+- `CJA_DataView_{name}_{id}_SDR.html` (HTML)
+- `CJA_DataView_{name}_{id}_SDR.md` (Markdown)
 
 **Output (diff/org-wide modes):**
 - All file formats above, plus console output displayed in terminal
@@ -456,7 +456,7 @@ subprocess.run([
 ])
 
 # Load and send to API
-with open('CJA_DataView_myview_SDR.json') as f:
+with open('CJA_DataView_myview_dv_12345_SDR.json') as f:
     data = json.load(f)
 
 response = requests.post(
@@ -484,7 +484,7 @@ subprocess.run([
 ])
 
 # Load and process
-csv_dir = 'CJA_DataView_myview_SDR_csv'
+csv_dir = 'CJA_DataView_myview_dv_12345_SDR_csv'
 metrics = pd.read_csv(f'{csv_dir}/metrics.csv')
 dimensions = pd.read_csv(f'{csv_dir}/dimensions.csv')
 quality = pd.read_csv(f'{csv_dir}/data_quality.csv')
@@ -724,7 +724,7 @@ Output format flexibility provides:
 
 ---
 
-## Org-Wide Analysis Output (v3.2.0)
+## Org-Wide Analysis Output (introduced in v3.2.0)
 
 The org-wide analysis mode (`--org-report`) generates specialized output showing component distribution across all data views.
 
@@ -747,7 +747,7 @@ Output includes:
 cja_auto_sdr --org-report --format excel
 
 # Quick stats only (minimal output)
-cja_auto_sdr --org-report --stats-only
+cja_auto_sdr --org-report --org-stats
 
 # All formats for comprehensive documentation
 cja_auto_sdr --org-report --format all --output-dir ./reports
