@@ -21,6 +21,7 @@ from cja_auto_sdr.org.analyzer import OrgComponentAnalyzer
 from cja_auto_sdr.org.models import (
     ComponentDistribution,
     ComponentInfo,
+    DataViewSummary,
     OrgReportConfig,
     SimilarityPair,
 )
@@ -779,3 +780,969 @@ class TestDetectStaleComponents:
         result = analyzer._detect_stale_components(index)
         assert len(result) == 1
         assert len(result[0]["data_views"]) <= 5
+
+
+# ===================================================================
+# 9. _infer_cluster_name  (pure logic, 25 lines)
+# ===================================================================
+
+
+class TestInferClusterName:
+    """Tests for _infer_cluster_name common-prefix inference."""
+
+    def test_empty_list_returns_none(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        assert analyzer._infer_cluster_name([]) is None
+
+    def test_single_name_returns_itself(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        assert analyzer._infer_cluster_name(["analytics"]) == "analytics"
+
+    def test_common_prefix_extracted(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["prod_view_1", "prod_view_2"])
+        assert result == "prod_view"
+
+    def test_common_prefix_with_separator_stripped(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["prod-alpha", "prod-beta"])
+        assert result == "prod"
+
+    def test_no_common_prefix_falls_back_to_first_word(self, mock_cja, logger):
+        """When no prefix >= 3 chars, try first-word match."""
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["Analytics Alpha", "Analytics Beta"])
+        assert result == "Analytics"
+
+    def test_no_common_prefix_no_first_word_match_returns_none(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["prod_a", "staging_b"])
+        assert result is None
+
+    def test_short_prefix_ignored(self, mock_cja, logger):
+        """Common prefix shorter than 3 chars should not be returned directly."""
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["ab_one", "ac_two"])
+        # Common prefix is "a" (len 1) -> falls to first word check, first words differ
+        assert result is None
+
+    def test_prefix_trailing_separators_stripped(self, mock_cja, logger):
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._infer_cluster_name(["reporting_east_1", "reporting_west_2"])
+        # Common prefix is "reporting_" -> stripped to "reporting"
+        assert result == "reporting"
+
+
+# ===================================================================
+# 10. Feature flag paths in _run_analysis_impl
+# ===================================================================
+
+
+class TestRunAnalysisImplFeatureFlags:
+    """Tests for feature flag branches in _run_analysis_impl."""
+
+    def _setup_analyzer_with_data(self, mock_cja, logger, **config_kwargs):
+        """Create an analyzer whose _list_and_filter_data_views returns 2 DVs."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, **config_kwargs)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Stub the heavy methods so we don't need real API calls
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1", "m2"},
+                dimension_ids={"d1"},
+                metric_count=2,
+                dimension_count=1,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="DV 2",
+                metric_ids={"m1", "m3"},
+                dimension_ids={"d1", "d2"},
+                metric_count=2,
+                dimension_count=2,
+            ),
+        ]
+
+        from unittest.mock import patch
+
+        patches = [
+            patch.object(
+                analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv1"}, {"id": "dv2"}], False, 2)
+            ),
+            patch.object(analyzer, "_fetch_all_data_views", return_value=summaries),
+            patch.object(analyzer, "_check_memory_warning"),
+        ]
+        return analyzer, patches
+
+    def test_audit_naming_flag_triggers_audit(self, mock_cja, logger):
+        """audit_naming=True should call _audit_naming_conventions."""
+        analyzer, patches = self._setup_analyzer_with_data(mock_cja, logger, audit_naming=True, skip_similarity=True)
+        with patches[0], patches[1], patches[2]:
+            result = analyzer.run_analysis()
+        assert result.naming_audit is not None
+
+    def test_flag_stale_triggers_stale_detection(self, mock_cja, logger):
+        """flag_stale=True should populate stale_components."""
+        analyzer, patches = self._setup_analyzer_with_data(mock_cja, logger, flag_stale=True, skip_similarity=True)
+        with patches[0], patches[1], patches[2]:
+            result = analyzer.run_analysis()
+        # stale_components should be a list (possibly empty since component names are generic)
+        assert result.stale_components is not None
+        assert isinstance(result.stale_components, list)
+        # naming_audit should also be populated because flag_stale triggers it too
+        assert result.naming_audit is not None
+
+    def test_owner_summary_without_metadata_warns(self, mock_cja, logger, caplog):
+        """include_owner_summary=True without include_metadata=True should log warning."""
+        analyzer, patches = self._setup_analyzer_with_data(
+            mock_cja,
+            logger,
+            include_owner_summary=True,
+            include_metadata=False,
+            skip_similarity=True,
+        )
+        with patches[0], patches[1], patches[2], caplog.at_level(logging.WARNING):
+            result = analyzer.run_analysis()
+        assert result.owner_summary is None
+        assert "--owner-summary requires --include-metadata" in caplog.text
+
+    def test_owner_summary_with_metadata_populates(self, mock_cja, logger):
+        """include_owner_summary=True with include_metadata=True should populate owner_summary."""
+        analyzer, patches = self._setup_analyzer_with_data(
+            mock_cja,
+            logger,
+            include_owner_summary=True,
+            include_metadata=True,
+            skip_similarity=True,
+        )
+        with patches[0], patches[1], patches[2]:
+            result = analyzer.run_analysis()
+        assert result.owner_summary is not None
+        assert "by_owner" in result.owner_summary
+
+
+# ===================================================================
+# 11. _generate_recommendations branches
+# ===================================================================
+
+
+class TestGenerateRecommendations:
+    """Tests for uncovered branches in _generate_recommendations."""
+
+    def _make_summaries(self, count=5, include_error=False, **kwargs):
+        """Create test summaries."""
+        summaries = []
+        for i in range(count):
+            s = DataViewSummary(
+                data_view_id=f"dv{i}",
+                data_view_name=f"Data View {i}",
+                metric_ids={f"m{i}"},
+                dimension_ids={f"d{i}"},
+                metric_count=1,
+                dimension_count=1,
+                **kwargs,
+            )
+            summaries.append(s)
+        if include_error:
+            summaries.append(DataViewSummary(data_view_id="dverr", data_view_name="Error DV", error="API failure"))
+        return summaries
+
+    def test_near_core_standardization_recommendation(self, mock_cja, logger):
+        """Components in 70-99% of DVs should trigger standardization_opportunity."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # 10 summaries - need >5 components in 70-99% of DVs
+        summaries = self._make_summaries(10)
+        # Build index with 6 components each in 8 out of 10 DVs (80%)
+        index = {}
+        for i in range(6):
+            dvs = {f"dv{j}" for j in range(8)}
+            index[f"near_core_{i}"] = _make_component(f"near_core_{i}", data_views=dvs)
+
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "standardization_opportunity" in types
+
+    def test_high_derived_ratio_recommendation(self, mock_cja, logger):
+        """DV with >50% derived components should trigger high_derived_ratio."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_component_types=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="Heavy Derived DV",
+                metric_ids={"m1", "m2"},
+                dimension_ids={"d1"},
+                metric_count=2,
+                dimension_count=1,
+                derived_metric_count=2,
+                derived_dimension_count=1,
+            ),
+        ]
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "high_derived_ratio" in types
+        rec = next(r for r in result if r["type"] == "high_derived_ratio")
+        assert rec["ratio"] == 1.0
+
+    def test_stale_data_view_recommendation(self, mock_cja, logger):
+        """DV modified >180 days ago should trigger stale_data_view."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        old_date = "2024-01-01T00:00:00+00:00"
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv_old",
+                data_view_name="Old DV",
+                metric_ids={"m1"},
+                dimension_ids={"d1"},
+                metric_count=1,
+                dimension_count=1,
+                modified=old_date,
+                has_description=True,
+            ),
+        ]
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "stale_data_view" in types
+
+    def test_stale_data_view_bad_date_exception_handled(self, mock_cja, logger):
+        """Bad modified date string should not crash recommendations."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv_bad",
+                data_view_name="Bad Date DV",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified="not-a-date",
+                has_description=True,
+            ),
+        ]
+        index = {}
+        dist = ComponentDistribution()
+        # Should not raise
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        # No stale_data_view because the date is invalid
+        types = [r["type"] for r in result]
+        assert "stale_data_view" not in types
+
+    def test_stale_data_view_naive_datetime_handled(self, mock_cja, logger):
+        """Modified date without timezone should still be handled (tzinfo=None)."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Naive datetime (no TZ info) in the far past
+        old_date = "2023-06-01T00:00:00"
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv_naive",
+                data_view_name="Naive TZ DV",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                modified=old_date,
+                has_description=True,
+            ),
+        ]
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "stale_data_view" in types
+
+    def test_drift_injection_into_overlap_recommendations(self, mock_cja, logger):
+        """With include_drift, high-similarity pairs should have drift_count added."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_drift=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        sim_pairs = [
+            SimilarityPair(
+                dv1_id="dv1",
+                dv1_name="DV 1",
+                dv2_id="dv2",
+                dv2_name="DV 2",
+                jaccard_similarity=0.95,
+                shared_count=95,
+                union_count=100,
+                only_in_dv1=["extra_1", "extra_2"],
+                only_in_dv2=["extra_3"],
+            ),
+        ]
+
+        summaries = self._make_summaries(2)
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, sim_pairs)
+
+        overlap_recs = [r for r in result if r["type"] == "review_overlap"]
+        assert len(overlap_recs) == 1
+        assert overlap_recs[0]["drift_count"] == 3
+        assert "Differs by 3 components" in overlap_recs[0]["reason"]
+
+    def test_missing_descriptions_recommendation(self, mock_cja, logger):
+        """When >=30% of DVs lack descriptions, missing_descriptions should be recommended."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id=f"dv{i}",
+                data_view_name=f"DV {i}",
+                metric_ids={f"m{i}"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                has_description=False,
+            )
+            for i in range(5)
+        ]
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "missing_descriptions" in types
+
+    def test_fetch_errors_recommendation(self, mock_cja, logger):
+        """Summaries with errors should trigger fetch_errors recommendation."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = self._make_summaries(3, include_error=True)
+        index = {}
+        dist = ComponentDistribution()
+        result = analyzer._generate_recommendations(summaries, index, dist, None)
+        types = [r["type"] for r in result]
+        assert "fetch_errors" in types
+
+
+# ===================================================================
+# 12. Exception handlers
+# ===================================================================
+
+
+class TestExceptionHandlers:
+    """Tests for exception-handling paths."""
+
+    def test_cancel_futures_best_effort_with_failing_futures(self, mock_cja, logger):
+        """_cancel_futures_best_effort should not raise when cancel() throws."""
+        from unittest.mock import MagicMock
+
+        analyzer = _make_analyzer(mock_cja, logger)
+
+        f1 = MagicMock()
+        f1.cancel.side_effect = RuntimeError("cancel failed")
+        f2 = MagicMock()
+        f2.cancel.return_value = True
+        f3 = MagicMock()
+        f3.cancel.side_effect = OSError("os error")
+
+        # Should not raise
+        analyzer._cancel_futures_best_effort({f1: {}, f2: {}, f3: {}})
+        f1.cancel.assert_called_once()
+        f2.cancel.assert_called_once()
+        f3.cancel.assert_called_once()
+
+    def test_quick_check_empty_org_exception_path(self, mock_cja, logger, caplog):
+        """_quick_check_empty_org should return None when API raises."""
+        mock_cja.getDataViews.side_effect = ConnectionError("network down")
+        analyzer = _make_analyzer(mock_cja, logger)
+        with caplog.at_level(logging.DEBUG):
+            result = analyzer._quick_check_empty_org()
+        assert result is None
+        assert "Quick empty-org check skipped" in caplog.text
+
+    def test_quick_check_empty_org_returns_result_when_empty(self, mock_cja, logger):
+        """_quick_check_empty_org should return OrgReportResult when no DVs."""
+        mock_cja.getDataViews.return_value = []
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._quick_check_empty_org()
+        assert result is not None
+        assert result.data_view_summaries == []
+        assert result.total_available_data_views == 0
+
+    def test_quick_check_empty_org_returns_none_when_dvs_exist(self, mock_cja, logger):
+        """_quick_check_empty_org returns None when data views exist."""
+        mock_cja.getDataViews.return_value = [{"id": "dv1", "name": "DV 1"}]
+        analyzer = _make_analyzer(mock_cja, logger)
+        result = analyzer._quick_check_empty_org()
+        assert result is None
+
+
+# ===================================================================
+# 13. Cache paths
+# ===================================================================
+
+
+class TestCachePaths:
+    """Tests for cache hit/miss and validation paths."""
+
+    def test_cache_hit_returns_cached_summary(self, mock_cja, logger):
+        """When cache has a valid entry, it should be returned without fetching."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        cached_summary = DataViewSummary(
+            data_view_id="dv1", data_view_name="Cached DV", metric_count=5, dimension_count=3
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = cached_summary
+        analyzer.cache = mock_cache
+
+        data_views = [{"id": "dv1", "name": "Cached DV"}]
+
+        # Patch thread pool to avoid actual API calls for uncached items
+        result = analyzer._fetch_all_data_views(data_views)
+        assert len(result) == 1
+        assert result[0].data_view_name == "Cached DV"
+        mock_cache.get.assert_called_once()
+
+    def test_cache_miss_triggers_fetch(self, mock_cja, logger):
+        """When cache returns None, the DV should be fetched from API."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=False, quiet=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        analyzer.cache = mock_cache
+
+        # Mock the CJA API to return data for the fetch
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"], "name": ["Metric 1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"], "name": ["Dim 1"]})
+
+        data_views = [{"id": "dv1", "name": "Uncached DV"}]
+        result = analyzer._fetch_all_data_views(data_views)
+        assert len(result) == 1
+        assert result[0].metric_count == 1
+        mock_cache.get.assert_called_once()
+
+    def test_validate_cache_entries_no_cache(self, mock_cja, logger):
+        """_validate_cache_entries with no cache returns all DVs to fetch."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        analyzer.cache = None
+
+        dvs = [{"id": "dv1"}, {"id": "dv2"}]
+        to_fetch, valid, valid_count, stale_count = analyzer._validate_cache_entries(dvs)
+        assert to_fetch == dvs
+        assert valid == []
+        assert valid_count == 0
+        assert stale_count == 0
+
+    def test_validate_cache_entries_no_modification_date(self, mock_cja, logger):
+        """DVs without modification date should be treated as stale."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cache = MagicMock()
+        mock_cache.has_valid_entry.return_value = True
+        analyzer.cache = mock_cache
+
+        dvs = [{"id": "dv1", "name": "No Modified"}]  # no 'modified' key
+        to_fetch, _valid, valid_count, stale_count = analyzer._validate_cache_entries(dvs)
+        assert len(to_fetch) == 1
+        assert stale_count == 1
+        assert valid_count == 0
+
+    def test_validate_cache_entries_valid_hit(self, mock_cja, logger):
+        """DVs with valid cache entry and matching modification date should be a cache hit."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        cached_summary = DataViewSummary(data_view_id="dv1", data_view_name="Cached DV")
+        mock_cache = MagicMock()
+        mock_cache.has_valid_entry.return_value = True
+        mock_cache.get.return_value = cached_summary
+        analyzer.cache = mock_cache
+
+        dvs = [{"id": "dv1", "name": "Cached DV", "modified": "2025-01-01T00:00:00Z"}]
+        to_fetch, valid, valid_count, stale_count = analyzer._validate_cache_entries(dvs)
+        assert len(to_fetch) == 0
+        assert len(valid) == 1
+        assert valid_count == 1
+        assert stale_count == 0
+
+    def test_validate_cache_entries_stale_hit(self, mock_cja, logger):
+        """DVs with expired cache (get returns None) should be counted as stale."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cache = MagicMock()
+        mock_cache.has_valid_entry.return_value = True
+        mock_cache.get.return_value = None  # stale
+        analyzer.cache = mock_cache
+
+        dvs = [{"id": "dv1", "name": "Stale DV", "modified": "2025-06-01T00:00:00Z"}]
+        to_fetch, _valid, valid_count, stale_count = analyzer._validate_cache_entries(dvs)
+        assert len(to_fetch) == 1
+        assert valid_count == 0
+        assert stale_count == 1
+
+    def test_validate_cache_entries_no_valid_entry(self, mock_cja, logger):
+        """DVs without any valid cache entry should go straight to fetch."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cache = MagicMock()
+        mock_cache.has_valid_entry.return_value = False
+        analyzer.cache = mock_cache
+
+        dvs = [{"id": "dv1", "name": "No Cache"}]
+        to_fetch, _valid, valid_count, stale_count = analyzer._validate_cache_entries(dvs)
+        assert len(to_fetch) == 1
+        assert valid_count == 0
+        assert stale_count == 0
+
+    def test_empty_to_fetch_returns_cached_only(self, mock_cja, logger):
+        """When all DVs are cached, _fetch_all_data_views returns only cached summaries."""
+        from unittest.mock import MagicMock
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, use_cache=True, validate_cache=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        cached1 = DataViewSummary(data_view_id="dv1", data_view_name="Cached 1")
+        cached2 = DataViewSummary(data_view_id="dv2", data_view_name="Cached 2")
+        mock_cache = MagicMock()
+        mock_cache.get.side_effect = [cached1, cached2]
+        analyzer.cache = mock_cache
+
+        data_views = [{"id": "dv1", "name": "DV1"}, {"id": "dv2", "name": "DV2"}]
+        result = analyzer._fetch_all_data_views(data_views)
+        assert len(result) == 2
+        # No API calls should have been made
+        mock_cja.getMetrics.assert_not_called()
+
+
+# ===================================================================
+# 14. Drift computation in similarity matrix
+# ===================================================================
+
+
+class TestDriftComputation:
+    """Tests for include_drift=True in _compute_similarity_matrix."""
+
+    def test_drift_populates_only_in_dv1_dv2(self, mock_cja, logger):
+        """With include_drift=True, only_in_dv1 and only_in_dv2 should be populated."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_drift=True, overlap_threshold=0.5)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids={"d1"},
+                metric_count=3,
+                dimension_count=1,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="DV 2",
+                metric_ids={"m1", "m2", "m4"},
+                dimension_ids={"d1"},
+                metric_count=3,
+                dimension_count=1,
+            ),
+        ]
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) >= 1
+        pair = pairs[0]
+        assert "m3" in pair.only_in_dv1
+        assert "m4" in pair.only_in_dv2
+        assert "m1" not in pair.only_in_dv1
+        assert "m1" not in pair.only_in_dv2
+
+    def test_drift_without_names(self, mock_cja, logger):
+        """With include_drift=True but include_names=False, name dicts should be None."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_drift=True,
+            include_names=False,
+            overlap_threshold=0.1,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Jaccard = 5/7 = 0.714 (above 0.1 threshold)
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1", "m2", "m3", "m4", "m5", "m_only1"},
+                dimension_ids=set(),
+                metric_count=6,
+                dimension_count=0,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="DV 2",
+                metric_ids={"m1", "m2", "m3", "m4", "m5", "m_only2"},
+                dimension_ids=set(),
+                metric_count=6,
+                dimension_count=0,
+            ),
+        ]
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) >= 1
+        pair = pairs[0]
+        assert pair.only_in_dv1_names is None
+        assert pair.only_in_dv2_names is None
+
+    def test_drift_with_names(self, mock_cja, logger):
+        """With include_drift=True and include_names=True, name dicts should be populated."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            include_drift=True,
+            include_names=True,
+            overlap_threshold=0.1,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Jaccard = 5/7 = 0.714 (above 0.1 threshold)
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1", "m2", "m3", "m4", "m5", "m_only1"},
+                dimension_ids=set(),
+                metric_count=6,
+                dimension_count=0,
+                metric_names={
+                    "m1": "Shared 1",
+                    "m2": "Shared 2",
+                    "m3": "Shared 3",
+                    "m4": "Shared 4",
+                    "m5": "Shared 5",
+                    "m_only1": "Only In DV1",
+                },
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="DV 2",
+                metric_ids={"m1", "m2", "m3", "m4", "m5", "m_only2"},
+                dimension_ids=set(),
+                metric_count=6,
+                dimension_count=0,
+                metric_names={
+                    "m1": "Shared 1",
+                    "m2": "Shared 2",
+                    "m3": "Shared 3",
+                    "m4": "Shared 4",
+                    "m5": "Shared 5",
+                    "m_only2": "Only In DV2",
+                },
+            ),
+        ]
+        pairs = analyzer._compute_similarity_matrix(summaries)
+        assert len(pairs) >= 1
+        pair = pairs[0]
+        assert pair.only_in_dv1_names is not None
+        assert pair.only_in_dv2_names is not None
+        assert pair.only_in_dv1_names.get("m_only1") == "Only In DV1"
+        assert pair.only_in_dv2_names.get("m_only2") == "Only In DV2"
+
+
+# ===================================================================
+# 15. Owner summary
+# ===================================================================
+
+
+class TestComputeOwnerSummary:
+    """Tests for _compute_owner_summary computation."""
+
+    def test_owner_none_defaults_to_unknown(self, mock_cja, logger):
+        """Summaries with owner=None should be grouped under 'Unknown'."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                owner=None,
+                owner_id=None,
+            ),
+        ]
+        result = analyzer._compute_owner_summary(summaries)
+        assert "Unknown" in result["by_owner"]
+        assert result["by_owner"]["Unknown"]["data_view_count"] == 1
+
+    def test_owner_summary_groups_by_owner(self, mock_cja, logger):
+        """Multiple DVs from same owner should be grouped together."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids={"d1"},
+                metric_count=1,
+                dimension_count=1,
+                owner="Alice",
+                owner_id="alice123",
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="DV 2",
+                metric_ids={"m1", "m2"},
+                dimension_ids=set(),
+                metric_count=2,
+                dimension_count=0,
+                owner="Alice",
+                owner_id="alice123",
+            ),
+            DataViewSummary(
+                data_view_id="dv3",
+                data_view_name="DV 3",
+                metric_ids={"m3"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
+                owner="Bob",
+                owner_id="bob456",
+            ),
+        ]
+        result = analyzer._compute_owner_summary(summaries)
+        assert result["total_owners"] == 2
+        assert result["by_owner"]["Alice"]["data_view_count"] == 2
+        assert result["by_owner"]["Alice"]["total_metrics"] == 3
+        assert result["by_owner"]["Bob"]["data_view_count"] == 1
+        # Check averages
+        assert result["by_owner"]["Alice"]["avg_metrics_per_dv"] == 1.5
+
+    def test_owner_summary_skips_error_summaries(self, mock_cja, logger):
+        """Summaries with errors should be excluded from owner summary."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_count=1,
+                dimension_count=0,
+                owner="Alice",
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Error DV",
+                error="API failure",
+                owner="Alice",
+            ),
+        ]
+        result = analyzer._compute_owner_summary(summaries)
+        assert result["by_owner"]["Alice"]["data_view_count"] == 1
+
+    def test_owner_summary_sorted_by_dv_count(self, mock_cja, logger):
+        """owners_sorted_by_dv_count should be sorted descending."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(data_view_id=f"dv{i}", data_view_name=f"DV {i}", owner="Alice") for i in range(3)
+        ] + [
+            DataViewSummary(data_view_id="dv_bob", data_view_name="Bob DV", owner="Bob"),
+        ]
+        result = analyzer._compute_owner_summary(summaries)
+        sorted_owners = result["owners_sorted_by_dv_count"]
+        assert sorted_owners[0] == "Alice"
+        assert sorted_owners[1] == "Bob"
+
+
+# ===================================================================
+# 16. Clustering (requires scipy — skip if unavailable)
+# ===================================================================
+
+
+class TestComputeClusters:
+    """Tests for _compute_clusters hierarchical clustering."""
+
+    def test_scipy_import_error_returns_none(self, mock_cja, logger, caplog):
+        """When scipy is not importable, _compute_clusters should return None."""
+        from unittest.mock import patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(data_view_id="dv1", data_view_name="DV 1", metric_ids={"m1"}, dimension_ids=set()),
+        ]
+
+        with patch("builtins.__import__", side_effect=_make_scipy_import_error()):
+            with caplog.at_level(logging.WARNING):
+                result = analyzer._compute_clusters(summaries)
+        assert result is None
+        assert "scipy not available" in caplog.text
+
+    def test_too_few_data_views_returns_none(self, mock_cja, logger, caplog):
+        """With fewer than 2 valid DVs, clustering should return None."""
+        scipy = pytest.importorskip("scipy")  # noqa: F841
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+            ),
+        ]
+        with caplog.at_level(logging.INFO):
+            result = analyzer._compute_clusters(summaries)
+        assert result is None
+        assert "Not enough data views" in caplog.text
+
+    def test_full_clustering_with_precomputed(self, mock_cja, logger):
+        """Full clustering path with precomputed pairwise distances."""
+        scipy = pytest.importorskip("scipy")  # noqa: F841
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="Prod View 1",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids={"d1"},
+                metric_count=3,
+                dimension_count=1,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Prod View 2",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids={"d1", "d2"},
+                metric_count=3,
+                dimension_count=2,
+            ),
+            DataViewSummary(
+                data_view_id="dv3",
+                data_view_name="Dev Analytics",
+                metric_ids={"m10", "m11"},
+                dimension_ids={"d10"},
+                metric_count=2,
+                dimension_count=1,
+            ),
+        ]
+
+        # Precompute pairwise
+        precomputed = analyzer._compute_pairwise_jaccard(summaries)
+        result = analyzer._compute_clusters(summaries, precomputed=precomputed)
+        assert result is not None
+        assert len(result) >= 1
+        # Clusters should be sorted by size descending
+        for i in range(len(result) - 1):
+            assert result[i].size >= result[i + 1].size
+
+    def test_clustering_without_precomputed(self, mock_cja, logger):
+        """Clustering should work without precomputed data too."""
+        scipy = pytest.importorskip("scipy")  # noqa: F841
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="Alpha 1",
+                metric_ids={"m1", "m2"},
+                dimension_ids=set(),
+                metric_count=2,
+                dimension_count=0,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Alpha 2",
+                metric_ids={"m1", "m2", "m3"},
+                dimension_ids=set(),
+                metric_count=3,
+                dimension_count=0,
+            ),
+        ]
+        result = analyzer._compute_clusters(summaries, precomputed=None)
+        assert result is not None
+        assert len(result) >= 1
+
+    def test_cluster_has_inferred_name(self, mock_cja, logger):
+        """Clusters from similarly-named DVs should have an inferred name."""
+        scipy = pytest.importorskip("scipy")  # noqa: F841
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # Two very similar DVs with a common prefix
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="Production East",
+                metric_ids={"m1", "m2", "m3", "m4", "m5"},
+                dimension_ids={"d1"},
+                metric_count=5,
+                dimension_count=1,
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Production West",
+                metric_ids={"m1", "m2", "m3", "m4", "m5"},
+                dimension_ids={"d1"},
+                metric_count=5,
+                dimension_count=1,
+            ),
+        ]
+        result = analyzer._compute_clusters(summaries)
+        assert result is not None
+        # They should be in the same cluster with inferred name
+        cluster = result[0]
+        assert cluster.size == 2
+        assert cluster.cluster_name == "Production"
+
+
+def _make_scipy_import_error():
+    """Factory for a side_effect that blocks scipy imports but allows others."""
+    _real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+
+    def _fake_import(name, *args, **kwargs):
+        if "scipy" in name or "numpy" in name:
+            raise ImportError(f"No module named '{name}'")
+        return _real_import(name, *args, **kwargs)
+
+    return _fake_import

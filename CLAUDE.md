@@ -18,7 +18,7 @@ CJA SDR Generator - A tool for generating Solution Design Reference (SDR) docume
 ## CI & Quality
 
 - Run tests: `uv run pytest tests/`
-- Coverage gate: **81%** (`--cov-fail-under=81` in `.github/workflows/tests.yml`)
+- Coverage gate: **83%** (`--cov-fail-under=83` in `.github/workflows/tests.yml`)
 - Linter: `uv run ruff check src/ tests/` (25 active rule sets)
 - Formatter: `uv run ruff format src/ tests/`
 
