@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.2.6] - 2026-02-14
 
 ### Changed
-- **Exception handler normalization**: Parenthesized 30+ `except A, B:` clauses to `except (A, B):` across 12 source files for idiomatic Python 3
+- **Exception handler normalization**: Audited `except` clauses across 12 source files; unparenthesized `except A, B:` form is valid and idiomatic per PEP 758 (Python 3.14+), enforced by ruff formatter
 - **Silent exception handlers**: Added debug logging to 6 bare `except Exception:` handlers for improved debuggability
 - **Performance micro-optimizations**: Cached redundant `len()`, `df.iloc[]`, and `str()` calls in hot paths; converted list to set for O(1) membership checks
 
