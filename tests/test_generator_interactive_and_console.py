@@ -296,20 +296,28 @@ def test_run_org_report_reports_alias_and_individual_format_branches(tmp_path: P
 
     with ExitStack() as stack:
         stack.enter_context(
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"}))
+            patch(
+                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"})
+            )
         )
         mock_cjapy = stack.enter_context(patch("cja_auto_sdr.generator.cjapy"))
         mock_analyzer_cls = stack.enter_context(patch("cja_auto_sdr.generator.OrgComponentAnalyzer"))
         stack.enter_context(patch("cja_auto_sdr.generator.write_org_report_console", return_value=None))
-        stack.enter_context(patch("cja_auto_sdr.generator.write_org_report_json", return_value=str(tmp_path / "report.json")))
+        stack.enter_context(
+            patch("cja_auto_sdr.generator.write_org_report_json", return_value=str(tmp_path / "report.json"))
+        )
         stack.enter_context(
             patch("cja_auto_sdr.generator.write_org_report_excel", return_value=str(tmp_path / "report.xlsx"))
         )
         stack.enter_context(
             patch("cja_auto_sdr.generator.write_org_report_markdown", return_value=str(tmp_path / "report.md"))
         )
-        stack.enter_context(patch("cja_auto_sdr.generator.write_org_report_html", return_value=str(tmp_path / "report.html")))
-        stack.enter_context(patch("cja_auto_sdr.generator.write_org_report_csv", return_value=str(tmp_path / "report_csv")))
+        stack.enter_context(
+            patch("cja_auto_sdr.generator.write_org_report_html", return_value=str(tmp_path / "report.html"))
+        )
+        stack.enter_context(
+            patch("cja_auto_sdr.generator.write_org_report_csv", return_value=str(tmp_path / "report_csv"))
+        )
         stack.enter_context(patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary"))
         stack.enter_context(patch("cja_auto_sdr.generator.append_github_step_summary"))
 
@@ -470,7 +478,9 @@ def test_run_org_report_org_stats_json_stdout_branch(tmp_path: Path, capsys, ric
     assert '"report_type": "org_analysis"' in stdout
 
 
-def test_org_report_renderers_core_min_count_and_unnamed_component_branches(tmp_path: Path, capsys, rich_org_report_result):
+def test_org_report_renderers_core_min_count_and_unnamed_component_branches(
+    tmp_path: Path, capsys, rich_org_report_result
+):
     result = rich_org_report_result
     result.parameters.core_min_count = 3
 
