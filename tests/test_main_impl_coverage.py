@@ -22,6 +22,7 @@ Targets uncovered line ranges:
 import argparse
 import json
 import logging
+from itertools import count
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -175,6 +176,11 @@ def _configure_standard_mocks(
     mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
 
     return mock_logger, mock_fetcher, mock_dq_checker
+
+
+def _mock_call_contains(mock_method: Mock, text: str) -> bool:
+    """Return True when any logged call contains the given text fragment."""
+    return any(call.args and text in str(call.args[0]) for call in mock_method.call_args_list)
 
 
 # ============================================================================
@@ -417,7 +423,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """ImportError while importing DerivedFieldInventoryBuilder is caught gracefully."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -441,6 +447,9 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.derived_fields_count == 0
+        assert _mock_call_contains(mock_logger.warning, "Could not import derived field inventory: no module")
+        assert _mock_call_contains(mock_logger.info, "Skipping derived field inventory - module not available")
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -465,7 +474,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """Generic exception during derived field inventory building is caught."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -489,6 +498,9 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.derived_fields_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during derived field inventory: build fail")
+        assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite derived field inventory errors")
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -513,7 +525,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """ImportError while importing CalculatedMetricsInventoryBuilder is caught."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -537,6 +549,9 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.calculated_metrics_count == 0
+        assert _mock_call_contains(mock_logger.warning, "Could not import calculated metrics inventory: no module")
+        assert _mock_call_contains(mock_logger.info, "Skipping calculated metrics inventory - module not available")
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -561,7 +576,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """Generic exception during calculated metrics inventory is caught."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -585,6 +600,12 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.calculated_metrics_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during calculated metrics inventory: calc fail")
+        assert _mock_call_contains(
+            mock_logger.info,
+            "Continuing with SDR generation despite calculated metrics inventory errors",
+        )
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -609,7 +630,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """ImportError while importing SegmentsInventoryBuilder is caught."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -633,6 +654,9 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.segments_count == 0
+        assert _mock_call_contains(mock_logger.warning, "Could not import segments inventory: no segments module")
+        assert _mock_call_contains(mock_logger.info, "Skipping segments inventory - module not available")
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -657,7 +681,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dataview_info,
     ):
         """Generic exception during segments inventory is caught."""
-        _configure_standard_mocks(
+        mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
             mock_validate_dv,
@@ -681,6 +705,9 @@ class TestProcessSingleDataviewInventoryBuilding:
                 skip_validation=True,
             )
         assert result.success is True
+        assert result.segments_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during segments inventory: seg fail")
+        assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
 
 
 # ============================================================================
@@ -925,12 +952,11 @@ class TestProcessSingleDataviewJSONFormatException:
         # Make .map raise on the lookup_df columns iteration
         original_map = pd.Series.map
 
-        call_count = {"n": 0}
+        map_calls = count(1)
 
         def failing_map(self, func, **kwargs):
-            call_count["n"] += 1
             # Fail on the 4th call to exercise the except block
-            if call_count["n"] == 4:
+            if next(map_calls) == 4:
                 raise RuntimeError("map failed")
             return original_map(self, func, **kwargs)
 
@@ -1353,7 +1379,7 @@ class TestProcessSingleDataviewTimingsAndSummary:
         assert result.success is True
         captured = capsys.readouterr()
         # Performance summary should appear in stdout
-        assert len(captured.out) > 0 or result.success
+        assert captured.out.strip() != ""
 
 
 # ============================================================================
@@ -1622,25 +1648,12 @@ class TestRunDryRunAPIValidation:
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
 
-            call_count = {"n": 0}
-
-            def retry_side_effect(func, *args, **kwargs):
-                call_count["n"] += 1
-                # First call: getDataViews - return list
-                if call_count["n"] == 1:
-                    return []
-                # Second call: getDataView - return info
-                if call_count["n"] == 2:
-                    return {"name": "Test DV"}
-                # Third call: getMetrics - raise
-                if call_count["n"] == 3:
-                    raise OSError("metrics fetch fail")
-                # Fourth call: getDimensions - raise
-                if call_count["n"] == 4:
-                    raise ValueError("dimensions fetch fail")
-                return None
-
-            mock_retry.side_effect = retry_side_effect
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                {"name": "Test DV"},  # getDataView
+                OSError("metrics fetch fail"),  # getMetrics
+                ValueError("dimensions fetch fail"),  # getDimensions
+            ]
 
             result = run_dry_run(["dv_test"], "config.json", logger)
         # Still passes because the DV was found
@@ -1658,16 +1671,10 @@ class TestRunDryRunAPIValidation:
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
 
-            call_count = {"n": 0}
-
-            def retry_side_effect(func, *args, **kwargs):
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    return []
-                # getDataView returns None
-                return None
-
-            mock_retry.side_effect = retry_side_effect
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                None,  # getDataView returns None
+            ]
 
             result = run_dry_run(["dv_missing"], "config.json", logger)
         assert result is False
@@ -1686,15 +1693,10 @@ class TestRunDryRunAPIValidation:
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
 
-            call_count = {"n": 0}
-
-            def retry_side_effect(func, *args, **kwargs):
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    return []
-                raise RuntimeError("unexpected error")
-
-            mock_retry.side_effect = retry_side_effect
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                RuntimeError("unexpected error"),
+            ]
 
             result = run_dry_run(["dv_err"], "config.json", logger)
         assert result is False
@@ -1801,6 +1803,10 @@ class TestProcessInventorySummaryExceptionHandlers:
         mock_display.assert_called_once()
         call_kwargs = mock_display.call_args[1]
         assert call_kwargs["calculated_inventory"] is None
+        assert _mock_call_contains(
+            mock_logger.warning,
+            "Failed to build calculated metrics inventory: no calculated module",
+        )
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -1844,6 +1850,10 @@ class TestProcessInventorySummaryExceptionHandlers:
         mock_display.assert_called_once()
         call_kwargs = mock_display.call_args[1]
         assert call_kwargs["segments_inventory"] is None
+        assert _mock_call_contains(
+            mock_logger.warning,
+            "Failed to build segments inventory: no segments module",
+        )
 
 
 # ============================================================================
@@ -1878,15 +1888,10 @@ class TestRunDryRunKeyboardInterrupt:
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
 
-            call_count = {"n": 0}
-
-            def retry_side_effect(func, *args, **kwargs):
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    return []
-                raise KeyboardInterrupt
-
-            mock_retry.side_effect = retry_side_effect
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                KeyboardInterrupt(),
+            ]
 
             with pytest.raises(KeyboardInterrupt):
                 run_dry_run(["dv_test"], "config.json", logger)
@@ -1930,15 +1935,10 @@ class TestRunDryRunAPIReturnsNone:
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
 
-            call_count = {"n": 0}
-
-            def retry_side_effect(func, *args, **kwargs):
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    return None
-                return {"name": "Found DV"}
-
-            mock_retry.side_effect = retry_side_effect
+            mock_retry.side_effect = [
+                None,  # getDataViews (unstable)
+                {"name": "Found DV"},  # getDataView
+            ]
 
             run_dry_run(["dv_test"], "config.json", logger)
         captured = capsys.readouterr()
