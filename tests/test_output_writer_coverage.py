@@ -111,7 +111,11 @@ class TestWriteJsonOutputInventoryObjects:
         inv = MagicMock()
         inv.to_json.return_value = {"fields": [{"id": "f1"}]}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={"derived": inv},
         )
         assert result.endswith(".json")
@@ -119,7 +123,11 @@ class TestWriteJsonOutputInventoryObjects:
     def test_derived_fields_no_inventory(self, tmp_path: Path) -> None:
         data = {"Derived Fields": pd.DataFrame({"field": ["f1"]})}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={},
         )
         assert result.endswith(".json")
@@ -129,7 +137,11 @@ class TestWriteJsonOutputInventoryObjects:
         inv = MagicMock()
         inv.to_json.return_value = {"metrics": [{"id": "m1"}]}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={"calculated": inv},
         )
         assert result.endswith(".json")
@@ -137,7 +149,11 @@ class TestWriteJsonOutputInventoryObjects:
     def test_calculated_metrics_no_inventory(self, tmp_path: Path) -> None:
         data = {"Calculated Metrics": pd.DataFrame({"metric": ["m1"]})}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={},
         )
         assert result.endswith(".json")
@@ -147,7 +163,11 @@ class TestWriteJsonOutputInventoryObjects:
         inv = MagicMock()
         inv.to_json.return_value = {"segments": [{"id": "s1"}]}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={"segments": inv},
         )
         assert result.endswith(".json")
@@ -155,7 +175,11 @@ class TestWriteJsonOutputInventoryObjects:
     def test_segments_no_inventory(self, tmp_path: Path) -> None:
         data = {"Segments": pd.DataFrame({"segment": ["s1"]})}
         result = write_json_output(
-            data, _sample_metadata(), "test", str(tmp_path), logger,
+            data,
+            _sample_metadata(),
+            "test",
+            str(tmp_path),
+            logger,
             inventory_objects={},
         )
         assert result.endswith(".json")
@@ -207,10 +231,12 @@ class TestWriteHtmlOutputSeverityEdges:
     def test_severity_column_with_valid_classes(self, tmp_path: Path) -> None:
         """Data Quality sheet with severity column should add CSS classes."""
         data = {
-            "Data Quality": pd.DataFrame({
-                "Issue": ["Missing field", "Bad type"],
-                "Severity": ["critical", "warning"],
-            }),
+            "Data Quality": pd.DataFrame(
+                {
+                    "Issue": ["Missing field", "Bad type"],
+                    "Severity": ["critical", "warning"],
+                }
+            ),
         }
         result = write_html_output(data, _sample_metadata(), "test", str(tmp_path), logger)
         content = Path(result).read_text(encoding="utf-8")
@@ -219,10 +245,12 @@ class TestWriteHtmlOutputSeverityEdges:
     def test_severity_column_with_unknown_severity(self, tmp_path: Path) -> None:
         """Unknown severity values should not add classes."""
         data = {
-            "Data Quality": pd.DataFrame({
-                "Issue": ["Something"],
-                "Severity": ["unknown_level"],
-            }),
+            "Data Quality": pd.DataFrame(
+                {
+                    "Issue": ["Something"],
+                    "Severity": ["unknown_level"],
+                }
+            ),
         }
         result = write_html_output(data, _sample_metadata(), "test", str(tmp_path), logger)
         assert result.endswith(".html")
@@ -310,9 +338,7 @@ class TestValidateDataViewEdgeCases:
 
         mock_cja = MagicMock()
         mock_cja.getDataView.return_value = None  # Invalid DV ID
-        mock_cja.getDataViews.return_value = [
-            {"id": f"dv{i}", "name": f"DV {i}"} for i in range(15)
-        ]
+        mock_cja.getDataViews.return_value = [{"id": f"dv{i}", "name": f"DV {i}"} for i in range(15)]
 
         with caplog.at_level(logging.INFO):
             result = validate_data_view(mock_cja, "invalid_id", logger)

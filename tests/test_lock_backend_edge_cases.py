@@ -1625,9 +1625,7 @@ class TestFcntlAcquireResultInodePaths:
         result = backend.acquire_result(lock_file, 10)
         assert result.status == AcquireStatus.CONTENDED
 
-    def test_fd_mismatch_after_metadata_read(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_fd_mismatch_after_metadata_read(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Lines 521-522: _fd_matches_path True first, then False after metadata."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
 
@@ -1652,7 +1650,8 @@ class TestFcntlAcquireResultInodePaths:
         # (backend == self.name skips the mixed-backend guard)
         fcntl_info = _build_lock_info("test-id", backend="fcntl")
         monkeypatch.setattr(
-            backend, "_read_info_with_retries",
+            backend,
+            "_read_info_with_retries",
             lambda path: _ReadInfoOutcome(info=fcntl_info, state="valid", source_path=_metadata_path(lock_file)),
         )
         result = backend.acquire_result(lock_file, 10)
@@ -1666,9 +1665,7 @@ class TestFcntlAcquireResultInodePaths:
 
 
 class TestFcntlAcquireResultMetadataPaths:
-    def test_backward_compat_tuple_unreadable(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_backward_compat_tuple_unreadable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Line 489: _read_info_with_retries returns tuple (None, True) -> unreadable."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus
 
@@ -1686,9 +1683,7 @@ class TestFcntlAcquireResultMetadataPaths:
         result = backend.acquire_result(lock_file, 10)
         assert result.status == AcquireStatus.CONTENDED
 
-    def test_unreadable_metadata_not_stale(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unreadable_metadata_not_stale(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Lines 515-516: unreadable metadata with fresh mtime -> CONTENDED."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
 
@@ -1843,11 +1838,16 @@ class TestLeaseAcquireResultEdgeCases:
         st = lock_file.stat()
         real_inode = (st.st_dev, st.st_ino)
 
-        stale_info = _build_lock_info("stale-id", pid=2**30, host="remote-box",
-                                      started_at="2000-01-01T00:00:00+00:00",
-                                      updated_at="2000-01-01T00:00:00+00:00")
+        stale_info = _build_lock_info(
+            "stale-id",
+            pid=2**30,
+            host="remote-box",
+            started_at="2000-01-01T00:00:00+00:00",
+            updated_at="2000-01-01T00:00:00+00:00",
+        )
         monkeypatch.setattr(
-            backend, "_read_info_with_retries",
+            backend,
+            "_read_info_with_retries",
             lambda path: _ReadInfoOutcome(info=stale_info, state="valid", source_path=_metadata_path(lock_file)),
         )
         monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
@@ -1867,7 +1867,8 @@ class TestLeaseAcquireResultEdgeCases:
         real_inode = (st.st_dev, st.st_ino)
 
         monkeypatch.setattr(
-            backend, "_read_info_with_retries",
+            backend,
+            "_read_info_with_retries",
             lambda path: _ReadInfoOutcome(info=None, state="unreadable", source_path=None),
         )
         monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
@@ -1875,9 +1876,7 @@ class TestLeaseAcquireResultEdgeCases:
         result = backend.acquire_result(lock_file, 10)
         assert result.status == AcquireStatus.CONTENDED
 
-    def test_fresh_unreadable_metadata_returns_contended(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_fresh_unreadable_metadata_returns_contended(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Line 732: unreadable metadata with fresh mtime -> CONTENDED."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
 
@@ -1890,7 +1889,8 @@ class TestLeaseAcquireResultEdgeCases:
 
         meta_path = _metadata_path(lock_file)
         monkeypatch.setattr(
-            backend, "_read_info_with_retries",
+            backend,
+            "_read_info_with_retries",
             lambda path: _ReadInfoOutcome(info=None, state="unreadable", source_path=meta_path),
         )
         monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
@@ -1899,9 +1899,7 @@ class TestLeaseAcquireResultEdgeCases:
         result = backend.acquire_result(lock_file, 10)
         assert result.status == AcquireStatus.CONTENDED
 
-    def test_cant_unlink_after_missing_metadata(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_cant_unlink_after_missing_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Line 735: can't unlink lock after stale missing metadata -> CONTENDED."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
 
@@ -1913,7 +1911,8 @@ class TestLeaseAcquireResultEdgeCases:
         real_inode = (st.st_dev, st.st_ino)
 
         monkeypatch.setattr(
-            backend, "_read_info_with_retries",
+            backend,
+            "_read_info_with_retries",
             lambda path: _ReadInfoOutcome(info=None, state="missing", source_path=None),
         )
         monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)

@@ -2347,9 +2347,12 @@ class TestCacheValidation:
         analyzer.cache = mock_cache
 
         valid_summary = DataViewSummary(
-            data_view_id="dv1", data_view_name="Cached DV",
-            metric_ids={"m1"}, dimension_ids=set(),
-            metric_count=1, dimension_count=0,
+            data_view_id="dv1",
+            data_view_name="Cached DV",
+            metric_ids={"m1"},
+            dimension_ids=set(),
+            metric_count=1,
+            dimension_count=0,
         )
         # _validate_cache_entries returns (to_fetch, valid_summaries, valid_count, stale_count)
         with (
@@ -2379,9 +2382,12 @@ class TestFetchAllPollLoopContinue:
         analyzer.cache = None
 
         summary = DataViewSummary(
-            data_view_id="dv1", data_view_name="DV 1",
-            metric_ids={"m1"}, dimension_ids=set(),
-            metric_count=1, dimension_count=0,
+            data_view_id="dv1",
+            data_view_name="DV 1",
+            metric_ids={"m1"},
+            dimension_ids=set(),
+            metric_count=1,
+            dimension_count=0,
         )
 
         call_count = {"n": 0}
@@ -2509,14 +2515,20 @@ class TestClusteringLinkageFailure:
 
         summaries = [
             DataViewSummary(
-                data_view_id="dv1", data_view_name="A",
-                metric_ids={"m1"}, dimension_ids=set(),
-                metric_count=1, dimension_count=0,
+                data_view_id="dv1",
+                data_view_name="A",
+                metric_ids={"m1"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
             ),
             DataViewSummary(
-                data_view_id="dv2", data_view_name="B",
-                metric_ids={"m2"}, dimension_ids=set(),
-                metric_count=1, dimension_count=0,
+                data_view_id="dv2",
+                data_view_name="B",
+                metric_ids={"m2"},
+                dimension_ids=set(),
+                metric_count=1,
+                dimension_count=0,
             ),
         ]
 

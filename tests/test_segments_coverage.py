@@ -1039,11 +1039,17 @@ def _deeply_nested_and(*leaf_nodes):
     return {
         "func": "and",
         "preds": [
-            {"func": "and", "preds": [
-                {"func": "and", "preds": [
-                    {"func": "and", "preds": list(leaf_nodes)},
-                ]},
-            ]},
+            {
+                "func": "and",
+                "preds": [
+                    {
+                        "func": "and",
+                        "preds": [
+                            {"func": "and", "preds": list(leaf_nodes)},
+                        ],
+                    },
+                ],
+            },
         ],
     }
 

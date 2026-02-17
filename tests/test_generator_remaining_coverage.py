@@ -29,13 +29,10 @@ Targets the ~180 remaining uncovered lines across:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
-import re
 import sys
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
@@ -43,10 +40,8 @@ import pytest
 from cja_auto_sdr.diff.models import (
     ChangeType,
     ComponentDiff,
-    DataViewSnapshot,
     DiffResult,
     DiffSummary,
-    InventoryItemDiff,
     MetadataDiff,
 )
 from cja_auto_sdr.generator import (
@@ -67,7 +62,6 @@ from cja_auto_sdr.generator import (
     validate_data_view,
     write_html_output,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,8 +108,9 @@ def _make_args(**overrides):
     return argparse.Namespace(**defaults)
 
 
-def _make_diff_result(has_changes=True, metric_diffs=None, dimension_diffs=None,
-                       calc_metrics_diffs=None, segments_diffs=None):
+def _make_diff_result(
+    has_changes=True, metric_diffs=None, dimension_diffs=None, calc_metrics_diffs=None, segments_diffs=None
+):
     """Build a minimal DiffResult with sensible defaults."""
     summary_kw = {
         "source_metrics_count": 5,
@@ -258,14 +253,16 @@ class TestWriteHtmlOutputSeverityClass:
     def test_severity_class_row_idx_overflow(self, tmp_path):
         """When there are more <tr> rows than severity entries, extra rows pass through."""
         logger = _make_logger()
-        dq_df = pd.DataFrame({
-            "Severity": ["HIGH"],
-            "Category": ["Test"],
-            "Type": ["Test"],
-            "Item Name": ["item"],
-            "Issue": ["issue"],
-            "Details": ["detail"],
-        })
+        dq_df = pd.DataFrame(
+            {
+                "Severity": ["HIGH"],
+                "Category": ["Test"],
+                "Type": ["Test"],
+                "Item Name": ["item"],
+                "Issue": ["issue"],
+                "Details": ["detail"],
+            }
+        )
         data_dict = {"Data Quality": dq_df}
         metadata = {"Generated At": "2024-01-01", "Tool Version": "3.2.9"}
 
@@ -278,14 +275,16 @@ class TestWriteHtmlOutputSeverityClass:
     def test_severity_class_already_has_class_attr(self, tmp_path):
         """When a <tr> tag already has class="...", the severity class is appended."""
         logger = _make_logger()
-        dq_df = pd.DataFrame({
-            "Severity": ["CRITICAL", "LOW"],
-            "Category": ["A", "B"],
-            "Type": ["T1", "T2"],
-            "Item Name": ["i1", "i2"],
-            "Issue": ["x", "y"],
-            "Details": ["d1", "d2"],
-        })
+        dq_df = pd.DataFrame(
+            {
+                "Severity": ["CRITICAL", "LOW"],
+                "Category": ["A", "B"],
+                "Type": ["T1", "T2"],
+                "Item Name": ["i1", "i2"],
+                "Issue": ["x", "y"],
+                "Details": ["d1", "d2"],
+            }
+        )
         data_dict = {"Data Quality": dq_df}
         metadata = {"Generated At": "2024-01-01", "Tool Version": "3.2.9"}
 
@@ -384,8 +383,7 @@ class TestFormatMarkdownSideBySide:
 
 
 class TestDisplayInventorySummaryElevated:
-    def _make_inventory(self, inv_type, total_key, elevated_count=5, high_count=0,
-                         extra_fields=None):
+    def _make_inventory(self, inv_type, total_key, elevated_count=5, high_count=0, extra_fields=None):
         inv = MagicMock()
         base_summary = {
             total_key: 10,
@@ -406,7 +404,9 @@ class TestDisplayInventorySummaryElevated:
 
     def test_segments_elevated_complexity(self, capsys):
         seg_inv = self._make_inventory(
-            "segments", "total_segments", elevated_count=3,
+            "segments",
+            "total_segments",
+            elevated_count=3,
             extra_fields={"governance": {}, "container_types": {}},
         )
         display_inventory_summary(
@@ -422,7 +422,9 @@ class TestDisplayInventorySummaryElevated:
 
     def test_calculated_elevated_complexity(self, capsys):
         calc_inv = self._make_inventory(
-            "calculated", "total_calculated_metrics", elevated_count=2,
+            "calculated",
+            "total_calculated_metrics",
+            elevated_count=2,
             extra_fields={"governance": {}},
         )
         display_inventory_summary(
@@ -438,7 +440,9 @@ class TestDisplayInventorySummaryElevated:
 
     def test_derived_elevated_complexity(self, capsys):
         derived_inv = self._make_inventory(
-            "derived", "total_derived_fields", elevated_count=4,
+            "derived",
+            "total_derived_fields",
+            elevated_count=4,
             extra_fields={"metrics_count": 6, "dimensions_count": 4},
         )
         display_inventory_summary(
@@ -498,7 +502,12 @@ class TestProcessInventorySummaryImportErrors:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     def test_calculated_metrics_import_error(
-        self, mock_display, mock_init_cja, mock_log_ctx, mock_setup_log, capsys,
+        self,
+        mock_display,
+        mock_init_cja,
+        mock_log_ctx,
+        mock_setup_log,
+        capsys,
     ):
         mock_logger = MagicMock()
         mock_setup_log.return_value = mock_logger
@@ -522,7 +531,12 @@ class TestProcessInventorySummaryImportErrors:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     def test_segments_import_error(
-        self, mock_display, mock_init_cja, mock_log_ctx, mock_setup_log, capsys,
+        self,
+        mock_display,
+        mock_init_cja,
+        mock_log_ctx,
+        mock_setup_log,
+        capsys,
     ):
         mock_logger = MagicMock()
         mock_setup_log.return_value = mock_logger
@@ -553,7 +567,12 @@ class TestBatchProcessorStopOnError:
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
     @patch("cja_auto_sdr.generator.tqdm")
     def test_stop_on_error_cancels_futures(
-        self, mock_tqdm, mock_executor_cls, mock_log_ctx, mock_setup_log, tmp_path,
+        self,
+        mock_tqdm,
+        mock_executor_cls,
+        mock_log_ctx,
+        mock_setup_log,
+        tmp_path,
     ):
         mock_logger = MagicMock()
         mock_setup_log.return_value = mock_logger
@@ -642,7 +661,7 @@ class TestResolveDataViewNamesFuzzyError:
         logger = logging.getLogger("test_fuzzy")
         logger.setLevel(logging.DEBUG)
 
-        resolved, name_map = resolve_data_view_names(
+        resolved, _name_map = resolve_data_view_names(
             ["nonexistent_view_xyz"],
             "config.json",
             logger,
@@ -673,6 +692,7 @@ class TestIsMissingSortValue:
         class BadObj:
             def __bool__(self):
                 raise TypeError("cannot convert")
+
         assert _is_missing_sort_value(BadObj()) is False
 
 
@@ -750,8 +770,15 @@ class TestHandleDiffCommand:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_diff_step_summary")
     def test_reverse_diff_prints_message(
-        self, mock_build, mock_append, mock_write_diff,
-        mock_cjapy, mock_config, mock_comparator_cls, mock_snapshot_cls, capsys,
+        self,
+        mock_build,
+        mock_append,
+        mock_write_diff,
+        mock_cjapy,
+        mock_config,
+        mock_comparator_cls,
+        mock_snapshot_cls,
+        capsys,
     ):
         mock_config.return_value = (True, "mock", None)
         mock_cja = MagicMock()
@@ -770,7 +797,7 @@ class TestHandleDiffCommand:
         mock_comparator_cls.return_value = mock_comparator
         mock_write_diff.return_value = ""
 
-        success, has_changes, code = handle_diff_command(
+        success, _has_changes, _code = handle_diff_command(
             source_id="dv_src",
             target_id="dv_tgt",
             reverse_diff=True,
@@ -784,7 +811,7 @@ class TestHandleDiffCommand:
     @patch("cja_auto_sdr.generator.configure_cjapy")
     def test_config_failure_returns_false(self, mock_config, capsys):
         mock_config.return_value = (False, "Auth failed", None)
-        success, has_changes, code = handle_diff_command(
+        success, _has_changes, _code = handle_diff_command(
             source_id="dv_src",
             target_id="dv_tgt",
             quiet=False,
@@ -804,9 +831,18 @@ class TestHandleDiffCommand:
     @patch("cja_auto_sdr.generator.resolve_auto_prune_retention")
     @patch("cja_auto_sdr.generator.parse_retention_period")
     def test_auto_snapshot_with_retention(
-        self, mock_parse_retention, mock_resolve, mock_build, mock_append,
-        mock_write_diff, mock_cjapy, mock_config, mock_comparator_cls,
-        mock_snapshot_cls, capsys, tmp_path,
+        self,
+        mock_parse_retention,
+        mock_resolve,
+        mock_build,
+        mock_append,
+        mock_write_diff,
+        mock_cjapy,
+        mock_config,
+        mock_comparator_cls,
+        mock_snapshot_cls,
+        capsys,
+        tmp_path,
     ):
         mock_config.return_value = (True, "mock", None)
         mock_cja = MagicMock()
@@ -830,7 +866,7 @@ class TestHandleDiffCommand:
         mock_comparator_cls.return_value = mock_comparator
         mock_write_diff.return_value = ""
 
-        success, has_changes, code = handle_diff_command(
+        success, _has_changes, _code = handle_diff_command(
             source_id="dv_src",
             target_id="dv_tgt",
             auto_snapshot=True,
@@ -855,8 +891,16 @@ class TestHandleDiffCommand:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_diff_step_summary")
     def test_diff_output_flag_writes_file(
-        self, mock_build, mock_append, mock_write_diff,
-        mock_cjapy, mock_config, mock_comparator_cls, mock_snapshot_cls, tmp_path, capsys,
+        self,
+        mock_build,
+        mock_append,
+        mock_write_diff,
+        mock_cjapy,
+        mock_config,
+        mock_comparator_cls,
+        mock_snapshot_cls,
+        tmp_path,
+        capsys,
     ):
         mock_config.return_value = (True, "mock", None)
         mock_cja = MagicMock()
@@ -875,7 +919,7 @@ class TestHandleDiffCommand:
         mock_write_diff.return_value = "diff output content"
 
         diff_output_path = str(tmp_path / "diff_out.txt")
-        success, has_changes, code = handle_diff_command(
+        success, _has_changes, _code = handle_diff_command(
             source_id="dv_src",
             target_id="dv_tgt",
             diff_output=diff_output_path,
@@ -892,12 +936,12 @@ class TestHandleDiffCommand:
         mock_config.return_value = (True, "mock", None)
         mock_cjapy.CJA.side_effect = RuntimeError("Unexpected boom")
 
-        success, has_changes, code = handle_diff_command(
+        success, _has_changes, _code = handle_diff_command(
             source_id="dv_src",
             target_id="dv_tgt",
         )
         assert success is False
-        assert code is None
+        assert _code is None
 
 
 # ===========================================================================
@@ -910,13 +954,17 @@ class TestHandleDiffSnapshotCommand:
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.cjapy")
     def test_generic_exception_returns_false(
-        self, mock_cjapy, mock_config, mock_snapshot_cls, capsys,
+        self,
+        mock_cjapy,
+        mock_config,
+        mock_snapshot_cls,
+        capsys,
     ):
         mock_sm = MagicMock()
         mock_snapshot_cls.return_value = mock_sm
         mock_sm.load_snapshot.side_effect = RuntimeError("Unexpected error")
 
-        success, has_changes, code = handle_diff_snapshot_command(
+        success, _has_changes, _code = handle_diff_snapshot_command(
             data_view_id="dv_test",
             snapshot_file="snap.json",
         )
@@ -940,7 +988,7 @@ class TestHandleDiffSnapshotCommand:
         }
         mock_sm.load_snapshot.return_value = mock_snapshot
 
-        success, has_changes, code = handle_diff_snapshot_command(
+        success, _has_changes, _code = handle_diff_snapshot_command(
             data_view_id="dv_test",
             snapshot_file="snap.json",
             include_segments=True,
@@ -957,8 +1005,15 @@ class TestHandleDiffSnapshotCommand:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_diff_step_summary")
     def test_calc_metrics_build_exception(
-        self, mock_build_summary, mock_append, mock_write_diff,
-        mock_cjapy, mock_config, mock_comparator_cls, mock_snapshot_cls, capsys,
+        self,
+        mock_build_summary,
+        mock_append,
+        mock_write_diff,
+        mock_cjapy,
+        mock_config,
+        mock_comparator_cls,
+        mock_snapshot_cls,
+        capsys,
     ):
         mock_config.return_value = (True, "mock", None)
         mock_cja = MagicMock()
@@ -983,11 +1038,11 @@ class TestHandleDiffSnapshotCommand:
         mock_comparator_cls.return_value = mock_comparator
         mock_write_diff.return_value = ""
 
-        with patch.dict("sys.modules", {"cja_auto_sdr.inventory.calculated_metrics": MagicMock()}) as mocked:
+        with patch.dict("sys.modules", {"cja_auto_sdr.inventory.calculated_metrics": MagicMock()}):
             mod = sys.modules["cja_auto_sdr.inventory.calculated_metrics"]
             mod.CalculatedMetricsInventoryBuilder.side_effect = RuntimeError("Build failed")
 
-            success, has_changes, code = handle_diff_snapshot_command(
+            success, _has_changes, _code = handle_diff_snapshot_command(
                 data_view_id="dv_test",
                 snapshot_file="snap.json",
                 include_calc_metrics=True,
@@ -1005,8 +1060,15 @@ class TestHandleDiffSnapshotCommand:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_diff_step_summary")
     def test_segments_build_exception(
-        self, mock_build_summary, mock_append, mock_write_diff,
-        mock_cjapy, mock_config, mock_comparator_cls, mock_snapshot_cls, capsys,
+        self,
+        mock_build_summary,
+        mock_append,
+        mock_write_diff,
+        mock_cjapy,
+        mock_config,
+        mock_comparator_cls,
+        mock_snapshot_cls,
+        capsys,
     ):
         mock_config.return_value = (True, "mock", None)
         mock_cja = MagicMock()
@@ -1031,11 +1093,11 @@ class TestHandleDiffSnapshotCommand:
         mock_comparator_cls.return_value = mock_comparator
         mock_write_diff.return_value = ""
 
-        with patch.dict("sys.modules", {"cja_auto_sdr.inventory.segments": MagicMock()}) as mocked:
+        with patch.dict("sys.modules", {"cja_auto_sdr.inventory.segments": MagicMock()}):
             mod = sys.modules["cja_auto_sdr.inventory.segments"]
             mod.SegmentsInventoryBuilder.side_effect = RuntimeError("Seg build failed")
 
-            success, has_changes, code = handle_diff_snapshot_command(
+            success, _has_changes, _code = handle_diff_snapshot_command(
                 data_view_id="dv_test",
                 snapshot_file="snap.json",
                 include_calc_metrics=False,
@@ -1269,8 +1331,7 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test123", "dv_test123"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test123", "dv_test123"], {})),
             patch("cja_auto_sdr.generator.process_single_dataview") as mock_process,
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1310,8 +1371,10 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_prod_123"], {"My Production DV": ["dv_prod_123"]})),
+            patch(
+                "cja_auto_sdr.generator.resolve_data_view_names",
+                return_value=(["dv_prod_123"], {"My Production DV": ["dv_prod_123"]}),
+            ),
             patch("cja_auto_sdr.generator.process_single_dataview") as mock_process,
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1351,8 +1414,10 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_a", "dv_b"], {"Shared DV": ["dv_a", "dv_b"]})),
+            patch(
+                "cja_auto_sdr.generator.resolve_data_view_names",
+                return_value=(["dv_a", "dv_b"], {"Shared DV": ["dv_a", "dv_b"]}),
+            ),
             patch("cja_auto_sdr.generator.BatchProcessor") as mock_bp,
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1391,8 +1456,7 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.setup_logging") as mock_log,
             patch("cja_auto_sdr.generator.run_dry_run", return_value=True) as mock_dry,
         ):
@@ -1529,8 +1593,7 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.DIFF_SNAPSHOT),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.handle_diff_snapshot_command") as mock_diff,
         ):
             mock_diff.return_value = (True, True, 3)
@@ -1579,8 +1642,7 @@ class TestMainImplScattered:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.DIFF_SNAPSHOT),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.handle_diff_snapshot_command") as mock_diff,
         ):
             mock_diff.return_value = (False, False, None)
@@ -1624,14 +1686,12 @@ class TestMainImplQualityReport:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.process_single_dataview", return_value=mock_result),
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
             patch("cja_auto_sdr.generator.append_github_step_summary"),
-            patch("cja_auto_sdr.generator.write_quality_report_output",
-                   return_value="/path/report.json"),
+            patch("cja_auto_sdr.generator.write_quality_report_output", return_value="/path/report.json"),
             patch("time.time", return_value=1000.0),
         ):
             _main_impl()
@@ -1665,8 +1725,7 @@ class TestMainImplQualityReport:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_fail"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_fail"], {})),
             patch("cja_auto_sdr.generator.process_single_dataview", return_value=mock_fail),
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1760,8 +1819,7 @@ class TestMainRunSummaryFailure:
             patch("cja_auto_sdr.generator._cli_option_value", return_value="/bad/path/summary.json"),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._main_impl", side_effect=SystemExit(0)),
-            patch("cja_auto_sdr.generator.write_run_summary_output",
-                   side_effect=OSError("Permission denied")),
+            patch("cja_auto_sdr.generator.write_run_summary_output", side_effect=OSError("Permission denied")),
         ):
             with pytest.raises(SystemExit):
                 main()
@@ -1803,8 +1861,7 @@ class TestMainImplSingleModeResults:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.process_single_dataview", return_value=mock_result),
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1841,8 +1898,7 @@ class TestMainImplSingleModeResults:
             patch("cja_auto_sdr.generator._infer_run_mode_enum", return_value=RunMode.SDR),
             patch("cja_auto_sdr.generator._cli_option_specified", return_value=False),
             patch("cja_auto_sdr.generator._cli_option_value", return_value=None),
-            patch("cja_auto_sdr.generator.resolve_data_view_names",
-                   return_value=(["dv_test"], {})),
+            patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {})),
             patch("cja_auto_sdr.generator.process_single_dataview", return_value=mock_result),
             patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
             patch("cja_auto_sdr.generator.build_quality_step_summary"),
@@ -1869,8 +1925,14 @@ class TestProcessSingleDataviewExceptions:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("pandas.ExcelWriter")
     def test_format_json_cell_exception(
-        self, mock_excel_writer, mock_dq_cls, mock_fetcher_cls,
-        mock_validate, mock_init_cja, mock_setup_log, tmp_path,
+        self,
+        mock_excel_writer,
+        mock_dq_cls,
+        mock_fetcher_cls,
+        mock_validate,
+        mock_init_cja,
+        mock_setup_log,
+        tmp_path,
     ):
         from cja_auto_sdr.generator import process_single_dataview
 

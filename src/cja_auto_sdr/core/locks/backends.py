@@ -460,7 +460,10 @@ class FcntlFileLockBackend:
                 return AcquireResult(status=AcquireStatus.CONTENDED)
             except OSError as e:
                 os.close(fd)
-                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):  # pragma: no cover - Python maps EAGAIN to BlockingIOError
+                if e.errno in (
+                    errno.EAGAIN,
+                    errno.EWOULDBLOCK,
+                ):  # pragma: no cover - Python maps EAGAIN to BlockingIOError
                     return AcquireResult(status=AcquireStatus.CONTENDED)
                 if e.errno in _FLOCK_UNSUPPORTED_ERRNOS:
                     if created_exclusively:

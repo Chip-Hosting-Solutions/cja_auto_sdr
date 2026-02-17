@@ -42,13 +42,17 @@ def _build_one(definition):
     """Build a single derived field from a definition list and return the summary."""
     builder = _builder()
     field_def = json.dumps(definition) if isinstance(definition, list) else definition
-    df = pd.DataFrame([{
-        "id": "dimensions/test_field",
-        "name": "Test Field",
-        "sourceFieldType": "derived",
-        "fieldDefinition": field_def,
-        "dataSetType": "event",
-    }])
+    df = pd.DataFrame(
+        [
+            {
+                "id": "dimensions/test_field",
+                "name": "Test Field",
+                "sourceFieldType": "derived",
+                "fieldDefinition": field_def,
+                "dataSetType": "event",
+            }
+        ]
+    )
     inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
     assert inventory.total_derived_fields == 1
     return inventory.fields[0]
@@ -300,10 +304,13 @@ class TestDescribeConcatEdges:
         definition = [
             {"func": "raw-field", "id": "a.field", "label": "a"},
             {"func": "raw-field", "id": "b.field", "label": "b"},
-            {"func": "concatenate", "args": [
-                {"func": "raw-field", "id": "a.field"},
-                {"func": "raw-field", "id": "b.field"},
-            ]},
+            {
+                "func": "concatenate",
+                "args": [
+                    {"func": "raw-field", "id": "a.field"},
+                    {"func": "raw-field", "id": "b.field"},
+                ],
+            },
         ]
         summary = _build_one(definition)
         assert "concat" in summary.logic_summary.lower()
@@ -417,20 +424,28 @@ class TestDescribeFindReplaceEdges:
     def test_find_replace_no_field_with_replace(self):
         """Lines 1523-1524: find-replace without field reference."""
         b = _builder()
-        result = b._describe_find_replace_logic([{
-            "func": "find-replace",
-            "find": "old",
-            "replace": "new",
-        }])
+        result = b._describe_find_replace_logic(
+            [
+                {
+                    "func": "find-replace",
+                    "find": "old",
+                    "replace": "new",
+                }
+            ]
+        )
         assert "Replaces" in result
 
     def test_find_replace_no_field_no_replace(self):
         """Line 1525: find without replace = remove."""
         b = _builder()
-        result = b._describe_find_replace_logic([{
-            "func": "find-replace",
-            "find": "remove_me",
-        }])
+        result = b._describe_find_replace_logic(
+            [
+                {
+                    "func": "find-replace",
+                    "find": "remove_me",
+                }
+            ]
+        )
         assert "Removes" in result
 
 

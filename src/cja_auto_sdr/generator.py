@@ -5097,7 +5097,9 @@ def process_inventory_summary(
             builder = CalculatedMetricsInventoryBuilder(logger=logger)  # pragma: no cover
             calculated_inventory = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
             if not quiet:  # pragma: no cover
-                print(ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}"))  # pragma: no cover
+                print(
+                    ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}")
+                )  # pragma: no cover
         except Exception as e:
             logger.warning(f"Failed to build calculated metrics inventory: {e}")
 

@@ -31,6 +31,7 @@ from cja_auto_sdr.generator import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _mock_cli_option_specified(option_name, argv=None):
     """Stub that always returns False — prevents real sys.argv inspection."""
     return False
@@ -186,6 +187,7 @@ def _run_main_impl(args, run_state=None, extra_patches=None):
 # Block 1 — Worker validation  (lines 13656-13679)
 # =========================================================================
 
+
 class TestWorkerValidation:
     """Tests for --workers value parsing and bounds checks."""
 
@@ -314,6 +316,7 @@ class TestWorkerValidation:
 # Block 2 — --interactive with args warning (lines 13913-13919)
 # =========================================================================
 
+
 class TestInteractiveMode:
     """Tests for --interactive mode argument handling."""
 
@@ -367,6 +370,7 @@ class TestInteractiveMode:
 # Block 3 — --include-all-inventory flags (lines 14095, 14100)
 # =========================================================================
 
+
 class TestIncludeAllInventory:
     """Tests for --include-all-inventory auto-expansion."""
 
@@ -376,14 +380,17 @@ class TestIncludeAllInventory:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_include_all_inventory_non_snapshot_enables_derived(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_include_all_inventory_non_snapshot_enables_derived(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 14094-14095: non-snapshot mode → include_derived_inventory = True."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -424,9 +431,14 @@ class TestIncludeAllInventory:
     ):
         """Line 14087-14095: snapshot-like mode → include_derived_inventory stays False."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -451,14 +463,17 @@ class TestIncludeAllInventory:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_include_all_inventory_quiet_suppresses_message(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_include_all_inventory_quiet_suppresses_message(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 14097: quiet mode suppresses the '--include-all-inventory enabled' message."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -480,6 +495,7 @@ class TestIncludeAllInventory:
 # =========================================================================
 # Block 4 — --diff mode validation (lines 14328-14336)
 # =========================================================================
+
 
 class TestDiffModeValidation:
     """Tests for --diff argument validation."""
@@ -517,8 +533,7 @@ class TestDiffModeValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_diff_metrics_and_dimensions_only_conflict_exits_1(self, capsys):
         """Line 14334-14336: both --metrics-only and --dimensions-only."""
-        args = _make_args(diff=True, data_views=["dv_1", "dv_2"],
-                          metrics_only=True, dimensions_only=True)
+        args = _make_args(diff=True, data_views=["dv_1", "dv_2"], metrics_only=True, dimensions_only=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -528,8 +543,7 @@ class TestDiffModeValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_diff_include_derived_exits_1(self, capsys):
         """Line 14340-14353: --include-derived with --diff."""
-        args = _make_args(diff=True, data_views=["dv_1", "dv_2"],
-                          include_derived_inventory=True)
+        args = _make_args(diff=True, data_views=["dv_1", "dv_2"], include_derived_inventory=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -539,8 +553,7 @@ class TestDiffModeValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_diff_include_calculated_exits_1(self, capsys):
         """Line 14354-14369: --include-calculated with --diff."""
-        args = _make_args(diff=True, data_views=["dv_1", "dv_2"],
-                          include_calculated_metrics=True)
+        args = _make_args(diff=True, data_views=["dv_1", "dv_2"], include_calculated_metrics=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -550,8 +563,7 @@ class TestDiffModeValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_diff_include_segments_exits_1(self, capsys):
         """Line 14370-14385: --include-segments with --diff."""
-        args = _make_args(diff=True, data_views=["dv_1", "dv_2"],
-                          include_segments_inventory=True)
+        args = _make_args(diff=True, data_views=["dv_1", "dv_2"], include_segments_inventory=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -561,8 +573,7 @@ class TestDiffModeValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_diff_inventory_only_exits_1(self, capsys):
         """Line 14386-14391: --inventory-only with --diff."""
-        args = _make_args(diff=True, data_views=["dv_1", "dv_2"],
-                          inventory_only=True)
+        args = _make_args(diff=True, data_views=["dv_1", "dv_2"], inventory_only=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -573,6 +584,7 @@ class TestDiffModeValidation:
 # =========================================================================
 # Block 5 — Diff source/target name resolution ambiguity (lines 14410-14465)
 # =========================================================================
+
 
 class TestDiffNameResolutionAmbiguity:
     """Tests for ambiguous name resolution in --diff source/target."""
@@ -614,7 +626,7 @@ class TestDiffNameResolutionAmbiguity:
         # First call is for source, second call is for target
         mock_resolve.side_effect = [
             (["dv_1", "dv_2"], {}),  # source: ambiguous
-            (["dv_target"], {}),      # target: resolved
+            (["dv_target"], {}),  # target: resolved
         ]
         args = _make_args(diff=True, data_views=["AmbiguousName", "dv_target"])
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
@@ -630,7 +642,7 @@ class TestDiffNameResolutionAmbiguity:
         """Line 14442-14444: target name resolves to nothing."""
         mock_resolve.side_effect = [
             (["dv_source"], {}),  # source resolved OK
-            ([], {}),             # target not resolved
+            ([], {}),  # target not resolved
         ]
         args = _make_args(diff=True, data_views=["dv_source", "MissingTarget"])
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
@@ -645,7 +657,7 @@ class TestDiffNameResolutionAmbiguity:
     def test_diff_target_ambiguous_cancelled_exits_1(self, mock_resolve, _mock_prompt, capsys):
         """Line 14445-14465: target ambiguous, user cancels → exit 1."""
         mock_resolve.side_effect = [
-            (["dv_source"], {}),       # source OK
+            (["dv_source"], {}),  # source OK
             (["dv_t1", "dv_t2"], {}),  # target ambiguous
         ]
         args = _make_args(diff=True, data_views=["dv_source", "AmbiguousTarget"])
@@ -664,7 +676,7 @@ class TestDiffNameResolutionAmbiguity:
     def test_diff_target_ambiguous_user_selects(self, mock_resolve, mock_prompt, mock_diff, capsys):
         """Line 14452-14453: target ambiguous, user selects → proceeds."""
         mock_resolve.side_effect = [
-            (["dv_source"], {}),       # source OK
+            (["dv_source"], {}),  # source OK
             (["dv_t1", "dv_t2"], {}),  # target ambiguous
         ]
         mock_prompt.return_value = "dv_t1"
@@ -680,6 +692,7 @@ class TestDiffNameResolutionAmbiguity:
 # =========================================================================
 # Block 6 — --snapshot name resolution ambiguity (lines 14549-14571)
 # =========================================================================
+
 
 class TestSnapshotNameResolutionAmbiguity:
     """Tests for ambiguous name resolution in --snapshot mode."""
@@ -725,6 +738,7 @@ class TestSnapshotNameResolutionAmbiguity:
 # =========================================================================
 # Block 7 — --compare-with-prev name resolution ambiguity (lines 14619-14641)
 # =========================================================================
+
 
 class TestCompareWithPrevNameResolutionAmbiguity:
     """Tests for ambiguous name resolution in --compare-with-prev mode."""
@@ -786,8 +800,7 @@ class TestCompareWithPrevNameResolutionAmbiguity:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_compare_with_prev_inventory_only_exits_1(self, capsys):
         """Line 14598-14605: --inventory-only with --compare-with-prev."""
-        args = _make_args(compare_with_prev=True, data_views=["dv_1"],
-                          inventory_only=True)
+        args = _make_args(compare_with_prev=True, data_views=["dv_1"], inventory_only=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -798,6 +811,7 @@ class TestCompareWithPrevNameResolutionAmbiguity:
 # =========================================================================
 # Block 8 — Data view name resolution display (lines 14808-14839)
 # =========================================================================
+
 
 class TestDataViewNameResolutionDisplay:
     """Tests for resolution progress display and failure messaging."""
@@ -851,14 +865,21 @@ class TestDataViewNameResolutionDisplay:
         args = _make_args(data_views=["My DV"], quiet=False)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             # Will proceed to SDR processing which needs more mocks
-            with patch("cja_auto_sdr.generator.process_single_dataview") as mock_proc, \
-                 patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]), \
-                 patch("cja_auto_sdr.generator.append_github_step_summary"), \
-                 patch("cja_auto_sdr.generator.build_quality_step_summary", return_value=""):
+            with (
+                patch("cja_auto_sdr.generator.process_single_dataview") as mock_proc,
+                patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[]),
+                patch("cja_auto_sdr.generator.append_github_step_summary"),
+                patch("cja_auto_sdr.generator.build_quality_step_summary", return_value=""),
+            ):
                 result = ProcessingResult(
-                    data_view_id="dv_resolved_1", data_view_name="My DV",
-                    success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-                    output_file="/tmp/out.xlsx", file_size_bytes=1024,
+                    data_view_id="dv_resolved_1",
+                    data_view_name="My DV",
+                    success=True,
+                    duration=1.0,
+                    metrics_count=5,
+                    dimensions_count=3,
+                    output_file="/tmp/out.xlsx",
+                    file_size_bytes=1024,
                 )
                 mock_proc.return_value = result
                 try:
@@ -874,6 +895,7 @@ class TestDataViewNameResolutionDisplay:
 # =========================================================================
 # Block 9 — Large batch confirmation (lines 14884-14904)
 # =========================================================================
+
 
 class TestLargeBatchConfirmation:
     """Tests for large batch confirmation prompt."""
@@ -1018,6 +1040,7 @@ class TestLargeBatchConfirmation:
 # Block 10 — Production mode log level (line 14915)
 # =========================================================================
 
+
 class TestProductionModeLogLevel:
     """Tests for production mode log level override."""
 
@@ -1027,14 +1050,17 @@ class TestProductionModeLogLevel:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_production_mode_sets_warning_log_level(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_production_mode_sets_warning_log_level(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 14914-14915: --production sets effective log level to WARNING."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -1053,6 +1079,7 @@ class TestProductionModeLogLevel:
 # =========================================================================
 # Block 11 — Inventory summary display in single mode (lines 15329-15358)
 # =========================================================================
+
 
 class TestInventorySummaryDisplay:
     """Tests for inventory summary display in single SDR mode."""
@@ -1084,9 +1111,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_segments_displayed(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_segments_displayed(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15333-15337: segment inventory shown with high-complexity count."""
         mock_proc.return_value = self._make_result_with_inventory()
 
@@ -1107,9 +1132,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_calculated_metrics_displayed(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_calculated_metrics_displayed(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15338-15342: calculated metrics inventory shown."""
         mock_proc.return_value = self._make_result_with_inventory()
 
@@ -1130,9 +1153,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_derived_fields_displayed(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_derived_fields_displayed(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15343-15347: derived fields inventory shown."""
         mock_proc.return_value = self._make_result_with_inventory()
 
@@ -1153,9 +1174,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_high_complexity_warning(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_high_complexity_warning(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15352-15358: total high-complexity warning shown."""
         mock_proc.return_value = self._make_result_with_inventory()
 
@@ -1182,9 +1201,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_no_high_complexity_no_warning(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_no_high_complexity_no_warning(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15352-15358: no warning when no high-complexity items."""
         mock_proc.return_value = self._make_result_with_inventory(
             segments_high_complexity=0,
@@ -1208,9 +1225,7 @@ class TestInventorySummaryDisplay:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_inventory_all_three_types_displayed(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_inventory_all_three_types_displayed(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Lines 15329-15350: all three inventory types displayed in single line."""
         mock_proc.return_value = self._make_result_with_inventory()
 
@@ -1236,6 +1251,7 @@ class TestInventorySummaryDisplay:
 # =========================================================================
 # Block 12 — Git commit integration (lines 15362-15442)
 # =========================================================================
+
 
 class TestGitCommitIntegration:
     """Tests for --git-commit workflow in single SDR mode."""
@@ -1320,9 +1336,7 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "no_changes"))
-    def test_git_commit_no_changes(
-        self, _commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_git_commit_no_changes(self, _commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15435-15436: commit with no_changes result."""
         mock_proc.return_value = self._make_success_result()
 
@@ -1345,9 +1359,7 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(False, "merge conflict"))
-    def test_git_commit_failure(
-        self, _commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_git_commit_failure(self, _commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15441-15442: commit fails → error printed."""
         mock_proc.return_value = self._make_success_result()
 
@@ -1370,9 +1382,7 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "def5678"))
-    def test_git_commit_with_push(
-        self, mock_commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_git_commit_with_push(self, mock_commit, _save, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15439-15440: --git-push flag results in 'Pushed to remote' message."""
         mock_proc.return_value = self._make_success_result()
 
@@ -1401,8 +1411,7 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "abc123"))
     def test_git_commit_fetches_inventory_when_needed(
-        self, _commit, _save, mock_sm_cls, mock_init_cja,
-        _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
+        self, _commit, _save, mock_sm_cls, mock_init_cja, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
     ):
         """Line 15388-15407: needs_inventory triggers re-fetch."""
         mock_proc.return_value = self._make_success_result()
@@ -1457,6 +1466,7 @@ class TestGitCommitIntegration:
 # =========================================================================
 # Block 13 — Open file in batch mode (lines 15250-15262)
 # =========================================================================
+
 
 class TestOpenFileInBatchMode:
     """Tests for --open flag in batch mode."""
@@ -1560,14 +1570,17 @@ class TestOpenFileInBatchMode:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
     @patch("cja_auto_sdr.generator.open_file_in_default_app", return_value=True)
-    def test_open_flag_single_mode(
-        self, mock_open, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_open_flag_single_mode(self, mock_open, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15445-15449: --open in single mode opens the output file."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -1589,14 +1602,17 @@ class TestOpenFileInBatchMode:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
     @patch("cja_auto_sdr.generator.open_file_in_default_app", return_value=False)
-    def test_open_flag_single_mode_failure_warns(
-        self, mock_open, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_open_flag_single_mode_failure_warns(self, mock_open, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15448-15449: --open in single mode warns on failure."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=True, duration=1.0, metrics_count=5, dimensions_count=3,
-            output_file="/tmp/out.xlsx", file_size_bytes=1024,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=True,
+            duration=1.0,
+            metrics_count=5,
+            dimensions_count=3,
+            output_file="/tmp/out.xlsx",
+            file_size_bytes=1024,
         )
         mock_proc.return_value = result
 
@@ -1614,6 +1630,7 @@ class TestOpenFileInBatchMode:
 # =========================================================================
 # Additional edge cases
 # =========================================================================
+
 
 class TestAdditionalValidation:
     """Additional _main_impl validation paths."""
@@ -1715,9 +1732,7 @@ class TestAdditionalValidation:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_console_format_for_sdr_exits_1(
-        self, _bqs, _aghs, _aqi, _proc, _resolve, capsys
-    ):
+    def test_console_format_for_sdr_exits_1(self, _bqs, _aghs, _aqi, _proc, _resolve, capsys):
         """Line 14938-14952: console format is only valid for diff."""
         args = _make_args(data_views=["dv_123"], format="console")
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
@@ -1733,9 +1748,7 @@ class TestAdditionalValidation:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_sdr_metrics_and_dimensions_only_conflict(
-        self, _bqs, _aghs, _aqi, _proc, _resolve, capsys
-    ):
+    def test_sdr_metrics_and_dimensions_only_conflict(self, _bqs, _aghs, _aqi, _proc, _resolve, capsys):
         """Line 14955-14957: --metrics-only + --dimensions-only conflict in SDR mode."""
         args = _make_args(data_views=["dv_123"], metrics_only=True, dimensions_only=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
@@ -1757,8 +1770,7 @@ class TestAdditionalValidation:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     def test_snapshot_with_include_derived_exits_1(self, capsys):
         """Line 14531-14535: --snapshot + --include-derived conflict."""
-        args = _make_args(snapshot="/tmp/snap.json", data_views=["dv_1"],
-                          include_derived_inventory=True)
+        args = _make_args(snapshot="/tmp/snap.json", data_views=["dv_1"], include_derived_inventory=True)
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
@@ -1775,13 +1787,13 @@ class TestSingleModeFailure:
     @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
-    def test_single_mode_failure_exits_1(
-        self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
-    ):
+    def test_single_mode_failure_exits_1(self, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys):
         """Line 15450-15453: failed single result → error + exit 1."""
         result = ProcessingResult(
-            data_view_id="dv_123", data_view_name="Test DV",
-            success=False, duration=1.0,
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            success=False,
+            duration=1.0,
             error_message="API connection failed",
         )
         mock_proc.return_value = result
