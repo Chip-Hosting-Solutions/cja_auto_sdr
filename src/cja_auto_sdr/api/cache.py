@@ -440,7 +440,7 @@ class SharedValidationCache:
 
         # Find least recently used key
         access_times_dict = dict(self._access_times)
-        if not access_times_dict:
+        if not access_times_dict:  # pragma: no cover — unreachable; guarded by line 438
             return
 
         lru_key = min(access_times_dict.items(), key=lambda x: x[1])[0]
