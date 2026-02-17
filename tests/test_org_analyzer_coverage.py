@@ -2291,3 +2291,263 @@ class TestFetchDataViewComponentsMetadata:
         assert result.created is None
         assert result.modified is None
         assert result.has_description is False
+
+
+# ===================================================================
+# 26. run_analysis with lock: quick_check_empty_org returns early (line 123)
+# ===================================================================
+
+
+class TestRunAnalysisLockedQuickCheckExit:
+    """Line 123: quick_check_empty_org returns non-None inside lock path."""
+
+    def test_quick_check_exits_early_with_lock(self, mock_cja, logger):
+        """skip_lock=False + empty org -> returns quick_check_result."""
+        from unittest.mock import MagicMock, patch
+
+        config = OrgReportConfig(skip_lock=False, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_lock = MagicMock()
+        mock_lock.acquired = True
+        mock_lock.__enter__ = MagicMock(return_value=mock_lock)
+        mock_lock.__exit__ = MagicMock(return_value=False)
+
+        empty_result = MagicMock()
+        with (
+            patch("cja_auto_sdr.org.analyzer.OrgReportLock", return_value=mock_lock),
+            patch.object(analyzer, "_assert_lock_healthy"),
+            patch.object(analyzer, "_quick_check_empty_org", return_value=empty_result),
+        ):
+            result = analyzer.run_analysis()
+        assert result is empty_result
+
+
+# ===================================================================
+# 27. Cache validation with validate_cache=True (lines 490-496)
+# ===================================================================
+
+
+class TestCacheValidation:
+    """Lines 490-496: validate_cache=True with hits and stale entries."""
+
+    def test_validate_cache_logging(self, mock_cja, logger, caplog):
+        """validate_cache=True should log cache validation stats."""
+        from unittest.mock import MagicMock, patch
+
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            use_cache=True,
+            validate_cache=True,
+            quiet=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        mock_cache = MagicMock()
+        analyzer.cache = mock_cache
+
+        valid_summary = DataViewSummary(
+            data_view_id="dv1", data_view_name="Cached DV",
+            metric_ids={"m1"}, dimension_ids=set(),
+            metric_count=1, dimension_count=0,
+        )
+        # _validate_cache_entries returns (to_fetch, valid_summaries, valid_count, stale_count)
+        with (
+            patch.object(analyzer, "_validate_cache_entries", return_value=([], [valid_summary], 1, 2)),
+            caplog.at_level(logging.INFO),
+        ):
+            result = analyzer._fetch_all_data_views([{"id": "dv1", "name": "Cached DV"}])
+        assert len(result) == 1
+        assert "Cache validation: 1 valid, 2 stale" in caplog.text
+
+
+# ===================================================================
+# 28. Poll loop continue in _fetch_all_data_views (line 552)
+# ===================================================================
+
+
+class TestFetchAllPollLoopContinue:
+    """Line 552: wait() timeout -> continue for lock health poll."""
+
+    def test_poll_loop_timeout_continues(self, mock_cja, logger):
+        """When wait() times out (no done futures), loop should continue."""
+        from concurrent.futures import Future
+        from unittest.mock import patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, quiet=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        analyzer.cache = None
+
+        summary = DataViewSummary(
+            data_view_id="dv1", data_view_name="DV 1",
+            metric_ids={"m1"}, dimension_ids=set(),
+            metric_count=1, dimension_count=0,
+        )
+
+        call_count = {"n": 0}
+        future = Future()
+        future.set_result(summary)
+
+        def _mock_wait(fs, timeout=None, return_when=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return set(), fs  # Timeout: no done futures
+            return fs, set()  # All done
+
+        with (
+            patch("cja_auto_sdr.org.analyzer.wait", side_effect=_mock_wait),
+            patch.object(analyzer, "_fetch_data_view_components", return_value=summary),
+        ):
+            result = analyzer._fetch_all_data_views([{"id": "dv1", "name": "DV 1"}])
+        assert len(result) == 1
+        assert call_count["n"] == 2  # wait called twice: timeout then done
+
+
+# ===================================================================
+# 29. LockOwnershipLostError re-raise (line 569)
+# ===================================================================
+
+
+class TestFetchAllLockOwnershipLost:
+    """Line 569: future raising LockOwnershipLostError should re-raise."""
+
+    def test_lock_ownership_lost_re_raised(self, mock_cja, logger):
+        """LockOwnershipLostError from a future should propagate."""
+        from unittest.mock import patch
+
+        from cja_auto_sdr.core.exceptions import LockOwnershipLostError
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, quiet=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        analyzer.cache = None
+
+        def _fail_fetch(dv):
+            raise LockOwnershipLostError("lock lost")
+
+        with (
+            patch.object(analyzer, "_fetch_data_view_components", side_effect=_fail_fetch),
+            pytest.raises(LockOwnershipLostError, match="lock lost"),
+        ):
+            analyzer._fetch_all_data_views([{"id": "dv1", "name": "DV 1"}])
+
+
+# ===================================================================
+# 30. Thread-local CJA client (lines 605-611)
+# ===================================================================
+
+
+class TestGetThreadClient:
+    """Lines 605-611: _get_thread_client with cja_per_thread=True."""
+
+    def test_cja_per_thread_false_returns_shared(self, mock_cja, logger):
+        """cja_per_thread=False should return shared client."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        assert analyzer._get_thread_client() is mock_cja
+
+    def test_cja_per_thread_true_creates_thread_local(self, mock_cja, logger):
+        """cja_per_thread=True should create a new CJA client per thread."""
+        from unittest.mock import MagicMock, patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        mock_cjapy = MagicMock()
+        mock_client = MagicMock()
+        mock_cjapy.CJA.return_value = mock_client
+
+        with patch.dict("sys.modules", {"cjapy": mock_cjapy}):
+            client = analyzer._get_thread_client()
+        assert client is mock_client
+        mock_cjapy.CJA.assert_called_once()
+
+        # Second call on same thread should reuse cached client
+        with patch.dict("sys.modules", {"cjapy": mock_cjapy}):
+            client2 = analyzer._get_thread_client()
+        assert client2 is mock_client
+        # CJA() still called only once (cached in _thread_local)
+        mock_cjapy.CJA.assert_called_once()
+
+
+# ===================================================================
+# 31. Limited dimensions classification (line 931)
+# ===================================================================
+
+
+class TestComputeDistributionLimitedDimensions:
+    """Line 931: dimension with 2+ DVs but below common threshold -> limited."""
+
+    def test_dimension_in_limited_bucket(self, mock_cja, logger):
+        """Dimensions present in 2+ DVs but <25% should be limited."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        # 12 DVs: common_threshold = ceil(12*0.25) = 3
+        # "limited" needs presence >= 2 AND < 3 => exactly 2
+        index = {
+            "d_limited": _make_component("d_limited", comp_type="dimension", data_views={"dv0", "dv1"}),
+        }
+        distribution = analyzer._compute_distribution(index, 12)
+        assert "d_limited" in distribution.limited_dimensions
+
+
+# ===================================================================
+# 32. Clustering linkage exception (lines 1089-1091)
+# ===================================================================
+
+
+class TestClusteringLinkageFailure:
+    """Lines 1089-1091: linkage() raises exception -> returns None."""
+
+    def test_linkage_exception_returns_none(self, mock_cja, logger, caplog):
+        """When linkage() raises, _compute_clusters should return None."""
+        pytest.importorskip("scipy")
+        from unittest.mock import patch
+
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, enable_clustering=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1", data_view_name="A",
+                metric_ids={"m1"}, dimension_ids=set(),
+                metric_count=1, dimension_count=0,
+            ),
+            DataViewSummary(
+                data_view_id="dv2", data_view_name="B",
+                metric_ids={"m2"}, dimension_ids=set(),
+                metric_count=1, dimension_count=0,
+            ),
+        ]
+
+        with (
+            patch("scipy.cluster.hierarchy.linkage", side_effect=ValueError("bad input")),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = analyzer._compute_clusters(summaries)
+        assert result is None
+        assert "Clustering failed" in caplog.text
+
+
+# ===================================================================
+# 33. _infer_cluster_name first word match (line 1166)
+# ===================================================================
+
+
+class TestInferClusterNameFirstWordMatch:
+    """Line 1166: first words match but no common prefix >= 3."""
+
+    def test_first_word_match_returns_word(self, mock_cja, logger):
+        """Names sharing first word but <3 char prefix -> returns first word."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        # "Go" is only 2 chars, but first word "Go" matches
+        result = analyzer._infer_cluster_name(["Go East", "Go West"])
+        assert result == "Go"
+
+    def test_no_common_prefix_or_word_returns_none(self, mock_cja, logger):
+        """Names with no common prefix or first word -> returns None."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        result = analyzer._infer_cluster_name(["Alpha 1", "Beta 2"])
+        assert result is None
