@@ -1391,9 +1391,7 @@ class TestProcessSingleDataviewTimingsAndSummary:
         # show_timings should print a valid perf summary string
         assert captured.out.strip() != ""
         assert "Traceback" not in captured.out
-        assert any(
-            marker in captured.out for marker in ("PERFORMANCE SUMMARY", "No performance metrics collected")
-        )
+        assert any(marker in captured.out for marker in ("PERFORMANCE SUMMARY", "No performance metrics collected"))
 
 
 # ============================================================================
