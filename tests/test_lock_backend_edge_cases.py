@@ -1168,7 +1168,9 @@ class TestIsFcntlLockActiveEwouldblock:
 
 class TestFcntlAcquireResultOpenFails:
     def test_open_lock_file_returns_none_yields_contended(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When _open_lock_file returns (None, False), acquire_result returns CONTENDED."""
         from cja_auto_sdr.core.locks.backends import AcquireStatus
@@ -1285,7 +1287,9 @@ class TestFcntlReleaseEdgeCases:
 
 class TestLeaseAcquireErrorPropagation:
     def test_acquire_raises_when_acquire_result_has_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When acquire_result returns non-ACQUIRED with error, acquire() raises it."""
         from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus
@@ -1296,14 +1300,17 @@ class TestLeaseAcquireErrorPropagation:
             backend,
             "acquire_result",
             lambda lock_path, stale_threshold_seconds: AcquireResult(
-                status=AcquireStatus.METADATA_ERROR, error=test_error
+                status=AcquireStatus.METADATA_ERROR,
+                error=test_error,
             ),
         )
         with pytest.raises(OSError, match="disk error"):
             backend.acquire(tmp_path / "lock", stale_threshold_seconds=10)
 
     def test_acquire_returns_none_when_contended_no_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When acquire_result returns CONTENDED with no error, acquire() returns None."""
         from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus

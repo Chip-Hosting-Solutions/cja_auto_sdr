@@ -119,7 +119,9 @@ class TestDataViewNameResolution:
         mock_cjapy.importConfigFile.return_value = None
 
         ids, name_map = resolve_data_view_names(
-            ["dv_prod123", "Test Environment", "dv_stage789"], "config.json", self.logger
+            ["dv_prod123", "Test Environment", "dv_stage789"],
+            "config.json",
+            self.logger,
         )
 
         assert len(ids) == 3

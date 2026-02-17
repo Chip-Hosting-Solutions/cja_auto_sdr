@@ -69,7 +69,7 @@ _AUTHORIZATION_SCHEME_PATTERN = re.compile(
     (?P<value_quote>["']?)
     (?P<scheme>[A-Za-z]+)\s+(?P<credential>[A-Za-z0-9._~+/=-]+)
     (?P=value_quote)
-    """
+    """,
 )
 _AUTHORIZATION_VALUE_PATTERN = re.compile(
     rf"""(?ix)
@@ -77,7 +77,7 @@ _AUTHORIZATION_VALUE_PATTERN = re.compile(
     (?P<separator>\s*[:=]\s*)
     (?!["']?[A-Za-z]+\s+[A-Za-z0-9._~+/=\-\[\]]+["']?)
     (?P<value>{_MESSAGE_VALUE_REGEX})
-    """
+    """,
 )
 _GENERIC_BEARER_PATTERN = re.compile(r"(?i)\b(bearer)\s+([A-Za-z0-9._~+/=-]+)")
 _SENSITIVE_QUOTED_KEY_VALUE_PATTERN = re.compile(
@@ -85,14 +85,14 @@ _SENSITIVE_QUOTED_KEY_VALUE_PATTERN = re.compile(
     (?P<full_key>["'](?:{_SENSITIVE_KEY_REGEX})["'])
     (?P<separator>\s*[:=]\s*)
     (?P<value>{_MESSAGE_VALUE_REGEX})
-    """
+    """,
 )
 _SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN = re.compile(
     rf"""(?ix)
     (?P<full_key>(?<![A-Za-z0-9_])(?:{_SENSITIVE_KEY_REGEX})(?![A-Za-z0-9_]))
     (?P<separator>\s*[:=]\s*)
     (?P<value>{_MESSAGE_VALUE_REGEX})
-    """
+    """,
 )
 
 
@@ -363,7 +363,8 @@ def _unwrap_logger(logger: logging.Logger | logging.LoggerAdapter | None) -> log
 
 
 def with_log_context(
-    logger: logging.Logger | logging.LoggerAdapter | object, **context: object
+    logger: logging.Logger | logging.LoggerAdapter | object,
+    **context: object,
 ) -> logging.Logger | logging.LoggerAdapter | object:
     """Return a logger enriched with persistent contextual fields."""
     if not isinstance(logger, (logging.Logger, logging.LoggerAdapter)):
@@ -420,7 +421,10 @@ def _infer_run_mode(data_view_id: str | None, batch_mode: bool) -> str:
 
 
 def setup_logging(
-    data_view_id: str | None = None, batch_mode: bool = False, log_level: str | None = None, log_format: str = "text"
+    data_view_id: str | None = None,
+    batch_mode: bool = False,
+    log_level: str | None = None,
+    log_format: str = "text",
 ) -> logging.Logger:
     """Setup logging to both file and console.
 

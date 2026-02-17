@@ -31,7 +31,10 @@ class TestValidationCache:
         cache = ValidationCache(max_size=100, ttl_seconds=3600)
 
         result, cache_key = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         assert result is None
@@ -48,14 +51,20 @@ class TestValidationCache:
 
         # First call - should validate and cache
         checker.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         first_issues = checker.issues.copy()
 
         # Second call - should use cache
         checker2 = DataQualityChecker(logger, validation_cache=cache)
         checker2.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         second_issues = checker2.issues
 
@@ -96,7 +105,11 @@ class TestValidationCache:
 
             # Store result
             cache.put(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"], [{"test": "issue"}]
+                sample_metrics_df,
+                "Metrics",
+                ["id", "name", "type"],
+                ["id", "name", "description"],
+                [{"test": "issue"}],
             )
 
             # Should be cached immediately
@@ -157,7 +170,10 @@ class TestValidationCache:
             try:
                 c = DataQualityChecker(logger, validation_cache=cache)
                 c.check_all_quality_issues_optimized(
-                    sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+                    sample_metrics_df,
+                    "Metrics",
+                    ["id", "name", "type"],
+                    ["id", "name", "description"],
                 )
                 results.append(c.issues)
             except Exception as e:
@@ -195,14 +211,20 @@ class TestValidationCache:
 
         # First call
         checker.check_all_quality_issues_optimized(
-            empty_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            empty_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         first_issues = checker.issues.copy()
 
         # Second call - should use cache
         checker2 = DataQualityChecker(logger, validation_cache=cache)
         checker2.check_all_quality_issues_optimized(
-            empty_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            empty_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         second_issues = checker2.issues
 
@@ -224,14 +246,20 @@ class TestValidationCache:
 
         # First call
         checker.check_all_quality_issues_optimized(
-            bad_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            bad_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         first_issues = checker.issues.copy()
 
         # Second call - should use cache
         checker2 = DataQualityChecker(logger, validation_cache=cache)
         checker2.check_all_quality_issues_optimized(
-            bad_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            bad_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         second_issues = checker2.issues
 
@@ -281,7 +309,10 @@ class TestValidationCache:
         for _ in range(10):
             checker_no_cache.issues = []  # Reset
             checker_no_cache.check_all_quality_issues_optimized(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+                sample_metrics_df,
+                "Metrics",
+                ["id", "name", "type"],
+                ["id", "name", "description"],
             )
         time_no_cache = time.time() - start
 
@@ -291,14 +322,17 @@ class TestValidationCache:
         for _ in range(10):
             checker_with_cache.issues = []  # Reset
             checker_with_cache.check_all_quality_issues_optimized(
-                sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+                sample_metrics_df,
+                "Metrics",
+                ["id", "name", "type"],
+                ["id", "name", "description"],
             )
         time_with_cache = time.time() - start
 
         # Cache should be faster (at least 5% improvement)
         improvement = (time_no_cache - time_with_cache) / time_no_cache * 100
         print(
-            f"\nPerformance: no_cache={time_no_cache:.3f}s, with_cache={time_with_cache:.3f}s, improvement={improvement:.1f}%"
+            f"\nPerformance: no_cache={time_no_cache:.3f}s, with_cache={time_with_cache:.3f}s, improvement={improvement:.1f}%",
         )
 
         # Should be at least 5% faster (conservative for small datasets on slow CI runners)
@@ -355,7 +389,7 @@ class TestValidationCache:
                 "id": ["m1", "m3"],  # Changed m2 to m3
                 "name": ["Metric 1", "Metric 3"],
                 "type": ["int", "currency"],
-            }
+            },
         )
 
         # Should be cache miss
@@ -409,14 +443,20 @@ class TestValidationCache:
         # With cache disabled (None)
         checker = DataQualityChecker(logger, validation_cache=None)
         checker.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         issues_no_cache = checker.issues
 
         # Without specifying cache at all (default behavior)
         checker2 = DataQualityChecker(logger)
         checker2.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         issues_default = checker2.issues
 
@@ -430,7 +470,10 @@ class TestValidationCache:
 
         # Get returns (None, cache_key) on miss
         result, cache_key = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         assert result is None
         assert cache_key is not None
@@ -449,7 +492,10 @@ class TestValidationCache:
 
         # Get should now return the cached issues
         cached_result, _ = cache.get(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         assert cached_result is not None
         assert len(cached_result) == 1

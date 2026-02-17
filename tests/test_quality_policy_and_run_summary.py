@@ -267,7 +267,9 @@ class TestApplyQualityPolicyDefaults:
         args = argparse.Namespace(fail_on_quality="HIGH", quality_report=None)
         policy = {"fail_on_quality": "LOW"}
         applied = apply_quality_policy_defaults(
-            args, policy, argv=["cja_auto_sdr", "--fail-on-quality", "HIGH", "dv_123"]
+            args,
+            policy,
+            argv=["cja_auto_sdr", "--fail-on-quality", "HIGH", "dv_123"],
         )
         # CLI flag was specified so policy should NOT override
         assert args.fail_on_quality == "HIGH"

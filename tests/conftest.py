@@ -161,7 +161,7 @@ def rich_org_report_result():
                 "metric/isolated/1": "Isolated Metric",
                 "dimension/isolated/1": "Isolated Dimension",
             },
-        )
+        ),
     ]
     similarity_pairs.extend(
         [
@@ -175,7 +175,7 @@ def rich_org_report_result():
                 union_count=22,
             )
             for i in range(10, 31)
-        ]
+        ],
     )
 
     clusters = [
@@ -208,7 +208,10 @@ def rich_org_report_result():
         {"pattern": "deprecated_prefix", "name": f"old_metric_{i}", "component_id": f"metric/old/{i}"} for i in range(6)
     ]
     stale_components.extend(
-        [{"pattern": "legacy_suffix", "name": f"segment_{i}_old", "component_id": f"segment/old/{i}"} for i in range(3)]
+        [
+            {"pattern": "legacy_suffix", "name": f"segment_{i}_old", "component_id": f"segment/old/{i}"}
+            for i in range(3)
+        ],
     )
 
     recommendations = [
@@ -354,7 +357,7 @@ def sample_metrics_df():
                 "title": "Test Metric 2 Title",
                 "description": None,
             },
-        ]
+        ],
     )
 
 
@@ -384,7 +387,7 @@ def sample_dimensions_df():
                 "title": "Test Dimension Duplicate",
                 "description": "Duplicate dimension",
             },
-        ]
+        ],
     )
 
 
@@ -407,7 +410,7 @@ def large_sample_dataframe():
             "type": ["metric" if i % 2 == 0 else "calculated" for i in range(size)],
             "description": [f"Description {i}" if i % 3 != 0 else None for i in range(size)],  # Some nulls
             "title": [f"Title {i}" for i in range(size)],
-        }
+        },
     )
 
 
@@ -419,7 +422,7 @@ def sample_data_dict(sample_metrics_df, sample_dimensions_df):
             {
                 "Property": ["Generated At", "Data View ID", "Tool Version"],
                 "Value": ["2024-01-01 12:00:00", "dv_test_12345", "3.0"],
-            }
+            },
         ),
         "Data Quality": pd.DataFrame(
             [
@@ -430,11 +433,11 @@ def sample_data_dict(sample_metrics_df, sample_dimensions_df):
                     "Item Name": "Test Dimension 1",
                     "Issue": "Duplicate name found 2 times",
                     "Details": "This dimension appears multiple times",
-                }
-            ]
+                },
+            ],
         ),
         "DataView Details": pd.DataFrame(
-            {"Property": ["Name", "ID", "Owner"], "Value": ["Test Data View 1", "dv_test_12345", "Test Owner"]}
+            {"Property": ["Name", "ID", "Owner"], "Value": ["Test Data View 1", "dv_test_12345", "Test Owner"]},
         ),
         "Metrics": sample_metrics_df,
         "Dimensions": sample_dimensions_df,
@@ -466,7 +469,7 @@ def large_metrics_df():
                 "type": "calculated",
                 "title": f"Metric {i}",
                 "description": f"Description {i}" if i % 2 == 0 else "",  # Some missing
-            }
+            },
         )
     return pd.DataFrame(data)
 
@@ -483,7 +486,7 @@ def large_dimensions_df():
                 "type": "string",
                 "title": f"Dimension {i}",
                 "description": f"Description {i}" if i % 3 == 0 else "",  # Some missing
-            }
+            },
         )
     return pd.DataFrame(data)
 
@@ -617,7 +620,7 @@ def sample_derived_metric():
                     "#rule_name": "Bounces",
                     "#rule_type": "caseWhen",
                 },
-            ]
+            ],
         ),
         "dataSetType": "event",
     }
@@ -648,7 +651,7 @@ def sample_derived_dimension():
                     ],
                     "#rule_name": "Channel Classification",
                 },
-            ]
+            ],
         ),
         "dataSetType": "event",
     }
@@ -669,7 +672,7 @@ def sample_derived_metrics_df(sample_derived_metric):
                 "fieldDefinition": None,
                 "dataSetType": "event",
             },
-        ]
+        ],
     )
 
 
@@ -688,7 +691,7 @@ def sample_derived_dimensions_df(sample_derived_dimension):
                 "fieldDefinition": None,
                 "dataSetType": "event",
             },
-        ]
+        ],
     )
 
 
@@ -752,7 +755,7 @@ def mock_cja_with_calculated_metrics(sample_simple_calculated_metric, sample_com
 
     # Return calculated metrics as a DataFrame
     mock_cja.getCalculatedMetrics.return_value = pd.DataFrame(
-        [sample_simple_calculated_metric, sample_complex_calculated_metric]
+        [sample_simple_calculated_metric, sample_complex_calculated_metric],
     )
 
     return mock_cja

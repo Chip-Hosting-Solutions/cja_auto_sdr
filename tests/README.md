@@ -65,10 +65,14 @@ tests/
 ├── test_generator_coverage.py       # Generator utility function coverage
 ├── test_segments_coverage.py        # Segments module coverage (operators, containers)
 ├── test_small_module_coverage.py    # Small module coverage (logging, utils, calc metrics)
+├── test_diff_inventory_output.py   # Inventory diff output across all formats
+├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots)
+├── test_profile_management.py      # Interactive profile creation, import, test, show
+├── test_snapshot_commands.py        # Snapshot creation, comparison, name resolution
 └── README.md                        # This file
 ```
 
-**Total: 3,678 comprehensive tests**
+**Total: 3,936 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -132,7 +136,11 @@ tests/
 | `test_generator_coverage.py` | 143 | Generator utility functions — coercion, normalization, diff formatting |
 | `test_segments_coverage.py` | 73 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
-| **Total** | **3,678** | **Collected via pytest --collect-only** |
+| `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
+| `test_cli_command_handlers.py` | 69 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
+| `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
+| `test_snapshot_commands.py` | 56 | Snapshot creation, comparison, name resolution |
+| **Total** | **3,936** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -536,7 +544,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (3,678 tests total)
+- [x] Comprehensive test coverage (3,936 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

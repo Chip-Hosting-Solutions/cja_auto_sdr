@@ -79,7 +79,8 @@ class TestErrorMessageHelper:
     def test_invalid_json_config_message(self):
         """Test invalid JSON config error message"""
         msg = ErrorMessageHelper.get_config_error_message(
-            "invalid_json", details="Line 5, Column 12: Unterminated string"
+            "invalid_json",
+            details="Line 5, Column 12: Unterminated string",
         )
         assert "Invalid JSON" in msg
         assert "Line 5, Column 12" in msg

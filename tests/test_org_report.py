@@ -489,7 +489,7 @@ class TestAnalyzerLockIntegration:
             side_effect=[
                 None,
                 LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
-            ]
+            ],
         )
 
         data_views = [
@@ -561,7 +561,7 @@ class TestAnalyzerLockIntegration:
             side_effect=[
                 None,
                 LockOwnershipLostError("/tmp/test.lock", reason="heartbeat metadata write failed"),
-            ]
+            ],
         )
 
         data_views = [
@@ -662,7 +662,10 @@ class TestDataViewSummary:
     def test_all_component_ids(self):
         """Test all_component_ids property"""
         summary = DataViewSummary(
-            data_view_id="dv_123", data_view_name="Test DV", metric_ids={"m1", "m2"}, dimension_ids={"d1", "d2", "d3"}
+            data_view_id="dv_123",
+            data_view_name="Test DV",
+            metric_ids={"m1", "m2"},
+            dimension_ids={"d1", "d2", "d3"},
         )
         assert summary.all_component_ids == {"m1", "m2", "d1", "d2", "d3"}
 
@@ -830,13 +833,13 @@ class TestOrgComponentAnalyzer:
             [
                 {"id": "m_derived", "name": "Derived Metric", "sourceFieldType": "derived"},
                 {"id": "m_standard", "name": "Standard Metric", "sourceFieldType": "field"},
-            ]
+            ],
         )
         mock_cja.getDimensions.return_value = pd.DataFrame(
             [
                 {"id": "d_derived", "name": "Derived Dimension", "sourceFieldType": "derived"},
                 {"id": "d_standard", "name": "Standard Dimension", "sourceFieldType": "custom"},
-            ]
+            ],
         )
 
         summary = analyzer._fetch_data_view_components({"id": "dv_1", "name": "DV 1"})
@@ -992,7 +995,9 @@ class TestOrgComponentAnalyzer:
 
         with (
             patch.object(
-                analyzer, "_list_and_filter_data_views", return_value=([{"id": "dv_1", "name": "DV 1"}], False, 1)
+                analyzer,
+                "_list_and_filter_data_views",
+                return_value=([{"id": "dv_1", "name": "DV 1"}], False, 1),
             ),
             patch.object(
                 analyzer,
@@ -1154,7 +1159,7 @@ class TestOrgComponentAnalyzer:
                 {"id": "dv_2", "name": "Test DV"},
                 {"id": "dv_3", "name": "Prod Analytics"},
                 {"id": "dv_4", "name": "Dev Sandbox"},
-            ]
+            ],
         )
 
         config = OrgReportConfig(filter_pattern="Prod.*")
@@ -1176,7 +1181,7 @@ class TestOrgComponentAnalyzer:
                 {"id": "dv_2", "name": "Test DV"},
                 {"id": "dv_3", "name": "Prod Analytics"},
                 {"id": "dv_4", "name": "Dev Sandbox"},
-            ]
+            ],
         )
 
         config = OrgReportConfig(exclude_pattern="Test|Dev")
@@ -1258,7 +1263,7 @@ class TestOrgComponentAnalyzer:
                 dimension_count=5,
                 modified="2000-01-01T00:00:00Z",
                 has_description=True,
-            )
+            ),
         ]
 
         recommendations = analyzer._generate_recommendations(
@@ -1345,7 +1350,10 @@ class TestOutputWriters:
                 "d2": ComponentInfo("d2", "dimension", data_views={"dv_2"}),
             },
             distribution=ComponentDistribution(
-                core_metrics=["m1"], core_dimensions=["d1"], isolated_metrics=["m2"], isolated_dimensions=["d2"]
+                core_metrics=["m1"],
+                core_dimensions=["d1"],
+                isolated_metrics=["m2"],
+                isolated_dimensions=["d2"],
             ),
             similarity_pairs=[SimilarityPair("dv_1", "Production DV", "dv_2", "Staging DV", 0.6, 2, 4)],
             recommendations=[{"type": "test_recommendation", "severity": "low", "reason": "Test reason"}],
@@ -1512,7 +1520,7 @@ class TestOutputWriters:
                 "data_view_2_name": "Staging `Copy`",
                 "similarity": 0.95,
                 "drift_count": 7,
-            }
+            },
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1537,7 +1545,7 @@ class TestOutputWriters:
                 "data_view": "dv_1",
                 "data_view_name": "Prod Main",
                 "isolated_count": 42,
-            }
+            },
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1562,7 +1570,7 @@ class TestOutputWriters:
                 "severity": "CRITICAL",
                 "reason": "Includes non-serializable value",
                 "extra_timestamp": datetime(2024, 1, 15, 12, 0, 0),
-            }
+            },
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1591,7 +1599,7 @@ class TestOutputWriters:
                 "data_view_2_name": "Staging",
                 "similarity": 0.95,
                 "drift_count": 7,
-            }
+            },
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1620,7 +1628,7 @@ class TestOutputWriters:
                 "data_view_2": "dv_2",
                 "data_view_2_name": "Staging",
                 "similarity": 0.95,
-            }
+            },
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2134,7 +2142,7 @@ class TestLargeOrgScaling:
                     dimension_count=len(dims),
                     metric_names=metric_names,
                     dimension_names=dim_names,
-                )
+                ),
             )
 
         # Build the index
@@ -2169,19 +2177,25 @@ class TestLargeOrgScaling:
         # Core: in 60% of DVs (120+ DVs)
         for i in range(25):
             component_index[f"m_core_{i}"] = ComponentInfo(
-                f"m_core_{i}", "metric", data_views={f"dv_{j}" for j in range(120)}
+                f"m_core_{i}",
+                "metric",
+                data_views={f"dv_{j}" for j in range(120)},
             )
 
         # Common: in 30% of DVs (60 DVs)
         for i in range(50):
             component_index[f"d_common_{i}"] = ComponentInfo(
-                f"d_common_{i}", "dimension", data_views={f"dv_{j}" for j in range(60)}
+                f"d_common_{i}",
+                "dimension",
+                data_views={f"dv_{j}" for j in range(60)},
             )
 
         # Limited: in 5% of DVs (10 DVs)
         for i in range(100):
             component_index[f"m_limited_{i}"] = ComponentInfo(
-                f"m_limited_{i}", "metric", data_views={f"dv_{j}" for j in range(10)}
+                f"m_limited_{i}",
+                "metric",
+                data_views={f"dv_{j}" for j in range(10)},
             )
 
         # Isolated: in 1 DV each
@@ -2228,7 +2242,7 @@ class TestLargeOrgScaling:
                     data_view_name=f"DV {i}",
                     metric_ids=metrics,
                     dimension_ids=dims,
-                )
+                ),
             )
 
         pairs = analyzer._compute_similarity_matrix(summaries)
@@ -2296,7 +2310,10 @@ class TestLargeOrgScaling:
         component_index = {}
         for i in range(300):
             component_index[f"metric_{i}"] = ComponentInfo(
-                f"metric_{i}", "metric", name=f"Metric Name {i}", data_views={f"dv_{j}" for j in range(min(i + 1, 100))}
+                f"metric_{i}",
+                "metric",
+                name=f"Metric Name {i}",
+                data_views={f"dv_{j}" for j in range(min(i + 1, 100))},
             )
         for i in range(200):
             component_index[f"dim_{i}"] = ComponentInfo(
@@ -2366,7 +2383,12 @@ class TestOutputPathWithFormatAliases:
             parameters=OrgReportConfig(core_threshold=0.5, overlap_threshold=0.8),
             data_view_summaries=[
                 DataViewSummary(
-                    "dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1
+                    "dv_1",
+                    "DV 1",
+                    metric_ids={"m1"},
+                    dimension_ids={"d1"},
+                    metric_count=1,
+                    dimension_count=1,
                 ),
             ],
             component_index={
@@ -2626,7 +2648,12 @@ class TestOrgReportOutputHandling:
             parameters=OrgReportConfig(core_threshold=0.5, overlap_threshold=0.8),
             data_view_summaries=[
                 DataViewSummary(
-                    "dv_1", "DV 1", metric_ids={"m1"}, dimension_ids={"d1"}, metric_count=1, dimension_count=1
+                    "dv_1",
+                    "DV 1",
+                    metric_ids={"m1"},
+                    dimension_ids={"d1"},
+                    metric_count=1,
+                    dimension_count=1,
                 ),
             ],
             component_index={
@@ -2720,7 +2747,8 @@ class TestOrgReportOutputHandling:
         """CSV org-report should error on stdout since it writes multiple files."""
         with (
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "ok", {"org_id": "org_123"}),
             ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
@@ -2747,7 +2775,8 @@ class TestOrgReportOutputHandling:
         """Markdown org-report should fail fast when stdout is requested."""
         with (
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "ok", {"org_id": "org_123"}),
             ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
@@ -2774,7 +2803,8 @@ class TestOrgReportOutputHandling:
         """Format aliases should fail fast when stdout is requested."""
         with (
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "ok", {"org_id": "org_123"}),
             ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
@@ -2801,7 +2831,8 @@ class TestOrgReportOutputHandling:
         """--format all should fail fast when stdout is requested."""
         with (
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "ok", {"org_id": "org_123"}),
             ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
@@ -2828,7 +2859,8 @@ class TestOrgReportOutputHandling:
         """Unknown org-report format should fail before any API/configuration work."""
         with (
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "ok", {"org_id": "org_123"})
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "ok", {"org_id": "org_123"}),
             ) as mock_configure,
             patch("cja_auto_sdr.generator.cjapy.CJA", return_value=Mock()),
             patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer,
@@ -3056,7 +3088,10 @@ class TestNamingAudit:
         component_index = {
             "metric_20240101": ComponentInfo("metric_20240101", "metric", name="metric_20240101", data_views={"dv_1"}),
             "metric_2024-01-15": ComponentInfo(
-                "metric_2024-01-15", "metric", name="metric_2024-01-15", data_views={"dv_1"}
+                "metric_2024-01-15",
+                "metric",
+                name="metric_2024-01-15",
+                data_views={"dv_1"},
             ),
             "current_metric": ComponentInfo("current_metric", "metric", name="current_metric", data_views={"dv_1"}),
         }
@@ -3220,7 +3255,7 @@ class TestOrgReportComparison:
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
                     "union_size": 12,
-                }
+                },
             ],
         }
 
@@ -3275,7 +3310,7 @@ class TestOrgReportComparison:
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
                     "union_size": 12,
-                }
+                },
             ],
         }
 
@@ -3318,7 +3353,7 @@ class TestOrgReportComparison:
                     only_in_dv2=[],
                     only_in_dv1_names=None,
                     only_in_dv2_names=None,
-                )
+                ),
             ],
             recommendations=[],
             duration=1.0,
@@ -3342,7 +3377,7 @@ class TestOrgReportComparison:
                     "jaccard_similarity": 0.95,
                     "shared_components": 10,
                     "union_size": 12,
-                }
+                },
             ],
         }
 
@@ -3680,7 +3715,10 @@ class TestMemoryWarning:
         # Create a component index with known sizes
         component_index = {
             f"metric/comp_{i}": ComponentInfo(
-                f"metric/comp_{i}", "metric", name=f"Component {i}", data_views={f"dv_{j}" for j in range(10)}
+                f"metric/comp_{i}",
+                "metric",
+                name=f"Component {i}",
+                data_views={f"dv_{j}" for j in range(10)},
             )
             for i in range(100)
         }
@@ -3972,7 +4010,7 @@ class TestSmartCacheInvalidation:
             # Pass data view list with different modification timestamp
             # (batch optimization: uses modified from the list, not individual API calls)
             to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
-                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-16T10:00:00Z"}]
+                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-16T10:00:00Z"}],
             )
 
             # Should detect stale entry and need to re-fetch
@@ -4051,7 +4089,7 @@ class TestSmartCacheInvalidation:
             # Pass data view list with same modification timestamp
             # (batch optimization: uses modified from the list, not individual API calls)
             to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
-                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-15T10:00:00Z"}]
+                [{"id": "dv_1", "name": "DV 1", "modified": "2024-01-15T10:00:00Z"}],
             )
 
             # Should detect valid entry and use cache
@@ -4093,7 +4131,7 @@ class TestSmartCacheInvalidation:
 
             # Pass data view WITHOUT modification timestamp (some API responses omit this)
             to_fetch, valid_summaries, valid_count, stale_count = analyzer._validate_cache_entries(
-                [{"id": "dv_1", "name": "DV 1"}]  # No 'modified' or 'modifiedDate' field
+                [{"id": "dv_1", "name": "DV 1"}],  # No 'modified' or 'modifiedDate' field
             )
 
             # Should treat missing timestamp as stale to honor --validate-cache guarantee

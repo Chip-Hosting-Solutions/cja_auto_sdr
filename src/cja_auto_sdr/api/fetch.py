@@ -176,7 +176,11 @@ class ParallelAPIFetcher:
 
             # Use retry for transient network errors with circuit breaker support
             metrics = self._timed_api_call(
-                self.cja.getMetrics, data_view_id, inclType=True, full=True, operation_name="getMetrics"
+                self.cja.getMetrics,
+                data_view_id,
+                inclType=True,
+                full=True,
+                operation_name="getMetrics",
             )
 
             if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
@@ -203,7 +207,11 @@ class ParallelAPIFetcher:
 
             # Use retry for transient network errors with circuit breaker support
             dimensions = self._timed_api_call(
-                self.cja.getDimensions, data_view_id, inclType=True, full=True, operation_name="getDimensions"
+                self.cja.getDimensions,
+                data_view_id,
+                inclType=True,
+                full=True,
+                operation_name="getDimensions",
             )
 
             if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):

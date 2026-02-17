@@ -59,7 +59,11 @@ class ValidationCache:
         self.logger.debug(f"ValidationCache initialized: max_size={max_size}, ttl={ttl_seconds}s")
 
     def _generate_cache_key(
-        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
     ) -> str:
         """
         Generate cache key from DataFrame content and configuration
@@ -98,7 +102,11 @@ class ValidationCache:
             return f"error:{time.time()}"
 
     def get(
-        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
     ) -> tuple[list[dict] | None, str]:
         """
         Retrieve cached validation results if available
@@ -240,7 +248,7 @@ class ValidationCache:
         estimated_time_saved = stats["hits"] * 0.049  # 49ms saved per hit
 
         self.logger.info(
-            f"Cache Statistics: {stats['hits']}/{stats['total_requests']} hits ({stats['hit_rate']:.1f}% hit rate)"
+            f"Cache Statistics: {stats['hits']}/{stats['total_requests']} hits ({stats['hit_rate']:.1f}% hit rate)",
         )
         self.logger.info(f"  - Cache size: {stats['size']}/{stats['max_size']} entries")
         if stats["evictions"] > 0:
@@ -316,7 +324,11 @@ class SharedValidationCache:
         atexit.register(self.shutdown)
 
     def _generate_cache_key(
-        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
     ) -> str:
         """
         Generate cache key from DataFrame content and configuration.
@@ -340,7 +352,11 @@ class SharedValidationCache:
             return f"error:{time.time()}"
 
     def get(
-        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
     ) -> tuple[list[dict] | None, str]:
         """
         Retrieve cached validation results if available.

@@ -33,7 +33,7 @@ def sample_metrics_df():
             {"name": "Metric 1", "type": "calculated", "id": "m1", "title": "Title 1", "description": "Desc 1"},
             {"name": "Metric 2", "type": "standard", "id": "m2", "title": "Title 2", "description": "Desc 2"},
             {"name": "Metric 3", "type": "calculated", "id": "m3", "title": "Title 3", "description": "Desc 3"},
-        ]
+        ],
     )
 
 
@@ -44,7 +44,7 @@ def sample_dimensions_df():
         [
             {"name": "Dimension 1", "type": "string", "id": "d1", "title": "Title 1", "description": "Desc 1"},
             {"name": "Dimension 2", "type": "string", "id": "d2", "title": "Title 2", "description": "Desc 2"},
-        ]
+        ],
     )
 
 
@@ -85,7 +85,7 @@ def sample_data_quality_df():
                 "Issue": "Minor issue",
                 "Details": "Details here",
             },
-        ]
+        ],
     )
 
 
@@ -93,7 +93,7 @@ def sample_data_quality_df():
 def sample_metadata_df():
     """Sample metadata DataFrame"""
     return pd.DataFrame(
-        {"Property": ["Generated At", "Data View ID", "Total Metrics"], "Value": ["2024-01-01", "dv_test", "100"]}
+        {"Property": ["Generated At", "Data View ID", "Total Metrics"], "Value": ["2024-01-01", "dv_test", "100"]},
     )
 
 
@@ -194,7 +194,7 @@ class TestApplyExcelFormattingIntegration:
         """Test formatting with Unicode characters"""
         output_file = tmp_path / "test_output.xlsx"
         unicode_df = pd.DataFrame(
-            [{"name": "Test \u00e9\u00e8\u00ea\u00eb", "description": "\u4e2d\u6587\u6d4b\u8bd5"}]
+            [{"name": "Test \u00e9\u00e8\u00ea\u00eb", "description": "\u4e2d\u6587\u6d4b\u8bd5"}],
         )
 
         with pd.ExcelWriter(str(output_file), engine="xlsxwriter") as writer:
@@ -212,7 +212,7 @@ class TestApplyExcelFormattingMetricsSheet:
 
         # DataFrame with columns not in preferred order
         df = pd.DataFrame(
-            [{"id": "m1", "type": "calculated", "name": "Metric 1", "title": "Title 1", "description": "Desc 1"}]
+            [{"id": "m1", "type": "calculated", "name": "Metric 1", "title": "Title 1", "description": "Desc 1"}],
         )
 
         with pd.ExcelWriter(str(output_file), engine="xlsxwriter") as writer:
@@ -242,7 +242,7 @@ class TestApplyExcelFormattingDimensionsSheet:
         output_file = tmp_path / "test_output.xlsx"
 
         df = pd.DataFrame(
-            [{"id": "d1", "type": "string", "name": "Dimension 1", "title": "Title 1", "description": "Desc 1"}]
+            [{"id": "d1", "type": "string", "name": "Dimension 1", "title": "Title 1", "description": "Desc 1"}],
         )
 
         with pd.ExcelWriter(str(output_file), engine="xlsxwriter") as writer:
@@ -314,7 +314,7 @@ class TestApplyExcelFormattingDataQualitySheet:
                     "Issue": "I5",
                     "Details": "D5",
                 },
-            ]
+            ],
         )
 
         with pd.ExcelWriter(str(output_file), engine="xlsxwriter") as writer:
@@ -335,8 +335,8 @@ class TestApplyExcelFormattingDataQualitySheet:
                     "Item Name": "T1",
                     "Issue": "I1",
                     "Details": "D1",
-                }
-            ]
+                },
+            ],
         )
 
         with pd.ExcelWriter(str(output_file), engine="xlsxwriter") as writer:
@@ -458,7 +458,13 @@ class TestApplyExcelFormattingMultipleSheets:
     """Tests for formatting multiple sheets"""
 
     def test_formats_all_sheet_types(
-        self, mock_logger, tmp_path, sample_metrics_df, sample_dimensions_df, sample_data_quality_df, sample_metadata_df
+        self,
+        mock_logger,
+        tmp_path,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_data_quality_df,
+        sample_metadata_df,
     ):
         """Test formatting all sheet types in one workbook"""
         output_file = tmp_path / "test_output.xlsx"

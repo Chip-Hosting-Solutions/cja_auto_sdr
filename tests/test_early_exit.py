@@ -130,7 +130,7 @@ class TestValidDataContinuesAllChecks:
                 "name": ["Metric 1", "Metric 2", "Metric 3"],
                 "type": ["int", "currency", "int"],
                 "description": ["Desc 1", "Desc 2", "Desc 3"],
-            }
+            },
         )
 
         dq_checker.check_all_quality_issues_optimized(df_valid, "Metrics", ["id", "name", "type"], ["id", "name"])
@@ -152,7 +152,7 @@ class TestValidDataContinuesAllChecks:
                 "name": ["Duplicate", "Duplicate", "Unique"],
                 "type": ["int", "currency", "int"],
                 "description": ["Desc", "", "Another desc"],  # Empty description
-            }
+            },
         )
 
         dq_checker.check_all_quality_issues_optimized(df_with_issues, "Metrics", ["id", "name", "type"], ["id", "name"])
@@ -186,7 +186,7 @@ class TestBackwardCompatibility:
                 "name": ["Dup", "Dup", "Valid", "Missing Desc"],
                 "type": ["int", "int", "currency", "int"],
                 "description": ["Desc 1", "Desc 2", "Desc 3", ""],
-            }
+            },
         )
 
         dq_checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name"])
@@ -237,7 +237,10 @@ class TestPerformanceImprovement:
 
         start = time.time()
         dq_checker.check_all_quality_issues_optimized(
-            df_large_invalid, "Metrics", ["id", "name", "type"], ["id", "name"]
+            df_large_invalid,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name"],
         )
         duration = time.time() - start
 
@@ -262,7 +265,7 @@ class TestPerformanceImprovement:
                 "name": [f"Metric {i}" for i in range(1000)],
                 "type": ["int"] * 1000,
                 "description": [f"Description {i}" for i in range(1000)],
-            }
+            },
         )
 
         import time

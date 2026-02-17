@@ -115,7 +115,11 @@ class TestAPIWorkerTunerScaling:
     def test_does_not_exceed_max_workers(self):
         """Should not scale beyond max_workers"""
         config = APITuningConfig(
-            min_workers=1, max_workers=3, scale_up_threshold_ms=200, sample_window=3, cooldown_seconds=0
+            min_workers=1,
+            max_workers=3,
+            scale_up_threshold_ms=200,
+            sample_window=3,
+            cooldown_seconds=0,
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -130,7 +134,11 @@ class TestAPIWorkerTunerScaling:
     def test_does_not_go_below_min_workers(self):
         """Should not scale below min_workers"""
         config = APITuningConfig(
-            min_workers=2, max_workers=10, scale_down_threshold_ms=2000, sample_window=3, cooldown_seconds=0
+            min_workers=2,
+            max_workers=10,
+            scale_down_threshold_ms=2000,
+            sample_window=3,
+            cooldown_seconds=0,
         )
         tuner = APIWorkerTuner(config=config, initial_workers=2)
 
@@ -208,7 +216,11 @@ class TestAPIWorkerTunerStatistics:
     def test_tracks_scale_ups(self):
         """Should track scale-up count"""
         config = APITuningConfig(
-            min_workers=1, max_workers=10, scale_up_threshold_ms=200, sample_window=3, cooldown_seconds=0
+            min_workers=1,
+            max_workers=10,
+            scale_up_threshold_ms=200,
+            sample_window=3,
+            cooldown_seconds=0,
         )
         tuner = APIWorkerTuner(config=config, initial_workers=3)
 
@@ -222,7 +234,11 @@ class TestAPIWorkerTunerStatistics:
     def test_tracks_scale_downs(self):
         """Should track scale-down count"""
         config = APITuningConfig(
-            min_workers=1, max_workers=10, scale_down_threshold_ms=2000, sample_window=3, cooldown_seconds=0
+            min_workers=1,
+            max_workers=10,
+            scale_down_threshold_ms=2000,
+            sample_window=3,
+            cooldown_seconds=0,
         )
         tuner = APIWorkerTuner(config=config, initial_workers=5)
 

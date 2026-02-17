@@ -232,7 +232,7 @@ class SnapshotManager:
                                 "created_at": data.get("created_at", ""),
                                 "metrics_count": len(data.get("metrics", [])),
                                 "dimensions_count": len(data.get("dimensions", [])),
-                            }
+                            },
                         )
                 except OSError, json.JSONDecodeError:
                     continue

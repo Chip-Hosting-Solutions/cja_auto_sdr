@@ -57,7 +57,13 @@ def _apply(func):
 
 
 def _setup_mocks(
-    mock_setup_logging, mock_init_cja, mock_validate_dv, mock_fetcher_class, metrics_df, dimensions_df, dataview_info
+    mock_setup_logging,
+    mock_init_cja,
+    mock_validate_dv,
+    mock_fetcher_class,
+    metrics_df,
+    dimensions_df,
+    dataview_info,
 ):
     logger = logging.getLogger("malformed_test")
     logger.handlers = []
@@ -242,8 +248,8 @@ class TestMalformedDataFrameSchemas:
                         "description": "d",
                         "unknown_field": "xyz",
                         "another_new_field": 42,
-                    }
-                ]
+                    },
+                ],
             ),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
@@ -281,7 +287,7 @@ class TestMalformedDataFrameSchemas:
                     {"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": None},
                     {"id": "d2", "name": "D2", "type": "string", "title": "D2", "description": None},
                     {"id": "d3", "name": "D3", "type": "string", "title": "D3", "description": None},
-                ]
+                ],
             ),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
         )
@@ -316,7 +322,7 @@ class TestMalformedDataFrameSchemas:
                 [
                     {"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": {"nested": "dict"}},
                     {"id": 12345, "name": "M2", "type": "int", "title": "M2", "description": ["a", "list"]},
-                ]
+                ],
             ),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
             {"id": "dv_test", "name": "Test DV", "owner": {"name": "Owner"}},
@@ -589,7 +595,7 @@ class TestDataQualityCheckerMalformedInput:
                 "name": ["Metric 1", np.nan],
                 "type": ["int", "int"],
                 "description": [np.nan, "desc"],
-            }
+            },
         )
         checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         assert len(checker.issues) > 0
@@ -605,7 +611,7 @@ class TestDataQualityCheckerMalformedInput:
                 "name": ["A" * 10000],  # 10KB string
                 "type": ["int"],
                 "description": ["B" * 50000],  # 50KB string
-            }
+            },
         )
         checker.check_all_quality_issues_optimized(df, "Metrics", ["id", "name", "type"], ["id", "name", "description"])
         # Should not crash or hang

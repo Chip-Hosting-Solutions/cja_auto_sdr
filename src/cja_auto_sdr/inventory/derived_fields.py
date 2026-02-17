@@ -242,7 +242,7 @@ class DerivedFieldInventory:
                     "summary",
                     "output_type",
                     "definition_json",
-                ]
+                ],
             )
 
         # Sort by complexity score descending
@@ -345,7 +345,7 @@ class DerivedFieldInventoryBuilder:
 
         self.logger.info(
             f"Derived field inventory built: {inventory.total_derived_fields} fields "
-            f"({inventory.metrics_count} metrics, {inventory.dimensions_count} dimensions)"
+            f"({inventory.metrics_count} metrics, {inventory.dimensions_count} dimensions)",
         )
 
         return inventory
@@ -388,7 +388,7 @@ class DerivedFieldInventoryBuilder:
             else:
                 component_name = self._coerce_display_text(row.get("name", "Unknown"), fallback="Unknown")
                 self.logger.warning(
-                    f"Derived field '{component_name}' has unexpected definition type: {type(field_def_str)}"
+                    f"Derived field '{component_name}' has unexpected definition type: {type(field_def_str)}",
                 )
                 if stats:
                     stats.record_skip("unexpected definition type", component_name)
@@ -1053,7 +1053,11 @@ class DerivedFieldInventoryBuilder:
         return str(map_to)
 
     def _describe_predicate(
-        self, pred: dict[str, Any], max_depth: int = 2, label_map: dict[str, str] | None = None, match_field: str = ""
+        self,
+        pred: dict[str, Any],
+        max_depth: int = 2,
+        label_map: dict[str, str] | None = None,
+        match_field: str = "",
     ) -> str:
         """Convert a predicate to a brief human-readable condition."""
         if not isinstance(pred, dict) or max_depth <= 0:

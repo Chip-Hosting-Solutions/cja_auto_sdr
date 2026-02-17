@@ -195,10 +195,12 @@ def test_run_org_report_all_formats_branch(tmp_path: Path, rich_org_report_resul
         patch("cja_auto_sdr.generator.write_org_report_console") as mock_console,
         patch("cja_auto_sdr.generator.write_org_report_json", return_value=str(tmp_path / "report.json")) as mock_json,
         patch(
-            "cja_auto_sdr.generator.write_org_report_excel", return_value=str(tmp_path / "report.xlsx")
+            "cja_auto_sdr.generator.write_org_report_excel",
+            return_value=str(tmp_path / "report.xlsx"),
         ) as mock_excel,
         patch(
-            "cja_auto_sdr.generator.write_org_report_markdown", return_value=str(tmp_path / "report.md")
+            "cja_auto_sdr.generator.write_org_report_markdown",
+            return_value=str(tmp_path / "report.md"),
         ) as mock_markdown,
         patch("cja_auto_sdr.generator.write_org_report_html", return_value=str(tmp_path / "report.html")) as mock_html,
         patch("cja_auto_sdr.generator.write_org_report_csv", return_value=str(tmp_path / "report_csv")) as mock_csv,
@@ -297,26 +299,27 @@ def test_run_org_report_reports_alias_and_individual_format_branches(tmp_path: P
     with ExitStack() as stack:
         stack.enter_context(
             patch(
-                "cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"})
-            )
+                "cja_auto_sdr.generator.configure_cjapy",
+                return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"}),
+            ),
         )
         mock_cjapy = stack.enter_context(patch("cja_auto_sdr.generator.cjapy"))
         mock_analyzer_cls = stack.enter_context(patch("cja_auto_sdr.generator.OrgComponentAnalyzer"))
         stack.enter_context(patch("cja_auto_sdr.generator.write_org_report_console", return_value=None))
         stack.enter_context(
-            patch("cja_auto_sdr.generator.write_org_report_json", return_value=str(tmp_path / "report.json"))
+            patch("cja_auto_sdr.generator.write_org_report_json", return_value=str(tmp_path / "report.json")),
         )
         stack.enter_context(
-            patch("cja_auto_sdr.generator.write_org_report_excel", return_value=str(tmp_path / "report.xlsx"))
+            patch("cja_auto_sdr.generator.write_org_report_excel", return_value=str(tmp_path / "report.xlsx")),
         )
         stack.enter_context(
-            patch("cja_auto_sdr.generator.write_org_report_markdown", return_value=str(tmp_path / "report.md"))
+            patch("cja_auto_sdr.generator.write_org_report_markdown", return_value=str(tmp_path / "report.md")),
         )
         stack.enter_context(
-            patch("cja_auto_sdr.generator.write_org_report_html", return_value=str(tmp_path / "report.html"))
+            patch("cja_auto_sdr.generator.write_org_report_html", return_value=str(tmp_path / "report.html")),
         )
         stack.enter_context(
-            patch("cja_auto_sdr.generator.write_org_report_csv", return_value=str(tmp_path / "report_csv"))
+            patch("cja_auto_sdr.generator.write_org_report_csv", return_value=str(tmp_path / "report_csv")),
         )
         stack.enter_context(patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary"))
         stack.enter_context(patch("cja_auto_sdr.generator.append_github_step_summary"))
@@ -479,7 +482,9 @@ def test_run_org_report_org_stats_json_stdout_branch(tmp_path: Path, capsys, ric
 
 
 def test_org_report_renderers_core_min_count_and_unnamed_component_branches(
-    tmp_path: Path, capsys, rich_org_report_result
+    tmp_path: Path,
+    capsys,
+    rich_org_report_result,
 ):
     result = rich_org_report_result
     result.parameters.core_min_count = 3
@@ -663,7 +668,7 @@ def test_recommendation_context_and_normalization_helpers():
     assert "raw text recommendation" in normalized["reason"]
 
     flattened = generator._flatten_recommendation_for_tabular(
-        {"type": "naming", "severity": "MEDIUM", "reason": "Use one style", "custom_field": {"x": 1}}
+        {"type": "naming", "severity": "MEDIUM", "reason": "Use one style", "custom_field": {"x": 1}},
     )
     assert flattened["Severity"] == "medium"
     assert "custom_field" in flattened["Extra Details"]

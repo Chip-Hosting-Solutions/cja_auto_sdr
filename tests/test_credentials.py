@@ -548,8 +548,8 @@ class TestCredentialResolver:
                     "client_id": "a" * 32,
                     "secret": "b" * 32,
                     "scopes": "openid",
-                }
-            )
+                },
+            ),
         )
 
         creds, source = resolver.resolve(config_file=config_path)
@@ -705,8 +705,8 @@ class TestCredentialResolverTryConfigFile:
                     "client_id": "a" * 32,
                     "secret": "b" * 32,
                     "scopes": "openid",
-                }
-            )
+                },
+            ),
         )
 
         creds, source = resolver._try_config_file(config_path)
@@ -732,8 +732,8 @@ class TestCredentialResolverTryConfigFile:
                     "client_id": "a" * 32,
                     # secret is missing
                     "scopes": "openid",
-                }
-            )
+                },
+            ),
         )
 
         with pytest.raises(CredentialSourceError) as exc_info:

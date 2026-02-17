@@ -183,7 +183,7 @@ class DataViewComparator:
         self.logger.info("Comparison complete:")
         self.logger.info(f"  Metrics: +{summary.metrics_added} -{summary.metrics_removed} ~{summary.metrics_modified}")
         self.logger.info(
-            f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}"
+            f"  Dimensions: +{summary.dimensions_added} -{summary.dimensions_removed} ~{summary.dimensions_modified}",
         )
 
         return DiffResult(
@@ -240,19 +240,24 @@ class DataViewComparator:
 
             if source_item and not target_item:
                 diffs.append(
-                    diff_factory(item_id, name_extractor(source_item), ChangeType.REMOVED, source_item, None, None)
+                    diff_factory(item_id, name_extractor(source_item), ChangeType.REMOVED, source_item, None, None),
                 )
             elif target_item and not source_item:
                 diffs.append(
-                    diff_factory(item_id, name_extractor(target_item), ChangeType.ADDED, None, target_item, None)
+                    diff_factory(item_id, name_extractor(target_item), ChangeType.ADDED, None, target_item, None),
                 )
             else:
                 changed_fields = find_changed_fields(source_item, target_item)
                 change_type = ChangeType.MODIFIED if changed_fields else ChangeType.UNCHANGED
                 diffs.append(
                     diff_factory(
-                        item_id, name_extractor(target_item), change_type, source_item, target_item, changed_fields
-                    )
+                        item_id,
+                        name_extractor(target_item),
+                        change_type,
+                        source_item,
+                        target_item,
+                        changed_fields,
+                    ),
                 )
 
         return diffs
@@ -283,11 +288,19 @@ class DataViewComparator:
             return self._find_inventory_changed_fields(source_item, target_item, inventory_type)
 
         return self._compare_items_generic(
-            source_list, target_list, id_field, name_extractor, diff_factory, find_changed
+            source_list,
+            target_list,
+            id_field,
+            name_extractor,
+            diff_factory,
+            find_changed,
         )
 
     def _find_inventory_changed_fields(
-        self, source: dict, target: dict, inventory_type: str
+        self,
+        source: dict,
+        target: dict,
+        inventory_type: str,
     ) -> dict[str, tuple[Any, Any]]:
         changed = {}
 
@@ -331,7 +344,10 @@ class DataViewComparator:
         return [d for d in diffs if d.change_type in allowed_types]
 
     def _compare_components(
-        self, source_list: list[dict], target_list: list[dict], _component_type: str
+        self,
+        source_list: list[dict],
+        target_list: list[dict],
+        _component_type: str,
     ) -> list[ComponentDiff]:
         def name_extractor(item: dict) -> str:
             return item.get("name", item.get("title", "Unknown"))
@@ -347,7 +363,12 @@ class DataViewComparator:
             )
 
         return self._compare_items_generic(
-            source_list, target_list, "id", name_extractor, diff_factory, self._find_changed_fields
+            source_list,
+            target_list,
+            "id",
+            name_extractor,
+            diff_factory,
+            self._find_changed_fields,
         )
 
     def _find_changed_fields(self, source: dict, target: dict) -> dict[str, tuple[Any, Any]]:

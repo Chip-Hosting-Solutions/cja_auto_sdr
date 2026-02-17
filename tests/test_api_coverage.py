@@ -46,7 +46,7 @@ def _sample_df() -> pd.DataFrame:
             "name": ["Metric A", "Metric B"],
             "type": ["numeric", "numeric"],
             "description": ["desc1", "desc2"],
-        }
+        },
     )
 
 
@@ -343,7 +343,7 @@ class TestGetIssuesDataframeException:
         checker = DataQualityChecker(logger=logger)
         # Add an issue so the empty-check is bypassed
         checker.issues = [
-            {"Severity": "HIGH", "Category": "Test", "Type": "t", "Item Name": "n", "Issue": "i", "Details": "d"}
+            {"Severity": "HIGH", "Category": "Test", "Type": "t", "Item Name": "n", "Issue": "i", "Details": "d"},
         ]
         # Patch CategoricalDtype to raise *after* the initial DataFrame is built
         # This triggers the except block at lines 427-429

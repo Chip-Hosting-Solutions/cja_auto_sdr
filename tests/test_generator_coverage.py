@@ -631,7 +631,7 @@ class TestBuildQualityReportDataframe:
                 "Item Name": "x",
                 "Issue": "bad",
                 "Details": "d",
-            }
+            },
         ]
         df = _build_quality_report_dataframe(issues)
         # Preferred columns come first, then extras

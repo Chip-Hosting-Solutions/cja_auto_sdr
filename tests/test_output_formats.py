@@ -95,8 +95,8 @@ class TestCSVOutput:
 
         data_dict = {
             "Test Data": pd.DataFrame(
-                [{"name": "Test, with comma", "value": "Line\nbreak"}, {"name": 'Quote "test"', "value": "Normal"}]
-            )
+                [{"name": "Test, with comma", "value": "Line\nbreak"}, {"name": 'Quote "test"', "value": "Normal"}],
+            ),
         }
 
         output_path = write_csv_output(data_dict, "test", str(tmp_path), logger)
@@ -175,8 +175,11 @@ class TestJSONOutput:
 
         data_dict = {
             "Metrics": pd.DataFrame(
-                [{"id": "1", "name": "Test", "description": None}, {"id": "2", "name": "Test2", "description": "Valid"}]
-            )
+                [
+                    {"id": "1", "name": "Test", "description": None},
+                    {"id": "2", "name": "Test2", "description": "Valid"},
+                ],
+            ),
         }
 
         output_path = write_json_output(data_dict, sample_metadata_dict, "test", str(tmp_path), logger)
@@ -288,8 +291,8 @@ class TestHTMLOutput:
                     {"Severity": "CRITICAL", "Issue": "Critical issue", "Details": "Test"},
                     {"Severity": "HIGH", "Issue": "High issue", "Details": "Test"},
                     {"Severity": "MEDIUM", "Issue": "Medium issue", "Details": "Test"},
-                ]
-            )
+                ],
+            ),
         }
 
         output_path = write_html_output(data_dict, sample_metadata_dict, "test", str(tmp_path), logger)
@@ -311,8 +314,8 @@ class TestHTMLOutput:
                 [
                     {"Severity": "CRITICAL", "Issue": "Critical issue", "Details": "Test"},
                     {"Severity": "HIGH", "Issue": "High issue", "Details": "Test"},
-                ]
-            )
+                ],
+            ),
         }
 
         output_path = write_html_output(data_dict, sample_metadata_dict, "test", str(tmp_path), logger)
@@ -439,7 +442,7 @@ class TestEdgeCases:
         logger = logging.getLogger("test")
 
         data_dict = {
-            "Unicode": pd.DataFrame([{"name": "测试数据", "value": "Tëst"}, {"name": "Тест", "value": "مرحبا"}])
+            "Unicode": pd.DataFrame([{"name": "测试数据", "value": "Tëst"}, {"name": "Тест", "value": "مرحبا"}]),
         }
         metadata_dict = {"key": "日本語"}
 
@@ -468,7 +471,7 @@ class TestEdgeCases:
                 "id": [f"id_{i}" for i in range(1000)],
                 "name": [f"Name {i}" for i in range(1000)],
                 "value": list(range(1000)),
-            }
+            },
         )
 
         data_dict = {"LargeData": large_df}
@@ -497,7 +500,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         # Check file was created
@@ -509,7 +516,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -528,7 +539,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -545,8 +560,8 @@ class TestMarkdownOutput:
 
         data_dict = {
             "Test Data": pd.DataFrame(
-                [{"name": "Test | with pipe", "value": "Has `backtick`"}, {"name": "Normal", "value": "Normal"}]
-            )
+                [{"name": "Test | with pipe", "value": "Has `backtick`"}, {"name": "Normal", "value": "Normal"}],
+            ),
         }
         metadata_dict = {"key": "value"}
 
@@ -564,7 +579,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -601,7 +620,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -630,7 +653,7 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         data_dict = {
-            "Unicode": pd.DataFrame([{"name": "测试数据", "value": "Tëst"}, {"name": "Тест", "value": "مرحبا"}])
+            "Unicode": pd.DataFrame([{"name": "测试数据", "value": "Tëst"}, {"name": "Тест", "value": "مرحبا"}]),
         }
         metadata_dict = {"key": "日本語"}
 
@@ -666,7 +689,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -682,7 +709,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:
@@ -696,7 +727,11 @@ class TestMarkdownOutput:
         logger = logging.getLogger("test")
 
         output_path = write_markdown_output(
-            sample_data_dict, sample_metadata_dict, "test_dataview", str(tmp_path), logger
+            sample_data_dict,
+            sample_metadata_dict,
+            "test_dataview",
+            str(tmp_path),
+            logger,
         )
 
         with open(output_path, encoding="utf-8") as f:

@@ -196,7 +196,9 @@ class CredentialResolver:
         self.logger = logger
 
     def resolve(
-        self, profile: str | None = None, config_file: str | Path = "config.json"
+        self,
+        profile: str | None = None,
+        config_file: str | Path = "config.json",
     ) -> tuple[dict[str, str], str]:
         """Resolve credentials following priority order.
 
@@ -258,7 +260,10 @@ class CredentialResolver:
             creds = load_profile_credentials(profile_name, self.logger)
             if creds:
                 is_valid, issues = validate_credentials(
-                    creds, self.logger, strict=False, source=f"profile:{profile_name}"
+                    creds,
+                    self.logger,
+                    strict=False,
+                    source=f"profile:{profile_name}",
                 )
                 if is_valid:
                     self.logger.info(f"Using credentials from profile '{profile_name}'")
@@ -266,11 +271,17 @@ class CredentialResolver:
                 self.logger.warning(f"Profile '{profile_name}' credentials have issues: {issues}")
         except ProfileNotFoundError as e:
             raise CredentialSourceError(
-                str(e), source=f"profile:{profile_name}", reason="Profile directory not found", details=e.details
+                str(e),
+                source=f"profile:{profile_name}",
+                reason="Profile directory not found",
+                details=e.details,
             ) from e
         except ProfileConfigError as e:
             raise CredentialSourceError(
-                str(e), source=f"profile:{profile_name}", reason="Invalid profile configuration", details=e.details
+                str(e),
+                source=f"profile:{profile_name}",
+                reason="Invalid profile configuration",
+                details=e.details,
             ) from e
 
         return None, ""
@@ -316,7 +327,10 @@ class CredentialResolver:
 
         if creds:
             is_valid, issues = validate_credentials(
-                creds, self.logger, strict=False, source=f"config:{config_path.name}"
+                creds,
+                self.logger,
+                strict=False,
+                source=f"config:{config_path.name}",
             )
             if is_valid:
                 self.logger.info(f"Using credentials from {config_file}")

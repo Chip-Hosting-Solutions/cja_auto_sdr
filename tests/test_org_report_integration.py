@@ -67,7 +67,7 @@ def create_mock_metrics(dv_id: str, count: int = 10, overlap_ids: list | None = 
                 "name": f"Metric {metric_id}",
                 "type": "standard",
                 "sourceFieldType": "field",
-            }
+            },
         )
 
     # Add unique metrics for this DV
@@ -78,7 +78,7 @@ def create_mock_metrics(dv_id: str, count: int = 10, overlap_ids: list | None = 
                 "name": f"Metric {i} for {dv_id}",
                 "type": "standard",
                 "sourceFieldType": "field",
-            }
+            },
         )
 
     return pd.DataFrame(metrics)
@@ -106,7 +106,7 @@ def create_mock_dimensions(dv_id: str, count: int = 10, overlap_ids: list | None
                 "name": f"Dimension {dim_id}",
                 "type": "standard",
                 "sourceFieldType": "field",
-            }
+            },
         )
 
     # Add unique dimensions for this DV
@@ -117,7 +117,7 @@ def create_mock_dimensions(dv_id: str, count: int = 10, overlap_ids: list | None
                 "name": f"Dimension {i} for {dv_id}",
                 "type": "standard",
                 "sourceFieldType": "field",
-            }
+            },
         )
 
     return pd.DataFrame(dimensions)

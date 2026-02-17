@@ -43,8 +43,8 @@ def _build_one(definition, component_type="Dimension"):
                 "sourceFieldType": "derived",
                 "fieldDefinition": field_def,
                 "dataSetType": "event",
-            }
-        ]
+            },
+        ],
     )
     metrics_df = df if col == "Metric" else pd.DataFrame()
     dims_df = df if col == "Dimension" else pd.DataFrame()
@@ -186,7 +186,8 @@ class TestInferOutputType:
         assert b._infer_output_type([{"func": func}]) == "numeric"
 
     @pytest.mark.parametrize(
-        "func", ["lowercase", "uppercase", "trim", "concatenate", "split", "url-parse", "regex-replace"]
+        "func",
+        ["lowercase", "uppercase", "trim", "concatenate", "split", "url-parse", "regex-replace"],
     )
     def test_string_operations(self, func):
         b = _builder()
@@ -202,8 +203,8 @@ class TestInferOutputType:
                         {"pred": {"func": "true"}, "map-to": 1},
                         {"pred": {"func": "eq", "val": "a"}, "map-to": 2.5},
                     ],
-                }
-            ]
+                },
+            ],
         )
         assert result == "numeric"
 
@@ -217,8 +218,8 @@ class TestInferOutputType:
                         {"pred": {"func": "true"}, "map-to": "yes"},
                         {"pred": {"func": "eq", "val": "a"}, "map-to": "no"},
                     ],
-                }
-            ]
+                },
+            ],
         )
         assert result == "string"
 
@@ -233,8 +234,8 @@ class TestInferOutputType:
                         {"pred": {"func": "true"}, "map-to": 42},
                         {"pred": {"func": "eq", "val": "a"}, "map-to": "text"},
                     ],
-                }
-            ]
+                },
+            ],
         )
         assert result == "unknown"
 
@@ -265,7 +266,7 @@ class TestLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "events", "label": "ev"},
                 {"func": "summarize"},
-            ]
+            ],
         )
         assert "summarize" in field.logic_summary.lower()
 
@@ -274,7 +275,7 @@ class TestLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "pageId", "label": "p"},
                 {"func": "deduplicate", "scope": "session", "args": [{"func": "raw-field", "id": "pageId"}]},
-            ]
+            ],
         )
         assert "deduplicate" in field.logic_summary.lower()
         assert "session" in field.logic_summary.lower()
@@ -284,7 +285,7 @@ class TestLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "pageId", "label": "p"},
                 {"func": "deduplicate", "args": [{"func": "raw-field", "id": "pageId"}]},
-            ]
+            ],
         )
         assert "deduplicate" in field.logic_summary.lower()
 
@@ -294,7 +295,7 @@ class TestLogicSummaryHandlers:
                 {"func": "raw-field", "id": "fieldA", "label": "a"},
                 {"func": "raw-field", "id": "fieldB", "label": "b"},
                 {"func": "merge"},
-            ]
+            ],
         )
         assert "merge" in field.logic_summary.lower()
 
@@ -303,7 +304,7 @@ class TestLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "url_path", "label": "u"},
                 {"func": "split", "delimiter": "/", "index": 2, "args": [{"func": "raw-field", "id": "url_path"}]},
-            ]
+            ],
         )
         assert "split" in field.logic_summary.lower()
         assert "part 3" in field.logic_summary  # 0-indexed + 1
@@ -317,7 +318,7 @@ class TestLogicSummaryHandlers:
                     "component": "dayOfWeek",
                     "args": [{"func": "raw-field", "id": "ts_field"}],
                 },
-            ]
+            ],
         )
         assert "dayofweek" in field.logic_summary.lower() or "dayOfWeek" in field.logic_summary
 
@@ -326,7 +327,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "datetime-slice", "component": "month"},
-            ]
+            ],
         )
         assert "month" in field.logic_summary.lower()
 
@@ -340,7 +341,7 @@ class TestLogicSummaryHandlers:
                     "to": "US/Pacific",
                     "args": [{"func": "raw-field", "id": "event_time"}],
                 },
-            ]
+            ],
         )
         assert "utc" in field.logic_summary.lower()
         assert "us/pacific" in field.logic_summary.lower() or "US/Pacific" in field.logic_summary
@@ -349,7 +350,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "timezone-shift", "to": "Europe/Berlin"},
-            ]
+            ],
         )
         assert "europe/berlin" in field.logic_summary.lower() or "Europe/Berlin" in field.logic_summary
 
@@ -358,7 +359,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "timezone-shift"},
-            ]
+            ],
         )
         assert "timezone" in field.logic_summary.lower()
 
@@ -372,7 +373,7 @@ class TestLogicSummaryHandlers:
                     "replace": "",
                     "args": [{"func": "raw-field", "id": "domain"}],
                 },
-            ]
+            ],
         )
         # Empty replace => "Removes 'www.' from domain"
         assert "remove" in field.logic_summary.lower() or "replace" in field.logic_summary.lower()
@@ -382,7 +383,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "find-replace"},
-            ]
+            ],
         )
         assert "find and replace" in field.logic_summary.lower()
 
@@ -395,7 +396,7 @@ class TestLogicSummaryHandlers:
                     "delimiter": "|",
                     "args": [{"func": "raw-field", "id": "site_section"}],
                 },
-            ]
+            ],
         )
         assert "depth" in field.logic_summary.lower()
         assert "'|'" in field.logic_summary
@@ -404,7 +405,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "depth"},
-            ]
+            ],
         )
         assert "depth" in field.logic_summary.lower()
 
@@ -412,7 +413,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "profile", "attribute": "email", "namespace": "crm"},
-            ]
+            ],
         )
         assert "profile" in field.logic_summary.lower()
         assert "crm" in field.logic_summary.lower() or "crm/email" in field.logic_summary
@@ -422,7 +423,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "profile"},
-            ]
+            ],
         )
         assert "profile" in field.logic_summary.lower()
 
@@ -434,7 +435,7 @@ class TestLogicSummaryHandlers:
                 {"func": "deduplicate", "args": [{"func": "raw-field", "id": "pageName"}]},
                 {"func": "lowercase", "field": "p"},
                 {"func": "trim", "field": "p"},
-            ]
+            ],
         )
         assert "lowercase" in field.logic_summary.lower()
         assert "trim" in field.logic_summary.lower()
@@ -445,7 +446,7 @@ class TestLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "pageName", "label": "p"},
                 {"func": "uppercase", "field": "p"},
-            ]
+            ],
         )
         assert "applies" in field.logic_summary.lower()
         assert "uppercase" in field.logic_summary.lower()
@@ -455,7 +456,7 @@ class TestLogicSummaryHandlers:
         field = _build_one(
             [
                 {"func": "raw-field", "id": "web.pageURL", "label": "url_ref"},
-            ]
+            ],
         )
         assert "references" in field.logic_summary.lower()
 
@@ -466,7 +467,7 @@ class TestLogicSummaryHandlers:
                 {"func": "raw-field", "id": "fieldA", "label": "a"},
                 {"func": "raw-field", "id": "fieldB", "label": "b"},
                 {"func": "raw-field", "id": "fieldC", "label": "c"},
-            ]
+            ],
         )
         assert "combines" in field.logic_summary.lower() or "3 fields" in field.logic_summary
 
@@ -483,7 +484,7 @@ class TestLogicSummaryHandlers:
                 "field": "f",
                 "#rule_name": "Rule1",
                 "branches": [],
-            }
+            },
         )
         # Additional rules via separate functions
         for i in range(2, 7):
@@ -493,7 +494,7 @@ class TestLogicSummaryHandlers:
                     "field": "f",
                     "#rule_name": f"Rule{i}",
                     "branches": [],
-                }
+                },
             )
 
         builder = _builder()
@@ -781,7 +782,7 @@ class TestDescribeMatchLogic:
         result = b._describe_match_logic(
             [
                 {"func": "match", "branches": ["not_a_dict", 123]},
-            ]
+            ],
         )
         assert result == ""
 
@@ -797,7 +798,7 @@ class TestDescribeMatchLogic:
                     ],
                     "default": "No",
                 },
-            ]
+            ],
         )
         assert 'else: "No"' in result
 
@@ -816,7 +817,7 @@ class TestDescribeMatchLogic:
                         {"pred": {"func": "eq", "field": "ch", "val": "yahoo"}, "map-to": "Search"},
                     ],
                 },
-            ]
+            ],
         )
         assert "OR" in result
         assert "Search" in result
@@ -828,7 +829,7 @@ class TestDescribeMatchLogic:
         result = b._describe_match_logic(
             [
                 {"func": "match", "field": "ch", "branches": branches},
-            ]
+            ],
         )
         assert "+4 more" in result or "+3 more" in result
 
@@ -848,7 +849,7 @@ class TestDescribeMatchLogic:
                         },
                     ],
                 },
-            ]
+            ],
         )
         assert "[pageName]" in result
 
@@ -862,7 +863,7 @@ class TestDescribeMatchLogic:
                         {"pred": {"func": "true"}, "map-to": {"val": "hello"}},
                     ],
                 },
-            ]
+            ],
         )
         assert '"hello"' in result
 
@@ -876,7 +877,7 @@ class TestDescribeMatchLogic:
                         {"pred": {"func": "true"}, "map-to": {"type": "computed"}},
                     ],
                 },
-            ]
+            ],
         )
         assert "[dynamic]" in result
 
@@ -890,7 +891,7 @@ class TestDescribeMatchLogic:
                         {"pred": {"func": "true"}, "map-to": 42},
                     ],
                 },
-            ]
+            ],
         )
         assert "42" in result
 
@@ -1014,7 +1015,7 @@ class TestProcessRowEmptyFunctions:
                 "sourceFieldType": "derived",
                 "fieldDefinition": "[]",
                 "dataSetType": "event",
-            }
+            },
         )
         result = builder._process_row(row, "Dimension")
         assert result is None
@@ -1029,7 +1030,7 @@ class TestProcessRowEmptyFunctions:
                 "sourceFieldType": "derived",
                 "fieldDefinition": '{"func": "raw-field"}',
                 "dataSetType": "event",
-            }
+            },
         )
         result = builder._process_row(row, "Dimension")
         assert result is None
@@ -1109,7 +1110,7 @@ class TestDescribeMatchLogicEdgeCases:
         result = builder._describe_match_logic(
             [
                 {"func": "match", "branches": "invalid"},
-            ]
+            ],
         )
         assert result == ""
 
@@ -1124,7 +1125,7 @@ class TestDescribeMatchLogicEdgeCases:
                         {"pred": {"func": "true"}, "map-to": "fallback_value"},
                     ],
                 },
-            ]
+            ],
         )
         assert "default" in result.lower()
         assert "fallback_value" in result
@@ -1203,7 +1204,7 @@ class TestDescribeLookupLogicNoClassify:
         result = builder._describe_lookup_logic(
             [
                 {"func": "raw-field", "id": "some_field"},
-            ]
+            ],
         )
         assert result == ""
 
@@ -1228,7 +1229,7 @@ class TestDescribeSequentialLogic:
                     "persistence": "first",
                     "args": [{"func": "raw-field", "id": "marketing.channel"}],
                 },
-            ]
+            ],
         )
         assert "Next" in result
         assert "channel" in result
@@ -1243,7 +1244,7 @@ class TestDescribeSequentialLogic:
                     "persistence": "last",
                     "args": [{"func": "raw-field", "id": "page.section"}],
                 },
-            ]
+            ],
         )
         assert "Previous" in result
         assert "section" in result
@@ -1254,7 +1255,7 @@ class TestDescribeSequentialLogic:
         result = builder._describe_sequential_logic(
             [
                 {"func": "next"},
-            ]
+            ],
         )
         assert result == "Next value lookup"
 
@@ -1266,7 +1267,7 @@ class TestDescribeSequentialLogic:
                     "func": "previous",
                     "args": [{"func": "raw-field", "id": "web.pageName"}],
                 },
-            ]
+            ],
         )
         assert "Previous value of pageName" == result
 
@@ -1275,7 +1276,7 @@ class TestDescribeSequentialLogic:
         result = builder._describe_sequential_logic(
             [
                 {"func": "raw-field", "id": "some_field"},
-            ]
+            ],
         )
         assert result == "Sequential value lookup"
 
@@ -1296,7 +1297,7 @@ class TestDescribeSplitLogic:
                     "index": 1,
                     "args": [{"func": "raw-field", "id": "site.section"}],
                 },
-            ]
+            ],
         )
         assert "Split section" in result
         assert '"|"' in result
@@ -1311,7 +1312,7 @@ class TestDescribeSplitLogic:
                     "delimiter": "/",
                     "index": 0,
                 },
-            ]
+            ],
         )
         assert result == 'Split by "/", get part 1'
 
@@ -1320,7 +1321,7 @@ class TestDescribeSplitLogic:
         result = builder._describe_split_logic(
             [
                 {"func": "raw-field", "id": "x"},
-            ]
+            ],
         )
         assert result == "Split string"
 
@@ -1396,7 +1397,7 @@ class TestDescribeTypecastLogic:
                     "type": "integer",
                     "args": [{"func": "raw-field", "id": "web.pageViews"}],
                 },
-            ]
+            ],
         )
         assert result == "Converts pageViews to integer"
 
@@ -1409,7 +1410,7 @@ class TestDescribeTypecastLogic:
                     "type": "string",
                     "field": "order_id_label",
                 },
-            ]
+            ],
         )
         assert result == "Converts order_id_label to string"
 
@@ -1421,7 +1422,7 @@ class TestDescribeTypecastLogic:
                     "func": "typecast",
                     "type": "double",
                 },
-            ]
+            ],
         )
         assert result == "Converts to double"
 
@@ -1431,7 +1432,7 @@ class TestDescribeTypecastLogic:
         result = builder._describe_typecast_logic(
             [
                 {"func": "raw-field", "id": "some_field"},
-            ]
+            ],
         )
         assert result == "Type conversion"
 
@@ -1451,7 +1452,7 @@ class TestDescribeDatetimeBucketLogic:
                     "bucket": "week",
                     "args": [{"func": "raw-field", "id": "event.timestamp"}],
                 },
-            ]
+            ],
         )
         assert result == "Buckets timestamp by week"
 
@@ -1464,7 +1465,7 @@ class TestDescribeDatetimeBucketLogic:
                     "interval": "month",
                     "field": "ts_label",
                 },
-            ]
+            ],
         )
         assert result == "Buckets ts_label by month"
 
@@ -1476,7 +1477,7 @@ class TestDescribeDatetimeBucketLogic:
                     "func": "datetime-bucket",
                     "granularity": "day",
                 },
-            ]
+            ],
         )
         assert result == "Date bucketing by day"
 
@@ -1485,7 +1486,7 @@ class TestDescribeDatetimeBucketLogic:
         result = builder._describe_datetime_bucket_logic(
             [
                 {"func": "raw-field", "id": "f"},
-            ]
+            ],
         )
         assert result == "Date bucketing"
 

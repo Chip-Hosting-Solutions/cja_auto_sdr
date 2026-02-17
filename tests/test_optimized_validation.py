@@ -27,7 +27,10 @@ class TestOptimizedValidation:
 
         empty_df = pd.DataFrame()
         validator.check_all_quality_issues_optimized(
-            empty_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            empty_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -55,15 +58,18 @@ class TestOptimizedValidation:
                             "type": "calculated",
                             "title": "Duplicate Metric",
                             "description": "Duplicate",
-                        }
-                    ]
+                        },
+                    ],
                 ),
             ],
             ignore_index=True,
         )
 
         validator.check_all_quality_issues_optimized(
-            duplicate_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            duplicate_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -78,7 +84,10 @@ class TestOptimizedValidation:
         validator = DataQualityChecker(logger)
 
         validator.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -95,7 +104,10 @@ class TestOptimizedValidation:
         validator = DataQualityChecker(logger)
 
         validator.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -115,12 +127,15 @@ class TestOptimizedValidation:
                     "id": "metric1",
                     "name": "Test Metric",
                     # Missing 'type' field
-                }
-            ]
+                },
+            ],
         )
 
         validator.check_all_quality_issues_optimized(
-            incomplete_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            incomplete_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -143,11 +158,14 @@ class TestOptimizedValidation:
                 {"id": None, "name": "Test 1", "type": "metric", "description": "Desc 1"},
                 {"id": "", "name": "Test 2", "type": "metric", "description": "Desc 2"},
                 {"id": "valid_id", "name": "Test 3", "type": "metric", "description": "Desc 3"},
-            ]
+            ],
         )
 
         validator.check_all_quality_issues_optimized(
-            df_with_invalid_ids, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            df_with_invalid_ids,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -166,7 +184,10 @@ class TestOptimizedValidation:
         validator = DataQualityChecker(logger)
 
         validator.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -182,7 +203,10 @@ class TestOptimizedValidation:
         validator = DataQualityChecker(logger)
 
         validator.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -213,7 +237,10 @@ class TestOptimizedVsOriginalValidation:
         # Run optimized validation
         validator_optimized = DataQualityChecker(logger)
         validator_optimized.check_all_quality_issues_optimized(
-            sample_metrics_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            sample_metrics_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         optimized_issues = validator_optimized.get_issues_dataframe()
@@ -244,7 +271,10 @@ class TestOptimizedVsOriginalValidation:
         # Run optimized validation
         validator_optimized = DataQualityChecker(logger)
         validator_optimized.check_all_quality_issues_optimized(
-            sample_dimensions_df, "Dimensions", ["id", "name", "type"], ["id", "name", "description"]
+            sample_dimensions_df,
+            "Dimensions",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         optimized_issues = validator_optimized.get_issues_dataframe()
@@ -265,7 +295,10 @@ class TestOptimizedVsOriginalValidation:
         # Run optimized validation
         validator_optimized = DataQualityChecker(logger)
         validator_optimized.check_all_quality_issues_optimized(
-            empty_df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            empty_df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
         optimized_issues = validator_optimized.get_issues_dataframe()
 
@@ -293,7 +326,7 @@ class TestOptimizedValidationPerformance:
                 "type": ["metric" if i % 2 == 0 else "calculated" for i in range(size)],
                 "description": [f"Description {i}" if i % 3 != 0 else None for i in range(size)],
                 "title": [f"Title {i}" for i in range(size)],
-            }
+            },
         )
 
         # Run multiple iterations to get stable timing
@@ -317,7 +350,10 @@ class TestOptimizedValidationPerformance:
             start = time.time()
             validator_optimized = DataQualityChecker(logger)
             validator_optimized.check_all_quality_issues_optimized(
-                df, "Metrics", ["id", "name", "type"], ["id", "name", "description", "title"]
+                df,
+                "Metrics",
+                ["id", "name", "type"],
+                ["id", "name", "description", "title"],
             )
             optimized_times.append(time.time() - start)
 
@@ -364,7 +400,7 @@ class TestOptimizedValidationPerformance:
                     "type": ["metric"] * size,
                     "description": [f"Desc {i}" if i % 2 == 0 else None for i in range(size)],
                     "title": [f"Title {i}" for i in range(size)],
-                }
+                },
             )
 
             # Run 3 times and take median to reduce variance
@@ -386,7 +422,10 @@ class TestOptimizedValidationPerformance:
                 start = time.time()
                 validator_optimized = DataQualityChecker(logger)
                 validator_optimized.check_all_quality_issues_optimized(
-                    df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+                    df,
+                    "Metrics",
+                    ["id", "name", "type"],
+                    ["id", "name", "description"],
                 )
                 opt_times.append(time.time() - start)
 
@@ -399,7 +438,7 @@ class TestOptimizedValidationPerformance:
             print(
                 f"  Size {size}: Original={times_original[i]:.4f}s, "
                 f"Optimized={times_optimized[i]:.4f}s, "
-                f"Improvement={improvement:.1f}%"
+                f"Improvement={improvement:.1f}%",
             )
 
         print("\n  Note: Performance benefits increase with:")
@@ -430,7 +469,10 @@ class TestEdgeCases:
 
         # Should not crash
         validator.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -447,11 +489,14 @@ class TestEdgeCases:
                 "name": [None, None, None],
                 "type": [None, None, None],
                 "description": [None, None, None],
-            }
+            },
         )
 
         validator.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()
@@ -468,11 +513,14 @@ class TestEdgeCases:
             [
                 {"id": "id_1", "name": "Test & Special <> Chars", "type": "metric", "description": "Desc"},
                 {"id": "id_2", "name": "Test & Special <> Chars", "type": "metric", "description": "Desc"},  # Duplicate
-            ]
+            ],
         )
 
         validator.check_all_quality_issues_optimized(
-            df, "Metrics", ["id", "name", "type"], ["id", "name", "description"]
+            df,
+            "Metrics",
+            ["id", "name", "type"],
+            ["id", "name", "description"],
         )
 
         issues_df = validator.get_issues_dataframe()

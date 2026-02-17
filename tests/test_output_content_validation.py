@@ -38,8 +38,8 @@ def rich_data_dict():
         "Metadata": pd.DataFrame(
             {
                 "Property": ["Generated At", "Data View ID", "Tool Version", "Total Metrics"],
-                "Value": ["2025-01-15 10:30:00 PST", "dv_content_test", "3.2.8", 3],
-            }
+                "Value": ["2025-01-15 10:30:00 PST", "dv_content_test", "3.2.9", 3],
+            },
         ),
         "Data Quality": pd.DataFrame(
             [
@@ -67,20 +67,20 @@ def rich_data_dict():
                     "Issue": "No description",
                     "Details": "Consider adding",
                 },
-            ]
+            ],
         ),
         "DataView Details": pd.DataFrame(
             {
                 "Property": ["Name", "ID", "Owner"],
                 "Value": ["Test DataView", "dv_content_test", "Test Owner"],
-            }
+            },
         ),
         "Metrics": pd.DataFrame(
             [
                 {"id": "m1", "name": "Page Views", "type": "int", "description": "Total page views"},
                 {"id": "m2", "name": "Revenue", "type": "currency", "description": None},
                 {"id": "m3", "name": "Bounce Rate", "type": "percent", "description": ""},
-            ]
+            ],
         ),
         "Dimensions": pd.DataFrame(
             [
@@ -93,7 +93,7 @@ def rich_data_dict():
                     "type": "string",
                     "description": 'Contains "quotes" & <angles>',
                 },
-            ]
+            ],
         ),
     }
 
@@ -104,7 +104,7 @@ def rich_metadata_dict():
         "Generated At": "2025-01-15 10:30:00 PST",
         "Data View ID": "dv_content_test",
         "Data View Name": "Test DataView",
-        "Tool Version": "3.2.8",
+        "Tool Version": "3.2.9",
         "Metrics Count": "3",
         "Dimensions Count": "4",
     }
@@ -224,7 +224,7 @@ class TestJSONContentValidation:
             data = json.load(f)
 
         assert data["metadata"]["Data View ID"] == "dv_content_test"
-        assert data["metadata"]["Tool Version"] == "3.2.8"
+        assert data["metadata"]["Tool Version"] == "3.2.9"
 
 
 # ===================================================================
@@ -393,8 +393,8 @@ class TestMarkdownContentValidation:
         logger = logging.getLogger("md_test")
         data_dict = {
             "Metrics": pd.DataFrame(
-                [{"id": "m1", "name": "Rate | Percentage", "type": "int", "description": "Has | pipe"}]
-            )
+                [{"id": "m1", "name": "Rate | Percentage", "type": "int", "description": "Has | pipe"}],
+            ),
         }
         path = write_markdown_output(data_dict, rich_metadata_dict, "test", str(tmp_path), logger)
 

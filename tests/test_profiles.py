@@ -447,8 +447,8 @@ class TestProfileImport:
                     "clientId": "1234567890abcdef1234567890abcdef",
                     "client_secret": "abcdefghijklmnop1234567890",
                     "scopes": "openid,AdobeID,read_organizations",
-                }
-            )
+                },
+            ),
         )
 
         credentials = load_profile_import_source(source)
@@ -466,8 +466,8 @@ class TestProfileImport:
                     "CLIENT_ID=1234567890abcdef1234567890abcdef",
                     "SECRET=abcdefghijklmnop1234567890",
                     "SCOPES=openid,AdobeID",
-                ]
-            )
+                ],
+            ),
         )
 
         credentials = load_profile_import_source(source)
@@ -486,8 +486,8 @@ class TestProfileImport:
                     "client_id": "1234567890abcdef1234567890abcdef",
                     "secret": "abcdefghijklmnop1234567890",
                     "scopes": "openid,AdobeID",
-                }
-            )
+                },
+            ),
         )
 
         profile_dir = tmp_path / "orgs" / "client-a"
@@ -511,8 +511,8 @@ class TestProfileImport:
                     "org_id": "new@AdobeOrg",
                     "client_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "secret": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                }
-            )
+                },
+            ),
         )
 
         profile_dir = tmp_path / "orgs" / "client-a"
@@ -524,8 +524,8 @@ class TestProfileImport:
                     "org_id": "existing@AdobeOrg",
                     "client_id": "existing_client",
                     "secret": "existing_secret",
-                }
-            )
+                },
+            ),
         )
 
         with patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir):
@@ -544,8 +544,8 @@ class TestProfileImport:
                     "client_id": "1234567890abcdef1234567890abcdef",
                     "secret": "abcdefghijklmnop1234567890",
                     "scopes": "openid,AdobeID",
-                }
-            )
+                },
+            ),
         )
 
         profile_dir = tmp_path / "orgs" / "client-a"

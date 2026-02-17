@@ -91,7 +91,7 @@ def e2e_metrics_df():
                 "title": "Cart Additions",
                 "description": "Items added to cart",
             },
-        ]
+        ],
     )
 
 
@@ -142,7 +142,7 @@ def e2e_dimensions_df():
                 "title": "Operating System",
                 "description": 'OS with <special> & "chars"',  # Special chars
             },
-        ]
+        ],
     )
 
 

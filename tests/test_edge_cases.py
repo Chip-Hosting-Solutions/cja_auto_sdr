@@ -69,7 +69,10 @@ class TestCustomExceptions:
     def test_configuration_error(self):
         """Test ConfigurationError"""
         error = ConfigurationError(
-            "Missing credentials", config_file="config.json", field="client_id", details="Field is empty"
+            "Missing credentials",
+            config_file="config.json",
+            field="client_id",
+            details="Field is empty",
         )
         assert error.config_file == "config.json"
         assert error.field == "client_id"
@@ -99,7 +102,10 @@ class TestCustomExceptions:
     def test_validation_error(self):
         """Test ValidationError"""
         error = ValidationError(
-            "Data quality check failed", item_type="Metrics", issue_count=5, details="Found 5 critical issues"
+            "Data quality check failed",
+            item_type="Metrics",
+            issue_count=5,
+            details="Found 5 critical issues",
         )
         assert error.item_type == "Metrics"
         assert error.issue_count == 5
@@ -107,7 +113,10 @@ class TestCustomExceptions:
     def test_output_error(self):
         """Test OutputError"""
         error = OutputError(
-            "Failed to write file", output_path="/tmp/output.xlsx", output_format="excel", details="Permission denied"
+            "Failed to write file",
+            output_path="/tmp/output.xlsx",
+            output_format="excel",
+            details="Permission denied",
         )
         assert error.output_path == "/tmp/output.xlsx"
         assert error.output_format == "excel"
@@ -518,7 +527,7 @@ class TestDataFrameColumnHandling:
                 "type": ["int", "currency"],
                 "extra_col": ["a", "b"],
                 "another_extra": [1, 2],
-            }
+            },
         )
 
         # Should handle extra columns gracefully
@@ -588,7 +597,7 @@ def sample_metrics_df():
             "name": ["Metric 1", "Metric 2", "Metric 3"],
             "type": ["int", "currency", "percent"],
             "description": ["First metric", None, "Third metric"],
-        }
+        },
     )
 
 
@@ -601,5 +610,5 @@ def sample_dimensions_df():
             "name": ["Dimension 1", "Dimension 2", "Dimension 3"],
             "type": ["string", "string", "string"],
             "description": ["First dimension", "Second dimension", None],
-        }
+        },
     )

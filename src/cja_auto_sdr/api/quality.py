@@ -33,7 +33,13 @@ class DataQualityChecker:
         self.log_high_severity_issues = log_high_severity_issues
 
     def add_issue(
-        self, severity: str, category: str, item_type: str, item_name: str, description: str, details: str = ""
+        self,
+        severity: str,
+        category: str,
+        item_type: str,
+        item_name: str,
+        description: str,
+        details: str = "",
     ) -> dict[str, str]:
         """Add a data quality issue to the tracker (thread-safe)"""
         issue = {
@@ -200,7 +206,11 @@ class DataQualityChecker:
             self.logger.error(_format_error_msg("checking ID validity", item_type, e))
 
     def check_all_quality_issues_optimized(
-        self, df: pd.DataFrame, item_type: str, required_fields: list[str], critical_fields: list[str]
+        self,
+        df: pd.DataFrame,
+        item_type: str,
+        required_fields: list[str],
+        critical_fields: list[str],
     ):
         """
         Optimized single-pass validation combining all checks
@@ -219,7 +229,11 @@ class DataQualityChecker:
             local_issues: list[dict[str, str]] = []
 
             def _record_issue(
-                severity: str, category: str, item_name: str, description: str, details: str = ""
+                severity: str,
+                category: str,
+                item_name: str,
+                description: str,
+                details: str = "",
             ) -> None:
                 issue = self.add_issue(
                     severity=severity,
@@ -346,10 +360,16 @@ class DataQualityChecker:
 
             tasks = {
                 "metrics": lambda: self.check_all_quality_issues_optimized(
-                    metrics_df, "Metrics", metrics_required_fields, critical_fields
+                    metrics_df,
+                    "Metrics",
+                    metrics_required_fields,
+                    critical_fields,
                 ),
                 "dimensions": lambda: self.check_all_quality_issues_optimized(
-                    dimensions_df, "Dimensions", dimensions_required_fields, critical_fields
+                    dimensions_df,
+                    "Dimensions",
+                    dimensions_required_fields,
+                    critical_fields,
                 ),
             }
 
@@ -400,7 +420,7 @@ class DataQualityChecker:
                         "Item Name": ["N/A"],
                         "Issue": ["No data quality issues detected"],
                         "Details": ["All validation checks passed successfully"],
-                    }
+                    },
                 )
 
             df = pd.DataFrame(self.issues)
@@ -434,7 +454,7 @@ class DataQualityChecker:
                     "Item Name": ["N/A"],
                     "Issue": ["Error generating data quality report"],
                     "Details": [str(e)],
-                }
+                },
             )
 
     def log_summary(self):

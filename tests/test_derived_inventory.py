@@ -42,7 +42,7 @@ def sample_derived_field_definition():
                 "#rule_id": "rule-0",
                 "#rule_type": "caseWhen",
             },
-        ]
+        ],
     )
 
 
@@ -77,7 +77,7 @@ def sample_complex_derived_field():
                 }
                 for _ in range(25)  # Many branches
             ],
-        }
+        },
     )
 
     return json.dumps(functions)
@@ -102,7 +102,7 @@ def sample_marketing_channel_field():
                 "#rule_name": "Marketing Channel",
                 "#rule_type": "caseWhen",
             },
-        ]
+        ],
     )
 
 
@@ -122,7 +122,7 @@ def sample_lookup_field():
                 },
                 "source-field": "campaign_key",
             },
-        ]
+        ],
     )
 
 
@@ -135,7 +135,7 @@ def sample_math_only_field():
             {"func": "raw-field", "id": "cost", "label": "cost"},
             {"func": "subtract", "fields": ["rev", "cost"], "label": "profit"},
             {"func": "divide", "dividend": "profit", "divisor": "rev"},
-        ]
+        ],
     )
 
 
@@ -143,7 +143,7 @@ def sample_math_only_field():
 def sample_simple_lowercase_field():
     """Derived field that only does lowercase"""
     return json.dumps(
-        [{"func": "raw-field", "id": "pageName", "label": "page"}, {"func": "lowercase", "field": "page"}]
+        [{"func": "raw-field", "id": "pageName", "label": "page"}, {"func": "lowercase", "field": "page"}],
     )
 
 
@@ -179,7 +179,7 @@ def sample_metrics_df(sample_derived_field_definition, sample_math_only_field):
                 "fieldDefinition": pd.NA,
                 "dataSetType": "event",
             },
-        ]
+        ],
     )
 
 
@@ -224,7 +224,7 @@ def sample_dimensions_df(sample_marketing_channel_field, sample_lookup_field, sa
                 "fieldDefinition": pd.NA,
                 "dataSetType": "event",
             },
-        ]
+        ],
     )
 
 
@@ -282,8 +282,8 @@ class TestDerivedFieldInventoryBuilder:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_marketing_channel_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -303,8 +303,8 @@ class TestDerivedFieldInventoryBuilder:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_derived_field_definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -324,8 +324,8 @@ class TestDerivedFieldInventoryBuilder:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_marketing_channel_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -346,8 +346,8 @@ class TestDerivedFieldInventoryBuilder:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_lookup_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -366,8 +366,8 @@ class TestDerivedFieldInventoryBuilder:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_marketing_channel_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -463,8 +463,8 @@ class TestComplexityScore:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_simple_lowercase_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -483,8 +483,8 @@ class TestComplexityScore:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_complex_derived_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -510,8 +510,8 @@ class TestLogicSummary:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_marketing_channel_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -535,8 +535,8 @@ class TestLogicSummary:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_math_only_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -555,8 +555,8 @@ class TestLogicSummary:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_lookup_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -575,8 +575,8 @@ class TestLogicSummary:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_simple_lowercase_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -602,8 +602,8 @@ class TestInferredOutputType:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_math_only_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(df, pd.DataFrame(), "dv_test", "Test")
@@ -622,8 +622,8 @@ class TestInferredOutputType:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_marketing_channel_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -642,8 +642,8 @@ class TestInferredOutputType:
                     "sourceFieldType": "derived",
                     "fieldDefinition": sample_simple_lowercase_field,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         inventory = builder.build(pd.DataFrame(), df, "dv_test", "Test")
@@ -668,8 +668,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": [{"func": "raw-field", "id": "test", "label": "test"}],
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -687,8 +687,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": [],
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -707,8 +707,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": None,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -726,8 +726,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": "not valid json",
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -753,7 +753,7 @@ class TestEdgeCases:
                     "fieldDefinition": '[{"func": "raw-field", "id": "test"}]',
                     "dataSetType": "event",
                 },
-            ]
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -772,8 +772,8 @@ class TestEdgeCases:
                     "sourceFieldType": ["derived"],
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -791,8 +791,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": 123, "label": "num_field"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -818,7 +818,7 @@ class TestEdgeCases:
                         {"pred": {"func": "true"}, "map-to": "Other"},
                     ],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -828,8 +828,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -851,7 +851,7 @@ class TestEdgeCases:
                         {"pred": {"func": "true"}, "map-to": "Other"},
                     ],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -861,8 +861,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -882,7 +882,7 @@ class TestEdgeCases:
                     "component": {"func": "query", "param": "utm_campaign"},
                     "args": [{"func": "raw-field", "id": "web.webPageDetails.URL"}],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -892,8 +892,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -912,8 +912,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "x", "label": "field"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -930,7 +930,7 @@ class TestEdgeCases:
                     "component": "hostname",
                     "args": {"func": "raw-field", "id": "test"},
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -940,8 +940,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -963,7 +963,7 @@ class TestEdgeCases:
                         {"func": "raw-field", "id": "field_b"},
                     ],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -973,8 +973,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -994,7 +994,7 @@ class TestEdgeCases:
                     "replacement": 123,
                     "args": [{"func": "raw-field", "id": "field_a"}],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1004,8 +1004,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1025,7 +1025,7 @@ class TestEdgeCases:
                     "replacement": None,
                     "args": [{"func": "raw-field", "id": "field_a"}],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1035,8 +1035,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1061,10 +1061,10 @@ class TestEdgeCases:
                                 "preds": {"func": "eq", "field": "a", "value": "x"},
                             },
                             "map-to": "X",
-                        }
+                        },
                     ],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1074,8 +1074,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1095,7 +1095,7 @@ class TestEdgeCases:
                     "replacement": "bar",
                     "args": [{"func": "raw-field", "id": "field_a"}],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1105,8 +1105,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1133,8 +1133,8 @@ class TestEdgeCases:
                         },
                     ],
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1156,7 +1156,7 @@ class TestEdgeCases:
                         "dataset": {"id": 123},
                     },
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1166,8 +1166,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1186,7 +1186,7 @@ class TestEdgeCases:
                     "field": "a",
                     "branches": ["string_branch", 123, {"pred": {"func": "true"}, "map-to": "OK"}],
                 },
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1196,8 +1196,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1215,8 +1215,8 @@ class TestEdgeCases:
                     "sourceFieldType": "derived",
                     "fieldDefinition": {"ambiguous": True},
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1242,8 +1242,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1263,8 +1263,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1285,8 +1285,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1306,8 +1306,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1326,8 +1326,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1347,8 +1347,8 @@ class TestDescriptionExtraction:
                     "sourceFieldType": "derived",
                     "fieldDefinition": json.dumps([{"func": "raw-field", "id": "test", "label": "test"}]),
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1402,7 +1402,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "stringValue", "label": "input"},
                 {"func": "typecast", "field": "input", "type": "integer"},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1412,8 +1412,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1428,7 +1428,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "timestamp", "label": "ts"},
                 {"func": "datetime-bucket", "field": "ts", "bucket": "week"},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1438,8 +1438,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1454,7 +1454,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "timestamp", "label": "ts"},
                 {"func": "datetime-slice", "field": "ts", "component": "hour"},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1464,8 +1464,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1480,7 +1480,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "timestamp", "label": "ts"},
                 {"func": "timezone-shift", "field": "ts", "from": "UTC", "to": "America/New_York"},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1490,8 +1490,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1506,7 +1506,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "pageName", "label": "page"},
                 {"func": "find-replace", "field": "page", "find": "www.", "replace": ""},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1516,8 +1516,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1532,7 +1532,7 @@ class TestNewLogicSummaryHandlers:
             [
                 {"func": "raw-field", "id": "pagePath", "label": "path"},
                 {"func": "depth", "field": "path", "delimiter": "/"},
-            ]
+            ],
         )
         df = pd.DataFrame(
             [
@@ -1542,8 +1542,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
@@ -1564,8 +1564,8 @@ class TestNewLogicSummaryHandlers:
                     "sourceFieldType": "derived",
                     "fieldDefinition": definition,
                     "dataSetType": "event",
-                }
-            ]
+                },
+            ],
         )
 
         builder = DerivedFieldInventoryBuilder()
