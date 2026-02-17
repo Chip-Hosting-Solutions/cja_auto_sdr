@@ -3161,3 +3161,157 @@ class TestToJsonExtended:
         assert "metric_id" in metric_json
         assert "complexity_score" in metric_json
         assert "definition_json" in metric_json
+
+
+# ==================== Fallback Summary Coverage (lines 823-912) ====================
+# These tests use long metric names so _build_formula_expression produces
+# strings >80 chars, forcing the fallback paths in _generate_formula_summary.
+
+_LONG = "metrics/aaaa_bbbb_cccc_dddd_eeee_ffff_gggg_hhhh_iiii_jjjj_kkkk_llll_mmmm_nnnn_oooo_pppp_qqqq_rrrr"
+_LONG2 = "metrics/pppp_qqqq_rrrr_ssss_tttt_uuuu_vvvv_wwww_xxxx_yyyy_zzzz_aaaa_bbbb_cccc_dddd_eeee_ffff_gggg"
+
+
+class TestFormulaSummaryFallbacks:
+    """Force fallback summary paths by exceeding the 80-char expression limit."""
+
+    def setup_method(self):
+        self.builder = CalculatedMetricsInventoryBuilder()
+
+    def _summary(self, formula):
+        parsed = self.builder._parse_formula(formula)
+        return self.builder._generate_formula_summary(formula, parsed)
+
+    def test_multiply_fallback_with_names(self):
+        """Line 823: multiply fallback with resolved operand names."""
+        result = self._summary(
+            {
+                "func": "multiply",
+                "col1": {"func": "metric", "name": _LONG},
+                "col2": {"func": "metric", "name": _LONG2},
+            }
+        )
+        assert " x " in result
+
+    def test_add_fallback_few_operands(self):
+        """Lines 829-830: add fallback with <=3 operands."""
+        result = self._summary(
+            {
+                "func": "add",
+                "col1": {"func": "metric", "name": _LONG},
+                "col2": {"func": "metric", "name": _LONG2},
+            }
+        )
+        assert "+" in result
+
+    def test_add_fallback_many_operands(self):
+        """Line 831: add fallback with >3 operands truncates."""
+        result = self._summary(
+            {
+                "func": "add",
+                "operands": [
+                    {"func": "metric", "name": _LONG},
+                    {"func": "metric", "name": _LONG2},
+                    {"func": "metric", "name": "metrics/third_metric_name_long_enough"},
+                    {"func": "metric", "name": "metrics/fourth_metric_name_long_enough"},
+                ],
+            }
+        )
+        assert "more" in result
+
+    def test_subtract_fallback_with_names(self):
+        """Line 840: subtract fallback with resolved operand names."""
+        result = self._summary(
+            {
+                "func": "subtract",
+                "col1": {"func": "metric", "name": _LONG},
+                "col2": {"func": "metric", "name": _LONG2},
+            }
+        )
+        assert " - " in result
+
+    def test_if_fallback_with_condition(self):
+        """Line 846: if fallback with describable condition."""
+        result = self._summary(
+            {
+                "func": "if",
+                "condition": {
+                    "func": "gt",
+                    "col1": {"func": "metric", "name": _LONG},
+                    "col2": {"func": "number", "val": 100},
+                },
+                "then": {"func": "metric", "name": _LONG},
+                "else": {"func": "metric", "name": _LONG2},
+            }
+        )
+        assert "If" in result
+
+    def test_segment_fallback_with_metric_and_name(self):
+        """Line 854: segment fallback with inner metric AND segment name."""
+        result = self._summary(
+            {
+                "func": "segment",
+                "metric": {"func": "metric", "name": _LONG},
+                "segment_id": "s_my_segment",
+            }
+        )
+        assert "filtered" in result.lower()
+
+    def test_segment_fallback_with_metric_only(self):
+        """Line 856: segment fallback with inner metric but no segment name."""
+        result = self._summary(
+            {
+                "func": "segment",
+                "metric": {"func": "metric", "name": _LONG},
+            }
+        )
+        assert "filtered" in result.lower()
+
+    def test_metric_fallback_with_name(self):
+        """Line 862: metric func fallback with clean name."""
+        result = self._summary(
+            {
+                "func": "metric",
+                "name": _LONG,
+            }
+        )
+        assert "=" in result
+
+    def test_col_sum_fallback_with_inner(self):
+        """Line 869: col-sum fallback with resolved inner ref."""
+        result = self._summary(
+            {
+                "func": "col-sum",
+                "col": {"func": "metric", "name": _LONG},
+            }
+        )
+        assert "SUM" in result
+
+    def test_cumulative_fallback_with_inner(self):
+        """Line 879: cumulative fallback with resolved inner ref."""
+        result = self._summary(
+            {
+                "func": "cumulative",
+                "col": {"func": "metric", "name": _LONG},
+            }
+        )
+        assert "Cumulative" in result
+
+    def test_abs_fallback_with_inner(self):
+        """Line 905: abs fallback with resolved inner ref."""
+        result = self._summary(
+            {
+                "func": "abs",
+                "col": {"func": "metric", "name": _LONG},
+            }
+        )
+        assert "ABS" in result
+
+    def test_sqrt_fallback_with_inner(self):
+        """Line 912: sqrt fallback with resolved inner ref."""
+        result = self._summary(
+            {
+                "func": "sqrt",
+                "col": {"func": "metric", "name": _LONG},
+            }
+        )
+        assert "SQRT" in result

@@ -164,7 +164,7 @@ def _is_sensitive_field(name: str) -> bool:
         return True
 
     parts = [part for part in normalized.split("_") if part]
-    if not parts:
+    if not parts:  # pragma: no cover — unreachable; non-empty normalized always has parts
         return False
 
     if "password" in parts or "passwd" in parts or "pwd" in parts:

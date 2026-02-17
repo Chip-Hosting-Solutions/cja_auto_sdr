@@ -69,10 +69,23 @@ tests/
 ├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots)
 ├── test_profile_management.py      # Interactive profile creation, import, test, show
 ├── test_snapshot_commands.py        # Snapshot creation, comparison, name resolution
+├── test_config_and_resolution.py    # Config status, validation, stats, name resolution
+├── test_derived_fields_edge_cases.py  # Derived fields edge cases and coverage
+├── test_diff_command_coverage.py    # Diff command edge cases and coverage
+├── test_generator_interactive_and_console.py  # Generator interactive and console tests
+├── test_generator_remaining_coverage.py  # Generator remaining coverage edge cases
+├── test_interactive_discovery_coverage.py  # Interactive discovery and helpers coverage
+├── test_lock_backends.py            # Lock backends edge cases and coverage
+├── test_main_impl_cli_coverage.py   # _main_impl CLI path coverage
+├── test_main_impl_coverage.py       # _main_impl coverage edge cases
+├── test_near_100_coverage.py        # Near-100% coverage gap tests
+├── test_org_cache_branches.py       # Org cache branch coverage
+├── test_org_writer_coverage.py      # Org writer edge cases and coverage
+├── test_output_writer_coverage.py   # Output writer edge cases and coverage
 └── README.md                        # This file
 ```
 
-**Total: 3,936 comprehensive tests**
+**Total: 4,585 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -88,7 +101,7 @@ tests/
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 48 | Segments inventory feature |
 | `test_edge_cases.py` | 39 | Edge cases, configuration dataclasses, custom exceptions |
-| `test_calculated_metrics_inventory.py` | 273 | Calculated metrics inventory feature |
+| `test_calculated_metrics_inventory.py` | 285 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
 | `test_cja_initialization.py` | 35 | CJA connection and configuration validation |
@@ -128,19 +141,32 @@ tests/
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
-| `test_lock_backend_edge_cases.py` | 139 | Lock backend metadata I/O, stale detection, legacy parsing |
+| `test_lock_backend_edge_cases.py` | 164 | Lock backend metadata I/O, stale detection, legacy parsing |
 | `test_derived_fields_coverage.py` | 161 | Derived field complexity scoring, logic summary, predicates |
-| `test_org_analyzer_coverage.py` | 136 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
+| `test_org_analyzer_coverage.py` | 146 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
 | `test_api_coverage.py` | 94 | API cache, quality, fetch, resilience exception paths |
 | `test_diff_coverage.py` | 61 | Diff comparator, models, git integration edge cases |
 | `test_generator_coverage.py` | 143 | Generator utility functions — coercion, normalization, diff formatting |
-| `test_segments_coverage.py` | 73 | Segment comparison operators, container types, sequence variants |
+| `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
 | `test_cli_command_handlers.py` | 69 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 56 | Snapshot creation, comparison, name resolution |
-| **Total** | **3,936** | **Collected via pytest --collect-only** |
+| `test_config_and_resolution.py` | 69 | Config status, validation, stats, name resolution |
+| `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
+| `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
+| `test_generator_interactive_and_console.py` | 21 | Generator interactive and console tests |
+| `test_generator_remaining_coverage.py` | 81 | Generator remaining coverage edge cases |
+| `test_interactive_discovery_coverage.py` | 106 | Interactive discovery and helpers coverage |
+| `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
+| `test_main_impl_cli_coverage.py` | 84 | _main_impl CLI path coverage |
+| `test_main_impl_coverage.py` | 49 | _main_impl coverage edge cases |
+| `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
+| `test_org_cache_branches.py` | 15 | Org cache branch coverage |
+| `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
+| `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
+| **Total** | **4,585** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -544,14 +570,14 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (3,936 tests total)
+- [x] Comprehensive test coverage (4,585 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
-- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 273 tests
+- [x] Calculated metrics inventory tests (test_calculated_metrics_inventory.py) - 285 tests
 - [x] Segments inventory tests (test_segments_inventory.py) - 48 tests
 - [x] Derived fields inventory tests (test_derived_inventory.py) - 62 tests
 - [x] Inventory utilities tests (test_inventory_utils.py) - 47 tests

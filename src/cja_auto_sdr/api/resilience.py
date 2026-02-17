@@ -777,7 +777,7 @@ def retry_with_backoff(
                         elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
                             error_msg = ErrorMessageHelper.get_network_error_message(e, operation=func.__name__)
                             _logger.error("\n" + error_msg)
-                        else:
+                        else:  # pragma: no cover — RETRYABLE_EXCEPTIONS exhausted above
                             _logger.error(f"Error: {e!s}")
                             _logger.error(
                                 "Troubleshooting: Check network connectivity, verify API credentials, or try again later",
@@ -803,7 +803,7 @@ def retry_with_backoff(
 
             # Defensive guard: should be unreachable since the last attempt
             # always returns or raises, but protects against implicit None.
-            raise RuntimeError(f"Retry loop exited unexpectedly for {func.__name__}")
+            raise RuntimeError(f"Retry loop exited unexpectedly for {func.__name__}")  # pragma: no cover
 
         return wrapper
 
@@ -904,7 +904,7 @@ def make_api_call_with_retry[T](
                 elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
                     error_msg = ErrorMessageHelper.get_network_error_message(e, operation=operation_name)
                     _logger.error("\n" + error_msg)
-                else:
+                else:  # pragma: no cover — RETRYABLE_EXCEPTIONS exhausted above
                     _logger.error(f"Error: {e!s}")
                     _logger.error(
                         "Troubleshooting: Check network connectivity, verify API credentials, or try again later",
@@ -931,6 +931,6 @@ def make_api_call_with_retry[T](
                 circuit_breaker.record_failure(e)
             raise
 
-    if last_exception:
+    if last_exception:  # pragma: no cover — unreachable; loop always returns or raises
         raise last_exception
-    raise RuntimeError(f"Retry loop exited unexpectedly for {operation_name}")
+    raise RuntimeError(f"Retry loop exited unexpectedly for {operation_name}")  # pragma: no cover
