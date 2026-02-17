@@ -17,15 +17,12 @@ Covers:
 
 import json
 import logging
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, ".")
-
-from cja_auto_sdr.generator import (  # noqa: I001
+from cja_auto_sdr.generator import (
     _render_distribution_bar,
     build_org_report_json_data,
     compare_org_reports,
@@ -49,7 +46,6 @@ from cja_auto_sdr.org.models import (
     OrgReportResult,
     SimilarityPair,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -22,15 +22,11 @@ Targets uncovered line ranges:
 import argparse
 import json
 import logging
-import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.core.config import APITuningConfig, CircuitBreakerConfig
 from cja_auto_sdr.core.exceptions import OutputError, ProfileConfigError, ProfileNotFoundError
