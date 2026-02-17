@@ -1667,7 +1667,7 @@ class TestMainImplDiffLabels:
     def test_diff_labels_parsed_as_tuple(self, mock_diff, mock_resolve):
         """--diff-labels should be parsed and passed as tuple."""
         mock_diff.return_value = (True, False, None)
-        mock_resolve.return_value = (["dv_a"], {})
+        mock_resolve.side_effect = [(["dv_a"], {}), (["dv_b"], {})]
 
         with pytest.raises(SystemExit):
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
@@ -1675,5 +1675,6 @@ class TestMainImplDiffLabels:
                 mock_pa.return_value = args
                 _main_impl()
 
-        # Labels should have been passed through
-        assert mock_diff.called
+        # Labels should have been parsed as a tuple and passed through
+        mock_diff.assert_called_once()
+        assert mock_diff.call_args[1]["labels"] == ("Before", "After")
