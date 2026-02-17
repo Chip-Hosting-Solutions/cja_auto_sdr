@@ -1428,3 +1428,530 @@ class TestLeaseReleaseEdgeCases:
         assert handle.closed is True
         # File should still exist since we took the early-return path
         assert lock_file.exists()
+
+    def test_release_ownership_changed_returns_early(self, tmp_path: Path) -> None:
+        """Line 805: lock_info.lock_id != handle.lock_id -> early return."""
+        from cja_auto_sdr.core.locks.backends import _LeaseLockHandle
+
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        fd = os.open(str(lock_file), os.O_RDWR)
+        # Write metadata for a DIFFERENT lock_id
+        other_info = _build_lock_info("other-owner")
+        _write_info_path(_metadata_path(lock_file), other_info)
+
+        handle = _LeaseLockHandle(lock_path=lock_file, fd=fd, lock_id="my-id", closed=False)
+        backend = LeaseFileLockBackend()
+        backend.release(handle)
+        assert handle.closed is True
+        # File should still exist because ownership check returned early
+        assert lock_file.exists()
+
+    def test_release_unlink_fails_writes_tombstone(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 813-815: when all unlink attempts fail, writes stale tombstone."""
+        from cja_auto_sdr.core.locks.backends import _LeaseLockHandle
+
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        fd = os.open(str(lock_file), os.O_RDWR)
+        # Write metadata for our lock_id so ownership check passes
+        our_info = _build_lock_info("our-lock-id")
+        _write_info_path(_metadata_path(lock_file), our_info)
+
+        handle = _LeaseLockHandle(lock_path=lock_file, fd=fd, lock_id="our-lock-id", closed=False)
+        backend = LeaseFileLockBackend()
+        backend.release_unlink_attempts = 2
+        backend.release_unlink_retry_sleep_seconds = 0.001
+
+        # Make _safe_unlink_if_inode always fail
+        monkeypatch.setattr(backend, "_safe_unlink_if_inode", lambda *a: False)
+        backend.release(handle)
+        assert handle.closed is True
+        # Should have written tombstone metadata
+        meta = _read_info_path(_metadata_path(lock_file))
+        assert meta is not None
+        assert meta.pid == -1
+        assert meta.host == "released"
+
+
+# ---------------------------------------------------------------------------
+# 33. _safe_unlink_sidecar_if_owned() - inode races (lines 869, 871)
+# ---------------------------------------------------------------------------
+
+
+class TestSafeUnlinkSidecarIfOwnedRaces:
+    def test_inode_after_is_none_returns_true(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 869: metadata file disappears between reads -> True."""
+        lock_file = tmp_path / "lock"
+        metadata = _metadata_path(lock_file)
+        metadata.parent.mkdir(parents=True, exist_ok=True)
+        info = _build_lock_info("my-id")
+        _write_info_path(metadata, info)
+        real_inode = metadata.stat()
+        inode = (real_inode.st_dev, real_inode.st_ino)
+
+        backend = LeaseFileLockBackend()
+        call_count = {"n": 0}
+
+        def _stat_inode_vanish(path: Path) -> tuple[int, int] | None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return inode  # First call: inode_before
+            return None  # Second call: inode_after (file gone)
+
+        monkeypatch.setattr(backend, "_stat_inode", _stat_inode_vanish)
+        result = backend._safe_unlink_sidecar_if_owned(lock_file, expected_lock_id="my-id")
+        assert result is True
+
+    def test_inode_changed_returns_false(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 871: inode changed between reads -> False."""
+        lock_file = tmp_path / "lock"
+        metadata = _metadata_path(lock_file)
+        metadata.parent.mkdir(parents=True, exist_ok=True)
+        info = _build_lock_info("my-id")
+        _write_info_path(metadata, info)
+
+        backend = LeaseFileLockBackend()
+        call_count = {"n": 0}
+
+        def _stat_inode_change(path: Path) -> tuple[int, int] | None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return (1, 100)  # inode_before
+            return (1, 999)  # inode_after (different)
+
+        monkeypatch.setattr(backend, "_stat_inode", _stat_inode_change)
+        result = backend._safe_unlink_sidecar_if_owned(lock_file, expected_lock_id="my-id")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# 34. _write_stale_tombstone() - inode changed (line 894)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteStaleTombstoneInodeChanged:
+    def test_inode_changed_skips_write(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 894: current_inode != held_inode -> return early."""
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        backend = LeaseFileLockBackend()
+        # _stat_inode returns different inode from what we claim is held
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: (1, 999))
+        # Should not write metadata (held_inode doesn't match)
+        backend._write_stale_tombstone(lock_file, "lock-id", (1, 100))
+        # No metadata written
+        assert not _metadata_path(lock_file).exists()
+
+
+# ---------------------------------------------------------------------------
+# 35. FcntlFileLockBackend.acquire() dispatch (lines 442-446)
+# ---------------------------------------------------------------------------
+
+
+class TestFcntlAcquireDispatch:
+    def test_backend_unavailable_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 442-443: BACKEND_UNAVAILABLE with error -> raises."""
+        from cja_auto_sdr.core.locks.backends import (
+            AcquireResult,
+            AcquireStatus,
+            LockBackendUnavailableError,
+        )
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        err = LockBackendUnavailableError("flock unsupported")
+        monkeypatch.setattr(
+            backend,
+            "acquire_result",
+            lambda *a, **kw: AcquireResult(status=AcquireStatus.BACKEND_UNAVAILABLE, error=err),
+        )
+        with pytest.raises(LockBackendUnavailableError, match="flock unsupported"):
+            backend.acquire(tmp_path / "lock", 10)
+
+    def test_metadata_error_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 444-445: METADATA_ERROR with error -> raises."""
+        from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        err = OSError(errno.EIO, "disk error")
+        monkeypatch.setattr(
+            backend,
+            "acquire_result",
+            lambda *a, **kw: AcquireResult(status=AcquireStatus.METADATA_ERROR, error=err),
+        )
+        with pytest.raises(OSError, match="disk error"):
+            backend.acquire(tmp_path / "lock", 10)
+
+    def test_contended_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 446: CONTENDED without error -> returns None."""
+        from cja_auto_sdr.core.locks.backends import AcquireResult, AcquireStatus
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        monkeypatch.setattr(
+            backend,
+            "acquire_result",
+            lambda *a, **kw: AcquireResult(status=AcquireStatus.CONTENDED),
+        )
+        result = backend.acquire(tmp_path / "lock", 10)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 36. FcntlFileLockBackend.acquire_result() - inode mismatch paths
+#     (lines 479-480, 521-522, 529)
+# ---------------------------------------------------------------------------
+
+
+class TestFcntlAcquireResultInodePaths:
+    def test_fd_mismatch_after_lock_continues_then_exhausts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lines 479-480, 529: _fd_matches_path always False -> loop exhaustion."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        backend.acquire_attempts = 2
+        lock_file = tmp_path / "lock"
+
+        monkeypatch.setattr(FcntlFileLockBackend, "_fd_matches_path", staticmethod(lambda fd, path: False))
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_fd_mismatch_after_metadata_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lines 521-522: _fd_matches_path True first, then False after metadata."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        # Pre-create the lock file so it's opened as existing (not exclusively)
+        lock_file.write_text("x", encoding="utf-8")
+
+        call_count = {"n": 0}
+
+        def _fd_matches_selective(fd: int, path: Path) -> bool:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return True  # First check passes (line 478)
+            return False  # Second check fails (line 520)
+
+        monkeypatch.setattr(FcntlFileLockBackend, "_fd_matches_path", staticmethod(_fd_matches_selective))
+        # Return valid fcntl-backend info so metadata section passes through
+        # (backend == self.name skips the mixed-backend guard)
+        fcntl_info = _build_lock_info("test-id", backend="fcntl")
+        monkeypatch.setattr(
+            backend, "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=fcntl_info, state="valid", source_path=_metadata_path(lock_file)),
+        )
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+
+# ---------------------------------------------------------------------------
+# 37. FcntlFileLockBackend.acquire_result() - backward-compat + unreadable
+#     (line 489) and fresh unreadable metadata (lines 515-516)
+# ---------------------------------------------------------------------------
+
+
+class TestFcntlAcquireResultMetadataPaths:
+    def test_backward_compat_tuple_unreadable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Line 489: _read_info_with_retries returns tuple (None, True) -> unreadable."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+
+        # Mock _read_info_with_retries to return legacy tuple format
+        monkeypatch.setattr(backend, "_read_info_with_retries", lambda path: (None, True))
+        # Make the unreadable path fresh (not stale) so lines 515-516 trigger
+        monkeypatch.setattr(backends_module, "_is_path_stale_by_mtime", lambda path, threshold: False)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_unreadable_metadata_not_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lines 515-516: unreadable metadata with fresh mtime -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+        backend = FcntlFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+
+        monkeypatch.setattr(
+            backend,
+            "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=None, state="unreadable", source_path=_metadata_path(lock_file)),
+        )
+        monkeypatch.setattr(backends_module, "_is_path_stale_by_mtime", lambda path, threshold: False)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+
+# ---------------------------------------------------------------------------
+# 38. _open_lock_file() race conditions (lines 541-548)
+# ---------------------------------------------------------------------------
+
+
+class TestOpenLockFileRaces:
+    def test_file_not_found_after_file_exists(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 541-543: FileExistsError then FileNotFoundError -> retry loop."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+
+        call_count = {"n": 0}
+        original_open = os.open
+
+        def _racing_open(path: str, flags: int, *args: int) -> int:
+            call_count["n"] += 1
+            if call_count["n"] <= 3:
+                raise FileExistsError("already exists")
+            if call_count["n"] <= 6:
+                raise FileNotFoundError("just gone")
+            return original_open(path, flags, *args)
+
+        lock_file = tmp_path / "lock"
+        monkeypatch.setattr(os, "open", _racing_open)
+        # All 3 iterations: first O_EXCL -> FileExistsError, then O_RDWR -> FileNotFoundError
+        result = FcntlFileLockBackend._open_lock_file(lock_file)
+        assert result == (None, False)
+
+    def test_oserror_after_file_exists(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 544-545: FileExistsError then OSError on O_RDWR open -> (None, False)."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+
+        call_count = {"n": 0}
+
+        def _failing_open(path: str, flags: int, *args: int) -> int:
+            call_count["n"] += 1
+            if flags & os.O_EXCL:
+                raise FileExistsError("exists")
+            raise OSError(errno.EACCES, "permission denied")
+
+        monkeypatch.setattr(os, "open", _failing_open)
+        result = FcntlFileLockBackend._open_lock_file(tmp_path / "lock")
+        assert result == (None, False)
+
+    def test_oserror_on_exclusive_create(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 546-547: OSError (not FileExistsError) on O_CREAT|O_EXCL -> (None, False)."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+
+        def _failing_open(path: str, flags: int, *args: int) -> int:
+            raise OSError(errno.EACCES, "permission denied")
+
+        monkeypatch.setattr(os, "open", _failing_open)
+        result = FcntlFileLockBackend._open_lock_file(tmp_path / "lock")
+        assert result == (None, False)
+
+    def test_loop_exhaustion_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 548: all 3 iterations FileExistsError then FileNotFoundError."""
+        if backends_module.fcntl is None:
+            pytest.skip("fcntl not available")
+
+        def _always_race(path: str, flags: int, *args: int) -> int:
+            if flags & os.O_EXCL:
+                raise FileExistsError("exists")
+            raise FileNotFoundError("gone")
+
+        monkeypatch.setattr(os, "open", _always_race)
+        result = FcntlFileLockBackend._open_lock_file(tmp_path / "lock")
+        assert result == (None, False)
+
+
+# ---------------------------------------------------------------------------
+# 39. LeaseFileLockBackend.acquire_result() - bootstrap + contention paths
+#     (lines 675-680, 684-687, 695, 705, 715, 732, 735, 740-743)
+# ---------------------------------------------------------------------------
+
+
+class TestLeaseAcquireResultEdgeCases:
+    def test_bootstrap_write_oserror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 675-680: OSError during _write_lock_marker_fd -> METADATA_ERROR."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+
+        def _fail_write(fd: int, lock_id: str) -> None:
+            raise OSError(errno.EIO, "disk error")
+
+        monkeypatch.setattr(backend, "_write_lock_marker_fd", _fail_write)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.METADATA_ERROR
+        assert result.error is not None
+
+    def test_inode_mismatch_after_bootstrap(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 684-687: held_inode != current_inode after bootstrap -> continue."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+
+        # Make _fstat_inode return mismatched value
+        monkeypatch.setattr(backend, "_fstat_inode", lambda fd: (1, 100))
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: (1, 999))
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_path_inode_none_continues(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 695: path_inode is None in FileExistsError handler -> continue."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+
+        # Make _stat_inode return None (file gone during check)
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: None)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_stale_but_cant_unlink(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 705: stale lock but _safe_unlink_if_inode fails -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        st = lock_file.stat()
+        real_inode = (st.st_dev, st.st_ino)
+
+        stale_info = _build_lock_info("stale-id", pid=2**30, host="remote-box",
+                                      started_at="2000-01-01T00:00:00+00:00",
+                                      updated_at="2000-01-01T00:00:00+00:00")
+        monkeypatch.setattr(
+            backend, "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=stale_info, state="valid", source_path=_metadata_path(lock_file)),
+        )
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
+        monkeypatch.setattr(backend, "_safe_unlink_if_inode", lambda path, inode: False)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_fcntl_lock_active_returns_contended(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 715: _is_fcntl_lock_active returns True -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        st = lock_file.stat()
+        real_inode = (st.st_dev, st.st_ino)
+
+        monkeypatch.setattr(
+            backend, "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=None, state="unreadable", source_path=None),
+        )
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: True)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_fresh_unreadable_metadata_returns_contended(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Line 732: unreadable metadata with fresh mtime -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        st = lock_file.stat()
+        real_inode = (st.st_dev, st.st_ino)
+
+        meta_path = _metadata_path(lock_file)
+        monkeypatch.setattr(
+            backend, "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=None, state="unreadable", source_path=meta_path),
+        )
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: False)
+        monkeypatch.setattr(backends_module, "_is_path_stale_by_mtime", lambda path, threshold: False)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_cant_unlink_after_missing_metadata(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Line 735: can't unlink lock after stale missing metadata -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus, _ReadInfoOutcome
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+        lock_file.write_text("x", encoding="utf-8")
+        st = lock_file.stat()
+        real_inode = (st.st_dev, st.st_ino)
+
+        monkeypatch.setattr(
+            backend, "_read_info_with_retries",
+            lambda path: _ReadInfoOutcome(info=None, state="missing", source_path=None),
+        )
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: real_inode)
+        monkeypatch.setattr(backends_module, "_is_missing_metadata_stale", lambda path, threshold: True)
+        monkeypatch.setattr(backends_module, "_is_fcntl_lock_active", lambda path: False)
+        monkeypatch.setattr(backend, "_safe_unlink_if_inode", lambda path, inode: False)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED
+
+    def test_oserror_in_acquire_loop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lines 740-741: unexpected OSError in acquire loop -> METADATA_ERROR."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 1
+        lock_file = tmp_path / "lock"
+
+        original_open = os.open
+
+        def _fail_open(path: str, flags: int, *args: int) -> int:
+            if str(lock_file) in path:
+                raise OSError(errno.EACCES, "permission denied")
+            return original_open(path, flags, *args)
+
+        monkeypatch.setattr(os, "open", _fail_open)
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.METADATA_ERROR
+
+    def test_loop_exhaustion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Line 743: all acquire_attempts exhausted -> CONTENDED."""
+        from cja_auto_sdr.core.locks.backends import AcquireStatus
+
+        backend = LeaseFileLockBackend()
+        backend.acquire_attempts = 2
+        lock_file = tmp_path / "lock"
+
+        # Make bootstrap succeed but inode always mismatch -> continue on each attempt
+        monkeypatch.setattr(backend, "_fstat_inode", lambda fd: (1, 100))
+        monkeypatch.setattr(backend, "_stat_inode", lambda path: (1, 999))
+        result = backend.acquire_result(lock_file, 10)
+        assert result.status == AcquireStatus.CONTENDED

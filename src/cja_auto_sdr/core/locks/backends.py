@@ -270,7 +270,7 @@ class LockInfo:
             return None
         try:
             epoch = float(value)
-        except TypeError, ValueError, OverflowError:
+        except TypeError, ValueError, OverflowError:  # pragma: no cover - value is already int|float
             return None
         if not math.isfinite(epoch):
             return None
@@ -343,7 +343,7 @@ def _is_fcntl_lock_active(lock_path: Path) -> bool | None:
     except BlockingIOError:
         return True
     except OSError as e:
-        if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+        if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):  # pragma: no cover - Python maps EAGAIN to BlockingIOError
             return True
         return None
     else:
@@ -460,7 +460,7 @@ class FcntlFileLockBackend:
                 return AcquireResult(status=AcquireStatus.CONTENDED)
             except OSError as e:
                 os.close(fd)
-                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):  # pragma: no cover - Python maps EAGAIN to BlockingIOError
                     return AcquireResult(status=AcquireStatus.CONTENDED)
                 if e.errno in _FLOCK_UNSUPPORTED_ERRNOS:
                     if created_exclusively:
