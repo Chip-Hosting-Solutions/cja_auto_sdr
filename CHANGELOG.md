@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.3.0] - 2026-02-17
 
 ### Added
-- **Coverage push to 99%**: Added ~650 tests across 7 new test files covering
+- **Coverage push to 99%**: Added ~650 tests across 13 new test files covering
   generator.py edge cases, diff commands, org writers, interactive discovery,
   CLI paths, and remaining uncovered lines
 - **CI coverage threshold**: Raised `--cov-fail-under` from 90% → 95%
