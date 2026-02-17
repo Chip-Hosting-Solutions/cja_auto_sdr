@@ -5673,7 +5673,7 @@ def process_single_dataview(
             logger.info("Metadata created successfully")
         except Exception as e:
             logger.error(_format_error_msg("creating metadata", error=e))
-            metadata_df = pd.DataFrame({"Error": ["Failed to create metadata"]})
+            metadata_df = pd.DataFrame({"Property": ["Error"], "Value": ["Failed to create metadata"]})
 
         # Function to format JSON cells
         def format_json_cell(value):
