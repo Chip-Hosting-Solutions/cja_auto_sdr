@@ -1029,3 +1029,106 @@ class TestSegmentDescribeDefinitionContainerKey:
         }
         result = _describe(defn)
         assert "page" in result and "Home" in result
+
+
+# ==================== GROUP 7: Forced Fallback Summaries (lines 797-799, 804, 807, 824) ====================
+
+
+def _deeply_nested_and(*leaf_nodes):
+    """Wrap leaf nodes in 4 levels of AND to exceed _describe_definition max_depth=3."""
+    return {
+        "func": "and",
+        "preds": [
+            {"func": "and", "preds": [
+                {"func": "and", "preds": [
+                    {"func": "and", "preds": list(leaf_nodes)},
+                ]},
+            ]},
+        ],
+    }
+
+
+class TestForcedFallbackSummaries:
+    """Force fallback paths by making _describe_definition return empty.
+
+    The key: nest predicates 4+ levels deep so _describe_definition
+    exhausts max_depth=3 and returns ''. The parse traversal has no depth
+    limit, so it still finds refs and predicates.
+    """
+
+    def test_sequence_with_dimension_refs_fallback(self):
+        """Line 797-798: sequence + dimension refs -> 'X with sequential dim conditions'."""
+        # Use preds instead of checkpoints so _describe_definition returns ''
+        definition = {
+            "func": "container",
+            "context": "visits",
+            "pred": {
+                "func": "sequence",
+                "preds": [
+                    {"func": "eq", "dimension": "variables/page", "val": "A"},
+                    {"func": "eq", "dimension": "variables/page", "val": "B"},
+                ],
+            },
+        }
+        summary = _summary_for(definition)
+        assert "sequential" in summary.lower()
+        assert "page" in summary.lower()
+
+    def test_sequence_without_dimension_refs_fallback(self):
+        """Line 799: sequence + no dimension refs -> 'X with sequential conditions'."""
+        definition = {
+            "func": "container",
+            "context": "visits",
+            "pred": {
+                "func": "sequence",
+                "preds": [
+                    {"func": "gt", "metric": "metrics/revenue", "val": 100},
+                    {"func": "gt", "metric": "metrics/revenue", "val": 200},
+                ],
+            },
+        }
+        summary = _summary_for(definition)
+        assert "sequential conditions" in summary.lower()
+
+    def test_exclude_without_dimension_refs_fallback(self):
+        """Line 804: exclude + no dimension refs -> 'X with exclusion logic'."""
+        # Exclude with empty container so _describe_definition returns '' for the exclude
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "pred": {
+                "func": "exclude",
+                "container": {},
+            },
+        }
+        summary = _summary_for(definition)
+        assert "exclusion" in summary.lower()
+
+    def test_both_dimension_and_metric_refs_fallback(self):
+        """Line 807: both dim+metric refs -> 'X where dim meets criteria with metric'."""
+        # Nest ALL predicates deeply so _describe_definition returns ''
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "pred": _deeply_nested_and(
+                {"func": "eq", "dimension": "variables/pagename", "val": "Home"},
+                {"func": "gt", "metric": "metrics/revenue", "val": 100},
+            ),
+        }
+        summary = _summary_for(definition)
+        assert "pagename" in summary
+        assert "revenue" in summary
+
+    def test_predicate_only_no_logic_operators_fallback(self):
+        """Line 824: predicates + no logic ops -> 'X with N conditions'."""
+        # A single predicate with no dimension/metric attribute (so no refs extracted)
+        # but the func IS a predicate type, so predicate_count > 0.
+        # No logic operators (AND/OR/NOT) anywhere in the tree.
+        # _describe_definition returns '' since eq without field_name fails.
+        definition = {
+            "func": "container",
+            "context": "hits",
+            "pred": {"func": "eq", "val": "foo"},  # eq without dimension -> no refs
+        }
+        summary = _summary_for(definition)
+        assert "condition" in summary.lower()
