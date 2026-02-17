@@ -179,8 +179,16 @@ def _configure_standard_mocks(
 
 
 def _mock_call_contains(mock_method: Mock, text: str) -> bool:
-    """Return True when any logged call contains the given text fragment."""
-    return any(call.args and text in str(call.args[0]) for call in mock_method.call_args_list)
+    """Return True when any logged call contains the given text fragment.
+
+    Raises:
+        AssertionError: When no call contains the expected text. This includes
+            the observed call args list to make failures easier to debug.
+    """
+    matched = any(call.args and text in str(call.args[0]) for call in mock_method.call_args_list)
+    if not matched:
+        raise AssertionError(f"Expected {text!r} in {mock_method.call_args_list!r}")
+    return True
 
 
 # ============================================================================
@@ -1380,8 +1388,12 @@ class TestProcessSingleDataviewTimingsAndSummary:
         )
         assert result.success is True
         captured = capsys.readouterr()
-        # Performance summary should appear in stdout
+        # show_timings should print a valid perf summary string
         assert captured.out.strip() != ""
+        assert "Traceback" not in captured.out
+        assert any(
+            marker in captured.out for marker in ("PERFORMANCE SUMMARY", "No performance metrics collected")
+        )
 
 
 # ============================================================================

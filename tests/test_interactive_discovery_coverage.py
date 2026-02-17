@@ -26,13 +26,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.generator import (
     _apply_discovery_filters_and_sort,
@@ -252,11 +249,13 @@ class TestToNumericSortValue:
     def test_string_value_error_unreachable_line_8569_8570(self):
         """Lines 8569-8570: float() ValueError after regex match.
         The regex should prevent this, but we cover the except block anyway.
-        We mock float to raise ValueError for a string that passes regex."""
-        with patch("cja_auto_sdr.generator.float", side_effect=ValueError("bad")):
-            # The regex check happens before float(), so we can't directly
-            # trigger this path without monkeypatching. Skip if needed.
-            pass
+        We patch the regex guard to force a non-numeric string into float()."""
+        with patch("cja_auto_sdr.generator._NUMERIC_SORT_VALUE_RE") as mock_re:
+            mock_re.fullmatch.return_value = True
+            result = _to_numeric_sort_value("not-a-number")
+
+        assert result is None
+        mock_re.fullmatch.assert_called_once_with("not-a-number")
 
 
 # ===========================================================================
