@@ -1,0 +1,1592 @@
+"""
+Tests targeting uncovered lines in org report writers, comparison, and batch processing functions.
+
+Covers:
+- compare_org_reports() backward-compat parsing (old JSON format)
+- write_org_report_console() scattered branches
+- write_org_report_stats_only()
+- write_org_report_comparison_console()
+- write_org_report_json()
+- write_org_report_excel()
+- write_org_report_markdown() ellipsis rows for >20 components
+- write_org_report_html()
+- write_org_report_csv()
+- run_org_report() comparison/stats-only dispatch
+- _main_impl workers validation and org-report dispatch
+"""
+
+import json
+import logging
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, ".")
+
+from cja_auto_sdr.generator import (  # noqa: I001
+    _render_distribution_bar,
+    build_org_report_json_data,
+    compare_org_reports,
+    run_org_report,
+    write_org_report_comparison_console,
+    write_org_report_console,
+    write_org_report_csv,
+    write_org_report_excel,
+    write_org_report_html,
+    write_org_report_json,
+    write_org_report_markdown,
+    write_org_report_stats_only,
+)
+from cja_auto_sdr.org.models import (
+    ComponentDistribution,
+    ComponentInfo,
+    DataViewCluster,
+    DataViewSummary,
+    OrgReportComparison,
+    OrgReportConfig,
+    OrgReportResult,
+    SimilarityPair,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_component_info(comp_id, comp_type="metric", name=None, data_views=None):
+    """Build a ComponentInfo with the given fields."""
+    info = ComponentInfo(component_id=comp_id, component_type=comp_type, name=name)
+    info.data_views = set(data_views or [])
+    return info
+
+
+def _make_data_view_summary(dv_id, dv_name, metric_count=5, dimension_count=3, error=None):
+    """Build a minimal DataViewSummary."""
+    return DataViewSummary(
+        data_view_id=dv_id,
+        data_view_name=dv_name,
+        metric_ids={f"m_{dv_id}_{i}" for i in range(metric_count)},
+        dimension_ids={f"d_{dv_id}_{i}" for i in range(dimension_count)},
+        metric_count=metric_count,
+        dimension_count=dimension_count,
+        standard_metric_count=metric_count - 1,
+        derived_metric_count=1,
+        standard_dimension_count=dimension_count - 1,
+        derived_dimension_count=1,
+        error=error,
+    )
+
+
+def _make_similarity_pair(dv1_id, dv1_name, dv2_id, dv2_name, similarity=0.85):
+    """Build a SimilarityPair."""
+    return SimilarityPair(
+        dv1_id=dv1_id,
+        dv1_name=dv1_name,
+        dv2_id=dv2_id,
+        dv2_name=dv2_name,
+        jaccard_similarity=similarity,
+        shared_count=10,
+        union_count=12,
+    )
+
+
+def _make_org_result(
+    num_dvs=3,
+    num_core_metrics=2,
+    num_core_dims=2,
+    num_isolated_metrics=1,
+    num_isolated_dims=1,
+    include_names=False,
+    include_similarity=True,
+    include_clusters=False,
+    include_recommendations=True,
+    include_governance_violations=False,
+    include_owner_summary=False,
+    include_naming_audit=False,
+    include_stale=False,
+    is_sampled=False,
+    config_overrides=None,
+):
+    """Build a complete OrgReportResult suitable for testing all writers."""
+    config = OrgReportConfig(**(config_overrides or {}))
+
+    dv_summaries = [_make_data_view_summary(f"dv_{i:03d}", f"Data View {i}") for i in range(1, num_dvs + 1)]
+
+    # Build component index
+    component_index = {}
+    core_metrics = []
+    core_dimensions = []
+    isolated_metrics = []
+    isolated_dimensions = []
+
+    for i in range(num_core_metrics):
+        cid = f"core_metric_{i}"
+        name = f"Core Metric {i}" if include_names else None
+        component_index[cid] = _make_component_info(
+            cid, "metric", name=name, data_views=[f"dv_{j:03d}" for j in range(1, num_dvs + 1)]
+        )
+        core_metrics.append(cid)
+
+    for i in range(num_core_dims):
+        cid = f"core_dim_{i}"
+        name = f"Core Dimension {i}" if include_names else None
+        component_index[cid] = _make_component_info(
+            cid, "dimension", name=name, data_views=[f"dv_{j:03d}" for j in range(1, num_dvs + 1)]
+        )
+        core_dimensions.append(cid)
+
+    for i in range(num_isolated_metrics):
+        cid = f"isolated_metric_{i}"
+        component_index[cid] = _make_component_info(cid, "metric", data_views=["dv_001"])
+        isolated_metrics.append(cid)
+
+    for i in range(num_isolated_dims):
+        cid = f"isolated_dim_{i}"
+        component_index[cid] = _make_component_info(cid, "dimension", data_views=["dv_001"])
+        isolated_dimensions.append(cid)
+
+    distribution = ComponentDistribution(
+        core_metrics=core_metrics,
+        core_dimensions=core_dimensions,
+        common_metrics=["common_m_0"],
+        common_dimensions=["common_d_0"],
+        limited_metrics=["limited_m_0"],
+        limited_dimensions=["limited_d_0"],
+        isolated_metrics=isolated_metrics,
+        isolated_dimensions=isolated_dimensions,
+    )
+    # Add common/limited components to index
+    component_index["common_m_0"] = _make_component_info("common_m_0", "metric", data_views=["dv_001", "dv_002"])
+    component_index["common_d_0"] = _make_component_info("common_d_0", "dimension", data_views=["dv_001", "dv_002"])
+    component_index["limited_m_0"] = _make_component_info("limited_m_0", "metric", data_views=["dv_001", "dv_002"])
+    component_index["limited_d_0"] = _make_component_info("limited_d_0", "dimension", data_views=["dv_001", "dv_002"])
+
+    similarity_pairs = None
+    if include_similarity:
+        similarity_pairs = [
+            _make_similarity_pair("dv_001", "Data View 1", "dv_002", "Data View 2", 0.92),
+            _make_similarity_pair("dv_001", "Data View 1", "dv_003", "Data View 3", 0.85),
+        ]
+
+    clusters = None
+    if include_clusters:
+        clusters = [
+            DataViewCluster(
+                cluster_id=0,
+                cluster_name="Analytics Cluster",
+                data_view_ids=["dv_001", "dv_002"],
+                data_view_names=["Data View 1", "Data View 2"],
+                cohesion_score=0.88,
+            ),
+        ]
+
+    recommendations = []
+    if include_recommendations:
+        recommendations = [
+            {
+                "type": "high_overlap",
+                "severity": "high",
+                "reason": "DV 1 and DV 2 share >90% of components",
+                "data_view_1": "dv_001",
+                "data_view_1_name": "Data View 1",
+                "data_view_2": "dv_002",
+                "data_view_2_name": "Data View 2",
+                "similarity": 0.92,
+            },
+            {
+                "type": "isolated_components",
+                "severity": "medium",
+                "reason": "Data View 1 has many isolated components",
+                "data_view": "dv_001",
+                "data_view_name": "Data View 1",
+                "isolated_count": 5,
+            },
+            {
+                "type": "governance",
+                "severity": "low",
+                "reason": "Consider standardizing naming conventions",
+            },
+        ]
+
+    governance_violations = None
+    if include_governance_violations:
+        governance_violations = [
+            {"message": "Too many high-similarity pairs", "threshold": 2, "actual": 5},
+        ]
+
+    owner_summary = None
+    if include_owner_summary:
+        owner_summary = {
+            "by_owner": {
+                "Alice": {
+                    "data_view_count": 2,
+                    "total_metrics": 10,
+                    "total_dimensions": 6,
+                    "avg_components_per_dv": 8.0,
+                },
+                "Bob": {"data_view_count": 1, "total_metrics": 5, "total_dimensions": 3, "avg_components_per_dv": 8.0},
+            },
+            "owners_sorted_by_dv_count": ["Alice", "Bob"],
+        }
+
+    naming_audit = None
+    if include_naming_audit:
+        naming_audit = {
+            "total_components": 10,
+            "case_styles": {"camelCase": 6, "snake_case": 4},
+            "recommendations": [
+                {"severity": "medium", "message": "Mixed naming conventions detected"},
+            ],
+        }
+
+    stale_components = None
+    if include_stale:
+        stale_components = [
+            {"pattern": "deprecated_prefix", "component_id": "old_metric_1", "name": "OLD_metric_1"},
+            {"pattern": "deprecated_prefix", "component_id": "old_metric_2", "name": "OLD_metric_2"},
+            {"pattern": "test_prefix", "component_id": "test_dim_1", "name": "test_dimension"},
+        ]
+
+    return OrgReportResult(
+        timestamp="2025-01-15T10:00:00Z",
+        org_id="test_org_123",
+        parameters=config,
+        data_view_summaries=dv_summaries,
+        component_index=component_index,
+        distribution=distribution,
+        similarity_pairs=similarity_pairs,
+        recommendations=recommendations,
+        duration=1.23,
+        clusters=clusters,
+        is_sampled=is_sampled,
+        total_available_data_views=10 if is_sampled else 0,
+        governance_violations=governance_violations,
+        thresholds_exceeded=include_governance_violations,
+        naming_audit=naming_audit,
+        owner_summary=owner_summary,
+        stale_components=stale_components,
+    )
+
+
+# ===================================================================
+# compare_org_reports
+# ===================================================================
+
+
+class TestCompareOrgReports:
+    """Tests for compare_org_reports(), focusing on backward-compat parsing."""
+
+    def test_compare_with_flat_similarity_pairs(self, tmp_path):
+        """Cover lines 10479-10481: flat dv1_id/dv2_id format."""
+        prev_report = {
+            "generated_at": "2024-12-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+            ],
+            "summary": {"total_unique_components": 20},
+            "distribution": {
+                "core": {"metrics_count": 5, "dimensions_count": 3},
+                "isolated": {"metrics_count": 2, "dimensions_count": 1},
+            },
+            "similarity_pairs": [
+                {"dv1_id": "dv_001", "dv2_id": "dv_002", "jaccard_similarity": 0.95},
+            ],
+        }
+        prev_path = tmp_path / "prev_report.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert isinstance(comparison, OrgReportComparison)
+        assert comparison.previous_timestamp == "2024-12-01T10:00:00Z"
+        assert comparison.current_timestamp == "2025-01-15T10:00:00Z"
+
+    def test_compare_with_nested_similarity_pairs(self, tmp_path):
+        """Cover lines 10483-10484: old nested data_view_1/data_view_2 format."""
+        prev_report = {
+            "generated_at": "2024-11-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+            ],
+            "summary": {"total_unique_components": 15},
+            "distribution": {
+                "core": {"total": 5},
+                "isolated": {"total": 2},
+            },
+            "similarity_pairs": [
+                {
+                    "data_view_1": {"id": "dv_001"},
+                    "data_view_2": {"id": "dv_002"},
+                    "jaccard_similarity": 0.91,
+                },
+            ],
+        }
+        prev_path = tmp_path / "prev_report_old.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert isinstance(comparison, OrgReportComparison)
+        # Both the current and previous should have (dv_001, dv_002) as high-sim
+        # so new_high_similarity_pairs should be empty
+        assert comparison.summary["new_duplicates"] == 0
+        assert comparison.summary["resolved_duplicates"] == 0
+
+    def test_compare_detects_added_and_removed_dvs(self, tmp_path):
+        """Verify data_views_added and data_views_removed are populated."""
+        prev_report = {
+            "timestamp": "2024-10-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                {"data_view_id": "dv_old", "data_view_name": "Old DV"},
+            ],
+            "summary": {"total_unique_components": 10},
+            "distribution": {
+                "core": {"metrics_count": 2, "dimensions_count": 1},
+                "isolated": {"metrics_count": 1, "dimensions_count": 0},
+            },
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        # dv_old was removed, dv_002 and dv_003 were added
+        assert "dv_old" in comparison.data_views_removed
+        assert "dv_002" in comparison.data_views_added or "dv_003" in comparison.data_views_added
+        assert comparison.summary["data_views_delta"] != 0
+
+    def test_compare_uses_fallback_key_names(self, tmp_path):
+        """Cover fallback key parsing: 'id' instead of 'data_view_id'."""
+        prev_report = {
+            "generated_at": "2024-09-01T10:00:00Z",
+            "data_views": [
+                {"id": "dv_001", "name": "DV 1"},
+            ],
+            "summary": {"total_unique_components": 5},
+            "distribution": {
+                "core": {"metrics_count": 1, "dimensions_count": 1},
+                "isolated": {"metrics_count": 0, "dimensions_count": 0},
+            },
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev_fallback.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.previous_timestamp == "2024-09-01T10:00:00Z"
+        # dv_001 is in both, so it should not be in added or removed
+        assert "dv_001" not in comparison.data_views_removed
+
+    def test_compare_new_and_resolved_pairs(self, tmp_path):
+        """Verify new_high_similarity_pairs and resolved_pairs are computed."""
+        prev_report = {
+            "generated_at": "2024-08-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+                {"data_view_id": "dv_003", "data_view_name": "DV 3"},
+            ],
+            "summary": {"total_unique_components": 20},
+            "distribution": {
+                "core": {"total": 5},
+                "isolated": {"total": 2},
+            },
+            "similarity_pairs": [
+                # Old pair that will be "resolved" because current has no such pair
+                {"dv1_id": "dv_002", "dv2_id": "dv_003", "jaccard_similarity": 0.95},
+            ],
+        }
+        prev_path = tmp_path / "prev_pairs.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        # Current has dv_001<->dv_002 at 0.92 (new) but NOT dv_002<->dv_003
+        current = _make_org_result(include_similarity=True)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.summary["new_duplicates"] >= 1
+        assert comparison.summary["resolved_duplicates"] >= 1
+
+
+# ===================================================================
+# write_org_report_console
+# ===================================================================
+
+
+class TestWriteOrgReportConsole:
+    """Tests for write_org_report_console()."""
+
+    def test_console_output_basic(self, capsys):
+        result = _make_org_result()
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "ORG-WIDE COMPONENT ANALYSIS REPORT" in captured
+        assert "test_org_123" in captured
+        assert "DATA VIEWS" in captured
+        assert "COMPONENT SUMMARY" in captured
+        assert "DISTRIBUTION" in captured
+        assert "HIGH OVERLAP PAIRS" in captured
+        assert "RECOMMENDATIONS" in captured
+
+    def test_console_quiet_mode(self, capsys):
+        result = _make_org_result()
+        config = OrgReportConfig()
+        write_org_report_console(result, config, quiet=True)
+        assert capsys.readouterr().out == ""
+
+    def test_console_sampled_report(self, capsys):
+        result = _make_org_result(is_sampled=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "[SAMPLED]" in captured
+        assert "sampled from" in captured
+
+    def test_console_with_error_dv(self, capsys):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Fetch failed"))
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "ERROR" in captured
+
+    def test_console_core_min_count_label(self, capsys):
+        result = _make_org_result(config_overrides={"core_min_count": 5})
+        config = result.parameters
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert ">=5" in captured
+
+    def test_console_summary_only_skips_core_details(self, capsys):
+        result = _make_org_result(config_overrides={"summary_only": True})
+        config = result.parameters
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "CORE COMPONENTS" not in captured
+
+    def test_console_with_named_core_components(self, capsys):
+        result = _make_org_result(include_names=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "Core Metric" in captured
+
+    def test_console_core_metrics_ellipsis_over_15(self, capsys):
+        result = _make_org_result(num_core_metrics=18)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "... and 3 more" in captured
+
+    def test_console_core_dimensions_ellipsis_over_15(self, capsys):
+        result = _make_org_result(num_core_dims=18)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "... and 3 more" in captured
+
+    def test_console_drift_details(self, capsys):
+        result = _make_org_result(config_overrides={"include_drift": True})
+        # Add drift data to similarity pairs
+        result.similarity_pairs[0].only_in_dv1 = ["comp_a", "comp_b", "comp_c", "comp_d"]
+        result.similarity_pairs[0].only_in_dv2 = ["comp_x", "comp_y"]
+        result.similarity_pairs[0].only_in_dv1_names = {"comp_a": "Component A"}
+        result.similarity_pairs[0].only_in_dv2_names = {"comp_x": "Component X"}
+        config = result.parameters
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "Drift Details" in captured
+        assert "Component A" in captured
+        assert "... and 1 more" in captured
+
+    def test_console_clusters_section(self, capsys):
+        result = _make_org_result(include_clusters=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "DATA VIEW CLUSTERS" in captured
+        assert "Analytics Cluster" in captured
+
+    def test_console_governance_violations(self, capsys):
+        result = _make_org_result(include_governance_violations=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "GOVERNANCE VIOLATIONS" in captured
+        assert "Too many high-similarity pairs" in captured
+
+    def test_console_owner_summary(self, capsys):
+        result = _make_org_result(include_owner_summary=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "OWNER SUMMARY" in captured
+        assert "Alice" in captured
+
+    def test_console_naming_audit(self, capsys):
+        result = _make_org_result(include_naming_audit=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "NAMING AUDIT" in captured
+        assert "camelCase" in captured
+        assert "Mixed naming" in captured
+
+    def test_console_stale_components(self, capsys):
+        result = _make_org_result(include_stale=True)
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "STALE COMPONENTS" in captured
+        assert "deprecated_prefix" in captured
+
+    def test_console_component_types_section(self, capsys):
+        result = _make_org_result(config_overrides={"include_component_types": True, "summary_only": False})
+        config = result.parameters
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "COMPONENT TYPES" in captured
+
+    def test_console_overlap_threshold_capped(self, capsys):
+        result = _make_org_result(config_overrides={"overlap_threshold": 0.95})
+        config = result.parameters
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert "capped at 90%" in captured
+
+    def test_console_long_dv_name_truncated(self, capsys):
+        result = _make_org_result()
+        result.data_view_summaries[0].data_view_name = "A" * 55
+        config = OrgReportConfig()
+        write_org_report_console(result, config)
+
+        captured = capsys.readouterr().out
+        assert ".." in captured
+
+
+# ===================================================================
+# write_org_report_stats_only
+# ===================================================================
+
+
+class TestWriteOrgReportStatsOnly:
+    """Tests for write_org_report_stats_only()."""
+
+    def test_stats_only_output(self, capsys):
+        result = _make_org_result()
+        write_org_report_stats_only(result)
+
+        captured = capsys.readouterr().out
+        assert "ORG STATS" in captured
+        assert "test_org_123" in captured
+        assert "Data Views:" in captured
+        assert "Components:" in captured
+        assert "Distribution:" in captured
+
+    def test_stats_only_quiet(self, capsys):
+        result = _make_org_result()
+        write_org_report_stats_only(result, quiet=True)
+        assert capsys.readouterr().out == ""
+
+
+# ===================================================================
+# write_org_report_comparison_console
+# ===================================================================
+
+
+class TestWriteOrgReportComparisonConsole:
+    """Tests for write_org_report_comparison_console()."""
+
+    def _make_comparison(
+        self,
+        added=None,
+        removed=None,
+        new_sim_pairs=None,
+        resolved_pairs=None,
+    ):
+        return OrgReportComparison(
+            current_timestamp="2025-01-15T10:00:00Z",
+            previous_timestamp="2024-12-01T10:00:00Z",
+            data_views_added=added or [],
+            data_views_removed=removed or [],
+            data_views_added_names=[f"Added DV {i}" for i in range(len(added or []))],
+            data_views_removed_names=[f"Removed DV {i}" for i in range(len(removed or []))],
+            components_added=5,
+            components_removed=2,
+            core_delta=1,
+            isolated_delta=-1,
+            new_high_similarity_pairs=new_sim_pairs or [],
+            resolved_pairs=resolved_pairs or [],
+            summary={
+                "data_views_delta": len(added or []) - len(removed or []),
+                "components_delta": 3,
+                "core_delta": 1,
+                "isolated_delta": -1,
+                "new_duplicates": len(new_sim_pairs or []),
+                "resolved_duplicates": len(resolved_pairs or []),
+            },
+        )
+
+    def test_comparison_basic_output(self, capsys):
+        comparison = self._make_comparison()
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        assert "ORG REPORT COMPARISON" in captured
+        assert "CHANGES" in captured
+
+    def test_comparison_quiet(self, capsys):
+        comparison = self._make_comparison()
+        write_org_report_comparison_console(comparison, quiet=True)
+        assert capsys.readouterr().out == ""
+
+    def test_comparison_with_added_dvs(self, capsys):
+        comparison = self._make_comparison(added=["dv_new_1", "dv_new_2"])
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        assert "Data Views Added (2)" in captured
+
+    def test_comparison_with_removed_dvs(self, capsys):
+        comparison = self._make_comparison(removed=["dv_old_1"])
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        assert "Data Views Removed (1)" in captured
+
+    def test_comparison_with_new_sim_pairs(self, capsys):
+        comparison = self._make_comparison(
+            new_sim_pairs=[{"dv1_id": "dv_001", "dv2_id": "dv_002"}],
+        )
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        assert "New High-Similarity Pairs" in captured
+
+    def test_comparison_with_resolved_pairs(self, capsys):
+        comparison = self._make_comparison(
+            resolved_pairs=[{"dv1_id": "dv_001", "dv2_id": "dv_003"}],
+        )
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        assert "Resolved High-Similarity Pairs" in captured
+
+    def test_comparison_trend_arrows(self, capsys):
+        comparison = self._make_comparison(added=["dv_x"])
+        write_org_report_comparison_console(comparison)
+
+        captured = capsys.readouterr().out
+        # Positive delta should show up-arrow
+        assert "\u2191" in captured or "↑" in captured
+
+
+# ===================================================================
+# write_org_report_json
+# ===================================================================
+
+
+class TestWriteOrgReportJson:
+    """Tests for write_org_report_json()."""
+
+    def test_json_with_explicit_path(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_json")
+        out_path = tmp_path / "report.json"
+
+        returned = write_org_report_json(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+        data = json.loads(Path(returned).read_text(encoding="utf-8"))
+        assert data["report_type"] == "org_analysis"
+        assert data["org_id"] == "test_org_123"
+
+    def test_json_auto_generated_path(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_json_auto")
+
+        returned = write_org_report_json(result, None, str(tmp_path), logger)
+        assert Path(returned).exists()
+        assert "org_report_test_org_123" in returned
+
+    def test_json_adds_extension_if_missing(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_json_ext")
+        out_path = tmp_path / "report_no_ext"
+
+        returned = write_org_report_json(result, out_path, str(tmp_path), logger)
+        assert returned.endswith(".json")
+
+
+# ===================================================================
+# write_org_report_excel
+# ===================================================================
+
+
+class TestWriteOrgReportExcel:
+    """Tests for write_org_report_excel()."""
+
+    def test_excel_basic(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_excel")
+        out_path = tmp_path / "report.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+        assert returned.endswith(".xlsx")
+
+    def test_excel_auto_generated_path(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_excel_auto")
+
+        returned = write_org_report_excel(result, None, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+    def test_excel_with_sampling_info(self, tmp_path):
+        result = _make_org_result(is_sampled=True)
+        logger = logging.getLogger("test_excel_sampled")
+        out_path = tmp_path / "sampled.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+    def test_excel_with_clusters(self, tmp_path):
+        result = _make_org_result(include_clusters=True)
+        logger = logging.getLogger("test_excel_clusters")
+        out_path = tmp_path / "clusters.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+    def test_excel_with_drift(self, tmp_path):
+        result = _make_org_result(config_overrides={"include_drift": True})
+        result.similarity_pairs[0].only_in_dv1 = ["comp_a"]
+        result.similarity_pairs[0].only_in_dv2 = ["comp_b"]
+        logger = logging.getLogger("test_excel_drift")
+        out_path = tmp_path / "drift.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+    def test_excel_with_metadata(self, tmp_path):
+        result = _make_org_result(config_overrides={"include_metadata": True})
+        logger = logging.getLogger("test_excel_meta")
+        out_path = tmp_path / "metadata.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+    def test_excel_with_recommendations(self, tmp_path):
+        result = _make_org_result(include_recommendations=True)
+        logger = logging.getLogger("test_excel_recs")
+        out_path = tmp_path / "recs.xlsx"
+
+        returned = write_org_report_excel(result, out_path, str(tmp_path), logger)
+        assert Path(returned).exists()
+
+
+# ===================================================================
+# write_org_report_markdown
+# ===================================================================
+
+
+class TestWriteOrgReportMarkdown:
+    """Tests for write_org_report_markdown()."""
+
+    def test_markdown_basic(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_md")
+        out_path = tmp_path / "report.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "# Org-Wide Component Analysis Report" in content
+        assert "test_org_123" in content
+        assert "## Summary" in content
+        assert "## Component Distribution" in content
+        assert "## Data Views" in content
+
+    def test_markdown_auto_generated_path(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_md_auto")
+
+        returned = write_org_report_markdown(result, None, str(tmp_path), logger)
+        assert Path(returned).exists()
+        assert returned.endswith(".md")
+
+    def test_markdown_core_metrics_ellipsis_no_names(self, tmp_path):
+        """Cover line 11730: ellipsis row for >20 core metrics without names."""
+        result = _make_org_result(num_core_metrics=25, include_names=False)
+        logger = logging.getLogger("test_md_ellipsis_metrics")
+        out_path = tmp_path / "ellipsis_metrics.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "*... 5 more*" in content
+
+    def test_markdown_core_dimensions_ellipsis_no_names(self, tmp_path):
+        """Cover line 11754: ellipsis row for >20 core dimensions without names."""
+        result = _make_org_result(num_core_dims=25, include_names=False)
+        logger = logging.getLogger("test_md_ellipsis_dims")
+        out_path = tmp_path / "ellipsis_dims.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "*... 5 more*" in content
+
+    def test_markdown_core_metrics_ellipsis_with_names(self, tmp_path):
+        """Cover ellipsis row for >20 core metrics WITH names (three-column table)."""
+        result = _make_org_result(num_core_metrics=25, include_names=True)
+        logger = logging.getLogger("test_md_ellipsis_names")
+        out_path = tmp_path / "ellipsis_names.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "*... 5 more*" in content
+        # With names, ellipsis row has 3 columns (extra pipe)
+        # Check that the line has the right number of columns
+        for line in content.splitlines():
+            if "*... 5 more*" in line and "Core Metric" not in line:
+                assert line.count("|") >= 4  # | ... | | |
+                break
+
+    def test_markdown_core_min_count_label(self, tmp_path):
+        result = _make_org_result(config_overrides={"core_min_count": 3})
+        logger = logging.getLogger("test_md_min_count")
+        out_path = tmp_path / "min_count.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert ">=3" in content
+
+    def test_markdown_with_error_dv(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="API timeout"))
+        logger = logging.getLogger("test_md_error")
+        out_path = tmp_path / "error_dv.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "ERROR" in content
+
+    def test_markdown_similarity_pairs(self, tmp_path):
+        result = _make_org_result(include_similarity=True)
+        logger = logging.getLogger("test_md_sim")
+        out_path = tmp_path / "sim.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "## High Overlap Pairs" in content
+
+    def test_markdown_recommendations(self, tmp_path):
+        result = _make_org_result(include_recommendations=True)
+        logger = logging.getLogger("test_md_recs")
+        out_path = tmp_path / "recs.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "## Recommendations" in content
+
+    def test_markdown_overlap_threshold_note(self, tmp_path):
+        result = _make_org_result(config_overrides={"overlap_threshold": 0.95})
+        logger = logging.getLogger("test_md_thresh")
+        out_path = tmp_path / "thresh.md"
+
+        returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "capped at 90%" in content
+
+
+# ===================================================================
+# write_org_report_html
+# ===================================================================
+
+
+class TestWriteOrgReportHtml:
+    """Tests for write_org_report_html()."""
+
+    def test_html_basic(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_html")
+        out_path = tmp_path / "report.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "<!DOCTYPE html>" in content
+        assert "Org-Wide Component Analysis Report" in content
+        assert "test_org_123" in content
+
+    def test_html_auto_generated_path(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_html_auto")
+
+        returned = write_org_report_html(result, None, str(tmp_path), logger)
+        assert Path(returned).exists()
+        assert returned.endswith(".html")
+
+    def test_html_with_core_components(self, tmp_path):
+        result = _make_org_result(include_names=True)
+        logger = logging.getLogger("test_html_core")
+        out_path = tmp_path / "core.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "Core Components" in content
+        assert "Core Metric" in content
+
+    def test_html_with_similarity_pairs(self, tmp_path):
+        result = _make_org_result(include_similarity=True)
+        logger = logging.getLogger("test_html_sim")
+        out_path = tmp_path / "sim.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "High Overlap Pairs" in content
+
+    def test_html_with_recommendations(self, tmp_path):
+        result = _make_org_result(include_recommendations=True)
+        logger = logging.getLogger("test_html_recs")
+        out_path = tmp_path / "recs.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "Recommendations" in content
+        assert "badge-high" in content
+
+    def test_html_core_min_count_label(self, tmp_path):
+        result = _make_org_result(config_overrides={"core_min_count": 4})
+        logger = logging.getLogger("test_html_min")
+        out_path = tmp_path / "min.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "&gt;=4" in content
+
+    def test_html_with_error_dv(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error<script>DV", error="<b>fail</b>"))
+        logger = logging.getLogger("test_html_error")
+        out_path = tmp_path / "error.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        # HTML-escaped error text
+        assert "&lt;b&gt;fail&lt;/b&gt;" in content
+
+    def test_html_overlap_threshold_note(self, tmp_path):
+        result = _make_org_result(config_overrides={"overlap_threshold": 0.95})
+        logger = logging.getLogger("test_html_thresh")
+        out_path = tmp_path / "thresh.html"
+
+        returned = write_org_report_html(result, out_path, str(tmp_path), logger)
+        content = Path(returned).read_text(encoding="utf-8")
+        assert "capped at 90%" in content
+
+
+# ===================================================================
+# write_org_report_csv
+# ===================================================================
+
+
+class TestWriteOrgReportCsv:
+    """Tests for write_org_report_csv()."""
+
+    def test_csv_basic(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_csv")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        csv_dir = Path(returned)
+        assert csv_dir.is_dir()
+        assert (csv_dir / "org_report_summary.csv").exists()
+        assert (csv_dir / "org_report_data_views.csv").exists()
+        assert (csv_dir / "org_report_components.csv").exists()
+        assert (csv_dir / "org_report_distribution.csv").exists()
+
+    def test_csv_with_similarity(self, tmp_path):
+        result = _make_org_result(include_similarity=True)
+        logger = logging.getLogger("test_csv_sim")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        csv_dir = Path(returned)
+        assert (csv_dir / "org_report_similarity.csv").exists()
+
+    def test_csv_with_recommendations(self, tmp_path):
+        result = _make_org_result(include_recommendations=True)
+        logger = logging.getLogger("test_csv_recs")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        csv_dir = Path(returned)
+        assert (csv_dir / "org_report_recommendations.csv").exists()
+
+    def test_csv_with_explicit_path_csv_suffix(self, tmp_path):
+        """When output_path ends with .csv, use parent/stem as directory."""
+        result = _make_org_result()
+        logger = logging.getLogger("test_csv_suffix")
+        out_path = tmp_path / "my_report.csv"
+
+        returned = write_org_report_csv(result, out_path, str(tmp_path), logger)
+        csv_dir = Path(returned)
+        assert csv_dir.name == "my_report"
+        assert csv_dir.is_dir()
+
+    def test_csv_with_explicit_path_no_suffix(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_csv_nosuffix")
+        out_path = tmp_path / "csv_output"
+
+        returned = write_org_report_csv(result, out_path, str(tmp_path), logger)
+        csv_dir = Path(returned)
+        assert csv_dir.is_dir()
+
+
+# ===================================================================
+# build_org_report_json_data
+# ===================================================================
+
+
+class TestBuildOrgReportJsonData:
+    """Tests for build_org_report_json_data()."""
+
+    def test_json_data_structure(self):
+        result = _make_org_result()
+        data = build_org_report_json_data(result)
+
+        assert data["report_type"] == "org_analysis"
+        assert data["version"] == "1.0"
+        assert data["org_id"] == "test_org_123"
+        assert "summary" in data
+        assert "distribution" in data
+        assert "data_views" in data
+        assert "component_index" in data
+        assert "recommendations" in data
+
+    def test_json_data_with_clusters(self):
+        result = _make_org_result(include_clusters=True)
+        data = build_org_report_json_data(result)
+
+        assert data["clusters"] is not None
+        assert len(data["clusters"]) == 1
+        assert data["clusters"][0]["cluster_name"] == "Analytics Cluster"
+
+    def test_json_data_without_similarity(self):
+        result = _make_org_result(include_similarity=False)
+        data = build_org_report_json_data(result)
+
+        assert data["similarity_pairs"] == []
+
+    def test_json_data_governance_fields(self):
+        result = _make_org_result(
+            include_governance_violations=True,
+            include_naming_audit=True,
+            include_owner_summary=True,
+            include_stale=True,
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["governance_violations"] is not None
+        assert data["thresholds_exceeded"] is True
+        assert data["naming_audit"] is not None
+        assert data["owner_summary"] is not None
+        assert data["stale_components"] is not None
+
+
+# ===================================================================
+# _render_distribution_bar
+# ===================================================================
+
+
+class TestRenderDistributionBar:
+    """Tests for _render_distribution_bar()."""
+
+    def test_zero_total(self):
+        bar = _render_distribution_bar(0, 0)
+        assert "0%" in bar
+
+    def test_full_bar(self):
+        bar = _render_distribution_bar(100, 100)
+        assert "100%" in bar
+
+    def test_half_bar(self):
+        bar = _render_distribution_bar(50, 100)
+        assert "50%" in bar
+
+
+# ===================================================================
+# run_org_report (mocked)
+# ===================================================================
+
+
+class TestRunOrgReport:
+    """Tests for run_org_report() covering comparison and stats-only dispatch."""
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_stats_only_console(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path, capsys
+    ):
+        """Cover org_stats_only mode invocation."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig(org_stats_only=True)
+        success, thresholds = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+        assert thresholds is False
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_stats_only_json(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover org_stats_only + json format path."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig(org_stats_only=True)
+        success, _thresholds = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="json",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_with_comparison(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover comparison output dispatch (lines 12449-12458)."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        # Write a previous report file
+        prev_report = {
+            "generated_at": "2024-12-01T10:00:00Z",
+            "data_views": [{"data_view_id": "dv_001", "data_view_name": "DV 1"}],
+            "summary": {"total_unique_components": 10},
+            "distribution": {
+                "core": {"total": 3},
+                "isolated": {"total": 1},
+            },
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        config = OrgReportConfig(compare_org_report=str(prev_path))
+        success, _thresholds = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_comparison_file_not_found(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path, capsys
+    ):
+        """Cover FileNotFoundError branch in comparison."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig(compare_org_report="/nonexistent/prev.json")
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        # Should still succeed (comparison failure is non-fatal)
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_comparison_invalid_json(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path, capsys
+    ):
+        """Cover JSONDecodeError branch in comparison."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        bad_path = tmp_path / "bad.json"
+        bad_path.write_text("not valid json {{{", encoding="utf-8")
+
+        config = OrgReportConfig(compare_org_report=str(bad_path))
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_all_formats(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover 'all' format generation path."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="all",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_excel_format(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover excel format output."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="excel",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_markdown_format(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover markdown format output."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="markdown",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_html_format(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover HTML format output (line 12497-12499)."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="html",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_csv_format(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover CSV format output."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result()
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="csv",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_invalid_format(self, mock_configure, mock_cjapy, mock_analyzer_cls, tmp_path):
+        """Cover invalid format validation."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="invalid_format",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is False
+
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_configure_failure(self, mock_configure, mock_cjapy, mock_analyzer_cls, tmp_path):
+        """Cover configure_cjapy failure path."""
+        mock_configure.return_value = (False, "Bad credentials", None)
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is False
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_no_data_views(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover zero data views found."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result(num_dvs=0)
+        result.data_view_summaries = []
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is False
+
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary")
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_governance_threshold_exceeded(
+        self, mock_configure, mock_cjapy, mock_analyzer_cls, mock_summary, mock_append, tmp_path
+    ):
+        """Cover governance thresholds exceeded messaging."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        result = _make_org_result(include_governance_violations=True)
+        mock_analyzer_cls.return_value.run_analysis.return_value = result
+
+        config = OrgReportConfig(fail_on_threshold=True)
+        success, thresholds = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is True
+        assert thresholds is True
+
+    @patch("cja_auto_sdr.generator.OrgComponentAnalyzer")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_run_org_report_stdout_non_json_rejected(self, mock_configure, mock_cjapy, mock_analyzer_cls, tmp_path):
+        """Cover stdout output validation for non-json formats."""
+        mock_configure.return_value = (True, "config.json", {"org_id": "test_org"})
+
+        config = OrgReportConfig()
+        success, _ = run_org_report(
+            config_file=str(tmp_path / "config.json"),
+            output_format="excel",
+            output_path="stdout",
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+        assert success is False
+
+
+# ===================================================================
+# _main_impl workers validation
+# ===================================================================
+
+
+class TestMainImplWorkersValidation:
+    """Tests for _main_impl workers validation (lines 13656-13677)."""
+
+    @patch("cja_auto_sdr.generator.parse_arguments")
+    def test_workers_invalid_string(self, mock_parse, capsys):
+        """Cover workers ValueError branch (line 13658-13659)."""
+        args = MagicMock()
+        args.workers = "notanumber"
+        args.quiet = False
+        args.no_color = False
+        args.data_views = []
+        args.run_summary = None
+        mock_parse.return_value = args
+
+        from cja_auto_sdr.generator import _main_impl
+
+        with pytest.raises(SystemExit):
+            _main_impl()
+
+    @patch("cja_auto_sdr.generator.parse_arguments")
+    def test_workers_below_minimum(self, mock_parse, capsys):
+        """Cover workers < 1 validation (line 13662-13663)."""
+        args = MagicMock()
+        args.workers = "0"
+        args.quiet = False
+        args.no_color = False
+        args.data_views = []
+        args.run_summary = None
+        mock_parse.return_value = args
+
+        from cja_auto_sdr.generator import _main_impl
+
+        with pytest.raises(SystemExit):
+            _main_impl()
