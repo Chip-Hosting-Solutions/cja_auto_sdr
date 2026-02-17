@@ -500,7 +500,9 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert result.success is True
         assert result.derived_fields_count == 0
         assert _mock_call_contains(mock_logger.error, "Error during derived field inventory: build fail")
-        assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite derived field inventory errors")
+        assert _mock_call_contains(
+            mock_logger.info, "Continuing with SDR generation despite derived field inventory errors"
+        )
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
