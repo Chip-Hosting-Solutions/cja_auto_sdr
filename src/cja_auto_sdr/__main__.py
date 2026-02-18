@@ -57,11 +57,31 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     return None
 
 
-def _resolve_program_name(argv0: str | None) -> str:
-    """Return the display program name argparse would use for version output."""
+def _resolve_program_name(
+    argv0: str | None,
+    module_name: str | None = None,
+    interpreter_name: str | None = None,
+) -> str:
+    """Return the display program name argparse would use for version output.
+
+    For ``python -m cja_auto_sdr`` invocation, argparse reports
+    ``python -m cja_auto_sdr`` rather than ``__main__.py``. Mirror that to keep
+    fast-path and full-parser behavior consistent.
+    """
     if not argv0:
         return "cja_auto_sdr"
     program_name = os.path.basename(argv0)
+    if program_name == "__main__.py":
+        resolved_module = module_name
+        if resolved_module is None:
+            spec = globals().get("__spec__")
+            resolved_module = getattr(spec, "name", None) if spec else None
+        if resolved_module:
+            module_target = resolved_module.removesuffix(".__main__")
+            resolved_interpreter = interpreter_name
+            if resolved_interpreter is None:
+                resolved_interpreter = os.path.basename(sys.executable)
+            return f"{resolved_interpreter or 'python'} -m {module_target}"
     return program_name or "cja_auto_sdr"
 
 

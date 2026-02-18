@@ -658,10 +658,19 @@ class TestFastPathEntryPoint:
         assert captured.out.strip() == f"cja_auto_sdr {__version__}"
 
     def test_fast_path_resolve_program_name(self):
+        import os
+        import sys
+
         from cja_auto_sdr.__main__ import _resolve_program_name
 
         assert _resolve_program_name("cja_auto_sdr") == "cja_auto_sdr"
         assert _resolve_program_name("/usr/local/bin/cja-auto-sdr") == "cja-auto-sdr"
+        expected_module_prog = f"{os.path.basename(sys.executable)} -m cja_auto_sdr"
+        assert _resolve_program_name("/tmp/cja_auto_sdr/__main__.py", "cja_auto_sdr.__main__") == expected_module_prog
+        assert (
+            _resolve_program_name("/tmp/cja_auto_sdr/__main__.py", "cja_auto_sdr.__main__", "python3")
+            == "python3 -m cja_auto_sdr"
+        )
         assert _resolve_program_name("") == "cja_auto_sdr"
 
     def test_fast_path_version_output_uses_program_name(self, capsys):
@@ -699,6 +708,22 @@ class TestFastPathEntryPoint:
 
         captured = capsys.readouterr()
         assert captured.out.strip() == f"cja-auto-sdr {__version__}"
+
+    def test_fast_path_main_version_module_invocation_name(self, capsys):
+        import os
+        import sys
+
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["/tmp/cja_auto_sdr/__main__.py", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        expected_prefix = f"{os.path.basename(sys.executable)} -m cja_auto_sdr"
+        assert captured.out.strip() == f"{expected_prefix} {__version__}"
 
     def test_fast_path_main_exit_codes_exits_zero(self):
         from cja_auto_sdr.__main__ import main as fast_main
@@ -3363,6 +3388,32 @@ class TestRunSummaryOutput:
             assert payload["mode"] == "unknown"
             assert "cja_auto_sdr " not in result.stdout
             assert "cja_auto_sdr " in result.stderr
+
+    def test_module_invocation_version_banner_consistent_with_and_without_run_summary(self):
+        """`python -m cja_auto_sdr --version` should keep the same banner prefix across paths."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        fast_path = subprocess.run(
+            ["uv", "run", "python", "-m", "cja_auto_sdr", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert fast_path.returncode == 0
+        assert " -m cja_auto_sdr " in fast_path.stdout
+        fast_prefix = fast_path.stdout.strip().split(" -m cja_auto_sdr ")[0]
+
+        fallback = subprocess.run(
+            ["uv", "run", "python", "-m", "cja_auto_sdr", "--version", "--run-summary-json", "stdout"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert fallback.returncode == 0
+        payload = json.loads(fallback.stdout)
+        self._assert_run_summary_schema(payload)
+        assert payload["exit_code"] == 0
+        assert f"{fast_prefix} -m cja_auto_sdr " in fallback.stderr
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")

@@ -1795,6 +1795,21 @@ class TestRunDryRunAPIValidation:
         captured = capsys.readouterr()
         assert "API connection failed" in captured.out
 
+    def test_api_connection_unexpected_runtime_exception(self, capsys):
+        """Unexpected runtime exceptions during API probe should still fail gracefully."""
+        logger = logging.getLogger("test_dry_run_api_runtime")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry", side_effect=RuntimeError("runtime boom")),
+        ):
+            mock_cjapy.CJA.return_value = MagicMock()
+            result = run_dry_run(["dv_test"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "API connection failed: runtime boom" in captured.out
+
     def test_dv_validation_with_metric_dimension_errors(self, capsys):
         """Lines 6611-6624: errors fetching metrics/dimensions counts are handled."""
         logger = logging.getLogger("test_dry_run_metric_err")
@@ -1861,6 +1876,28 @@ class TestRunDryRunAPIValidation:
         assert result is False
         captured = capsys.readouterr()
         assert "Error" in captured.out
+
+    def test_dv_validation_unexpected_runtime_exception(self, capsys):
+        """Unexpected runtime errors during per-view validation should not traceback."""
+        logger = logging.getLogger("test_dry_run_dv_runtime_exc")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry") as mock_retry,
+        ):
+            mock_cja = MagicMock()
+            mock_cjapy.CJA.return_value = mock_cja
+
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                RuntimeError("per-view runtime failure"),
+            ]
+
+            result = run_dry_run(["dv_err"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "dv_err: Error - per-view runtime failure" in captured.out
 
     def test_dv_validation_retryable_error_continues_to_next_view(self, capsys):
         """Retryable transport failure for one data view should not abort the full loop."""

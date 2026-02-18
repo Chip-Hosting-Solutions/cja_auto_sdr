@@ -6516,6 +6516,11 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
 
     all_passed = True
 
+    def _dry_run_error_text(error: Exception) -> str:
+        """Return a stable non-empty error string for user-facing dry-run output."""
+        text = str(error).strip()
+        return text or error.__class__.__name__
+
     # Step 1: Validate credentials
     print("[1/3] Validating credentials...")
     if profile:
@@ -6580,7 +6585,18 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
     except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
-        print(f"  ✗ API connection failed: {e!s}")
+        print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
+        all_passed = False
+        print()
+        print("=" * BANNER_WIDTH)
+        print("DRY-RUN FAILED - Cannot connect to CJA API")
+        print("=" * BANNER_WIDTH)
+        return False
+    except Exception as e:
+        # Defensive fallback: dry-run should surface a controlled failure, even
+        # when dependency/runtime exceptions fall outside expected API types.
+        logger.debug("Unexpected dry-run API connection failure", exc_info=True)
+        print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
         all_passed = False
         print()
         print("=" * BANNER_WIDTH)
@@ -6634,6 +6650,8 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                         metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
                 except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
+                except Exception as e:
+                    logger.debug(f"Unexpected metrics count error for {dv_id}: {e!s}", exc_info=True)
 
                 try:
                     dimensions = make_api_call_with_retry(
@@ -6646,6 +6664,8 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                         dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
                 except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
+                except Exception as e:
+                    logger.debug(f"Unexpected dimensions count error for {dv_id}: {e!s}", exc_info=True)
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
@@ -6666,6 +6686,11 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             raise
         except RECOVERABLE_API_EXCEPTIONS as e:
             print(f"  ✗ {dv_id}: Error - {e!s}")
+            invalid_count += 1
+            all_passed = False
+        except Exception as e:
+            logger.debug(f"Unexpected dry-run validation error for {dv_id}: {e!s}", exc_info=True)
+            print(f"  ✗ {dv_id}: Error - {_dry_run_error_text(e)}")
             invalid_count += 1
             all_passed = False
 
