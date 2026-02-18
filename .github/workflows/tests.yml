@@ -37,6 +37,29 @@ jobs:
       - name: Run run-summary JSON contract tests
         run: uv run pytest -q tests/test_cli.py -k "run_summary and subprocess"
 
+  smoke-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+        python-version: ["3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sync dependencies
+        run: uv sync --dev
+      - name: Smoke test - version, help, exit-codes
+        run: |
+          uv run python -m cja_auto_sdr --version
+          uv run python -m cja_auto_sdr --exit-codes
+          uv run python -m cja_auto_sdr --help
+      - name: Smoke test - parser and contract tests
+        run: >
+          uv run pytest tests/test_cli.py -q --tb=short
+          -k "TestCLIArguments or TestConsoleScriptEntryPoints or TestFastPathEntryPoint"
+
   build:
     runs-on: ubuntu-latest
     steps:
