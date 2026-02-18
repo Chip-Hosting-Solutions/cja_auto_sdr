@@ -510,6 +510,26 @@ class TestValidateDataView:
         assert result is False
         mock_logger.error.assert_called()
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": None},
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": "Test Owner"},
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": {"name": "Test Owner"}, "components": None},
+            ["not", "a", "dict"],
+        ],
+    )
+    def test_fails_for_malformed_payload_shapes(self, mock_logger, payload):
+        """Malformed API payloads should not raise and must return False."""
+        mock_cja = Mock()
+        mock_cja.getDataView.return_value = payload
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is False
+        calls = [str(c) for c in mock_logger.error.call_args_list]
+        assert any("Malformed data view payload returned by API" in c for c in calls)
+
     def test_logs_data_view_details(self, mock_logger):
         """Test that data view details are logged"""
         mock_cja = Mock()

@@ -1901,7 +1901,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
                     if available_count > 10:
                         logger.info(f"  ... and {available_count - 10} more")
                     logger.info("")
-            except (APIError, KeyError, TypeError, ValueError) as list_error:
+            except (APIError, AttributeError, KeyError, TypeError, ValueError) as list_error:
                 logger.debug(f"Could not list available data views: {list_error!s}")
 
             # Show enhanced error message
@@ -1910,9 +1910,26 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             return False
 
         # Extract and validate data view details
-        dv_name = dv_info.get("name", "Unknown")
-        dv_description = dv_info.get("description", "No description")
-        dv_owner = dv_info.get("owner", {}).get("name", "Unknown")
+        try:
+            if not isinstance(dv_info, dict):
+                raise TypeError(f"Expected data view payload to be dict, got {type(dv_info).__name__}")
+
+            dv_name = dv_info.get("name", "Unknown")
+            dv_description = dv_info.get("description", "No description")
+
+            owner_info = dv_info.get("owner", {})
+            if not isinstance(owner_info, dict):
+                raise TypeError(f"Expected data view owner payload to be dict, got {type(owner_info).__name__}")
+            dv_owner = owner_info.get("name", "Unknown")
+
+            has_components = "components" in dv_info
+            components = dv_info.get("components", {})
+            if has_components and not isinstance(components, dict):
+                raise TypeError(f"Expected components payload to be dict, got {type(components).__name__}")
+        except (AttributeError, KeyError, TypeError, ValueError) as payload_error:
+            logger.error("Malformed data view payload returned by API")
+            logger.debug(f"Payload validation error: {payload_error!s}")
+            return False
 
         logger.info("✓ Data view validated successfully!")
         logger.info(f"  Name: {dv_name}")
@@ -1924,10 +1941,8 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         # Additional validation checks
         warnings = []
 
-        if "components" in dv_info:
-            components = dv_info.get("components", {})
-            if not components.get("dimensions") and not components.get("metrics"):
-                warnings.append("Data view appears to have no components defined")
+        if has_components and not components.get("dimensions") and not components.get("metrics"):
+            warnings.append("Data view appears to have no components defined")
 
         if warnings:
             logger.warning("Data view validation warnings:")
