@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
+from typing import Any, NoReturn, Protocol, runtime_checkable
 
 import cjapy
 import pandas as pd
@@ -206,10 +206,6 @@ class OutputWriter(Protocol):
 
 # Type alias for validation issues
 ValidationIssue = dict[str, Any]
-
-# Type variable for generic return types
-T = TypeVar("T")
-
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
 # cja_auto_sdr.core and are imported above.
@@ -646,6 +642,39 @@ def _log_optional_inventory_failure(
         logger.error(_format_error_msg(f"during {inventory_label}", error=error))
         logger.info(f"Continuing with SDR generation despite {inventory_label} errors")
     logger.debug(f"Optional inventory failure details: {error!r}")
+
+
+def _run_optional_inventory_step[T](
+    *,
+    logger: Any,
+    inventory_label: str,
+    summary_mode: bool,
+    build_inventory: Callable[[], T],
+    recoverable_exceptions: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS,
+    on_import_error: Callable[[ImportError], None] | None = None,
+) -> T | None:
+    """Run best-effort optional inventory logic without aborting the primary command flow."""
+    try:
+        return build_inventory()
+    except ImportError as e:
+        if on_import_error is not None:
+            on_import_error(e)
+        else:
+            _log_optional_inventory_failure(
+                logger,
+                inventory_label=inventory_label,
+                error=e,
+                summary_mode=summary_mode,
+            )
+        logger.debug(f"Optional inventory import failure details: {e!r}")
+    except recoverable_exceptions as e:
+        _log_optional_inventory_failure(
+            logger,
+            inventory_label=inventory_label,
+            error=e,
+            summary_mode=summary_mode,
+        )
+    return None
 
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
@@ -5142,7 +5171,8 @@ def process_inventory_summary(
 
     # Fetch derived fields inventory
     if include_derived:
-        try:
+
+        def _build_derived_inventory_summary() -> Any:
             from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
             # Need metrics and dimensions for derived fields
@@ -5153,52 +5183,60 @@ def process_inventory_summary(
             dimensions_df = pd.DataFrame(dimensions_data) if dimensions_data else pd.DataFrame()
 
             builder = DerivedFieldInventoryBuilder(logger=logger)
-            derived_inventory = builder.build(metrics_df, dimensions_df, data_view_id, dv_name)
+            derived = builder.build(metrics_df, dimensions_df, data_view_id, dv_name)
             if not quiet:
-                print(ConsoleColors.dim(f"  Derived fields: {derived_inventory.total_derived_fields}"))
-        except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            _log_optional_inventory_failure(
-                logger,
-                inventory_label="derived fields inventory",
-                error=e,
-                summary_mode=True,
-            )
+                print(ConsoleColors.dim(f"  Derived fields: {derived.total_derived_fields}"))
+            return derived
+
+        derived_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="derived fields inventory",
+            summary_mode=True,
+            build_inventory=_build_derived_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Fetch calculated metrics inventory
     if include_calculated:
-        try:
+
+        def _build_calculated_inventory_summary() -> Any:
             from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder  # pragma: no cover
 
             builder = CalculatedMetricsInventoryBuilder(logger=logger)  # pragma: no cover
-            calculated_inventory = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
+            calculated = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
             if not quiet:  # pragma: no cover
                 print(
-                    ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}")
+                    ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}")
                 )  # pragma: no cover
-        except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            _log_optional_inventory_failure(
-                logger,
-                inventory_label="calculated metrics inventory",
-                error=e,
-                summary_mode=True,
-            )
+            return calculated  # pragma: no cover
+
+        calculated_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="calculated metrics inventory",
+            summary_mode=True,
+            build_inventory=_build_calculated_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Fetch segments inventory
     if include_segments:
-        try:
+
+        def _build_segments_inventory_summary() -> Any:
             from cja_segments_inventory import SegmentsInventoryBuilder  # pragma: no cover
 
             builder = SegmentsInventoryBuilder(logger=logger)  # pragma: no cover
-            segments_inventory = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
+            segments = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
             if not quiet:  # pragma: no cover
-                print(ConsoleColors.dim(f"  Segments: {segments_inventory.total_segments}"))  # pragma: no cover
-        except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            _log_optional_inventory_failure(
-                logger,
-                inventory_label="segments inventory",
-                error=e,
-                summary_mode=True,
-            )
+                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))  # pragma: no cover
+            return segments  # pragma: no cover
+
+        segments_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="segments inventory",
+            summary_mode=True,
+            build_inventory=_build_segments_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Display summary
     return display_inventory_summary(
@@ -5542,31 +5580,35 @@ def process_single_dataview(
             logger.info("Building derived field inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_derived_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
                 builder = DerivedFieldInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                derived_inventory_obj = builder.build(metrics, dimensions, data_view_id, dv_name)
+                derived_inventory = builder.build(metrics, dimensions, data_view_id, dv_name)
 
-                derived_inventory_df = derived_inventory_obj.get_dataframe()
+                derived_df = derived_inventory.get_dataframe()
 
-                inv_summary = derived_inventory_obj.get_summary()
+                inv_summary = derived_inventory.get_summary()
                 logger.info(
                     f"Derived field inventory: {inv_summary.get('total_derived_fields', 0)} fields "
                     f"({inv_summary.get('metrics_count', 0)} metrics, {inv_summary.get('dimensions_count', 0)} dimensions)",
                 )
+                return derived_inventory, derived_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import derived field inventory: {e}")
+            def _handle_derived_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import derived field inventory: {error}")
                 logger.info("Skipping derived field inventory - module not available")
-            except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                _log_optional_inventory_failure(
-                    logger,
-                    inventory_label="derived field inventory",
-                    error=e,
-                    summary_mode=False,
-                )
+
+            derived_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="derived field inventory",
+                summary_mode=False,
+                build_inventory=_build_derived_inventory,
+                on_import_error=_handle_derived_import_error,
+            )
+            if derived_inventory_payload is not None:
+                derived_inventory_obj, derived_inventory_df = derived_inventory_payload
 
         # Calculated metrics inventory (if enabled)
         calculated_metrics_df = pd.DataFrame()
@@ -5576,28 +5618,32 @@ def process_single_dataview(
             logger.info("Building calculated metrics inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_calculated_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
 
                 builder = CalculatedMetricsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                calculated_inventory_obj = builder.build(cja, data_view_id, dv_name)
+                calculated_inventory = builder.build(cja, data_view_id, dv_name)
 
-                calculated_metrics_df = calculated_inventory_obj.get_dataframe()
+                calculated_df = calculated_inventory.get_dataframe()
 
-                calc_summary = calculated_inventory_obj.get_summary()
+                calc_summary = calculated_inventory.get_summary()
                 logger.info(f"Calculated metrics inventory: {calc_summary.get('total_calculated_metrics', 0)} metrics")
+                return calculated_inventory, calculated_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import calculated metrics inventory: {e}")
+            def _handle_calculated_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import calculated metrics inventory: {error}")
                 logger.info("Skipping calculated metrics inventory - module not available")
-            except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                _log_optional_inventory_failure(
-                    logger,
-                    inventory_label="calculated metrics inventory",
-                    error=e,
-                    summary_mode=False,
-                )
+
+            calculated_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="calculated metrics inventory",
+                summary_mode=False,
+                build_inventory=_build_calculated_inventory,
+                on_import_error=_handle_calculated_import_error,
+            )
+            if calculated_inventory_payload is not None:
+                calculated_inventory_obj, calculated_metrics_df = calculated_inventory_payload
 
         # Segments inventory (if enabled)
         segments_inventory_df = pd.DataFrame()
@@ -5607,28 +5653,32 @@ def process_single_dataview(
             logger.info("Building segments inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_segments_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
 
                 builder = SegmentsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                segments_inventory_obj = builder.build(cja, data_view_id, dv_name)
+                segments_inventory = builder.build(cja, data_view_id, dv_name)
 
-                segments_inventory_df = segments_inventory_obj.get_dataframe()
+                segments_df = segments_inventory.get_dataframe()
 
-                seg_summary = segments_inventory_obj.get_summary()
+                seg_summary = segments_inventory.get_summary()
                 logger.info(f"Segments inventory: {seg_summary.get('total_segments', 0)} segments")
+                return segments_inventory, segments_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import segments inventory: {e}")
+            def _handle_segments_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import segments inventory: {error}")
                 logger.info("Skipping segments inventory - module not available")
-            except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                _log_optional_inventory_failure(
-                    logger,
-                    inventory_label="segments inventory",
-                    error=e,
-                    summary_mode=False,
-                )
+
+            segments_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="segments inventory",
+                summary_mode=False,
+                build_inventory=_build_segments_inventory,
+                on_import_error=_handle_segments_import_error,
+            )
+            if segments_inventory_payload is not None:
+                segments_inventory_obj, segments_inventory_df = segments_inventory_payload
 
         # Data processing
         logger.info("=" * BANNER_WIDTH)
@@ -8768,6 +8818,25 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 # ==================== CONFIG STATUS ====================
 
 
+def _read_config_status_file(config_file: str, logger: logging.Logger) -> tuple[dict[str, Any] | None, str | None]:
+    """Read config JSON for --config-status and return a controlled error message on failure."""
+    try:
+        with open(config_file, encoding="utf-8") as f:
+            payload = json.load(f)
+    except json.JSONDecodeError:
+        return None, f"{config_file} is not valid JSON"
+    except (UnicodeDecodeError, ConfigurationError, OSError) as e:
+        return None, f"Cannot read {config_file}: {e}"
+    except Exception as e:
+        logger.debug("Unexpected error reading config file in --config-status", exc_info=True)
+        return None, f"Cannot read {config_file}: {e}"
+
+    if not isinstance(payload, dict):
+        return None, f"{config_file} must contain a JSON object"
+
+    return payload, None
+
+
 def show_config_status(config_file: str = "config.json", profile: str | None = None, output_json: bool = False) -> bool:
     """
     Show configuration status without connecting to API.
@@ -8837,18 +8906,12 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
     if not config_source:
         config_path = Path(config_file)
         if config_path.exists():
-            try:
-                with open(config_file) as f:
-                    config_data = json.load(f)
-                config_source = f"Config file: {config_path.resolve()}"
-                config_source_type = "file"
-            except json.JSONDecodeError:
-                return _emit_config_status_error(f"{config_file} is not valid JSON")
-            except (UnicodeDecodeError, ConfigurationError, OSError) as e:
-                return _emit_config_status_error(f"Cannot read {config_file}: {e}")
-            except Exception as e:
-                logger.debug("Unexpected error reading config file in --config-status", exc_info=True)
-                return _emit_config_status_error(f"Cannot read {config_file}: {e}")
+            config_payload, read_error = _read_config_status_file(config_file, logger)
+            if read_error:
+                return _emit_config_status_error(read_error)
+            config_data = config_payload or {}
+            config_source = f"Config file: {config_path.resolve()}"
+            config_source_type = "file"
         else:
             return _emit_config_status_error("No configuration found", include_help=True)
 
@@ -9177,6 +9240,16 @@ def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     }
 
 
+def _collect_stats_row_with_fallback(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger) -> dict[str, Any]:
+    """Return one stats row, converting non-fatal per-item failures into an ERROR row."""
+    try:
+        return _collect_stats_row(cja, data_view_id)
+    except Exception as e:
+        # Keep per-item stats resilient: one bad DV must not abort the full command.
+        logger.debug("Failed to collect stats row for %s", data_view_id, exc_info=True)
+        return _stats_error_row(data_view_id, e)
+
+
 def show_stats(
     data_views: list[str],
     config_file: str = "config.json",
@@ -9219,15 +9292,7 @@ def show_stats(
         cja = cjapy.CJA()
         logger = logging.getLogger(__name__)
 
-        stats_data = []
-
-        for dv_id in data_views:
-            try:
-                stats_data.append(_collect_stats_row(cja, dv_id))
-            except Exception as e:
-                # Keep per-item stats resilient: one bad DV must not abort the full command.
-                logger.debug("Failed to collect stats row for %s", dv_id, exc_info=True)
-                stats_data.append(_stats_error_row(dv_id, e))
+        stats_data = [_collect_stats_row_with_fallback(cja, dv_id, logger) for dv_id in data_views]
 
         # Output based on format
         if output_format == "json" or (is_stdout and output_format != "csv"):
@@ -11499,13 +11564,12 @@ def run_org_report(
             _status_print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except RECOVERABLE_ORG_REPORT_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
-        logger.exception("Org report error")
-        return False, False
-    except Exception as e:
-        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
-        logger.exception("Unexpected org report error")
+        if isinstance(e, RECOVERABLE_ORG_REPORT_EXCEPTIONS):
+            logger.exception("Org report error")
+        else:
+            logger.exception("Unexpected org report error")
         return False, False
 
 
