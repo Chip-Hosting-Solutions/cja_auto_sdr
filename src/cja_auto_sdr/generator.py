@@ -1978,7 +1978,9 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
         return True
 
-    except (APIError, ConfigurationError, OSError) as e:
+    except KeyboardInterrupt, SystemExit:
+        raise
+    except Exception as e:
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
@@ -9124,6 +9126,57 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
 # ==================== STATS COMMAND ====================
 
 
+def _stats_error_row(data_view_id: str, error: Exception) -> dict[str, Any]:
+    """Build a consistent non-fatal stats error row for one data view."""
+    return {
+        "id": data_view_id,
+        "name": "ERROR",
+        "owner": "N/A",
+        "metrics": 0,
+        "dimensions": 0,
+        "total_components": 0,
+        "description": f"Error: {error!s}",
+    }
+
+
+def _coerce_stats_component_count(payload: Any) -> int:
+    """Return a safe component count for API payloads with mixed shapes."""
+    if payload is None:
+        return 0
+    if isinstance(payload, pd.DataFrame):
+        return len(payload) if not payload.empty else 0
+    if isinstance(payload, (list, tuple, set, dict)):
+        return len(payload)
+    return 0
+
+
+def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
+    """Fetch one data view's stats row. Raises on API/runtime errors."""
+    dv_info = cja.getDataView(data_view_id)
+    dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
+
+    metrics_payload = cja.getMetrics(data_view_id)
+    dimensions_payload = cja.getDimensions(data_view_id)
+    metrics_count = _coerce_stats_component_count(metrics_payload)
+    dimensions_count = _coerce_stats_component_count(dimensions_payload)
+
+    owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
+    owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
+
+    raw_description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
+    description_text = str(raw_description) if raw_description is not None else ""
+
+    return {
+        "id": data_view_id,
+        "name": dv_name,
+        "owner": owner_name,
+        "metrics": metrics_count,
+        "dimensions": dimensions_count,
+        "total_components": metrics_count + dimensions_count,
+        "description": description_text[:100] + "..." if len(description_text) > 100 else description_text,
+    }
+
+
 def show_stats(
     data_views: list[str],
     config_file: str = "config.json",
@@ -9164,53 +9217,17 @@ def show_stats(
             print(ConsoleColors.error(f"ERROR: {source}"))
             return False
         cja = cjapy.CJA()
+        logger = logging.getLogger(__name__)
 
         stats_data = []
 
         for dv_id in data_views:
             try:
-                # Get data view info
-                dv_info = cja.getDataView(dv_id)
-                dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
-
-                # Get metrics and dimensions
-                metrics_df = cja.getMetrics(dv_id)
-                dimensions_df = cja.getDimensions(dv_id)
-
-                metrics_count = len(metrics_df) if metrics_df is not None and not metrics_df.empty else 0
-                dimensions_count = len(dimensions_df) if dimensions_df is not None and not dimensions_df.empty else 0
-
-                # Get owner info
-                owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
-                owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
-
-                # Get description
-                description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
-
-                stats_data.append(
-                    {
-                        "id": dv_id,
-                        "name": dv_name,
-                        "owner": owner_name,
-                        "metrics": metrics_count,
-                        "dimensions": dimensions_count,
-                        "total_components": metrics_count + dimensions_count,
-                        "description": description[:100] + "..." if len(description) > 100 else description,
-                    },
-                )
-
-            except RECOVERABLE_API_EXCEPTIONS as e:
-                stats_data.append(
-                    {
-                        "id": dv_id,
-                        "name": "ERROR",
-                        "owner": "N/A",
-                        "metrics": 0,
-                        "dimensions": 0,
-                        "total_components": 0,
-                        "description": f"Error: {e!s}",
-                    },
-                )
+                stats_data.append(_collect_stats_row(cja, dv_id))
+            except Exception as e:
+                # Keep per-item stats resilient: one bad DV must not abort the full command.
+                logger.debug("Failed to collect stats row for %s", dv_id, exc_info=True)
+                stats_data.append(_stats_error_row(dv_id, e))
 
         # Output based on format
         if output_format == "json" or (is_stdout and output_format != "csv"):

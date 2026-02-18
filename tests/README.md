@@ -85,7 +85,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,660 comprehensive tests**
+**Total: 4,664 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -104,7 +104,7 @@ tests/
 | `test_calculated_metrics_inventory.py` | 285 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
-| `test_cja_initialization.py` | 45 | CJA connection and configuration validation |
+| `test_cja_initialization.py` | 46 | CJA connection and configuration validation |
 | `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
 | `test_parallel_api_fetcher.py` | 25 | Parallel API data fetching |
@@ -153,7 +153,7 @@ tests/
 | `test_cli_command_handlers.py` | 78 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 78 | Config status, validation, stats, name resolution |
+| `test_config_and_resolution.py` | 81 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 24 | Generator interactive and console tests |
@@ -166,7 +166,7 @@ tests/
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
 | `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
-| **Total** | **4,660** | **Collected via pytest --collect-only** |
+| **Total** | **4,664** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -570,7 +570,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,660 tests total)
+- [x] Comprehensive test coverage (4,664 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

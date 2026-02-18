@@ -487,6 +487,52 @@ class TestShowStats:
         assert data["stats"][0]["name"] == "ERROR"
         assert data["stats"][1]["name"] == "Healthy DV"
 
+    @pytest.mark.parametrize(
+        "failure_stage",
+        ["getDataView", "getMetrics", "getDimensions"],
+    )
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_per_dv_unexpected_runtime_exception_continues(
+        self,
+        mock_config,
+        mock_cjapy,
+        capsys: pytest.CaptureFixture,
+        failure_stage: str,
+    ) -> None:
+        """Unexpected runtime failures for one DV should not abort remaining stats rows."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+
+        def _get_dv(dv_id: str):
+            if failure_stage == "getDataView" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected dv lookup failure")
+            return {"name": "Healthy DV", "owner": {"name": "Alice"}, "description": "ok"}
+
+        def _get_metrics(dv_id: str):
+            if failure_stage == "getMetrics" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected metrics failure")
+            return pd.DataFrame({"id": ["m1"]})
+
+        def _get_dimensions(dv_id: str):
+            if failure_stage == "getDimensions" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected dimensions failure")
+            return pd.DataFrame({"id": ["d1"]})
+
+        mock_cja.getDataView.side_effect = _get_dv
+        mock_cja.getMetrics.side_effect = _get_metrics
+        mock_cja.getDimensions.side_effect = _get_dimensions
+        mock_cjapy.CJA.return_value = mock_cja
+
+        result = show_stats(["dv_bad", "dv_ok"], output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["count"] == 2
+        assert data["stats"][0]["name"] == "ERROR"
+        assert data["stats"][1]["name"] == "Healthy DV"
+
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "Config error", None))
     def test_config_failure(self, _mock_config) -> None:
         from cja_auto_sdr.generator import show_stats

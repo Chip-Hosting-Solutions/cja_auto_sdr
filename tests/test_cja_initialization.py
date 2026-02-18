@@ -500,6 +500,17 @@ class TestValidateDataView:
         assert result is False
         mock_logger.error.assert_called()
 
+    def test_fails_on_unexpected_runtime_exception(self, mock_logger):
+        """Unexpected runtime errors should return False (boolean contract), not propagate."""
+        mock_cja = Mock()
+        mock_cja.getDataView.side_effect = RuntimeError("unexpected cjapy runtime failure")
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is False
+        error_calls = [str(call) for call in mock_logger.error.call_args_list]
+        assert any("DATA VIEW VALIDATION ERROR" in call for call in error_calls)
+
     def test_fails_on_attribute_error(self, mock_logger):
         """Test failure when API method not available"""
         mock_cja = Mock()
