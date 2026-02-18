@@ -116,6 +116,24 @@ class TestProcessInventorySummary:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.with_log_context")
     @patch("cja_auto_sdr.generator.setup_logging")
+    def test_data_view_fetch_transport_failure_returns_error(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport failures during data view lookup should return error dict."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.side_effect = ConnectionError("network timeout")
+        mock_init.return_value = mock_cja
+
+        result = process_inventory_summary("dv_bad_id", config_file="config.json")
+
+        assert "error" in result
+        assert "network timeout" in result["error"]
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
     def test_successful_fetch_no_inventory(self, mock_setup, mock_ctx, mock_init, mock_display):
         """Successful fetch with no inventory flags returns display_inventory_summary result."""
         mock_setup.return_value = logging.getLogger("test")

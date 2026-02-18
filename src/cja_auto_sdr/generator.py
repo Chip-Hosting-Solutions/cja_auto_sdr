@@ -5063,7 +5063,7 @@ def process_inventory_summary(
     try:
         lookup_data = cja.dataviews.get_single(data_view_id)
         dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-    except (APIError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
 
