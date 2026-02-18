@@ -610,6 +610,10 @@ RECOVERABLE_BATCH_WORKER_EXCEPTIONS: tuple[type[Exception], ...] = (
     CJASDRError,
     *RECOVERABLE_API_EXCEPTIONS,
 )
+RECOVERABLE_ORG_REPORT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    CJASDRError,
+    *RECOVERABLE_CONFIG_API_EXCEPTIONS,
+)
 
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
@@ -11230,7 +11234,7 @@ def run_org_report(
                 _status_print(
                     ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"),
                 )
-            except (APIError, KeyError, TypeError, ValueError) as e:
+            except RECOVERABLE_API_EXCEPTIONS as e:
                 _status_print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
 
         # Generate output based on format
@@ -11357,7 +11361,7 @@ def run_org_report(
             _status_print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except (CJASDRError, OSError) as e:
+    except RECOVERABLE_ORG_REPORT_EXCEPTIONS as e:
         _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
         logger.exception("Org report error")
         return False, False

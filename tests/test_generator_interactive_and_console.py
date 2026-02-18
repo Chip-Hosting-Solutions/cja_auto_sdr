@@ -392,6 +392,40 @@ def test_run_org_report_cache_and_comparison_error_paths(tmp_path: Path, rich_or
     assert exceeded is False
 
 
+def test_run_org_report_comparison_os_error_is_non_fatal(tmp_path: Path, rich_org_report_result, capsys):
+    result = rich_org_report_result
+    config = OrgReportConfig(compare_org_report="previous.json")
+
+    with (
+        patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"})),
+        patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer_cls,
+        patch("cja_auto_sdr.generator.compare_org_reports", side_effect=PermissionError("permission denied")),
+        patch("cja_auto_sdr.generator.write_org_report_console") as mock_console,
+        patch("cja_auto_sdr.generator.build_org_step_summary", return_value="summary"),
+        patch("cja_auto_sdr.generator.append_github_step_summary"),
+    ):
+        mock_cjapy.CJA.return_value = Mock()
+        analyzer = Mock()
+        analyzer.run_analysis.return_value = result
+        mock_analyzer_cls.return_value = analyzer
+
+        ok, exceeded = generator.run_org_report(
+            config_file="config.json",
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=config,
+            quiet=False,
+        )
+
+    assert ok is True
+    assert exceeded is False
+    mock_console.assert_called_once()
+    out = capsys.readouterr().out
+    assert "Warning: Could not compare reports: permission denied" in out
+
+
 def test_run_org_report_failure_paths(tmp_path: Path, rich_org_report_result):
     with patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "bad credentials", None)):
         ok, exceeded = generator.run_org_report(
@@ -448,6 +482,36 @@ def test_run_org_report_failure_paths(tmp_path: Path, rich_org_report_result):
         )
     assert ok is False
     assert exceeded is False
+
+
+def test_run_org_report_alias_output_value_error_returns_controlled_failure(
+    tmp_path: Path, rich_org_report_result, capsys
+):
+    result = rich_org_report_result
+
+    with (
+        patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"})),
+        patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        patch("cja_auto_sdr.generator.OrgComponentAnalyzer") as mock_analyzer_cls,
+    ):
+        mock_cjapy.CJA.return_value = Mock()
+        analyzer = Mock()
+        analyzer.run_analysis.return_value = result
+        mock_analyzer_cls.return_value = analyzer
+
+        ok, exceeded = generator.run_org_report(
+            config_file="config.json",
+            output_format="data",
+            output_path=".",
+            output_dir=str(tmp_path),
+            org_config=OrgReportConfig(),
+            quiet=True,
+        )
+
+    assert ok is False
+    assert exceeded is False
+    out = capsys.readouterr().out
+    assert "ERROR: Org report failed" in out
 
 
 def test_run_org_report_org_stats_json_stdout_branch(tmp_path: Path, capsys, rich_org_report_result):
