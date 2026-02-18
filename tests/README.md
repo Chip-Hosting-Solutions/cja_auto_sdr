@@ -85,7 +85,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,608 comprehensive tests**
+**Total: 4,611 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -158,7 +158,7 @@ tests/
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 21 | Generator interactive and console tests |
 | `test_generator_remaining_coverage.py` | 81 | Generator remaining coverage edge cases |
-| `test_interactive_discovery_coverage.py` | 106 | Interactive discovery and helpers coverage |
+| `test_interactive_discovery_coverage.py` | 109 | Interactive discovery and helpers coverage |
 | `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
 | `test_main_impl_cli_coverage.py` | 86 | _main_impl CLI path coverage |
 | `test_main_impl_coverage.py` | 51 | _main_impl coverage edge cases |
@@ -166,7 +166,7 @@ tests/
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
 | `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
-| **Total** | **4,608** | **Collected via pytest --collect-only** |
+| **Total** | **4,611** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -570,7 +570,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,608 tests total)
+- [x] Comprehensive test coverage (4,611 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

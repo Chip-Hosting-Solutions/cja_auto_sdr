@@ -527,6 +527,25 @@ class TestRunListCommand:
         parsed = json.loads(err)
         assert "API timeout" in parsed["error"]
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_from_fetch_is_recoverable(self, _mock_config, mock_cjapy, capsys):
+        """AttributeError in fetch callback should return False with a user-facing API error."""
+        mock_cjapy.CJA.return_value = Mock()
+
+        def _raise_attr_error(_cja, _machine_readable):
+            raise AttributeError("missing getDataViews")
+
+        result = _run_list_command(
+            banner_text="TEST",
+            command_name="test",
+            fetch_and_format=_raise_attr_error,
+            config_file="config.json",
+        )
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: missing getDataViews" in out
+
 
 # ===========================================================================
 # interactive_select_dataviews  (lines 9406-9409, 9452-9455, 9468-9470,
@@ -631,6 +650,18 @@ class TestInteractiveSelectDataviews:
         assert result == []
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: network error" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Missing API method should be surfaced as a handled connection error."""
+        mock_cjapy.CJA.return_value = object()
+
+        result = interactive_select_dataviews("config.json")
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API" in out
+        assert "getDataViews" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
@@ -1010,6 +1041,18 @@ class TestInteractiveWizard:
         assert result is None
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: API down" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_during_startup_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Missing API method during startup should return None with a user-facing error."""
+        mock_cjapy.CJA.return_value = object()
+
+        result = interactive_wizard("config.json")
+        assert result is None
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API" in out
+        assert "getDataViews" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))

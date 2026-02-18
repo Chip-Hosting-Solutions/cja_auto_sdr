@@ -7557,7 +7557,7 @@ def _run_list_command(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except (APIError, ConfigurationError, OSError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         if is_machine_readable:
             print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
         else:
@@ -8268,7 +8268,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         print(ConsoleColors.warning("Operation cancelled."))
         return []
 
-    except (APIError, ConfigurationError, OSError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return []
 
@@ -8505,7 +8505,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         print("Run: cja_auto_sdr --sample-config")
         return None
-    except (APIError, ConfigurationError, OSError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return None
 
@@ -9177,7 +9177,7 @@ def show_stats(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except (APIError, ConfigurationError, OSError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to get stats: {e!s}"})
             print(error_json, file=sys.stderr if is_stdout else sys.stdout)
@@ -11449,7 +11449,7 @@ def handle_snapshot_command(
 
         return True
 
-    except (APIError, ConfigurationError, OSError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {e!s}"), file=sys.stderr)
         return False
 
