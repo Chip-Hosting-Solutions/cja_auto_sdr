@@ -92,7 +92,7 @@ def _print_version(program_name: str = "cja_auto_sdr") -> None:
 
 
 def _print_exit_codes() -> None:
-    banner_width = 78  # matches core.constants.BANNER_WIDTH
+    banner_width = 78  # wider than BANNER_WIDTH for exit-code reference output
 
     print("=" * banner_width)
     print("EXIT CODE REFERENCE")

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-02-18
+
+### Added
+- **Startup fast-path**: `--version` and `--exit-codes` now resolve in under 100 ms
+  by bypassing heavyweight imports (pandas, cjapy, tqdm) via lightweight `__main__.py`
+  entry point
+- **CLI parser extraction**: Extracted `parse_arguments()` into `cli/parser.py` module
+  for better code organization (~1,280 lines moved out of generator.py)
+- **CI smoke tests**: Added Windows and macOS smoke-test jobs for fast-path commands
+  and parser/contract tests
+- **Startup performance benchmarks**: Added benchmarks to `docs/PERFORMANCE.md`
+
+### Fixed
+- **Typed exception handling**: Replaced ~35 broad `except Exception` catches with
+  specific typed exception tuples (`RECOVERABLE_API_EXCEPTIONS`,
+  `RECOVERABLE_CONFIG_API_EXCEPTIONS`, etc.) for better error diagnostics
+- **Transport failure handling**: Graceful handling of `ConnectionError`,
+  `BrokenProcessPool`, and other transport failures across all discovery commands,
+  interactive flows, org-reports, inventory lookups, diff/snapshot flows, and
+  dry-run validation
+- **Data view payload validation**: Hardened validation of malformed API responses
+  with regression tests
+- **Version banner consistency**: Fast-path version banner now matches the program
+  name argparse would use (e.g. `python -m cja_auto_sdr` vs `cja_auto_sdr`)
+
 ## [3.3.0] - 2026-02-17
 
 ### Added
