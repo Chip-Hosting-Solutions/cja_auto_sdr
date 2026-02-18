@@ -570,6 +570,29 @@ class TestHandleDiffCommand:
         assert has_changes is False
         assert exit_override is None
 
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_diff_snapshot_value_error_returns_false(self, mock_conf, mock_cjapy, mock_sm_cls, capsys):
+        """ValueError during snapshot fetch should be handled as a diff failure."""
+        mock_conf.return_value = (True, "config_path", {})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        mock_sm = MagicMock()
+        mock_sm.create_snapshot.side_effect = ValueError("data view not found")
+        mock_sm_cls.return_value = mock_sm
+
+        success, has_changes, exit_override = handle_diff_command(
+            source_id="dv_missing",
+            target_id="dv_target",
+            quiet=True,
+        )
+
+        assert success is False
+        assert has_changes is False
+        assert exit_override is None
+        assert "Failed to compare data views" in capsys.readouterr().err
+
     def test_diff_config_dataclass_unpacking(self):
         """DiffConfig is correctly unpacked into local vars in handle_diff_command."""
         config = DiffConfig(

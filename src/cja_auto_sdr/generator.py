@@ -11733,7 +11733,7 @@ def handle_diff_command(
         append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
-    except (CJASDRError, OSError) as e:
+    except (APIError, CJASDRError, OSError, ValueError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
         logger.debug("Diff comparison failed", exc_info=True)
         return False, False, None
@@ -14152,7 +14152,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                                     include_calculated_metrics=include_calc,
                                     include_segments=include_segs,
                                 )
-                        except (OSError, subprocess.SubprocessError) as e:
+                        except (APIError, ConfigurationError, OSError, subprocess.SubprocessError, ValueError) as e:
                             print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
 
                     # Save Git-friendly snapshot

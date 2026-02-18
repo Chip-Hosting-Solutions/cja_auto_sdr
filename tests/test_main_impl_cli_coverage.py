@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError
 from cja_auto_sdr.generator import (
     MAX_BATCH_WORKERS,
     ProcessingResult,
@@ -1461,6 +1462,78 @@ class TestGitCommitIntegration:
 
         out = capsys.readouterr().out
         assert "Could not fetch snapshot data" in out
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_123"], {}))
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
+    @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
+    @patch("cja_auto_sdr.generator.initialize_cja", return_value=MagicMock())
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
+    @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "abc123"))
+    def test_git_commit_refetch_value_error_continues(
+        self, mock_commit, mock_save, mock_sm_cls, _init_cja, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
+    ):
+        """ValueError during snapshot re-fetch should warn and continue commit flow."""
+        mock_proc.return_value = self._make_success_result()
+        mock_sm = MagicMock()
+        mock_sm.create_snapshot.side_effect = ValueError("data view not found")
+        mock_sm_cls.return_value = mock_sm
+
+        args = _make_args(
+            data_views=["dv_123"],
+            git_commit=True,
+            include_segments_inventory=True,
+        )
+        with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
+            try:
+                _main_impl()
+            except SystemExit:
+                pass
+
+        out = capsys.readouterr().out
+        assert "Could not fetch snapshot data" in out
+        mock_save.assert_called_once()
+        mock_commit.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_123"], {}))
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.aggregate_quality_issues", return_value=[])
+    @patch("cja_auto_sdr.generator.append_github_step_summary")
+    @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
+    @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
+    @patch("cja_auto_sdr.generator.initialize_cja", return_value=MagicMock())
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
+    @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "abc123"))
+    def test_git_commit_refetch_api_error_continues(
+        self, mock_commit, mock_save, mock_sm_cls, _init_cja, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
+    ):
+        """APIError during snapshot re-fetch should warn and continue commit flow."""
+        mock_proc.return_value = self._make_success_result()
+        mock_sm = MagicMock()
+        mock_sm.create_snapshot.side_effect = APIError("transient api failure")
+        mock_sm_cls.return_value = mock_sm
+
+        args = _make_args(
+            data_views=["dv_123"],
+            git_commit=True,
+            include_segments_inventory=True,
+        )
+        with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
+            try:
+                _main_impl()
+            except SystemExit:
+                pass
+
+        out = capsys.readouterr().out
+        assert "Could not fetch snapshot data" in out
+        mock_save.assert_called_once()
+        mock_commit.assert_called_once()
 
 
 # =========================================================================
