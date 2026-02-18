@@ -2,7 +2,7 @@
 
 Technical details and optimization options for the CJA SDR Generator.
 
-> **Note:** Performance benchmarks in this guide were originally measured with v3.1.0 and remain representative. Features added in v3.2.x (circuit breaker, API auto-tuning, shared validation cache) may improve performance further. Actual results vary based on network conditions, API rate limits, and data view size.
+> **Note:** Performance benchmarks in this guide were measured with v3.1.0–v3.3.x. Features added in v3.2.x (circuit breaker, API auto-tuning, shared validation cache) and v3.3.x (startup fast-path, typed exception handling) are reflected below. Actual results vary based on network conditions, API rate limits, and data view size.
 
 ## Performance Overview
 
@@ -20,6 +20,22 @@ The generator includes multiple optimization features:
 | API auto-tuning | Adaptive worker scaling based on response times |
 | Circuit breaker | Prevents cascading failures, fast recovery |
 | Shared validation cache | Cross-process cache sharing for batch operations |
+| Startup fast-path | ~9x faster `--version` / `--exit-codes` (v3.3.1+) |
+
+## Startup Performance
+
+As of v3.3.1, lightweight informational flags are handled by a fast-path entry
+point (`__main__.py`) that avoids importing heavyweight dependencies (pandas,
+cjapy, tqdm).
+
+| Command | Before (v3.3.0) | After (v3.3.1) | Improvement |
+|---------|-----------------|----------------|-------------|
+| `--version` | ~0.6s | ~0.07s | **~9x faster** |
+| `--exit-codes` | ~0.6s | ~0.07s | **~9x faster** |
+| `--help` | ~0.6s | ~0.6s | No change (requires full parser) |
+
+The fast-path is active for both `python -m cja_auto_sdr` and the installed
+console-script entry points (`cja_auto_sdr` / `cja-auto-sdr`).
 
 ## Batch Processing
 
