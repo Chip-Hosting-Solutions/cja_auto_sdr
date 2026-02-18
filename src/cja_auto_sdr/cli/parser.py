@@ -243,6 +243,7 @@ Requirements:
 
     parser.add_argument(
         "--version",
+        "-V",
         action="version",
         version=f"%(prog)s {__version__}",
         help="Show program version and exit",

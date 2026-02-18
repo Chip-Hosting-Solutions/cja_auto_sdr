@@ -687,6 +687,14 @@ class TestFastPathEntryPoint:
                 fast_main()
                 mock_gen_main.assert_called_once()
 
+    def test_fast_path_short_version_with_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "-V", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
 
 class TestQualityGateAndReport:
     """Tests for quality gate/report behavior in main()."""
@@ -3300,6 +3308,8 @@ class TestRunSummaryOutput:
         commands = [
             ["uv", "run", "cja_auto_sdr", "--version", "--run-summary-json", "stdout"],
             ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "--version"],
+            ["uv", "run", "cja_auto_sdr", "-V", "--run-summary-json", "stdout"],
+            ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "-V"],
         ]
 
         for cmd in commands:

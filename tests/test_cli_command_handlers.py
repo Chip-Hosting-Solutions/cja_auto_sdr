@@ -244,6 +244,32 @@ class TestProcessInventorySummary:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.with_log_context")
     @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_calculated_transport_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport errors in calculated inventory should be non-fatal."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = ConnectionError("calc transport down")
+        with patch.dict(
+            "sys.modules",
+            {"cja_calculated_metrics_inventory": MagicMock(CalculatedMetricsInventoryBuilder=mock_builder_cls)},
+        ):
+            result = process_inventory_summary("dv_test123", include_calculated=True)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["calculated_inventory"] is None
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
     def test_include_segments_import_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
         """When segments import fails, should continue gracefully."""
         mock_setup.return_value = logging.getLogger("test")
@@ -262,6 +288,32 @@ class TestProcessInventorySummary:
             result = process_inventory_summary("dv_test123", include_segments=True)
 
         assert result == {"ok": True}
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_segments_transport_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport errors in segments inventory should be non-fatal."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = ConnectionError("segments transport down")
+        with patch.dict(
+            "sys.modules",
+            {"cja_segments_inventory": MagicMock(SegmentsInventoryBuilder=mock_builder_cls)},
+        ):
+            result = process_inventory_summary("dv_test123", include_segments=True)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["segments_inventory"] is None
 
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     @patch("cja_auto_sdr.generator.initialize_cja")

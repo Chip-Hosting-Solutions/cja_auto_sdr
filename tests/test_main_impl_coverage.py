@@ -631,6 +631,60 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
+    def test_calculated_metrics_transport_exception(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Transport errors during calculated metrics inventory should be non-fatal."""
+        mock_logger, _, _ = _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        with patch(
+            "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder",
+        ) as mock_cls:
+            mock_cls.return_value.build.side_effect = ConnectionError("calc transport fail")
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_calculated_metrics=True,
+                skip_validation=True,
+            )
+        assert result.success is True
+        assert result.calculated_metrics_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during calculated metrics inventory: calc transport fail")
+        assert _mock_call_contains(
+            mock_logger.info,
+            "Continuing with SDR generation despite calculated metrics inventory errors",
+        )
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
     def test_segments_inventory_import_error(
         self,
         mock_excel_writer,
@@ -724,6 +778,57 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert result.success is True
         assert result.segments_count == 0
         assert _mock_call_contains(mock_logger.error, "Error during segments inventory: seg fail")
+        assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_segments_inventory_transport_exception(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Transport errors during segments inventory should be non-fatal."""
+        mock_logger, _, _ = _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        with patch(
+            "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder",
+        ) as mock_cls:
+            mock_cls.return_value.build.side_effect = ConnectionError("segments transport fail")
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_segments_inventory=True,
+                skip_validation=True,
+            )
+        assert result.success is True
+        assert result.segments_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during segments inventory: segments transport fail")
         assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
 
 
