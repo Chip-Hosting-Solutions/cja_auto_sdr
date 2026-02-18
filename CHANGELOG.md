@@ -12,9 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.3.1] - 2026-02-18
 
 ### Added
-- **Startup fast-path**: `--version` and `--exit-codes` now resolve in under 100 ms
-  by bypassing heavyweight imports (pandas, cjapy, tqdm) via lightweight `__main__.py`
-  entry point
+- **Startup fast-path**: `--version` / `-V` and `--exit-codes` now resolve in under
+  100 ms by bypassing heavyweight imports (pandas, cjapy, tqdm) via lightweight
+  `__main__.py` entry point
+- **`-V` short flag**: Added `-V` as a convenience alias for `--version`
 - **CLI parser extraction**: Extracted `parse_arguments()` into `cli/parser.py` module
   for better code organization (~1,280 lines moved out of generator.py)
 - **CI smoke tests**: Added Windows and macOS smoke-test jobs for fast-path commands

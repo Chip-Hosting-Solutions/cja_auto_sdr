@@ -95,7 +95,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 252 | Command-line interface and argument parsing |
+| `test_cli.py` | 254 | Command-line interface and argument parsing |
 | `test_profiles.py` | 48 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -104,7 +104,7 @@ tests/
 | `test_calculated_metrics_inventory.py` | 285 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
-| `test_cja_initialization.py` | 39 | CJA connection and configuration validation |
+| `test_cja_initialization.py` | 45 | CJA connection and configuration validation |
 | `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
 | `test_parallel_api_fetcher.py` | 25 | Parallel API data fetching |
@@ -112,11 +112,11 @@ tests/
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
 | `test_retry.py` | 25 | Retry with exponential backoff |
-| `test_batch_processor.py` | 24 | Batch processing of multiple data views |
+| `test_batch_processor.py` | 26 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
 | `test_process_single_dataview.py` | 20 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
-| `test_name_resolution.py` | 20 | Data view name to ID resolution |
+| `test_name_resolution.py` | 22 | Data view name to ID resolution |
 | `test_shared_cache.py` | 17 | Shared validation cache |
 | `test_logging_optimization.py` | 17 | Logging performance optimizations |
 | `test_env_credentials.py` | 15 | Environment variable credentials |
@@ -150,17 +150,17 @@ tests/
 | `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
-| `test_cli_command_handlers.py` | 74 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
+| `test_cli_command_handlers.py` | 75 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
-| `test_snapshot_commands.py` | 57 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 74 | Config status, validation, stats, name resolution |
+| `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
+| `test_config_and_resolution.py` | 76 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 23 | Generator interactive and console tests |
 | `test_generator_remaining_coverage.py` | 82 | Generator remaining coverage edge cases |
 | `test_interactive_discovery_coverage.py` | 112 | Interactive discovery and helpers coverage |
 | `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
-| `test_main_impl_cli_coverage.py` | 86 | _main_impl CLI path coverage |
+| `test_main_impl_cli_coverage.py` | 87 | _main_impl CLI path coverage |
 | `test_main_impl_coverage.py` | 55 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
