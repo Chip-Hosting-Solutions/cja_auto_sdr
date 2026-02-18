@@ -8795,7 +8795,22 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
     config_source_type = None  # 'profile', 'environment', 'file'
     config_data = {}
     logger = logging.getLogger(__name__)
-    error_message = None
+
+    def _emit_config_status_error(message: str, *, include_help: bool = False) -> bool:
+        if output_json:
+            print(json.dumps({"error": message, "valid": False}, indent=2))
+        else:
+            print(ConsoleColors.error(f"ERROR: {message}"))
+            if include_help:
+                print()
+                print("Options:")
+                print(f"  1. Create config file: {config_file}")
+                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
+                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
+                print()
+                print("Generate a sample config with:")
+                print("  cja_auto_sdr --sample-config")
+        return False
 
     # Priority 1: Profile credentials
     if profile:
@@ -8806,12 +8821,7 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
                 config_source_type = "profile"
                 config_data = profile_creds
         except (ProfileNotFoundError, ProfileConfigError) as e:
-            error_message = f"Profile '{profile}' - {e}"
-            if output_json:
-                print(json.dumps({"error": error_message, "valid": False}, indent=2))
-            else:
-                print(ConsoleColors.error(f"ERROR: {error_message}"))
-            return False
+            return _emit_config_status_error(f"Profile '{profile}' - {e}")
 
     # Priority 2: Environment variables
     if not config_source:
@@ -8831,34 +8841,14 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
                 config_source = f"Config file: {config_path.resolve()}"
                 config_source_type = "file"
             except json.JSONDecodeError:
-                error_message = f"{config_file} is not valid JSON"
-                if output_json:
-                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
-                else:
-                    print(ConsoleColors.error(f"ERROR: {error_message}"))
-                return False
-            except (ConfigurationError, OSError) as e:
-                error_message = f"Cannot read {config_file}: {e}"
-                if output_json:
-                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
-                else:
-                    print(ConsoleColors.error(f"ERROR: {error_message}"))
-                return False
+                return _emit_config_status_error(f"{config_file} is not valid JSON")
+            except (UnicodeDecodeError, ConfigurationError, OSError) as e:
+                return _emit_config_status_error(f"Cannot read {config_file}: {e}")
+            except Exception as e:
+                logger.debug("Unexpected error reading config file in --config-status", exc_info=True)
+                return _emit_config_status_error(f"Cannot read {config_file}: {e}")
         else:
-            error_message = "No configuration found"
-            if output_json:
-                print(json.dumps({"error": error_message, "valid": False}, indent=2))
-            else:
-                print(ConsoleColors.error(f"ERROR: {error_message}"))
-                print()
-                print("Options:")
-                print(f"  1. Create config file: {config_file}")
-                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
-                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
-                print()
-                print("Generate a sample config with:")
-                print("  cja_auto_sdr --sample-config")
-            return False
+            return _emit_config_status_error("No configuration found", include_help=True)
 
     # Define field display order and metadata
     fields = [
@@ -11495,6 +11485,10 @@ def run_org_report(
     except RECOVERABLE_ORG_REPORT_EXCEPTIONS as e:
         _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
         logger.exception("Org report error")
+        return False, False
+    except Exception as e:
+        _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
+        logger.exception("Unexpected org report error")
         return False, False
 
 

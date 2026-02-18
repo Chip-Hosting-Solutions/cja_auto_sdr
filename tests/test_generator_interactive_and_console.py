@@ -514,6 +514,27 @@ def test_run_org_report_alias_output_value_error_returns_controlled_failure(
     assert "ERROR: Org report failed" in out
 
 
+def test_run_org_report_unexpected_cja_runtime_error_returns_controlled_failure(tmp_path: Path, capsys):
+    with (
+        patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", {"org_id": "test_org@AdobeOrg"})),
+        patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+    ):
+        mock_cjapy.CJA.side_effect = RuntimeError("bootstrap exploded")
+
+        ok, exceeded = generator.run_org_report(
+            config_file="config.json",
+            output_format="console",
+            output_path=None,
+            output_dir=str(tmp_path),
+            org_config=OrgReportConfig(),
+            quiet=True,
+        )
+
+    assert ok is False
+    assert exceeded is False
+    assert "ERROR: Org report failed: bootstrap exploded" in capsys.readouterr().out
+
+
 def test_run_org_report_org_stats_json_stdout_branch(tmp_path: Path, capsys, rich_org_report_result):
     result = rich_org_report_result
     config = OrgReportConfig(org_stats_only=True)

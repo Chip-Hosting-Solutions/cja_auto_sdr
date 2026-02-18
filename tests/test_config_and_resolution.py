@@ -111,6 +111,30 @@ class TestShowConfigStatusFile:
         data = json.loads(capsys.readouterr().out)
         assert data["valid"] is False
 
+    @pytest.mark.parametrize("output_json", [True, False])
+    def test_config_file_non_utf8_bytes_returns_controlled_error(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        output_json: bool,
+    ) -> None:
+        """Non-UTF8 config bytes should not escape as traceback in --config-status."""
+        from cja_auto_sdr.generator import show_config_status
+
+        config = tmp_path / "config.json"
+        config.write_bytes(b"\xff\xfe\xfd")
+
+        result = show_config_status(config_file=str(config), output_json=output_json)
+
+        assert result is False
+        output = capsys.readouterr().out
+        if output_json:
+            payload = json.loads(output)
+            assert payload["valid"] is False
+            assert "Cannot read" in payload["error"]
+        else:
+            assert "Cannot read" in output
+
     def test_config_file_not_found(self, tmp_path: Path) -> None:
         from cja_auto_sdr.generator import show_config_status
 
