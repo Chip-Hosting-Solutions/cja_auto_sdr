@@ -314,6 +314,28 @@ class TestHandleCompareSnapshotsCommand:
         captured = capsys.readouterr()
         assert "Invalid snapshot file" in captured.err
 
+    def test_compare_snapshots_unexpected_exception(self, tmp_path, capsys):
+        """Plain Exception during comparison should return controlled failure, not traceback."""
+        src_file = str(tmp_path / "source.json")
+        tgt_file = str(tmp_path / "target.json")
+        _write_snapshot_file(src_file)
+        _write_snapshot_file(tgt_file)
+
+        mock_manager = MagicMock()
+        mock_manager.load_snapshot.side_effect = RuntimeError("unexpected comparator crash")
+        with patch("cja_auto_sdr.generator.SnapshotManager", return_value=mock_manager):
+            success, has_changes, exit_code = handle_compare_snapshots_command(
+                source_file=src_file,
+                target_file=tgt_file,
+                quiet=True,
+            )
+
+        assert success is False
+        assert has_changes is False
+        assert exit_code is None
+        captured = capsys.readouterr()
+        assert "unexpected" in captured.err.lower()
+
     def test_compare_snapshots_with_banner(self, tmp_path, capsys):
         """Non-quiet mode prints comparison banner."""
         source = _make_snapshot(data_view_id="dv_A", data_view_name="DV A")

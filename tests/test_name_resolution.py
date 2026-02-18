@@ -266,6 +266,30 @@ class TestDataViewNameResolution:
         assert name_map == {}
 
     @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_with_unexpected_exception(self, mock_cjapy):
+        """Plain Exception from cjapy bootstrap should return controlled failure."""
+        mock_cja_instance = MagicMock()
+        mock_cja_instance.getDataViews.side_effect = Exception("unexpected auth failure")
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map = resolve_data_view_names(["Production Analytics"], "config.json", self.logger)
+
+        assert ids == []
+        assert name_map == {}
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_with_runtime_error(self, mock_cjapy):
+        """RuntimeError from client plumbing should return controlled failure."""
+        mock_cjapy.CJA.side_effect = RuntimeError("bootstrap failed")
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map = resolve_data_view_names(["Test DV"], "config.json", self.logger)
+
+        assert ids == []
+        assert name_map == {}
+
+    @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_case_sensitive(self, mock_cjapy):
         """Test that name resolution is case-sensitive"""
         mock_cja_instance = MagicMock()

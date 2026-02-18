@@ -5108,6 +5108,10 @@ def process_inventory_summary(
     except RECOVERABLE_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to fetch data view (unexpected): {e}"), file=sys.stderr)
+        logger.debug("Unexpected error fetching data view", exc_info=True)
+        return {"error": str(e)}
 
     if not quiet:
         print(ConsoleColors.info(f"Fetching inventory data for: {dv_name}"))
@@ -6406,6 +6410,24 @@ class BatchProcessor:
                                 for f in future_to_dv:
                                     f.cancel()
                                 break
+                        except Exception as e:
+                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: UNEXPECTED EXCEPTION - {e!s}")
+                            self.logger.debug("Unexpected batch worker error", exc_info=True)
+                            results["failed"].append(
+                                ProcessingResult(
+                                    data_view_id=dv_id,
+                                    data_view_name="Unknown",
+                                    success=False,
+                                    duration=0,
+                                    error_message=str(e),
+                                ),
+                            )
+
+                            if not self.continue_on_error:
+                                self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
+                                for f in future_to_dv:
+                                    f.cancel()
+                                break
 
                         pbar.update(1)
         finally:
@@ -7193,6 +7215,10 @@ def resolve_data_view_names(
         return [], {}
     except RECOVERABLE_API_EXCEPTIONS as e:
         logger.error(f"Failed to resolve data view names: {e!s}")
+        return [], {}
+    except Exception as e:
+        logger.error(f"Failed to resolve data view names (unexpected): {e!s}")
+        logger.debug("Unexpected error during name resolution", exc_info=True)
         return [], {}
 
 
@@ -9042,6 +9068,10 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         raise
     except RECOVERABLE_API_EXCEPTIONS as e:
         print(f"  ✗ API connection failed: {e!s}")
+        all_passed = False
+    except Exception as e:
+        print(f"  ✗ API connection failed (unexpected): {e!s}")
+        logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
 
     # Summary
@@ -12432,6 +12462,10 @@ def handle_compare_snapshots_command(
     except (CJASDRError, OSError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
         logger.debug("Snapshot comparison failed", exc_info=True)
+        return False, False, None
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to compare snapshots (unexpected): {e!s}"), file=sys.stderr)
+        logger.debug("Unexpected snapshot comparison error", exc_info=True)
         return False, False, None
 
 
