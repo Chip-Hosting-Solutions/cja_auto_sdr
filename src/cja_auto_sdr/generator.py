@@ -1925,6 +1925,8 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
             dv_name = dv_info.get("name", "Unknown")
             dv_description = dv_info.get("description", "No description")
+            if not isinstance(dv_description, str):
+                dv_description = str(dv_description) if dv_description is not None else "No description"
 
             owner_info = dv_info.get("owner", {})
             if not isinstance(owner_info, dict):
@@ -14269,7 +14271,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                                     include_calculated_metrics=include_calc,
                                     include_segments=include_segs,
                                 )
-                        except (APIError, ConfigurationError, OSError, subprocess.SubprocessError, ValueError) as e:
+                        except Exception as e:
                             print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
 
                     # Save Git-friendly snapshot

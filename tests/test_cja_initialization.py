@@ -530,6 +530,25 @@ class TestValidateDataView:
         calls = [str(c) for c in mock_logger.error.call_args_list]
         assert any("Malformed data view payload returned by API" in c for c in calls)
 
+    @pytest.mark.parametrize(
+        "description",
+        [42, 3.14, ["a", "b"], {"key": "val"}, None, True],
+        ids=["int", "float", "list", "dict", "none", "bool"],
+    )
+    def test_non_string_description_does_not_traceback(self, mock_logger, description):
+        """Non-string description values must not raise outside the handler."""
+        mock_cja = Mock()
+        mock_cja.getDataView.return_value = {
+            "id": "dv_test_12345",
+            "name": "Test Data View",
+            "owner": {"name": "Test Owner"},
+            "description": description,
+        }
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is True
+
     def test_logs_data_view_details(self, mock_logger):
         """Test that data view details are logged"""
         mock_cja = Mock()
