@@ -402,7 +402,7 @@ cja_auto_sdr/
 │   ├── GIT_INTEGRATION.md     # Git integration guide
 │   ├── ORG_WIDE_ANALYSIS.md   # Org-wide report guide
 │   └── ...                    # Additional guides
-├── tests/                     # Test suite (4,651+ tests)
+├── tests/                     # Test suite (4,653+ tests)
 ├── sample_outputs/            # Example output files
 │   ├── excel/                 # Sample Excel SDR
 │   ├── csv/                   # Sample CSV output

@@ -649,6 +649,24 @@ class TestFastPathEntryPoint:
         assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
         assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
 
+    def test_has_run_summary_flag_rejects_short_prefixes(self):
+        """Short prefixes like --run or --r must not falsely match --run-summary-json."""
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--run"]) is False
+        assert _has_run_summary_flag(["--r"]) is False
+        assert _has_run_summary_flag(["--run-s"]) is False
+        assert _has_run_summary_flag(["--run-summary"]) is False
+
+    def test_has_run_summary_flag_accepts_unambiguous_prefixes(self):
+        """Unambiguous prefixes (>= --run-summary-) should match."""
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--run-summary-json"]) is True
+        assert _has_run_summary_flag(["--run-summary-j"]) is True
+        assert _has_run_summary_flag(["--run-summary-js"]) is True
+        assert _has_run_summary_flag(["--run-summary-json=stdout"]) is True
+
     def test_fast_path_version_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_version
         from cja_auto_sdr.core.version import __version__

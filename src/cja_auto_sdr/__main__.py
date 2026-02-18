@@ -16,14 +16,17 @@ import sys
 
 
 def _has_run_summary_flag(args: list[str]) -> bool:
-    """Return True when argv contains --run-summary-json (or abbreviation)."""
+    """Return True when argv contains --run-summary-json (or unambiguous prefix)."""
+    _FULL_FLAGS = ("--run-summary-json", "--run-summary-j")
+    _MIN_PREFIX = "--run-summary-"  # shortest unambiguous prefix (14 chars)
     for token in args:
         if not token.startswith("--"):
             continue
         option = token.split("=", 1)[0]
-        if option in ("--run-summary-json", "--run-summary-j"):
+        if option in _FULL_FLAGS:
             return True
-        if "--run-summary-json".startswith(option) or "--run-summary-j".startswith(option):
+        # Accept argparse-style unambiguous prefixes (>= 14 chars)
+        if len(option) >= len(_MIN_PREFIX) and any(f.startswith(option) for f in _FULL_FLAGS):
             return True
     return False
 
@@ -92,46 +95,9 @@ def _print_version(program_name: str = "cja_auto_sdr") -> None:
 
 
 def _print_exit_codes() -> None:
-    banner_width = 78  # wider than BANNER_WIDTH for exit-code reference output
+    from cja_auto_sdr.core.exit_codes import print_exit_codes
 
-    print("=" * banner_width)
-    print("EXIT CODE REFERENCE")
-    print("=" * banner_width)
-    print()
-    print("  Code  Meaning")
-    print("  ----  " + "-" * 50)
-    print("    0   Success")
-    print("        - SDR generated successfully")
-    print("        - Diff comparison: no changes found")
-    print("        - Validation passed")
-    print()
-    print("    1   Error occurred")
-    print("        - Configuration error (invalid credentials, missing file)")
-    print("        - API error (network, authentication, rate limit)")
-    print("        - Validation failed")
-    print("        - File I/O error")
-    print()
-    print("    2   Policy threshold exceeded (not a runtime error)")
-    print("        - Diff mode: changes found")
-    print("        - SDR mode: quality gate failed (--fail-on-quality)")
-    print("        - Org mode: governance threshold failed (--fail-on-threshold)")
-    print()
-    print("    3   Diff: Warning threshold exceeded")
-    print("        - Triggered by --warn-threshold PERCENT")
-    print("        - Example: cja_auto_sdr --diff dv_A dv_B --warn-threshold 10")
-    print("        - Exits 3 if change percentage > threshold")
-    print()
-    print("=" * banner_width)
-    print("CI/CD Examples:")
-    print("=" * banner_width)
-    print()
-    print("  # Fail CI if any changes detected")
-    print("  cja_auto_sdr --diff dv_prod dv_staging --quiet")
-    print("  if [ $? -eq 2 ]; then echo 'Changes detected!'; exit 1; fi")
-    print()
-    print("  # Fail CI only if >10% changes")
-    print("  cja_auto_sdr --diff dv_A dv_B --warn-threshold 10 --quiet")
-    print()
+    print_exit_codes(banner_width=78)
 
 
 def main() -> None:
