@@ -333,6 +333,68 @@ class TestProcessInventorySummary:
         call_kwargs = mock_display.call_args.kwargs
         assert call_kwargs["segments_inventory"] is None
 
+    @pytest.mark.parametrize(
+        ("module_name", "builder_attr", "include_kwargs", "summary_key"),
+        [
+            (
+                "cja_auto_sdr.inventory.derived_fields",
+                "DerivedFieldInventoryBuilder",
+                {"include_derived": True},
+                "derived_inventory",
+            ),
+            (
+                "cja_calculated_metrics_inventory",
+                "CalculatedMetricsInventoryBuilder",
+                {"include_calculated": True},
+                "calculated_inventory",
+            ),
+            (
+                "cja_segments_inventory",
+                "SegmentsInventoryBuilder",
+                {"include_segments": True},
+                "segments_inventory",
+            ),
+        ],
+    )
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_optional_inventory_runtime_failure_non_fatal(
+        self,
+        mock_setup,
+        mock_ctx,
+        mock_init,
+        mock_display,
+        module_name,
+        builder_attr,
+        include_kwargs,
+        summary_key,
+    ):
+        """Unexpected RuntimeError in optional inventory builders should not abort summary mode."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_cja.dataviews.get_metrics.return_value = [{"id": "m1"}]
+        mock_cja.dataviews.get_dimensions.return_value = [{"id": "d1"}]
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = RuntimeError("unexpected builder runtime failure")
+
+        with patch.dict(
+            "sys.modules",
+            {module_name: MagicMock(**{builder_attr: mock_builder_cls})},
+        ):
+            result = process_inventory_summary("dv_test123", quiet=True, **include_kwargs)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs[summary_key] is None
+
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.with_log_context")

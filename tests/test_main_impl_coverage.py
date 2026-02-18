@@ -473,7 +473,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_derived_inventory_generic_exception(
+    def test_derived_inventory_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -488,7 +488,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during derived field inventory building is caught."""
+        """Unexpected runtime exception during derived field inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -504,7 +504,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.derived_fields.DerivedFieldInventoryBuilder",
         ) as mock_builder_cls:
-            mock_builder_cls.return_value.build.side_effect = ValueError("build fail")
+            mock_builder_cls.return_value.build.side_effect = RuntimeError("build fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,
@@ -577,7 +577,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_calculated_metrics_generic_exception(
+    def test_calculated_metrics_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -592,7 +592,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during calculated metrics inventory is caught."""
+        """Unexpected runtime exception during calculated metrics inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -608,7 +608,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder",
         ) as mock_cls:
-            mock_cls.return_value.build.side_effect = ValueError("calc fail")
+            mock_cls.return_value.build.side_effect = RuntimeError("calc fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,
@@ -736,7 +736,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_segments_inventory_generic_exception(
+    def test_segments_inventory_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -751,7 +751,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during segments inventory is caught."""
+        """Unexpected runtime exception during segments inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -767,7 +767,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder",
         ) as mock_cls:
-            mock_cls.return_value.build.side_effect = ValueError("seg fail")
+            mock_cls.return_value.build.side_effect = RuntimeError("seg fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,

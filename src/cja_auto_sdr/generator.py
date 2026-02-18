@@ -623,13 +623,29 @@ RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
     *RECOVERABLE_CONFIG_API_EXCEPTIONS,
     Exception,
 )
-# Recoverable failures during optional inventory collection. These should not
-# fail the primary SDR/inventory-summary flow.
-RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (*RECOVERABLE_API_EXCEPTIONS,)
-RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = (
-    ImportError,
-    *RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS,
-)
+# Recoverable failures during optional inventory collection. These code paths
+# are best-effort and must never fail the primary SDR/inventory-summary flow.
+# Keep this broad by design to protect command robustness against unexpected
+# third-party or builder regressions while still allowing BaseException
+# subclasses (e.g., KeyboardInterrupt/SystemExit) to propagate.
+RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS
+
+
+def _log_optional_inventory_failure(
+    logger: Any,
+    *,
+    inventory_label: str,
+    error: Exception,
+    summary_mode: bool,
+) -> None:
+    """Log non-fatal optional inventory failures consistently."""
+    if summary_mode:
+        logger.warning(f"Failed to build {inventory_label}: {error}")
+    else:
+        logger.error(_format_error_msg(f"during {inventory_label}", error=error))
+        logger.info(f"Continuing with SDR generation despite {inventory_label} errors")
+    logger.debug(f"Optional inventory failure details: {error!r}")
 
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
@@ -5139,7 +5155,12 @@ def process_inventory_summary(
             if not quiet:
                 print(ConsoleColors.dim(f"  Derived fields: {derived_inventory.total_derived_fields}"))
         except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            logger.warning(f"Failed to build derived fields inventory: {e}")
+            _log_optional_inventory_failure(
+                logger,
+                inventory_label="derived fields inventory",
+                error=e,
+                summary_mode=True,
+            )
 
     # Fetch calculated metrics inventory
     if include_calculated:
@@ -5153,7 +5174,12 @@ def process_inventory_summary(
                     ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}")
                 )  # pragma: no cover
         except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            logger.warning(f"Failed to build calculated metrics inventory: {e}")
+            _log_optional_inventory_failure(
+                logger,
+                inventory_label="calculated metrics inventory",
+                error=e,
+                summary_mode=True,
+            )
 
     # Fetch segments inventory
     if include_segments:
@@ -5165,7 +5191,12 @@ def process_inventory_summary(
             if not quiet:  # pragma: no cover
                 print(ConsoleColors.dim(f"  Segments: {segments_inventory.total_segments}"))  # pragma: no cover
         except RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS as e:
-            logger.warning(f"Failed to build segments inventory: {e}")
+            _log_optional_inventory_failure(
+                logger,
+                inventory_label="segments inventory",
+                error=e,
+                summary_mode=True,
+            )
 
     # Display summary
     return display_inventory_summary(
@@ -5528,8 +5559,12 @@ def process_single_dataview(
                 logger.warning(f"Could not import derived field inventory: {e}")
                 logger.info("Skipping derived field inventory - module not available")
             except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                logger.error(_format_error_msg("during derived field inventory", error=e))
-                logger.info("Continuing with SDR generation despite derived field inventory errors")
+                _log_optional_inventory_failure(
+                    logger,
+                    inventory_label="derived field inventory",
+                    error=e,
+                    summary_mode=False,
+                )
 
         # Calculated metrics inventory (if enabled)
         calculated_metrics_df = pd.DataFrame()
@@ -5555,8 +5590,12 @@ def process_single_dataview(
                 logger.warning(f"Could not import calculated metrics inventory: {e}")
                 logger.info("Skipping calculated metrics inventory - module not available")
             except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                logger.error(_format_error_msg("during calculated metrics inventory", error=e))
-                logger.info("Continuing with SDR generation despite calculated metrics inventory errors")
+                _log_optional_inventory_failure(
+                    logger,
+                    inventory_label="calculated metrics inventory",
+                    error=e,
+                    summary_mode=False,
+                )
 
         # Segments inventory (if enabled)
         segments_inventory_df = pd.DataFrame()
@@ -5582,8 +5621,12 @@ def process_single_dataview(
                 logger.warning(f"Could not import segments inventory: {e}")
                 logger.info("Skipping segments inventory - module not available")
             except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
-                logger.error(_format_error_msg("during segments inventory", error=e))
-                logger.info("Continuing with SDR generation despite segments inventory errors")
+                _log_optional_inventory_failure(
+                    logger,
+                    inventory_label="segments inventory",
+                    error=e,
+                    summary_mode=False,
+                )
 
         # Data processing
         logger.info("=" * BANNER_WIDTH)
