@@ -18,6 +18,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -595,12 +596,18 @@ RECOVERABLE_API_EXCEPTIONS: tuple[type[Exception], ...] = (
     APIError,
     RetryableHTTPError,
     OSError,
+    AttributeError,
     KeyError,
     TypeError,
     ValueError,
 )
 RECOVERABLE_CONFIG_API_EXCEPTIONS: tuple[type[Exception], ...] = (
     ConfigurationError,
+    *RECOVERABLE_API_EXCEPTIONS,
+)
+RECOVERABLE_BATCH_WORKER_EXCEPTIONS: tuple[type[Exception], ...] = (
+    BrokenProcessPool,
+    CJASDRError,
     *RECOVERABLE_API_EXCEPTIONS,
 )
 
@@ -6347,7 +6354,7 @@ class BatchProcessor:
                             for f in future_to_dv:
                                 f.cancel()
                             raise
-                        except (CJASDRError, OSError, KeyError, TypeError, ValueError) as e:
+                        except RECOVERABLE_BATCH_WORKER_EXCEPTIONS as e:
                             self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
                             results["failed"].append(
                                 ProcessingResult(

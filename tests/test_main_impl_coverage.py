@@ -1676,6 +1676,20 @@ class TestRunDryRunAPIValidation:
         captured = capsys.readouterr()
         assert "API connection failed" in captured.out
 
+    def test_api_connection_missing_method_exception(self, capsys):
+        """Missing cjapy methods should be reported as controlled dry-run failure."""
+        logger = logging.getLogger("test_dry_run_api_missing_method")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
+            mock_cjapy.CJA.return_value = object()  # no getDataViews attribute
+            result = run_dry_run(["dv_test"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "API connection failed" in captured.out
+
     def test_dv_validation_with_metric_dimension_errors(self, capsys):
         """Lines 6611-6624: errors fetching metrics/dimensions counts are handled."""
         logger = logging.getLogger("test_dry_run_metric_err")

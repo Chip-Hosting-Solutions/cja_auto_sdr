@@ -214,6 +214,20 @@ class TestValidateConfigOnly:
         assert result is False
 
     @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_connection_missing_method_failure(self, mock_cjapy, tmp_path: Path) -> None:
+        """Missing client methods (AttributeError) should degrade gracefully."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cjapy.CJA.return_value = object()  # no getDataViews attribute
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+
+    @patch("cja_auto_sdr.generator.cjapy")
     def test_api_connection_transport_failure(self, mock_cjapy, tmp_path: Path) -> None:
         """Transport failures (OSError subclasses) should be handled gracefully."""
         from cja_auto_sdr.generator import validate_config_only

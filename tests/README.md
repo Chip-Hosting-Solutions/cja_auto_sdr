@@ -85,7 +85,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,604 comprehensive tests**
+**Total: 4,608 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -112,7 +112,7 @@ tests/
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
 | `test_retry.py` | 25 | Retry with exponential backoff |
-| `test_batch_processor.py` | 22 | Batch processing of multiple data views |
+| `test_batch_processor.py` | 24 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
 | `test_process_single_dataview.py` | 20 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
@@ -153,7 +153,7 @@ tests/
 | `test_cli_command_handlers.py` | 71 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 56 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 72 | Config status, validation, stats, name resolution |
+| `test_config_and_resolution.py` | 73 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 21 | Generator interactive and console tests |
@@ -161,12 +161,12 @@ tests/
 | `test_interactive_discovery_coverage.py` | 106 | Interactive discovery and helpers coverage |
 | `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
 | `test_main_impl_cli_coverage.py` | 86 | _main_impl CLI path coverage |
-| `test_main_impl_coverage.py` | 50 | _main_impl coverage edge cases |
+| `test_main_impl_coverage.py` | 51 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
 | `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
-| **Total** | **4,604** | **Collected via pytest --collect-only** |
+| **Total** | **4,608** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -570,7 +570,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,604 tests total)
+- [x] Comprehensive test coverage (4,608 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
