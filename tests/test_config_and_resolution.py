@@ -244,7 +244,9 @@ class TestValidateConfigOnly:
         assert result is False
 
     @patch("cja_auto_sdr.generator.cjapy")
-    def test_api_connection_unexpected_exception(self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_api_connection_unexpected_exception(
+        self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         """Plain Exception from cjapy.CJA()/getDataViews() should return False, not traceback."""
         from cja_auto_sdr.generator import validate_config_only
 
