@@ -14,19 +14,36 @@ from __future__ import annotations
 import os
 import sys
 
+_RUN_SUMMARY_OPTION = "--run-summary-json"
+# Keep this list focused: only options that collide with run-summary prefixes.
+# This lets fast-path fallback mirror argparse abbreviation rules for
+# --run-summary-json without importing the full parser.
+_RUN_SUMMARY_PREFIX_CONFLICTS = (
+    "--retry-base-delay",
+    "--retry-max-delay",
+    "--refresh-cache",
+    "--reverse-diff",
+)
+
+
+def _is_unambiguous_run_summary_prefix(option: str) -> bool:
+    """Return True when *option* is a valid argparse-style prefix for run-summary."""
+    if not option.startswith("--") or option == "--":
+        return False
+    if option == _RUN_SUMMARY_OPTION:
+        return True
+    if not _RUN_SUMMARY_OPTION.startswith(option):
+        return False
+    return not any(conflict.startswith(option) for conflict in _RUN_SUMMARY_PREFIX_CONFLICTS)
+
 
 def _has_run_summary_flag(args: list[str]) -> bool:
     """Return True when argv contains --run-summary-json (or unambiguous prefix)."""
-    _FULL_FLAGS = ("--run-summary-json", "--run-summary-j")
-    _MIN_PREFIX = "--run-summary-"  # shortest unambiguous prefix (14 chars)
     for token in args:
         if not token.startswith("--"):
             continue
         option = token.split("=", 1)[0]
-        if option in _FULL_FLAGS:
-            return True
-        # Accept argparse-style unambiguous prefixes (>= 14 chars)
-        if len(option) >= len(_MIN_PREFIX) and any(f.startswith(option) for f in _FULL_FLAGS):
+        if _is_unambiguous_run_summary_prefix(option):
             return True
     return False
 

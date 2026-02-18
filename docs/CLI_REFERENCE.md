@@ -87,7 +87,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-h, --help` | Show help message and exit | - |
-| `--version` | Show program version and exit | - |
+| `-V, --version` | Show program version and exit | - |
 | `--exit-codes` | Display exit code reference and exit | - |
 | `-q, --quiet` | Suppress output except errors | False |
 | `--open` | Open generated file(s) in default application after creation | False |

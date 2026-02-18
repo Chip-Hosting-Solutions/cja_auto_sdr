@@ -649,19 +649,22 @@ class TestFastPathEntryPoint:
         assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
         assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
 
-    def test_has_run_summary_flag_rejects_short_prefixes(self):
-        """Short prefixes like --run or --r must not falsely match --run-summary-json."""
+    def test_has_run_summary_flag_rejects_ambiguous_prefixes(self):
+        """Ambiguous prefixes must not falsely match --run-summary-json."""
         from cja_auto_sdr.__main__ import _has_run_summary_flag
 
-        assert _has_run_summary_flag(["--run"]) is False
         assert _has_run_summary_flag(["--r"]) is False
-        assert _has_run_summary_flag(["--run-s"]) is False
-        assert _has_run_summary_flag(["--run-summary"]) is False
+        assert _has_run_summary_flag(["--re"]) is False
+        assert _has_run_summary_flag(["--retry"]) is False
 
     def test_has_run_summary_flag_accepts_unambiguous_prefixes(self):
-        """Unambiguous prefixes (>= --run-summary-) should match."""
+        """Unambiguous argparse-style prefixes should match."""
         from cja_auto_sdr.__main__ import _has_run_summary_flag
 
+        assert _has_run_summary_flag(["--ru"]) is True
+        assert _has_run_summary_flag(["--run"]) is True
+        assert _has_run_summary_flag(["--run-s"]) is True
+        assert _has_run_summary_flag(["--run-summary"]) is True
         assert _has_run_summary_flag(["--run-summary-json"]) is True
         assert _has_run_summary_flag(["--run-summary-j"]) is True
         assert _has_run_summary_flag(["--run-summary-js"]) is True
@@ -771,6 +774,14 @@ class TestFastPathEntryPoint:
         from cja_auto_sdr.__main__ import main as fast_main
 
         with patch.object(sys, "argv", ["cja_auto_sdr", "-V", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_abbrev_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--run", "stdout"]):
             with patch("cja_auto_sdr.generator.main") as mock_gen_main:
                 fast_main()
                 mock_gen_main.assert_called_once()

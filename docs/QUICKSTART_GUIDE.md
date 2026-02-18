@@ -202,7 +202,7 @@ This command:
 `uv run` automatically uses the project's virtual environment—no activation needed:
 
 ```bash
-$ uv run cja_auto_sdr --version
+$ uv run cja_auto_sdr -V
 cja_auto_sdr 3.3.1
 ```
 
@@ -227,11 +227,11 @@ If you prefer traditional virtual environment activation:
 ```bash
 # macOS/Linux
 source .venv/bin/activate
-cja_auto_sdr --version
+cja_auto_sdr -V  # same as --version
 
 # Windows PowerShell
 .venv\Scripts\activate
-cja_auto_sdr --version
+cja_auto_sdr -V  # same as --version
 ```
 
 > **Windows Users:** If `uv run` doesn't work, use `cja_auto_sdr` instead. This is the most reliable method on Windows. See [Windows-Specific Issues](TROUBLESHOOTING.md#windows-specific-issues) for troubleshooting.
