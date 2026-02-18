@@ -11,6 +11,7 @@ Used by both ``python -m cja_auto_sdr`` and the console-script entry points.
 
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -56,10 +57,18 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     return None
 
 
-def _print_version() -> None:
+def _resolve_program_name(argv0: str | None) -> str:
+    """Return the display program name argparse would use for version output."""
+    if not argv0:
+        return "cja_auto_sdr"
+    program_name = os.path.basename(argv0)
+    return program_name or "cja_auto_sdr"
+
+
+def _print_version(program_name: str = "cja_auto_sdr") -> None:
     from cja_auto_sdr.core.version import __version__
 
-    print(f"cja_auto_sdr {__version__}")
+    print(f"{program_name} {__version__}")
 
 
 def _print_exit_codes() -> None:
@@ -110,7 +119,7 @@ def main() -> None:
     flag = _is_fast_path_flag(sys.argv)
 
     if flag == "--version":
-        _print_version()
+        _print_version(_resolve_program_name(sys.argv[0] if sys.argv else None))
         raise SystemExit(0)
 
     if flag == "--exit-codes":

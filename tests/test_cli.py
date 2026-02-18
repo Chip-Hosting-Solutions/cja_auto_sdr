@@ -611,6 +611,16 @@ class TestConsoleScriptEntryPoints:
         assert result.returncode == 0
         assert __version__ in result.stdout
 
+        hyphen_result = subprocess.run(
+            ["uv", "run", "cja-auto-sdr", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        assert hyphen_result.returncode == 0
+        assert hyphen_result.stdout.strip().startswith("cja-auto-sdr ")
+        assert __version__ in hyphen_result.stdout
+
 
 class TestFastPathEntryPoint:
     """Tests for the __main__.py fast-path that avoids heavyweight imports."""
@@ -647,6 +657,21 @@ class TestFastPathEntryPoint:
         captured = capsys.readouterr()
         assert captured.out.strip() == f"cja_auto_sdr {__version__}"
 
+    def test_fast_path_resolve_program_name(self):
+        from cja_auto_sdr.__main__ import _resolve_program_name
+
+        assert _resolve_program_name("cja_auto_sdr") == "cja_auto_sdr"
+        assert _resolve_program_name("/usr/local/bin/cja-auto-sdr") == "cja-auto-sdr"
+        assert _resolve_program_name("") == "cja_auto_sdr"
+
+    def test_fast_path_version_output_uses_program_name(self, capsys):
+        from cja_auto_sdr.__main__ import _print_version
+        from cja_auto_sdr.core.version import __version__
+
+        _print_version("cja-auto-sdr")
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja-auto-sdr {__version__}"
+
     def test_fast_path_exit_codes_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_exit_codes
 
@@ -662,6 +687,18 @@ class TestFastPathEntryPoint:
             with pytest.raises(SystemExit) as exc_info:
                 fast_main()
             assert exc_info.value.code == 0
+
+    def test_fast_path_main_version_uses_invoked_program_name(self, capsys):
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["/tmp/cja-auto-sdr", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja-auto-sdr {__version__}"
 
     def test_fast_path_main_exit_codes_exits_zero(self):
         from cja_auto_sdr.__main__ import main as fast_main
