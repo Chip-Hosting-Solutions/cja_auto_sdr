@@ -640,6 +640,23 @@ class TestHandleDiffCommand:
         assert has_changes is False
         assert exit_override is None
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_diff_plain_exception_returns_false(self, mock_conf, mock_cjapy):
+        """Bare dependency exceptions should be converted to controlled diff failures."""
+        mock_conf.return_value = (True, "config_path", {})
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        success, has_changes, exit_override = handle_diff_command(
+            source_id="dv_a",
+            target_id="dv_b",
+            quiet=True,
+        )
+
+        assert success is False
+        assert has_changes is False
+        assert exit_override is None
+
     @patch("cja_auto_sdr.generator.SnapshotManager")
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")

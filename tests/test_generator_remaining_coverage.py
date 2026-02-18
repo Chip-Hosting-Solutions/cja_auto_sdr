@@ -974,6 +974,31 @@ class TestHandleDiffSnapshotCommand:
         assert "Failed to compare against snapshot" in captured.err
 
     @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_constructor_exception_returns_false(
+        self,
+        mock_cjapy,
+        mock_config,
+        mock_snapshot_cls,
+        capsys,
+    ):
+        mock_config.return_value = (True, "mock", None)
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        mock_sm = MagicMock()
+        mock_snapshot_cls.return_value = mock_sm
+        mock_sm.load_snapshot.return_value = MagicMock(created_at="2024-01-01T00:00:00Z")
+
+        success, _has_changes, _code = handle_diff_snapshot_command(
+            data_view_id="dv_test",
+            snapshot_file="snap.json",
+        )
+        assert success is False
+        captured = capsys.readouterr()
+        assert "Failed to compare against snapshot: auth bootstrap failed" in captured.err
+
+    @patch("cja_auto_sdr.generator.SnapshotManager")
     def test_missing_segments_inventory_warning(self, mock_snapshot_cls, capsys):
         mock_sm = MagicMock()
         mock_snapshot_cls.return_value = mock_sm

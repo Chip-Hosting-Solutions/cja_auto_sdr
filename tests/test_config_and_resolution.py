@@ -463,6 +463,23 @@ class TestShowStats:
 
         assert show_stats(["dv_test"], output_format="json") is False
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_cja_constructor_exception_returns_controlled_failure(
+        self,
+        mock_config,
+        mock_cjapy,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """Bare constructor failures from cjapy should be handled without traceback."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        assert show_stats(["dv_test"]) is False
+        assert "Failed to get stats: auth bootstrap failed" in capsys.readouterr().out
+
 
 # ---------------------------------------------------------------------------
 # 4. resolve_data_view_names — lines 8208-8361

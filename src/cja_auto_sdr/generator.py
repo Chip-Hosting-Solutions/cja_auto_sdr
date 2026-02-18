@@ -614,6 +614,15 @@ RECOVERABLE_ORG_REPORT_EXCEPTIONS: tuple[type[Exception], ...] = (
     CJASDRError,
     *RECOVERABLE_CONFIG_API_EXCEPTIONS,
 )
+# Final guard for CLI command handlers. Some runtime/auth/bootstrap failures
+# from third-party dependencies (notably cjapy) still surface as plain
+# `Exception`; command boundaries should return controlled failures, not
+# tracebacks.
+RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
+    CJASDRError,
+    *RECOVERABLE_CONFIG_API_EXCEPTIONS,
+    Exception,
+)
 # Recoverable failures during optional inventory collection. These should not
 # fail the primary SDR/inventory-summary flow.
 RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (*RECOVERABLE_API_EXCEPTIONS,)
@@ -7608,7 +7617,7 @@ def _run_list_command(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         if is_machine_readable:
             print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
         else:
@@ -8319,7 +8328,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         print(ConsoleColors.warning("Operation cancelled."))
         return []
 
-    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return []
 
@@ -8556,7 +8565,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         print("Run: cja_auto_sdr --sample-config")
         return None
-    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return None
 
@@ -9228,7 +9237,7 @@ def show_stats(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to get stats: {e!s}"})
             print(error_json, file=sys.stderr if is_stdout else sys.stdout)
@@ -11500,7 +11509,7 @@ def handle_snapshot_command(
 
         return True
 
-    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {e!s}"), file=sys.stderr)
         return False
 
@@ -11807,7 +11816,7 @@ def handle_diff_command(
         append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
-    except (APIError, CJASDRError, OSError, ValueError) as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
         logger.debug("Diff comparison failed", exc_info=True)
         return False, False, None
@@ -12190,7 +12199,7 @@ def handle_diff_snapshot_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
-    except (CJASDRError, OSError) as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {e!s}"), file=sys.stderr)
         logger.debug("Diff-snapshot comparison failed", exc_info=True)
         return False, False, None

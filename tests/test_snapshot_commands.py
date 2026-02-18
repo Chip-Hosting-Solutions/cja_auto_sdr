@@ -217,6 +217,23 @@ class TestHandleSnapshotCommand:
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_snapshot_constructor_exception(self, mock_configure, mock_cjapy, tmp_path, capsys):
+        """Bare constructor failures from cjapy should return False with CLI error output."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        out_file = str(tmp_path / "snap.json")
+        result = handle_snapshot_command(
+            data_view_id="dv_123",
+            snapshot_file=out_file,
+        )
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "Failed to create snapshot: auth bootstrap failed" in captured.err
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
     def test_snapshot_with_profile(self, mock_configure, mock_cjapy, tmp_path):
         """Profile parameter is passed to configure_cjapy."""
         mock_configure.return_value = (True, "config", None)

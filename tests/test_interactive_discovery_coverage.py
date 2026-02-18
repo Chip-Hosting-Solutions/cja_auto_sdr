@@ -546,6 +546,22 @@ class TestRunListCommand:
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: missing getDataViews" in out
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_cja_constructor_exception_is_recoverable(self, _mock_config, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return a controlled command error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = _run_list_command(
+            banner_text="TEST",
+            command_name="test",
+            fetch_and_format=lambda cja, mr: "data",
+            config_file="config.json",
+        )
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
+
 
 # ===========================================================================
 # interactive_select_dataviews  (lines 9406-9409, 9452-9455, 9468-9470,
@@ -650,6 +666,17 @@ class TestInteractiveSelectDataviews:
         assert result == []
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: network error" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_constructor_exception_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return [] with a controlled error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = interactive_select_dataviews("config.json")
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
@@ -1041,6 +1068,17 @@ class TestInteractiveWizard:
         assert result is None
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: API down" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_constructor_exception_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return None with a controlled error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = interactive_wizard("config.json")
+        assert result is None
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
