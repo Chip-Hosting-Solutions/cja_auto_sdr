@@ -1,18 +1,12 @@
-"""CLI module - Command-line interface components."""
+"""CLI module - Command-line interface components.
 
-from cja_auto_sdr.cli.commands import (
-    generate_sample_config,
-    list_dataviews,
-    show_config_status,
-    validate_config_only,
-)
-from cja_auto_sdr.cli.interactive import (
-    interactive_select_dataviews,
-    interactive_wizard,
-    prompt_for_selection,
-)
-from cja_auto_sdr.cli.main import main
-from cja_auto_sdr.cli.parser import parse_arguments
+``parse_arguments`` lives in ``cli.parser`` (canonical implementation).
+Other symbols (``main``, ``list_dataviews``, etc.) still live in
+``generator.py`` and are resolved lazily via ``__getattr__`` to avoid
+circular imports.
+"""
+
+from cja_auto_sdr.core.lazy import make_getattr
 
 __all__ = [
     "generate_sample_config",
@@ -26,7 +20,20 @@ __all__ = [
     "validate_config_only",
 ]
 
-
-from cja_auto_sdr.core.lazy import make_getattr
-
-__getattr__ = make_getattr(__name__, __all__, target_module="cja_auto_sdr.generator")
+__getattr__ = make_getattr(
+    __name__,
+    __all__,
+    mapping={
+        # Canonical implementation in cli.parser
+        "parse_arguments": "cja_auto_sdr.cli.parser",
+        # Everything else still lives in generator
+        "generate_sample_config": "cja_auto_sdr.generator",
+        "interactive_select_dataviews": "cja_auto_sdr.generator",
+        "interactive_wizard": "cja_auto_sdr.generator",
+        "list_dataviews": "cja_auto_sdr.generator",
+        "main": "cja_auto_sdr.generator",
+        "prompt_for_selection": "cja_auto_sdr.generator",
+        "show_config_status": "cja_auto_sdr.generator",
+        "validate_config_only": "cja_auto_sdr.generator",
+    },
+)

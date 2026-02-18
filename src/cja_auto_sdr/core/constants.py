@@ -78,6 +78,17 @@ DEFAULT_WORKERS = WorkerConfig()
 # New code should use DEFAULT_RETRY (RetryConfig dataclass) instead
 DEFAULT_RETRY_CONFIG: dict[str, Any] = DEFAULT_RETRY.to_dict()
 
+# ==================== QUALITY / SEVERITY ====================
+
+# Canonical severity ordering — used by CLI, validation, and quality-gate logic
+QUALITY_SEVERITY_ORDER: tuple[str, ...] = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+QUALITY_SEVERITY_RANK: dict[str, int] = {severity: index for index, severity in enumerate(QUALITY_SEVERITY_ORDER)}
+
+# ==================== AUTO-PRUNE DEFAULTS ====================
+
+DEFAULT_AUTO_PRUNE_KEEP_LAST: int = 20
+DEFAULT_AUTO_PRUNE_KEEP_SINCE: str = "30d"
+
 # ==================== VALIDATION SCHEMA ====================
 
 # Centralized field definitions for data quality validation.
