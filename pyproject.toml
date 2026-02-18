@@ -29,8 +29,8 @@ Issues = "https://github.com/brian-a-au/cja_auto_sdr/issues"
 Changelog = "https://github.com/brian-a-au/cja_auto_sdr/blob/main/CHANGELOG.md"
 
 [project.scripts]
-cja_auto_sdr = "cja_auto_sdr.generator:main"
-cja-auto-sdr = "cja_auto_sdr.generator:main"
+cja_auto_sdr = "cja_auto_sdr.__main__:main"
+cja-auto-sdr = "cja_auto_sdr.__main__:main"
 
 [project.optional-dependencies]
 clustering = [
@@ -142,6 +142,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/cja_auto_sdr/generator.py" = ["F401", "E402", "RUF001", "RUF003", "SIM115", "S105", "PLW2901", "T201"]  # F401: re-exports; E402: optional imports; RUF001/3: intentional Unicode symbols; SIM115: NamedTemporaryFile with delete=False; S105: token_name false positive; PLW2901: line=line.strip() pattern; T201: intentional CLI console output
+"src/cja_auto_sdr/__main__.py" = ["T201"]  # intentional CLI console output
 "src/cja_auto_sdr/core/credentials.py" = ["PLW2901"]  # line=line.strip() pattern
 "src/cja_auto_sdr/inventory/calculated_metrics.py" = ["ERA001"]  # section header comments
 "src/cja_auto_sdr/org/__init__.py" = ["ERA001"]  # section header comments
