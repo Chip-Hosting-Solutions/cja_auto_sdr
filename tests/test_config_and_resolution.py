@@ -213,6 +213,22 @@ class TestValidateConfigOnly:
             result = validate_config_only(config_file=str(config))
         assert result is False
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_connection_transport_failure(self, mock_cjapy, tmp_path: Path) -> None:
+        """Transport failures (OSError subclasses) should be handled gracefully."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = ConnectionError("timeout")
+        mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+
     @patch("cja_auto_sdr.generator._config_from_env")
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.load_credentials_from_env")
@@ -376,6 +392,29 @@ class TestShowStats:
         data = json.loads(capsys.readouterr().out)
         assert data["stats"][0]["name"] == "ERROR"
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_per_dv_transport_exception_continues(self, mock_config, mock_cjapy, capsys: pytest.CaptureFixture) -> None:
+        """Transport failure for one data view should not abort remaining IDs."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = [
+            ConnectionError("network issue"),
+            {"name": "Healthy DV", "owner": {"name": "Alice"}, "description": ""},
+        ]
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cjapy.CJA.return_value = mock_cja
+
+        result = show_stats(["dv_bad", "dv_ok"], output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["count"] == 2
+        assert data["stats"][0]["name"] == "ERROR"
+        assert data["stats"][1]["name"] == "Healthy DV"
+
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "Config error", None))
     def test_config_failure(self, _mock_config) -> None:
         from cja_auto_sdr.generator import show_stats
@@ -510,6 +549,21 @@ class TestResolveDataViewNames:
 
         ids, _ = resolve_data_view_names(["dv_test"])
         assert ids == []
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_transport_exception_returns_empty(self, mock_config, mock_cjapy) -> None:
+        """Transport failures while listing data views should return controlled failure."""
+        from cja_auto_sdr.generator import resolve_data_view_names
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = ConnectionError("timed out")
+        mock_cjapy.CJA.return_value = mock_cja
+
+        ids, name_map = resolve_data_view_names(["My DV"])
+        assert ids == []
+        assert name_map == {}
 
     def test_invalid_match_mode(self) -> None:
         from cja_auto_sdr.generator import resolve_data_view_names

@@ -588,6 +588,22 @@ QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
 )
 QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset({"fail_on_quality", "quality_report", "max_issues"})
 
+# Recoverable API/runtime failures that should surface as user-facing command
+# errors (not uncaught tracebacks). Keep this centralized to avoid accidental
+# exception narrowing drift across CLI command handlers.
+RECOVERABLE_API_EXCEPTIONS: tuple[type[Exception], ...] = (
+    APIError,
+    RetryableHTTPError,
+    OSError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+RECOVERABLE_CONFIG_API_EXCEPTIONS: tuple[type[Exception], ...] = (
+    ConfigurationError,
+    *RECOVERABLE_API_EXCEPTIONS,
+)
+
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
     """Normalize policy keys so `fail-on-quality` and `fail_on_quality` are equivalent."""
@@ -6545,7 +6561,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         print()
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
-    except (APIError, ConfigurationError, OSError) as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(f"  ✗ API connection failed: {e!s}")
         all_passed = False
         print()
@@ -6598,7 +6614,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if metrics is not None:
                         metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
-                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
 
                 try:
@@ -6610,7 +6626,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if dimensions is not None:
                         dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
-                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
 
                 total_metrics += metrics_count
@@ -6630,7 +6646,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
-        except (APIError, KeyError, TypeError, ValueError) as e:
+        except RECOVERABLE_API_EXCEPTIONS as e:
             print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
@@ -7108,7 +7124,7 @@ def resolve_data_view_names(
     except FileNotFoundError:
         logger.error(f"Configuration file '{config_file}' not found")
         return [], {}
-    except (APIError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         logger.error(f"Failed to resolve data view names: {e!s}")
         return [], {}
 
@@ -8957,7 +8973,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
-    except (APIError, KeyError, TypeError, ValueError) as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         print(f"  ✗ API connection failed: {e!s}")
         all_passed = False
 
@@ -9051,7 +9067,7 @@ def show_stats(
                     },
                 )
 
-            except (APIError, KeyError, TypeError, ValueError) as e:
+            except RECOVERABLE_API_EXCEPTIONS as e:
                 stats_data.append(
                     {
                         "id": dv_id,

@@ -14,6 +14,19 @@ from __future__ import annotations
 import sys
 
 
+def _has_run_summary_flag(args: list[str]) -> bool:
+    """Return True when argv contains --run-summary-json (or abbreviation)."""
+    for token in args:
+        if not token.startswith("--"):
+            continue
+        option = token.split("=", 1)[0]
+        if option in ("--run-summary-json", "--run-summary-j"):
+            return True
+        if "--run-summary-json".startswith(option) or "--run-summary-j".startswith(option):
+            return True
+    return False
+
+
 def _is_fast_path_flag(argv: list[str]) -> str | None:
     """Return the fast-path flag present in *argv*, or ``None``."""
     # Only consider the very first real argument (ignore argv[0] which is
@@ -22,6 +35,11 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     # arguments, and ``--exit-codes`` is a standalone informational flag.
     args = argv[1:]
     if not args:
+        return None
+
+    # Preserve run-summary contract: when requested, always route through
+    # generator.main() so summary emission is consistent and order-independent.
+    if _has_run_summary_flag(args):
         return None
 
     # --version / -V

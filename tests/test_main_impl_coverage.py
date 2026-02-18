@@ -36,6 +36,7 @@ from cja_auto_sdr.core.exceptions import (
     OutputError,
     ProfileConfigError,
     ProfileNotFoundError,
+    RetryableHTTPError,
 )
 from cja_auto_sdr.generator import (
     BatchProcessor,
@@ -1741,6 +1742,42 @@ class TestRunDryRunAPIValidation:
         assert result is False
         captured = capsys.readouterr()
         assert "Error" in captured.out
+
+    def test_dv_validation_retryable_error_continues_to_next_view(self, capsys):
+        """Retryable transport failure for one data view should not abort the full loop."""
+        logger = logging.getLogger("test_dry_run_retryable_continue")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry") as mock_retry,
+        ):
+            mock_cja = MagicMock()
+            mock_cjapy.CJA.return_value = mock_cja
+
+            def _mock_retry_call(*_args, **kwargs):
+                op = kwargs.get("operation_name")
+                if op == "getDataViews (dry-run)":
+                    return []
+                if op == "getDataView(dv_flaky)":
+                    raise RetryableHTTPError(504, "gateway timeout")
+                if op == "getDataView(dv_ok)":
+                    return {"name": "Healthy DV"}
+                if op == "getMetrics(dv_ok)":
+                    return []
+                if op == "getDimensions(dv_ok)":
+                    return []
+                raise AssertionError(f"Unexpected operation: {op}")
+
+            mock_retry.side_effect = _mock_retry_call
+
+            result = run_dry_run(["dv_flaky", "dv_ok"], "config.json", logger)
+
+        # One invalid + one valid should still complete the loop and return False.
+        assert result is False
+        captured = capsys.readouterr()
+        assert "dv_flaky" in captured.out
+        assert "dv_ok: Healthy DV" in captured.out
 
 
 # ============================================================================

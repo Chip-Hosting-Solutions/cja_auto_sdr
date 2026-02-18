@@ -633,6 +633,12 @@ class TestFastPathEntryPoint:
         assert _is_fast_path_flag(["prog"]) is None
         assert _is_fast_path_flag(["prog", "--exit-codes", "extra"]) is None
 
+    def test_is_fast_path_flag_none_when_run_summary_requested(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
+        assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
+
     def test_fast_path_version_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_version
         from cja_auto_sdr.core.version import __version__
@@ -669,6 +675,14 @@ class TestFastPathEntryPoint:
         from cja_auto_sdr.__main__ import main as fast_main
 
         with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--run-summary-json", "stdout"]):
             with patch("cja_auto_sdr.generator.main") as mock_gen_main:
                 fast_main()
                 mock_gen_main.assert_called_once()
@@ -3279,6 +3293,29 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "exit_codes"
         assert "EXIT CODE REFERENCE" not in result.stdout
         assert "EXIT CODE REFERENCE" in result.stderr
+
+    def test_run_summary_stdout_subprocess_version_is_order_independent(self):
+        """E2E: --version should still emit run summary JSON regardless of flag order."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        commands = [
+            ["uv", "run", "cja_auto_sdr", "--version", "--run-summary-json", "stdout"],
+            ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "--version"],
+        ]
+
+        for cmd in commands:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+            )
+            assert result.returncode == 0
+            payload = json.loads(result.stdout)
+            self._assert_run_summary_schema(payload)
+            assert payload["exit_code"] == 0
+            assert payload["mode"] == "unknown"
+            assert "cja_auto_sdr " not in result.stdout
+            assert "cja_auto_sdr " in result.stderr
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
