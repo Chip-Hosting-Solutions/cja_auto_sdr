@@ -253,8 +253,10 @@ class TestDataViewNameResolution:
     @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_with_api_error(self, mock_cjapy):
         """Test resolving when API call fails"""
+        from cja_auto_sdr.core.exceptions import APIError
+
         mock_cja_instance = MagicMock()
-        mock_cja_instance.getDataViews.side_effect = Exception("API error")
+        mock_cja_instance.getDataViews.side_effect = APIError("API error")
         mock_cjapy.CJA.return_value = mock_cja_instance
         mock_cjapy.importConfigFile.return_value = None
 

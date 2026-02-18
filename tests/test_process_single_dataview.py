@@ -959,9 +959,11 @@ class TestProcessSingleDataviewMaxIssues:
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
         mock_fetcher_class.return_value = mock_fetcher
 
+        from cja_auto_sdr.core.exceptions import ValidationError
+
         mock_dq_checker = Mock()
         mock_dq_checker.issues = []
-        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("unexpected validation failure")
+        mock_dq_checker.check_all_parallel.side_effect = ValidationError("unexpected validation failure")
         mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
             columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
         )

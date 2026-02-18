@@ -347,11 +347,12 @@ class TestValidateDataViewEdgeCases:
 
     def test_exception_in_list_data_views(self, caplog: pytest.LogCaptureFixture) -> None:
         """Lines 1882-1883: exception during DV listing is caught."""
+        from cja_auto_sdr.core.exceptions import APIError
         from cja_auto_sdr.generator import validate_data_view
 
         mock_cja = MagicMock()
         mock_cja.getDataView.return_value = None
-        mock_cja.getDataViews.side_effect = RuntimeError("API error")
+        mock_cja.getDataViews.side_effect = APIError("API error")
 
         result = validate_data_view(mock_cja, "invalid_id", logger)
         assert result is False
@@ -376,10 +377,11 @@ class TestValidateDataViewEdgeCases:
 
     def test_unexpected_exception(self) -> None:
         """Lines 1917-1928: unexpected exception caught and returns False."""
+        from cja_auto_sdr.core.exceptions import APIError
         from cja_auto_sdr.generator import validate_data_view
 
         mock_cja = MagicMock()
-        mock_cja.getDataView.side_effect = RuntimeError("unexpected")
+        mock_cja.getDataView.side_effect = APIError("unexpected")
 
         result = validate_data_view(mock_cja, "dv1", logger)
         assert result is False
@@ -394,7 +396,7 @@ class TestArgcompleteAvailable:
     """Line 41: argcomplete import succeeds."""
 
     def test_argcomplete_flag(self) -> None:
-        from cja_auto_sdr.generator import _ARGCOMPLETE_AVAILABLE
+        from cja_auto_sdr.cli.parser import _ARGCOMPLETE_AVAILABLE
 
         # Just verify the flag exists; it may be True or False
         assert isinstance(_ARGCOMPLETE_AVAILABLE, bool)

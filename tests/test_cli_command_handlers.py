@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, CJASDRError
 from cja_auto_sdr.generator import (
     DiffConfig,
     DiffSnapshotConfig,
@@ -103,7 +104,7 @@ class TestProcessInventorySummary:
         mock_ctx.return_value = logging.getLogger("test")
 
         mock_cja = MagicMock()
-        mock_cja.dataviews.get_single.side_effect = Exception("API Error 404")
+        mock_cja.dataviews.get_single.side_effect = APIError("API Error 404")
         mock_init.return_value = mock_cja
 
         result = process_inventory_summary("dv_bad_id", config_file="config.json")
@@ -189,7 +190,7 @@ class TestProcessInventorySummary:
 
         mock_cja = MagicMock()
         mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
-        mock_cja.dataviews.get_metrics.side_effect = Exception("metrics API error")
+        mock_cja.dataviews.get_metrics.side_effect = APIError("metrics API error")
         mock_init.return_value = mock_cja
         mock_display.return_value = {"ok": True}
 
@@ -557,7 +558,7 @@ class TestHandleDiffCommand:
     def test_diff_exception_returns_false(self, mock_conf, mock_cjapy):
         """General exception during diff returns (False, False, None)."""
         mock_conf.return_value = (True, "config_path", {})
-        mock_cjapy.CJA.side_effect = Exception("Unexpected boom")
+        mock_cjapy.CJA.side_effect = CJASDRError("Unexpected boom")
 
         success, has_changes, exit_override = handle_diff_command(
             source_id="dv_a",
@@ -930,7 +931,7 @@ class TestHandleDiffSnapshotCommand:
         mock_sm_cls.return_value = mock_sm
 
         mock_conf.return_value = (True, "config_path", {})
-        mock_cjapy.CJA.side_effect = RuntimeError("unexpected")
+        mock_cjapy.CJA.side_effect = CJASDRError("unexpected")
 
         success, _has_changes, _ = handle_diff_snapshot_command(
             data_view_id="dv_test",

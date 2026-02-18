@@ -30,7 +30,13 @@ import pandas as pd
 import pytest
 
 from cja_auto_sdr.core.config import APITuningConfig, CircuitBreakerConfig
-from cja_auto_sdr.core.exceptions import OutputError, ProfileConfigError, ProfileNotFoundError
+from cja_auto_sdr.core.exceptions import (
+    APIError,
+    ConfigurationError,
+    OutputError,
+    ProfileConfigError,
+    ProfileNotFoundError,
+)
 from cja_auto_sdr.generator import (
     BatchProcessor,
     ProcessingResult,
@@ -497,7 +503,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.derived_fields.DerivedFieldInventoryBuilder",
         ) as mock_builder_cls:
-            mock_builder_cls.return_value.build.side_effect = RuntimeError("build fail")
+            mock_builder_cls.return_value.build.side_effect = ValueError("build fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,
@@ -601,7 +607,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder",
         ) as mock_cls:
-            mock_cls.return_value.build.side_effect = RuntimeError("calc fail")
+            mock_cls.return_value.build.side_effect = ValueError("calc fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,
@@ -706,7 +712,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         with patch(
             "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder",
         ) as mock_cls:
-            mock_cls.return_value.build.side_effect = RuntimeError("seg fail")
+            mock_cls.return_value.build.side_effect = ValueError("seg fail")
             result = process_single_dataview(
                 data_view_id="dv_test_12345",
                 config_file=mock_config_file,
@@ -830,8 +836,8 @@ class TestProcessSingleDataviewMetadataWithInventory:
         # providing a metrics DataFrame whose 'type' column blows up
         bad_metrics = sample_metrics_df.copy()
         bad_type_series = Mock()
-        bad_type_series.value_counts.side_effect = RuntimeError("boom")
-        with patch.object(bad_metrics, "__getitem__", side_effect=RuntimeError("boom")):
+        bad_type_series.value_counts.side_effect = TypeError("boom")
+        with patch.object(bad_metrics, "__getitem__", side_effect=TypeError("boom")):
             # Reconfigure fetcher to return the bad metrics
             mock_fetcher = mock_fetcher_class.return_value
             mock_fetcher.fetch_all_data.return_value = (
@@ -888,8 +894,8 @@ class TestProcessSingleDataviewLookupDataException:
         mock_fetcher = Mock()
         # Return lookup_data that will cause issues: values that error on iteration
         bad_lookup = MagicMock(spec=dict)
-        bad_lookup.__iter__ = Mock(side_effect=RuntimeError("bad iter"))
-        bad_lookup.items.side_effect = RuntimeError("bad items")
+        bad_lookup.__iter__ = Mock(side_effect=TypeError("bad iter"))
+        bad_lookup.items.side_effect = TypeError("bad items")
         bad_lookup.get.return_value = "Unknown"
         bad_lookup.__isinstance__ = Mock(return_value=True)
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, bad_lookup)
@@ -967,7 +973,7 @@ class TestProcessSingleDataviewJSONFormatException:
         def failing_map(self, func, **kwargs):
             # Fail on the 4th call to exercise the except block
             if next(map_calls) == 4:
-                raise RuntimeError("map failed")
+                raise ValueError("map failed")
             return original_map(self, func, **kwargs)
 
         with patch.object(pd.Series, "map", failing_map):
@@ -1324,7 +1330,7 @@ class TestProcessSingleDataviewExcelPlaceholders:
             sample_dimensions_df,
             sample_dataview_info,
         )
-        mock_apply_formatting.side_effect = RuntimeError("write fail")
+        mock_apply_formatting.side_effect = OSError("write fail")
 
         result = process_single_dataview(
             data_view_id="dv_test_12345",
@@ -1526,8 +1532,11 @@ class TestBatchProcessorStopOnError:
     """Cover lines 6330-6336: stop batch when continue_on_error=False."""
 
     @patch("cja_auto_sdr.generator.setup_logging")
-    @patch("cja_auto_sdr.generator.process_single_dataview_worker")
-    def test_batch_stops_on_first_error(self, mock_worker, mock_setup_logging, tmp_path, mock_config_file):
+    @patch("cja_auto_sdr.generator.as_completed")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    def test_batch_stops_on_first_error(
+        self, mock_executor_cls, mock_as_completed, mock_setup_logging, tmp_path, mock_config_file
+    ):
         """When continue_on_error=False, batch stops after first failure."""
         mock_setup_logging.return_value = Mock()
 
@@ -1544,8 +1553,21 @@ class TestBatchProcessorStopOnError:
             success=True,
             duration=0.5,
         )
-        # First call fails, second succeeds but should not run
-        mock_worker.side_effect = [failed_result, success_result]
+
+        # Mock the executor to avoid ProcessPoolExecutor pickling issues
+        mock_future_fail = Mock()
+        mock_future_fail.result.return_value = failed_result
+        mock_future_ok = Mock()
+        mock_future_ok.result.return_value = success_result
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.side_effect = [mock_future_fail, mock_future_ok]
+        mock_executor_cls.return_value = mock_executor_instance
+
+        # Return only the first future — batch should stop after the failure
+        mock_as_completed.return_value = [mock_future_fail]
 
         output_dir = str(tmp_path / "batch_output")
 
@@ -1613,7 +1635,12 @@ class TestRunDryRunProfileValidation:
         ):
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
-            mock_retry.return_value = [{"id": "dv_test", "name": "Test"}]
+            mock_retry.side_effect = [
+                [{"id": "dv_test", "name": "Test"}],  # getDataViews
+                {"name": "Test", "id": "dv_test"},  # getDataView
+                [],  # getMetrics
+                [],  # getDimensions
+            ]
             run_dry_run(["dv_test"], "config.json", logger, profile="goodprofile")
         captured = capsys.readouterr()
         assert "Profile 'goodprofile' found and valid" in captured.out
@@ -1642,7 +1669,7 @@ class TestRunDryRunAPIValidation:
             patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
         ):
-            mock_cjapy.CJA.side_effect = RuntimeError("connection refused")
+            mock_cjapy.CJA.side_effect = ConfigurationError("connection refused")
             result = run_dry_run(["dv_test"], "config.json", logger)
         assert result is False
         captured = capsys.readouterr()
@@ -1707,7 +1734,7 @@ class TestRunDryRunAPIValidation:
 
             mock_retry.side_effect = [
                 [],  # getDataViews
-                RuntimeError("unexpected error"),
+                APIError("unexpected error"),
             ]
 
             result = run_dry_run(["dv_err"], "config.json", logger)
@@ -1950,6 +1977,8 @@ class TestRunDryRunAPIReturnsNone:
             mock_retry.side_effect = [
                 None,  # getDataViews (unstable)
                 {"name": "Found DV"},  # getDataView
+                [],  # getMetrics
+                [],  # getDimensions
             ]
 
             run_dry_run(["dv_test"], "config.json", logger)

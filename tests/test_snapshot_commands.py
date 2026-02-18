@@ -200,8 +200,10 @@ class TestHandleSnapshotCommand:
     @patch("cja_auto_sdr.generator.configure_cjapy")
     def test_snapshot_general_exception(self, mock_configure, mock_cjapy, tmp_path, capsys):
         """Returns False on unexpected exception."""
+        from cja_auto_sdr.core.exceptions import APIError
+
         mock_configure.return_value = (True, "config", None)
-        mock_cjapy.CJA.side_effect = RuntimeError("API down")
+        mock_cjapy.CJA.side_effect = APIError("API down")
 
         out_file = str(tmp_path / "snap.json")
         result = handle_snapshot_command(
@@ -972,8 +974,10 @@ class TestHandleDiffSnapshotCommand:
     @patch("cja_auto_sdr.generator.configure_cjapy")
     def test_diff_snapshot_general_exception(self, mock_configure, mock_cjapy, tmp_path, capsys):
         """General exception returns failure tuple."""
+        from cja_auto_sdr.core.exceptions import CJASDRError
+
         mock_configure.return_value = (True, "config", None)
-        mock_cjapy.CJA.side_effect = RuntimeError("Unexpected failure")
+        mock_cjapy.CJA.side_effect = CJASDRError("Unexpected failure")
 
         snap_file = str(tmp_path / "baseline.json")
         _write_snapshot_file(snap_file)

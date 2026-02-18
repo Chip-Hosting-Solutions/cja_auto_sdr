@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pandas as pd
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, ConfigurationError
 from cja_auto_sdr.generator import (
     _apply_discovery_filters_and_sort,
     _emit_output,
@@ -497,7 +498,7 @@ class TestRunListCommand:
         assert "Operation cancelled" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("API timeout"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("API timeout"))
     def test_generic_exception_table_mode_line_8784_8788(self, _mock_config, _mock_cjapy, capsys):
         """Lines 8784-8788: generic Exception in table mode."""
         result = _run_list_command(
@@ -511,7 +512,7 @@ class TestRunListCommand:
         assert "Failed to connect to CJA API: API timeout" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("API timeout"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("API timeout"))
     def test_generic_exception_machine_readable_line_8785_8786(self, _mock_config, _mock_cjapy, capsys):
         """Lines 8785-8786: generic Exception in JSON mode → stderr."""
         result = _run_list_command(
@@ -623,7 +624,7 @@ class TestInteractiveSelectDataviews:
     def test_generic_exception_line_9495_9497(self, _cfg, mock_cjapy, capsys):
         """Lines 9495-9497: generic Exception → error message and return []."""
         mock_cja = Mock()
-        mock_cja.getDataViews.side_effect = RuntimeError("network error")
+        mock_cja.getDataViews.side_effect = APIError("network error")
         mock_cjapy.CJA.return_value = mock_cja
 
         result = interactive_select_dataviews("config.json")
@@ -1002,7 +1003,7 @@ class TestInteractiveWizard:
     def test_generic_exception_line_9732_9734(self, _cfg, mock_cjapy, capsys):
         """Lines 9732-9734: generic Exception → error message, return None."""
         mock_cja = Mock()
-        mock_cja.getDataViews.side_effect = RuntimeError("API down")
+        mock_cja.getDataViews.side_effect = APIError("API down")
         mock_cjapy.CJA.return_value = mock_cja
 
         result = interactive_wizard("config.json")

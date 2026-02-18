@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cja_auto_sdr import generator
+from cja_auto_sdr.core.exceptions import CJASDRError
 from cja_auto_sdr.org.models import ComponentInfo, OrgReportComparison, OrgReportConfig
 
 
@@ -434,7 +435,7 @@ def test_run_org_report_failure_paths(tmp_path: Path, rich_org_report_result):
     ):
         mock_cjapy.CJA.return_value = Mock()
         analyzer = Mock()
-        analyzer.run_analysis.side_effect = RuntimeError("analysis failed")
+        analyzer.run_analysis.side_effect = CJASDRError("analysis failed")
         mock_analyzer_cls.return_value = analyzer
 
         ok, exceeded = generator.run_org_report(

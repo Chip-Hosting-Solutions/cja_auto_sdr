@@ -295,7 +295,7 @@ class TestBatchProcessorProcessBatch:
         mock_tqdm.return_value.__exit__ = Mock(return_value=False)
 
         mock_future = Mock()
-        mock_future.result.side_effect = Exception("Unexpected error")
+        mock_future.result.side_effect = ValueError("Unexpected error")
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
@@ -329,7 +329,7 @@ class TestBatchProcessorProcessBatch:
         mock_tqdm.return_value.__exit__ = Mock(return_value=False)
 
         mock_future = Mock()
-        mock_future.result.side_effect = Exception("Boom")
+        mock_future.result.side_effect = ValueError("Boom")
         mock_future.cancel = Mock()
 
         mock_executor_instance = MagicMock()

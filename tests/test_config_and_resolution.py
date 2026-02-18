@@ -23,6 +23,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, ConfigurationError
+
 logger = logging.getLogger("test_config_and_resolution")
 
 
@@ -205,7 +207,7 @@ class TestValidateConfigOnly:
             json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
         )
         mock_cja = MagicMock()
-        mock_cja.getDataViews.side_effect = RuntimeError("connection refused")
+        mock_cja.getDataViews.side_effect = APIError("connection refused")
         mock_cjapy.CJA.return_value = mock_cja
         with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
             result = validate_config_only(config_file=str(config))
@@ -367,7 +369,7 @@ class TestShowStats:
 
         mock_config.return_value = (True, "file", None)
         mock_cja = MagicMock()
-        mock_cja.getDataView.side_effect = RuntimeError("API error")
+        mock_cja.getDataView.side_effect = APIError("API error")
         mock_cjapy.CJA.return_value = mock_cja
         result = show_stats(["dv_test"], output_format="json")
         assert result is True
@@ -394,14 +396,14 @@ class TestShowStats:
 
         assert show_stats(["dv_test"], output_format="json") is False
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("boom"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
     def test_generic_exception(self, _mock_config) -> None:
         """Lines 10404-10410: generic exception handler."""
         from cja_auto_sdr.generator import show_stats
 
         assert show_stats(["dv_test"]) is False
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("boom"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
     def test_generic_exception_machine_readable(self, _mock_config) -> None:
         """Lines 10405-10407: generic exception with JSON output."""
         from cja_auto_sdr.generator import show_stats
@@ -501,7 +503,7 @@ class TestResolveDataViewNames:
         ids, _ = resolve_data_view_names(["dv_test"])
         assert ids == []
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("unexpected"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=APIError("unexpected"))
     def test_generic_exception(self, _mock_config) -> None:
         """Lines 8358-8360: generic exception handler."""
         from cja_auto_sdr.generator import resolve_data_view_names

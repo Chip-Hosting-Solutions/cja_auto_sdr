@@ -1439,7 +1439,7 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.append_github_step_summary")
     @patch("cja_auto_sdr.generator.build_quality_step_summary", return_value="")
     @patch("cja_auto_sdr.generator.is_git_repository", return_value=True)
-    @patch("cja_auto_sdr.generator.initialize_cja", side_effect=Exception("API Error"))
+    @patch("cja_auto_sdr.generator.initialize_cja", side_effect=OSError("API Error"))
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "abc123"))
     def test_git_commit_fetch_failure_continues(

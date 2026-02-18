@@ -10,6 +10,7 @@ import pytest
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.core.exceptions import APIError, ConfigurationError
 from cja_auto_sdr.generator import run_dry_run, validate_config_file
 
 
@@ -57,7 +58,7 @@ class TestDryRunMode:
     def test_dry_run_with_api_connection_failure(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run handles API connection failures"""
         # Mock CJA to raise an exception
-        mock_cjapy.CJA.side_effect = Exception("API connection failed")
+        mock_cjapy.CJA.side_effect = ConfigurationError("API connection failed")
 
         result = run_dry_run(data_views=["dv_12345"], config_file=valid_config_file, logger=logger)
         assert result is False
@@ -130,7 +131,7 @@ class TestDryRunMode:
         mock_cja_instance.getDataViews.return_value = []
 
         # Mock getDataView to raise exception
-        mock_cja_instance.getDataView.side_effect = Exception("API error")
+        mock_cja_instance.getDataView.side_effect = APIError("API error")
 
         result = run_dry_run(data_views=["dv_12345"], config_file=valid_config_file, logger=logger)
         assert result is False

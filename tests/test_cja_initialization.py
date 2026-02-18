@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.api.client import configure_cjapy
+from cja_auto_sdr.core.exceptions import APIError
 from cja_auto_sdr.generator import (
     CredentialSourceError,
     initialize_cja,
@@ -492,7 +493,7 @@ class TestValidateDataView:
     def test_fails_on_api_exception(self, mock_logger):
         """Test failure when API raises exception"""
         mock_cja = Mock()
-        mock_cja.getDataView.side_effect = Exception("API Error")
+        mock_cja.getDataView.side_effect = APIError("API Error")
 
         result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
 
@@ -606,7 +607,7 @@ class TestListDataviews:
         """Test handling of API errors"""
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_cja.getDataViews.side_effect = Exception("API Error")
+        mock_cja.getDataViews.side_effect = APIError("API Error")
 
         result = list_dataviews(mock_config_file)
 
@@ -673,17 +674,21 @@ class TestValidateConfigOnly:
         mock_load_env.return_value = None
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_cja.getDataViews.side_effect = Exception("Connection failed")
+        mock_cja.getDataViews.side_effect = APIError("Connection failed")
 
         result = validate_config_only(mock_config_file)
 
         assert result is False
 
     @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
     @patch("builtins.print")
-    def test_shows_credential_status(self, mock_print, mock_load_env, mock_config_file):
+    def test_shows_credential_status(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test that credential status is shown"""
         mock_load_env.return_value = None
+        mock_cja = Mock()
+        mock_cjapy.CJA.return_value = mock_cja
+        mock_cja.getDataViews.side_effect = APIError("Connection failed")
 
         # Even if validation fails, it should print status
         validate_config_only(mock_config_file)

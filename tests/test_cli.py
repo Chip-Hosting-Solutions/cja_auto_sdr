@@ -565,8 +565,8 @@ class TestConsoleScriptEntryPoints:
             content = f.read()
 
         # Verify both entry point variants exist with correct targets
-        assert 'cja_auto_sdr = "cja_auto_sdr.generator:main"' in content
-        assert 'cja-auto-sdr = "cja_auto_sdr.generator:main"' in content
+        assert 'cja_auto_sdr = "cja_auto_sdr.__main__:main"' in content
+        assert 'cja-auto-sdr = "cja_auto_sdr.__main__:main"' in content
 
         # Verify [project.scripts] section exists
         assert "[project.scripts]" in content
@@ -610,6 +610,68 @@ class TestConsoleScriptEntryPoints:
         )
         assert result.returncode == 0
         assert __version__ in result.stdout
+
+
+class TestFastPathEntryPoint:
+    """Tests for the __main__.py fast-path that avoids heavyweight imports."""
+
+    def test_is_fast_path_flag_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "-V"]) == "--version"
+
+    def test_is_fast_path_flag_exit_codes(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--exit-codes"]) == "--exit-codes"
+
+    def test_is_fast_path_flag_none_for_regular_args(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "dv_12345"]) is None
+        assert _is_fast_path_flag(["prog"]) is None
+        assert _is_fast_path_flag(["prog", "--exit-codes", "extra"]) is None
+
+    def test_fast_path_version_output(self, capsys):
+        from cja_auto_sdr.__main__ import _print_version
+        from cja_auto_sdr.core.version import __version__
+
+        _print_version()
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja_auto_sdr {__version__}"
+
+    def test_fast_path_exit_codes_output(self, capsys):
+        from cja_auto_sdr.__main__ import _print_exit_codes
+
+        _print_exit_codes()
+        captured = capsys.readouterr()
+        assert "EXIT CODE REFERENCE" in captured.out
+        assert "CI/CD Examples:" in captured.out
+
+    def test_fast_path_main_version_exits_zero(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+    def test_fast_path_main_exit_codes_exits_zero(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+    def test_fast_path_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
 
 
 class TestQualityGateAndReport:
@@ -1317,7 +1379,7 @@ class TestRetryArguments:
 
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("cja_auto_sdr.generator._bootstrap_dotenv", side_effect=_bootstrap_side_effect) as mock_bootstrap,
+            patch("cja_auto_sdr.api.client._bootstrap_dotenv", side_effect=_bootstrap_side_effect) as mock_bootstrap,
             patch.object(sys, "argv", test_args),
         ):
             args = parse_arguments()
