@@ -18,6 +18,16 @@ from cja_auto_sdr.org.models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def clear_fast_path_option_spec_cache():
+    """Reset fast-path CLI option cache between tests for isolation."""
+    from cja_auto_sdr.__main__ import _fast_path_option_spec
+
+    _fast_path_option_spec.cache_clear()
+    yield
+    _fast_path_option_spec.cache_clear()
+
+
 @pytest.fixture
 def rich_org_report_result():
     """Create a comprehensive org report result used by renderer and CLI tests."""

@@ -42,6 +42,7 @@ from cja_auto_sdr.api.resilience import (
     make_api_call_with_retry,
     retry_with_backoff,
 )
+from cja_auto_sdr.cli.option_resolution import resolve_long_option_token as _resolve_long_option_token
 from cja_auto_sdr.core.colors import (
     ConsoleColors,
     _format_error_msg,
@@ -493,7 +494,10 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
         if token == option_name or token.startswith(f"{option_name}="):
             return True
 
-        if option_name.startswith("--") and _resolve_long_option_token(token, known_long_options) == option_name:
+        if (
+            option_name.startswith("--")
+            and _resolve_long_option_token(token, known_long_options).canonical_option == option_name
+        ):
             return True
 
     return False
@@ -503,27 +507,11 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
 def _known_long_options() -> frozenset[str]:
     """Return canonical long-option strings from the configured parser."""
     parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    # CPython argparse internals: `_actions` is the parser's canonical option
+    # registry and keeps this aligned with argparse abbreviation semantics.
     return frozenset(
         option for action in parser._actions for option in action.option_strings if option.startswith("--")
     )
-
-
-def _resolve_long_option_token(token: str, known_long_options: frozenset[str]) -> str | None:
-    """Resolve a token to a canonical long option if argparse would accept it.
-
-    Returns None for non-option tokens and ambiguous abbreviations.
-    """
-    token_name = token.split("=", 1)[0]
-    if not token_name.startswith("--") or token_name == "--":
-        return None
-
-    if token_name in known_long_options:
-        return token_name
-
-    matches = [option for option in known_long_options if option.startswith(token_name)]
-    if len(matches) == 1:
-        return matches[0]
-    return None
 
 
 def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:
@@ -547,7 +535,7 @@ def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | 
             canonical_option = option_name
             inline_value = token.split("=", 1)[1]
         elif option_name.startswith("--"):
-            resolved_option = _resolve_long_option_token(token, known_long_options)
+            resolved_option = _resolve_long_option_token(token, known_long_options).canonical_option
             if resolved_option == option_name:
                 canonical_option = option_name
                 if "=" in token:
@@ -1261,6 +1249,7 @@ def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
         if isinstance(config, dict):
             return {k: str(v).strip() for k, v in config.items() if v}
         return None
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
     except OSError, json.JSONDecodeError:
         return None
 

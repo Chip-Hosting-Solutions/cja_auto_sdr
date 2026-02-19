@@ -18,6 +18,8 @@ from collections.abc import Mapping
 from functools import lru_cache
 from typing import NamedTuple
 
+from cja_auto_sdr.cli.option_resolution import resolve_long_option_token as _resolve_long_option_token
+
 _VERSION_OPTION = "--version"
 _VERSION_SHORT_OPTION = "-V"
 
@@ -31,13 +33,6 @@ class _OptionSpec(NamedTuple):
 
     min_arity: int
     accepts_inline_value: bool
-
-
-class _LongOptionResolution(NamedTuple):
-    """Resolution outcome for a long-option token."""
-
-    canonical_option: str | None
-    is_ambiguous: bool
 
 
 class _OptionScanResult(NamedTuple):
@@ -98,6 +93,8 @@ def _fast_path_option_spec() -> tuple[frozenset[str], dict[str, _OptionSpec]]:
     option_specs: dict[str, _OptionSpec] = {}
     known_long_options: set[str] = set()
 
+    # CPython argparse internals: `_actions` is intentionally used as the
+    # canonical source of configured option metadata for fast-path scanning.
     for action in parser._actions:
         if not action.option_strings:
             continue
@@ -112,21 +109,6 @@ def _fast_path_option_spec() -> tuple[frozenset[str], dict[str, _OptionSpec]]:
                 known_long_options.add(option)
 
     return frozenset(known_long_options), option_specs
-
-
-def _resolve_long_option_token(option_text: str, known_long_options: frozenset[str]) -> _LongOptionResolution:
-    """Resolve a token to a canonical long option if argparse would accept it."""
-    if not option_text.startswith("--") or option_text == "--":
-        return _LongOptionResolution(canonical_option=None, is_ambiguous=False)
-    if option_text in known_long_options:
-        return _LongOptionResolution(canonical_option=option_text, is_ambiguous=False)
-
-    matches = [option for option in known_long_options if option.startswith(option_text)]
-    if len(matches) == 1:
-        return _LongOptionResolution(canonical_option=matches[0], is_ambiguous=False)
-    if len(matches) > 1:
-        return _LongOptionResolution(canonical_option=None, is_ambiguous=True)
-    return _LongOptionResolution(canonical_option=None, is_ambiguous=False)
 
 
 def _scan_option_tokens(args: list[str]) -> _OptionScanResult:
@@ -251,6 +233,8 @@ def _probe_argparse_termination(args: list[str], argv0: str | None = None) -> _A
             captured_output.append(message)
 
     parser.exit = types.MethodType(_probe_exit, parser)
+    # CPython argparse internals: `_print_message` is overridden so probe parses
+    # can capture output without emitting to real stdio.
     parser._print_message = types.MethodType(_capture_output, parser)
 
     try:
