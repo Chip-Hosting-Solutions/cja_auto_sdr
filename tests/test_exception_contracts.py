@@ -22,6 +22,11 @@ def test_optional_inventory_exception_policies_keep_generic_fallback() -> None:
     assert Exception in generator.RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS
 
 
+def test_stats_row_exception_policy_keeps_generic_fallback() -> None:
+    """Stats row fallback must keep a generic per-item Exception boundary."""
+    assert Exception in generator.RECOVERABLE_STATS_ROW_EXCEPTIONS
+
+
 @pytest.mark.parametrize("summary_mode", [True, False])
 def test_optional_inventory_runner_handles_unexpected_runtime_error(summary_mode: bool) -> None:
     logger = MagicMock()

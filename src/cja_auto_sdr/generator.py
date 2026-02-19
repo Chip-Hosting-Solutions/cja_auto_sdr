@@ -614,6 +614,10 @@ RECOVERABLE_ORG_REPORT_EXCEPTIONS: tuple[type[Exception], ...] = (
 # from third-party dependencies (notably cjapy) still surface as plain
 # `Exception`; command boundaries should return controlled failures, not
 # tracebacks.
+#
+# Prefer the tiered pattern used in handle_compare_snapshots_command()
+# (FileNotFoundError -> ValueError -> CJASDRError|OSError -> Exception)
+# for new command handlers to preserve differentiated user messaging.
 RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
     CJASDRError,
     *RECOVERABLE_CONFIG_API_EXCEPTIONS,
@@ -626,6 +630,9 @@ RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
 # subclasses (e.g., KeyboardInterrupt/SystemExit) to propagate.
 RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS
+# Per-item stats collection must be fully resilient: one broken DV must never
+# abort the stats command. Intentionally broad.
+RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 
 
 def _log_optional_inventory_failure(
@@ -6490,26 +6497,12 @@ class BatchProcessor:
                             for f in future_to_dv:
                                 f.cancel()
                             raise
-                        except RECOVERABLE_BATCH_WORKER_EXCEPTIONS as e:
-                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
-                            results["failed"].append(
-                                ProcessingResult(
-                                    data_view_id=dv_id,
-                                    data_view_name="Unknown",
-                                    success=False,
-                                    duration=0,
-                                    error_message=str(e),
-                                ),
-                            )
-
-                            if not self.continue_on_error:
-                                self.logger.warning(f"[{self.batch_id}] Stopping batch processing due to error")
-                                for f in future_to_dv:
-                                    f.cancel()
-                                break
                         except Exception as e:
-                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: UNEXPECTED EXCEPTION - {e!s}")
-                            self.logger.debug("Unexpected batch worker error", exc_info=True)
+                            is_expected = isinstance(e, RECOVERABLE_BATCH_WORKER_EXCEPTIONS)
+                            prefix = "EXCEPTION" if is_expected else "UNEXPECTED EXCEPTION"
+                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: {prefix} - {e!s}")
+                            if not is_expected:
+                                self.logger.debug("Unexpected batch worker error", exc_info=True)
                             results["failed"].append(
                                 ProcessingResult(
                                     data_view_id=dv_id,
@@ -9244,7 +9237,7 @@ def _collect_stats_row_with_fallback(cja: cjapy.CJA, data_view_id: str, logger: 
     """Return one stats row, converting non-fatal per-item failures into an ERROR row."""
     try:
         return _collect_stats_row(cja, data_view_id)
-    except Exception as e:
+    except RECOVERABLE_STATS_ROW_EXCEPTIONS as e:
         # Keep per-item stats resilient: one bad DV must not abort the full command.
         logger.debug("Failed to collect stats row for %s", data_view_id, exc_info=True)
         return _stats_error_row(data_view_id, e)
@@ -11659,6 +11652,9 @@ def handle_snapshot_command(
 
         return True
 
+    except KeyboardInterrupt, SystemExit:
+        # Let signals propagate before broad catch.
+        raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {e!s}"), file=sys.stderr)
         return False
@@ -11966,6 +11962,8 @@ def handle_diff_command(
         append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
+    except KeyboardInterrupt, SystemExit:
+        raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
         logger.debug("Diff comparison failed", exc_info=True)
@@ -12349,6 +12347,8 @@ def handle_diff_snapshot_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
+    except KeyboardInterrupt, SystemExit:
+        raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {e!s}"), file=sys.stderr)
         logger.debug("Diff-snapshot comparison failed", exc_info=True)
@@ -12579,6 +12579,8 @@ def handle_compare_snapshots_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
+    except KeyboardInterrupt, SystemExit:
+        raise
     except (CJASDRError, OSError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
         logger.debug("Snapshot comparison failed", exc_info=True)
