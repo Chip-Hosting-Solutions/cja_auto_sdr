@@ -660,6 +660,21 @@ class TestFastPathEntryPoint:
 
         assert _is_fast_path_flag(["prog", "--quiet=1", "--version"]) is None
 
+    def test_is_fast_path_flag_help_precedes_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--help", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_missing_value_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--profile", "--quiet", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_mutex_conflict_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--list-dataviews", "--list-connections", "--version"]) is None
+
     def test_is_fast_path_flag_version_handles_unknown_options_like_argparse(self):
         from cja_auto_sdr.__main__ import _is_fast_path_flag
 
@@ -788,6 +803,8 @@ class TestFastPathEntryPoint:
             ["cja_auto_sdr", "--version=foo"],
             ["cja_auto_sdr", "-V=foo"],
             ["cja_auto_sdr", "--quiet=1", "--version"],
+            ["cja_auto_sdr", "--profile", "--quiet", "--version"],
+            ["cja_auto_sdr", "--list-dataviews", "--list-connections", "--version"],
         ]
         for argv in malformed_argv:
             with patch.object(sys, "argv", argv):
@@ -869,6 +886,8 @@ class TestFastPathEntryPoint:
             (["--v", "--version"], "ambiguous option"),
             (["--version=foo"], "ignored explicit argument"),
             (["-V=foo"], "ignored explicit argument"),
+            (["--profile", "--quiet", "--version"], "expected one argument"),
+            (["--list-dataviews", "--list-connections", "--version"], "not allowed with argument"),
         ],
     )
     def test_fast_path_malformed_version_invocations_preserve_argparse_error_exit(self, argv_tail, stderr_substring):
@@ -883,6 +902,20 @@ class TestFastPathEntryPoint:
 
         assert result.returncode == 2
         assert stderr_substring in result.stderr
+
+    def test_fast_path_help_before_version_preserves_help_precedence(self):
+        import subprocess
+
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--help", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 0
+        assert "usage:" in result.stdout
+        assert "show this help message and exit" in result.stdout
 
 
 class TestQualityGateAndReport:

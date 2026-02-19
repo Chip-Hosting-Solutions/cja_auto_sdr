@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -41,6 +42,22 @@ class _OptionScanResult(NamedTuple):
 
     options: tuple[str, ...]
     has_parse_error: bool
+
+
+class _ArgparseProbeExit(Exception):
+    """Internal sentinel used to capture argparse exits without emitting output."""
+
+    def __init__(self, status: int = 0, message: str | None = None) -> None:
+        super().__init__(status, message)
+        self.status = status
+        self.message = message
+
+
+class _ArgparseProbeResult(NamedTuple):
+    """Result of a lightweight argparse probe parse."""
+
+    status: int
+    output: str | None
 
 
 def _accepts_inline_option_value(nargs: object) -> bool:
@@ -187,6 +204,36 @@ def _has_version_flag(args: list[str]) -> bool:
     return any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options)
 
 
+def _probe_argparse_termination(args: list[str], argv0: str | None = None) -> _ArgparseProbeResult | None:
+    """Return argparse termination info for *args* without printing output.
+
+    This uses the real parser as the source of truth for precedence and
+    validation (help/version actions, missing values, and mutex conflicts).
+    """
+    from cja_auto_sdr.cli.parser import parse_arguments
+
+    parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    parser.prog = _resolve_program_name(argv0)
+    captured_output: list[str] = []
+
+    def _probe_exit(_self, status: int = 0, message: str | None = None) -> None:
+        raise _ArgparseProbeExit(status, message)
+
+    def _capture_output(_self, message: str | None, _file=None) -> None:
+        if message:
+            captured_output.append(message)
+
+    parser.exit = types.MethodType(_probe_exit, parser)
+    parser._print_message = types.MethodType(_capture_output, parser)
+
+    try:
+        parser.parse_args(args)
+    except _ArgparseProbeExit as probe_exit:
+        rendered_output = probe_exit.message or "".join(captured_output) or None
+        return _ArgparseProbeResult(status=probe_exit.status, output=rendered_output)
+    return None
+
+
 def _is_fast_path_flag(argv: list[str]) -> str | None:
     """Return the fast-path flag present in *argv*, or ``None``."""
     # Only consider real arguments (ignore argv[0] script/module path).
@@ -203,10 +250,14 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     if any(option == _RUN_SUMMARY_OPTION for option in scan.options):
         return None
 
-    # argparse's version action can short-circuit even when version appears
-    # after other options; mirror that without importing heavy runtime modules.
-    if any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options):
-        return _VERSION_OPTION
+    probe = _probe_argparse_termination(args, argv[0] if argv else None)
+    if probe is not None:
+        # argparse exits with status 0 for both help and version actions.
+        # Treat non-help output as version-action termination.
+        probe_text = (probe.output or "").lower()
+        if probe.status == 0 and probe_text and "usage:" not in probe_text:
+            return _VERSION_OPTION
+        return None
 
     # --help / -h — still needs the full parser for complete output,
     # so we don't intercept it here.
