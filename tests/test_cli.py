@@ -704,11 +704,13 @@ class TestFastPathEntryPoint:
 
     def test_fast_path_exit_codes_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_exit_codes
+        from cja_auto_sdr.core.constants import BANNER_WIDTH
 
         _print_exit_codes()
         captured = capsys.readouterr()
         assert "EXIT CODE REFERENCE" in captured.out
         assert "CI/CD Examples:" in captured.out
+        assert captured.out.splitlines()[0] == "=" * BANNER_WIDTH
 
     def test_fast_path_main_version_exits_zero(self):
         from cja_auto_sdr.__main__ import main as fast_main

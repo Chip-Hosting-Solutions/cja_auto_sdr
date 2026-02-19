@@ -112,9 +112,10 @@ def _print_version(program_name: str = "cja_auto_sdr") -> None:
 
 
 def _print_exit_codes() -> None:
+    from cja_auto_sdr.core.constants import BANNER_WIDTH
     from cja_auto_sdr.core.exit_codes import print_exit_codes
 
-    print_exit_codes(banner_width=78)
+    print_exit_codes(banner_width=BANNER_WIDTH)
 
 
 def main() -> None:

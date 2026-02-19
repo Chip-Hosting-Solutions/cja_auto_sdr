@@ -1546,13 +1546,13 @@ class TestGitCommitIntegration:
     @patch("cja_auto_sdr.generator.SnapshotManager")
     @patch("cja_auto_sdr.generator.save_git_friendly_snapshot")
     @patch("cja_auto_sdr.generator.git_commit_snapshot", return_value=(True, "abc123"))
-    def test_git_commit_refetch_plain_exception_continues(
+    def test_git_commit_refetch_unexpected_exception_fails_fast(
         self, mock_commit, mock_save, mock_sm_cls, _init_cja, _is_git, _bqs, _aghs, _aqi, mock_proc, _resolve, capsys
     ):
-        """Plain Exception during snapshot re-fetch should warn and continue commit flow."""
+        """Unexpected exception during snapshot re-fetch should fail fast."""
         mock_proc.return_value = self._make_success_result()
         mock_sm = MagicMock()
-        mock_sm.create_snapshot.side_effect = Exception("unexpected internal error")
+        mock_sm.create_snapshot.side_effect = RuntimeError("unexpected internal error")
         mock_sm_cls.return_value = mock_sm
 
         args = _make_args(
@@ -1561,15 +1561,12 @@ class TestGitCommitIntegration:
             include_segments_inventory=True,
         )
         with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
-            try:
+            with pytest.raises(RuntimeError, match="unexpected internal error"):
                 _main_impl()
-            except SystemExit:
-                pass
 
-        out = capsys.readouterr().out
-        assert "Could not fetch snapshot data" in out
-        mock_save.assert_called_once()
-        mock_commit.assert_called_once()
+        capsys.readouterr()
+        mock_save.assert_not_called()
+        mock_commit.assert_not_called()
 
 
 # =========================================================================

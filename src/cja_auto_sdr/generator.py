@@ -14356,7 +14356,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                                     include_calculated_metrics=include_calc,
                                     include_segments=include_segs,
                                 )
-                        except Exception as e:
+                        except (APIError, ConfigurationError, OSError, ValueError) as e:
                             print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
 
                     # Save Git-friendly snapshot

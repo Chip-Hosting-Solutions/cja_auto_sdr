@@ -474,7 +474,9 @@ class ErrorMessageHelper:
         return "\n".join(output)
 
 
-# Exceptions that should trigger a retry (transient errors)
+# Exceptions that should trigger a retry (transient errors).
+# Note: ConnectionError and TimeoutError are subclasses of OSError; we keep
+# them explicit here to document the network-oriented intent.
 RETRYABLE_EXCEPTIONS: tuple[type, ...] = (
     ConnectionError,
     TimeoutError,
@@ -774,6 +776,8 @@ def retry_with_backoff(
                                 operation=func.__name__,
                             )
                             _logger.error("\n" + error_msg)
+                        # ConnectionError/TimeoutError are OSError subclasses;
+                        # listed explicitly for readability and intent.
                         elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
                             error_msg = ErrorMessageHelper.get_network_error_message(e, operation=func.__name__)
                             _logger.error("\n" + error_msg)
@@ -901,6 +905,8 @@ def make_api_call_with_retry[T](
                 if isinstance(e, RetryableHTTPError):
                     error_msg = ErrorMessageHelper.get_http_error_message(e.status_code, operation=operation_name)
                     _logger.error("\n" + error_msg)
+                # ConnectionError/TimeoutError are OSError subclasses;
+                # listed explicitly for readability and intent.
                 elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
                     error_msg = ErrorMessageHelper.get_network_error_message(e, operation=operation_name)
                     _logger.error("\n" + error_msg)
