@@ -680,6 +680,12 @@ class TestFastPathEntryPoint:
 
         assert _is_fast_path_flag(["prog", "--unknown-option", "--version"]) == "--version"
 
+    def test_is_fast_path_flag_version_takes_precedence_over_later_parse_errors(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version", "--v"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--version", "--quiet=1"]) == "--version"
+
     def test_is_fast_path_flag_exit_codes(self):
         from cja_auto_sdr.__main__ import _is_fast_path_flag
 
@@ -828,6 +834,21 @@ class TestFastPathEntryPoint:
                 with patch("cja_auto_sdr.generator.main") as mock_gen_main:
                     fast_main()
                     mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_version_takes_precedence_over_later_parse_errors(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        valid_version_argv = [
+            ["cja_auto_sdr", "--version", "--v"],
+            ["cja_auto_sdr", "--version", "--quiet=1"],
+        ]
+        for argv in valid_version_argv:
+            with patch.object(sys, "argv", argv):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    with pytest.raises(SystemExit) as exc_info:
+                        fast_main()
+                    assert exc_info.value.code == 0
+                    mock_gen_main.assert_not_called()
 
     def test_fast_path_main_version_uses_invoked_program_name(self, capsys):
         from cja_auto_sdr.__main__ import main as fast_main

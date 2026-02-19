@@ -274,8 +274,6 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
         return None
 
     scan = _scan_option_tokens(args)
-    if scan.has_parse_error:
-        return None
 
     has_version_candidate = any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options)
     if has_version_candidate:
@@ -286,6 +284,10 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
             probe_text = (probe.output or "").lower()
             if probe.status == 0 and probe_text and "usage:" not in probe_text:
                 return _VERSION_OPTION
+        return None
+
+    # For non-version requests, parse errors still disable fast-path.
+    if scan.has_parse_error:
         return None
 
     # --help / -h — still needs the full parser for complete output,
