@@ -644,6 +644,22 @@ class TestFastPathEntryPoint:
         assert _is_fast_path_flag(["prog", "--", "--version"]) is None
         assert _is_fast_path_flag(["prog", "--v"]) is None
 
+    def test_is_fast_path_flag_rejects_ambiguous_prefix_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--v", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_explicit_value_for_version_option(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version=foo"]) is None
+        assert _is_fast_path_flag(["prog", "-V=foo"]) is None
+
+    def test_is_fast_path_flag_rejects_explicit_value_for_zero_arity_option(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--quiet=1", "--version"]) is None
+
     def test_is_fast_path_flag_version_handles_unknown_options_like_argparse(self):
         from cja_auto_sdr.__main__ import _is_fast_path_flag
 
@@ -764,6 +780,21 @@ class TestFastPathEntryPoint:
                 fast_main()
                 mock_gen_main.assert_called_once()
 
+    def test_fast_path_main_malformed_version_invocations_fall_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        malformed_argv = [
+            ["cja_auto_sdr", "--v", "--version"],
+            ["cja_auto_sdr", "--version=foo"],
+            ["cja_auto_sdr", "-V=foo"],
+            ["cja_auto_sdr", "--quiet=1", "--version"],
+        ]
+        for argv in malformed_argv:
+            with patch.object(sys, "argv", argv):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
     def test_fast_path_main_version_uses_invoked_program_name(self, capsys):
         from cja_auto_sdr.__main__ import main as fast_main
         from cja_auto_sdr.core.version import __version__
@@ -831,6 +862,27 @@ class TestFastPathEntryPoint:
             with patch("cja_auto_sdr.generator.main") as mock_gen_main:
                 fast_main()
                 mock_gen_main.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("argv_tail", "stderr_substring"),
+        [
+            (["--v", "--version"], "ambiguous option"),
+            (["--version=foo"], "ignored explicit argument"),
+            (["-V=foo"], "ignored explicit argument"),
+        ],
+    )
+    def test_fast_path_malformed_version_invocations_preserve_argparse_error_exit(self, argv_tail, stderr_substring):
+        import subprocess
+
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", *argv_tail],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 2
+        assert stderr_substring in result.stderr
 
 
 class TestQualityGateAndReport:
