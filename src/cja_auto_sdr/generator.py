@@ -630,6 +630,11 @@ RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
 # subclasses (e.g., KeyboardInterrupt/SystemExit) to propagate.
 RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS
+# Data quality validation is intentionally best-effort for SDR generation:
+# validator/runtime/threadpool failures should not abort report generation.
+# Quality-report mode still surfaces this as a failed result via
+# `validation_failed` state in process_single_dataview().
+RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
 RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
@@ -649,6 +654,13 @@ def _log_optional_inventory_failure(
         logger.error(_format_error_msg(f"during {inventory_label}", error=error))
         logger.info(f"Continuing with SDR generation despite {inventory_label} errors")
     logger.debug(f"Optional inventory failure details: {error!r}")
+
+
+def _log_validation_failure(logger: Any, *, error: Exception) -> None:
+    """Log non-fatal validation failures consistently."""
+    logger.error(_format_error_msg("during data quality validation", error=error))
+    logger.info("Continuing with SDR generation despite validation errors")
+    logger.debug(f"Validation failure details: {error!r}")
 
 
 def _run_optional_inventory_step[T](
@@ -5550,9 +5562,8 @@ def process_single_dataview(
                 # End performance tracking
                 perf_tracker.end("Data Quality Validation")
 
-            except (ValidationError, APIError, KeyError, TypeError, ValueError) as e:
-                logger.error(_format_error_msg("during data quality validation", error=e))
-                logger.info("Continuing with SDR generation despite validation errors")
+            except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
+                _log_validation_failure(logger, error=e)
                 perf_tracker.end("Data Quality Validation")
                 validation_failed = True
                 validation_error_message = str(e)

@@ -1,5 +1,6 @@
 """Tests for command-line interface"""
 
+import argparse
 import json
 import os
 import subprocess
@@ -630,6 +631,23 @@ class TestFastPathEntryPoint:
 
         assert _is_fast_path_flag(["prog", "--version"]) == "--version"
         assert _is_fast_path_flag(["prog", "-V"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--profile", "client-a", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "dv_12345", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--vers"]) == "--version"
+
+    def test_is_fast_path_flag_version_respects_option_value_consumption(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--profile", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--profile-import", "client-a", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--profile-import", "client-a", "source.json", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--v"]) is None
+
+    def test_is_fast_path_flag_version_handles_unknown_options_like_argparse(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--unknown-option", "--version"]) == "--version"
 
     def test_is_fast_path_flag_exit_codes(self):
         from cja_auto_sdr.__main__ import _is_fast_path_flag
@@ -669,6 +687,12 @@ class TestFastPathEntryPoint:
         assert _has_run_summary_flag(["--run-summary-j"]) is True
         assert _has_run_summary_flag(["--run-summary-js"]) is True
         assert _has_run_summary_flag(["--run-summary-json=stdout"]) is True
+
+    def test_has_run_summary_flag_ignores_tokens_consumed_as_option_values(self):
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json"]) is False
+        assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json", "--version"]) is False
 
     def test_fast_path_version_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_version
@@ -719,6 +743,26 @@ class TestFastPathEntryPoint:
             with pytest.raises(SystemExit) as exc_info:
                 fast_main()
             assert exc_info.value.code == 0
+
+    def test_fast_path_main_version_after_other_option_exits_zero(self, capsys):
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile", "client-a", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja_auto_sdr {__version__}"
+
+    def test_fast_path_main_version_like_value_token_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile", "--version"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
 
     def test_fast_path_main_version_uses_invoked_program_name(self, capsys):
         from cja_auto_sdr.__main__ import main as fast_main
@@ -1504,6 +1548,14 @@ class TestRetryArguments:
         assert args.max_retries == 9
         assert args.profile == "dotenv-profile"
         mock_bootstrap.assert_called_once()
+
+    def test_return_parser_mode_skips_dotenv_bootstrap(self):
+        """Parser-metadata mode should not trigger dotenv/bootstrap side effects."""
+        with patch("cja_auto_sdr.api.client._bootstrap_dotenv") as mock_bootstrap:
+            parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+
+        assert isinstance(parser, argparse.ArgumentParser)
+        mock_bootstrap.assert_not_called()
 
     def test_invalid_retry_env_max_retries_falls_back_to_default(self):
         """Invalid MAX_RETRIES env values should not crash argument parsing."""

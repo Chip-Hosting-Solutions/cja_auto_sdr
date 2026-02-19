@@ -935,6 +935,111 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_sdr_generation_continues_on_unexpected_validation_runtime_error(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Unexpected validation runtime errors should be non-fatal for SDR generation."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+        mock_validate_dv.return_value = True
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_write_json.return_value = f"{temp_output_dir}/test.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+        )
+
+        assert result.success is True
+        assert result.dq_issues_count == 0
+        assert any(
+            "Continuing with SDR generation despite validation errors" in str(call.args[0])
+            for call in mock_logger.info.call_args_list
+            if call.args
+        )
+        mock_write_json.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_quality_report_only_fails_when_validation_runtime_errors(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality report mode should fail on unexpected validation runtime errors."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+        mock_validate_dv.return_value = True
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
+        assert "threadpool failure" in result.error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_fails_when_validation_errors(
         self,
         mock_dq_checker_class,

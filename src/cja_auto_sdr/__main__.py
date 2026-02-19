@@ -13,47 +13,123 @@ from __future__ import annotations
 
 import os
 import sys
+from functools import lru_cache
+
+_VERSION_OPTION = "--version"
+_VERSION_SHORT_OPTION = "-V"
 
 _RUN_SUMMARY_OPTION = "--run-summary-json"
-# Keep this list focused: only options that collide with run-summary prefixes.
-# This lets fast-path fallback mirror argparse abbreviation rules for
-# --run-summary-json without importing the full parser.
-_RUN_SUMMARY_PREFIX_CONFLICTS = (
-    "--retry-base-delay",
-    "--retry-max-delay",
-    "--refresh-cache",
-    "--reverse-diff",
-)
+
+def _minimum_option_arity(nargs: object) -> int:
+    """Return the minimum positional values an option must consume."""
+    if nargs is None:
+        return 1
+    if isinstance(nargs, int):
+        return max(nargs, 0)
+    if nargs == "+":
+        return 1
+    # Includes 0, "?", "*", argparse.REMAINDER, argparse.PARSER.
+    return 0
 
 
-def _is_unambiguous_run_summary_prefix(option: str) -> bool:
-    """Return True when *option* is a valid argparse-style prefix for run-summary."""
-    if not option.startswith("--") or option == "--":
-        return False
-    if option == _RUN_SUMMARY_OPTION:
-        return True
-    if not _RUN_SUMMARY_OPTION.startswith(option):
-        return False
-    return not any(conflict.startswith(option) for conflict in _RUN_SUMMARY_PREFIX_CONFLICTS)
+@lru_cache(maxsize=1)
+def _fast_path_option_spec() -> tuple[frozenset[str], dict[str, int]]:
+    """Return (known_long_options, option_min_arity) from the configured CLI parser."""
+    from cja_auto_sdr.cli.parser import parse_arguments
+
+    parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    option_min_arity: dict[str, int] = {}
+    known_long_options: set[str] = set()
+
+    for action in parser._actions:
+        if not action.option_strings:
+            continue
+        min_arity = _minimum_option_arity(getattr(action, "nargs", None))
+        for option in action.option_strings:
+            option_min_arity[option] = min_arity
+            if option.startswith("--"):
+                known_long_options.add(option)
+
+    return frozenset(known_long_options), option_min_arity
+
+
+def _resolve_long_option_token(token_name: str, known_long_options: frozenset[str]) -> str | None:
+    """Resolve a token to a canonical long option if argparse would accept it."""
+    if not token_name.startswith("--") or token_name == "--":
+        return None
+    if token_name in known_long_options:
+        return token_name
+
+    matches = [option for option in known_long_options if option.startswith(token_name)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _iter_option_tokens(args: list[str]):
+    """Yield canonical option tokens, skipping tokens consumed as option values."""
+    known_long_options, option_min_arity = _fast_path_option_spec()
+    pending_option_values = 0
+
+    for token in args:
+        if token == "--":
+            break
+
+        if pending_option_values > 0:
+            pending_option_values -= 1
+            continue
+
+        if token.startswith("--"):
+            option_name, has_equals, _inline_value = token.partition("=")
+            canonical_option = _resolve_long_option_token(option_name, known_long_options)
+            if canonical_option is None:
+                continue
+
+            yield canonical_option
+
+            min_arity = option_min_arity.get(canonical_option, 0)
+            inline_values = 1 if has_equals else 0
+            if min_arity > inline_values:
+                pending_option_values = min_arity - inline_values
+            continue
+
+        if token.startswith("-") and token != "-":
+            if token in option_min_arity:
+                yield token
+                min_arity = option_min_arity[token]
+                if min_arity > 0:
+                    pending_option_values = min_arity
+                continue
+
+            # Support short-option clusters like -qV and attached values like -pVALUE.
+            if len(token) > 2:
+                cluster = token[1:]
+                for index, short_name in enumerate(cluster):
+                    short_option = f"-{short_name}"
+                    min_arity = option_min_arity.get(short_option)
+                    if min_arity is None:
+                        break
+                    yield short_option
+                    if min_arity > 0:
+                        attached_value = cluster[index + 1 :]
+                        pending_option_values = max(min_arity - 1, 0) if attached_value else min_arity
+                        break
+            continue
 
 
 def _has_run_summary_flag(args: list[str]) -> bool:
     """Return True when argv contains --run-summary-json (or unambiguous prefix)."""
-    for token in args:
-        if not token.startswith("--"):
-            continue
-        option = token.split("=", 1)[0]
-        if _is_unambiguous_run_summary_prefix(option):
-            return True
-    return False
+    return any(option == _RUN_SUMMARY_OPTION for option in _iter_option_tokens(args))
+
+
+def _has_version_flag(args: list[str]) -> bool:
+    """Return True when argv contains --version/-V in option context."""
+    return any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in _iter_option_tokens(args))
 
 
 def _is_fast_path_flag(argv: list[str]) -> str | None:
     """Return the fast-path flag present in *argv*, or ``None``."""
-    # Only consider the very first real argument (ignore argv[0] which is
-    # the script/module path).  This matches argparse behaviour:
-    # ``--version`` and ``--help`` short-circuit regardless of other
-    # arguments, and ``--exit-codes`` is a standalone informational flag.
+    # Only consider real arguments (ignore argv[0] script/module path).
     args = argv[1:]
     if not args:
         return None
@@ -63,9 +139,10 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     if _has_run_summary_flag(args):
         return None
 
-    # --version / -V
-    if args[0] in ("--version", "-V"):
-        return "--version"
+    # argparse's version action can short-circuit even when version appears
+    # after other options; mirror that without importing heavy runtime modules.
+    if _has_version_flag(args):
+        return _VERSION_OPTION
 
     # --help / -h — still needs the full parser for complete output,
     # so we don't intercept it here.

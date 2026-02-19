@@ -72,9 +72,13 @@ def parse_arguments(
     """
     # Load .env before reading any os.environ-backed defaults so options like
     # --output-dir, --log-level, --max-retries, and --profile honor .env values.
-    from cja_auto_sdr.api.client import _bootstrap_dotenv
+    # Skip this in return_parser mode because callers typically need parser
+    # metadata only (option discovery/introspection) and should remain
+    # lightweight without importing API/bootstrap dependencies.
+    if not return_parser:
+        from cja_auto_sdr.api.client import _bootstrap_dotenv
 
-    _bootstrap_dotenv(logging.getLogger(__name__))
+        _bootstrap_dotenv(logging.getLogger(__name__))
 
     parser = argparse.ArgumentParser(
         description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
