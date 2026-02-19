@@ -696,7 +696,14 @@ class TestFastPathEntryPoint:
         from cja_auto_sdr.__main__ import _is_fast_path_flag
 
         assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
+        assert _is_fast_path_flag(["prog", "--version", "--profile", "--run-summary-json", "stdout"]) is None
         assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
+
+    def test_has_run_summary_contract_flag_ignores_value_consumption_ordering(self):
+        from cja_auto_sdr.__main__ import _has_run_summary_contract_flag
+
+        assert _has_run_summary_contract_flag(["--version", "--profile", "--run-summary-json", "stdout"]) is True
+        assert _has_run_summary_contract_flag(["--profile-import", "client-a", "--run-summary-json"]) is True
 
     def test_is_argcomplete_completion_active_detection(self):
         from cja_auto_sdr.__main__ import _is_argcomplete_completion_active
@@ -897,6 +904,14 @@ class TestFastPathEntryPoint:
         from cja_auto_sdr.__main__ import main as fast_main
 
         with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_run_summary_after_option_needing_value_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--profile", "--run-summary-json", "stdout"]):
             with patch("cja_auto_sdr.generator.main") as mock_gen_main:
                 fast_main()
                 mock_gen_main.assert_called_once()
@@ -3577,6 +3592,7 @@ class TestRunSummaryOutput:
             ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "--version"],
             ["uv", "run", "cja_auto_sdr", "-V", "--run-summary-json", "stdout"],
             ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "-V"],
+            ["uv", "run", "cja_auto_sdr", "--version", "--profile", "--run-summary-json", "stdout"],
         ]
 
         for cmd in commands:

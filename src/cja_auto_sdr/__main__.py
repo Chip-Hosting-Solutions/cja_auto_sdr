@@ -200,8 +200,31 @@ def _scan_option_tokens(args: list[str]) -> _OptionScanResult:
     return _OptionScanResult(options=tuple(resolved_options), has_parse_error=False)
 
 
+def _has_run_summary_contract_flag(args: list[str]) -> bool:
+    """Return True when argv explicitly requests run-summary output.
+
+    This token-level detector intentionally ignores option-value consumption so
+    run-summary handling remains order-independent (e.g., `--version` followed
+    by flags that would otherwise consume later tokens).
+    """
+    known_long_options, _ = _fast_path_option_spec()
+
+    for arg in args:
+        if arg == "--":
+            break
+        if not arg.startswith("--"):
+            continue
+
+        option_name, _, _inline_value = arg.partition("=")
+        long_resolution = _resolve_long_option_token(option_name, known_long_options)
+        if long_resolution.canonical_option == _RUN_SUMMARY_OPTION:
+            return True
+
+    return False
+
+
 def _has_run_summary_flag(args: list[str]) -> bool:
-    """Return True when argv contains --run-summary-json (or unambiguous prefix)."""
+    """Return True when argparse-style scan resolves --run-summary-json."""
     scan = _scan_option_tokens(args)
     if scan.has_parse_error:
         return False
@@ -245,13 +268,13 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     if not args:
         return None
 
-    scan = _scan_option_tokens(args)
-    if scan.has_parse_error:
-        return None
-
     # Preserve run-summary contract: when requested, always route through
     # generator.main() so summary emission is consistent and order-independent.
-    if any(option == _RUN_SUMMARY_OPTION for option in scan.options):
+    if _has_run_summary_contract_flag(args):
+        return None
+
+    scan = _scan_option_tokens(args)
+    if scan.has_parse_error:
         return None
 
     has_version_candidate = any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options)
