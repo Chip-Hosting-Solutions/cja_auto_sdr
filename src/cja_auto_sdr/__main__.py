@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import types
+from collections.abc import Mapping
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -21,6 +22,8 @@ _VERSION_OPTION = "--version"
 _VERSION_SHORT_OPTION = "-V"
 
 _RUN_SUMMARY_OPTION = "--run-summary-json"
+_ARGCOMPLETE_ENV_VAR = "_ARGCOMPLETE"
+_FALSEY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
 
 
 class _OptionSpec(NamedTuple):
@@ -58,6 +61,15 @@ class _ArgparseProbeResult(NamedTuple):
 
     status: int
     output: str | None
+
+
+def _is_argcomplete_completion_active(environ: Mapping[str, str] | None = None) -> bool:
+    """Return True when argcomplete shell-completion invocation is active."""
+    env = os.environ if environ is None else environ
+    raw_value = env.get(_ARGCOMPLETE_ENV_VAR)
+    if raw_value is None:
+        return False
+    return raw_value.strip().lower() not in _FALSEY_ENV_VALUES
 
 
 def _accepts_inline_option_value(nargs: object) -> bool:
@@ -196,14 +208,6 @@ def _has_run_summary_flag(args: list[str]) -> bool:
     return any(option == _RUN_SUMMARY_OPTION for option in scan.options)
 
 
-def _has_version_flag(args: list[str]) -> bool:
-    """Return True when argv contains --version/-V in option context."""
-    scan = _scan_option_tokens(args)
-    if scan.has_parse_error:
-        return False
-    return any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options)
-
-
 def _probe_argparse_termination(args: list[str], argv0: str | None = None) -> _ArgparseProbeResult | None:
     """Return argparse termination info for *args* without printing output.
 
@@ -250,13 +254,15 @@ def _is_fast_path_flag(argv: list[str]) -> str | None:
     if any(option == _RUN_SUMMARY_OPTION for option in scan.options):
         return None
 
-    probe = _probe_argparse_termination(args, argv[0] if argv else None)
-    if probe is not None:
-        # argparse exits with status 0 for both help and version actions.
-        # Treat non-help output as version-action termination.
-        probe_text = (probe.output or "").lower()
-        if probe.status == 0 and probe_text and "usage:" not in probe_text:
-            return _VERSION_OPTION
+    has_version_candidate = any(option in (_VERSION_OPTION, _VERSION_SHORT_OPTION) for option in scan.options)
+    if has_version_candidate:
+        probe = _probe_argparse_termination(args, argv[0] if argv else None)
+        if probe is not None:
+            # argparse exits with status 0 for both help and version actions.
+            # Treat non-help output as version-action termination.
+            probe_text = (probe.output or "").lower()
+            if probe.status == 0 and probe_text and "usage:" not in probe_text:
+                return _VERSION_OPTION
         return None
 
     # --help / -h — still needs the full parser for complete output,
@@ -312,6 +318,14 @@ def _print_exit_codes() -> None:
 
 def main() -> None:
     """Entry point with fast-path for lightweight flags."""
+    # Argcomplete shell completion relies on parser-side hooks in
+    # parse_arguments(); do not short-circuit fast-path in that mode.
+    if _is_argcomplete_completion_active():
+        from cja_auto_sdr.generator import main as _generator_main
+
+        _generator_main()
+        return
+
     flag = _is_fast_path_flag(sys.argv)
 
     if flag == "--version":

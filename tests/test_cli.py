@@ -698,6 +698,16 @@ class TestFastPathEntryPoint:
         assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
         assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
 
+    def test_is_argcomplete_completion_active_detection(self):
+        from cja_auto_sdr.__main__ import _is_argcomplete_completion_active
+
+        assert _is_argcomplete_completion_active({}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "1"}) is True
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "true"}) is True
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "0"}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "off"}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": ""}) is False
+
     def test_has_run_summary_flag_rejects_ambiguous_prefixes(self):
         """Ambiguous prefixes must not falsely match --run-summary-json."""
         from cja_auto_sdr.__main__ import _has_run_summary_flag
@@ -847,6 +857,33 @@ class TestFastPathEntryPoint:
             with pytest.raises(SystemExit) as exc_info:
                 fast_main()
             assert exc_info.value.code == 0
+
+    def test_fast_path_main_version_falls_through_when_argcomplete_active(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "1"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_exit_codes_falls_through_when_argcomplete_active(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "1"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes"]):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_version_uses_fast_path_when_argcomplete_disabled(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "0"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    fast_main()
+                assert exc_info.value.code == 0
 
     def test_fast_path_falls_through_to_generator(self):
         from cja_auto_sdr.__main__ import main as fast_main
