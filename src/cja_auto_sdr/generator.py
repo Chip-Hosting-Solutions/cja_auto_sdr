@@ -13508,6 +13508,38 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 run_state["details"] = {"operation_success": success, "discovery_command": attr}
             sys.exit(0 if success else 1)
 
+    # ID-bearing discovery commands (inspection commands that take a data view ID)
+    _discovery_commands_id = {
+        "describe_dataview": describe_dataview,
+        "list_metrics": list_metrics,
+        "list_dimensions": list_dimensions,
+        "list_segments": list_segments,
+        "list_calculated_metrics": list_calculated_metrics,
+    }
+    for attr, func in _discovery_commands_id.items():
+        resource_id = getattr(args, attr, None)
+        if resource_id:
+            list_format = "table"
+            if args.format in ("json", "csv"):
+                list_format = args.format
+            elif output_to_stdout:
+                list_format = "json"
+            success = func(
+                resource_id,
+                config_file=args.config_file,
+                output_format=list_format,
+                output_file=getattr(args, "output", None),
+                profile=getattr(args, "profile", None),
+                filter_pattern=getattr(args, "org_filter", None),
+                exclude_pattern=getattr(args, "org_exclude", None),
+                limit=getattr(args, "org_limit", None),
+                sort_expression=getattr(args, "discovery_sort", None),
+            )
+            if run_state is not None:
+                run_state["output_format"] = list_format
+                run_state["details"] = {"operation_success": success, "discovery_command": attr}
+            sys.exit(0 if success else 1)
+
     # Handle --config-status mode (no data view required, no API call)
     # --config-json implies --config-status
     if getattr(args, "config_status", False) or getattr(args, "config_json", False):

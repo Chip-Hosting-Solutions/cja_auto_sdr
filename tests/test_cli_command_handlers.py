@@ -1869,3 +1869,131 @@ class TestMainImplDiffLabels:
         # Labels should have been parsed as a tuple and passed through
         mock_diff.assert_called_once()
         assert mock_diff.call_args[1]["labels"] == ("Before", "After")
+
+
+# ==================== _main_impl: ID-bearing discovery inspection dispatch ====================
+
+
+class TestDiscoveryInspectionDispatch:
+    """Tests for dispatch of new ID-bearing discovery commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_list_calculated_metrics_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_stdout_forces_json(self, mock_fn):
+        """When output is stdout, format should default to json."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--output", "-"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+        assert run_state["output_format"] == "json"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_csv_format_preserved(self, mock_fn):
+        """Explicit csv format should be preserved for ID-bearing discovery commands."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--format", "csv"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+        assert exc_info.value.code == 0
+        assert run_state["output_format"] == "csv"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_failure_exits_one(self, mock_fn):
+        """When the command function returns False, should exit 1."""
+        mock_fn.return_value = False
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert exc_info.value.code == 1
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_passes_filter_and_sort(self, mock_fn):
+        """Filter and sort options should be forwarded to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments([
+                    "--list-segments", "dv_1",
+                    "--filter", "active.*",
+                    "--sort", "name",
+                    "--limit", "10",
+                ])
+                mock_pa.return_value = args
+                _main_impl()
+        call_kwargs = mock_fn.call_args
+        assert call_kwargs[1]["filter_pattern"] == "active.*"
+        assert call_kwargs[1]["sort_expression"] == "name"
+        assert call_kwargs[1]["limit"] == 10
