@@ -2181,3 +2181,207 @@ class TestDiscoveryInspectionNameResolution:
         assert exc_info.value.code == 0
         mock_resolve.assert_not_called()
         assert mock_fn.call_args[0][0] == "dv_456"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_error_suggests_list_dataviews(self, mock_fn, mock_resolve, capsys):
+        """Unresolved name error should suggest running --list-dataviews."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "No Such View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "--list-dataviews" in captured.err
+
+
+class TestDiscoveryInspectionOutputFile:
+    """Tests for --output FILE with inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_output_file_forwarded_to_command(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to the command function."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "metrics.json")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--format", "json", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_output_file_forwarded_to_list_dimensions(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to list_dimensions."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "dims.csv")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--format", "csv", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_output_file_forwarded_to_describe_dataview(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to describe_dataview."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "desc.json")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--format", "json", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+
+class TestDiscoveryInspectionExcludePattern:
+    """Tests for --exclude pattern forwarding in inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_exclude_pattern_forwarded_to_list_metrics(self, mock_fn):
+        """--exclude pattern should be forwarded as exclude_pattern kwarg."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--exclude", "internal.*"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["exclude_pattern"] == "internal.*"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_exclude_pattern_forwarded_to_list_dimensions(self, mock_fn):
+        """--exclude pattern should be forwarded to list_dimensions."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--exclude", "test.*"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["exclude_pattern"] == "test.*"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_filter_and_exclude_combined(self, mock_fn):
+        """--filter and --exclude should both be forwarded together."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    ["--list-calculated-metrics", "dv_1", "--filter", "revenue.*", "--exclude", "test.*"]
+                )
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["filter_pattern"] == "revenue.*"
+        assert mock_fn.call_args[1]["exclude_pattern"] == "test.*"
+
+
+class TestDiscoveryInspectionSortDescending:
+    """Tests for --sort with descending prefix in inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_sort_descending_forwarded(self, mock_fn):
+        """--sort=-name should be forwarded as-is to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--sort=-name"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["sort_expression"] == "-name"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_sort_ascending_forwarded(self, mock_fn):
+        """--sort name (ascending) should be forwarded to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "dv_1", "--sort", "id"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["sort_expression"] == "id"
+
+
+class TestDiscoveryInspectionLimitDispatch:
+    """Tests for --limit forwarding through inspection dispatch."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_limit_forwarded_to_list_dimensions(self, mock_fn):
+        """--limit should be forwarded as integer to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--limit", "5"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["limit"] == 5
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_limit_forwarded_to_list_calculated_metrics(self, mock_fn):
+        """--limit should be forwarded to list_calculated_metrics."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "dv_1", "--limit", "20"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["limit"] == 20
+
+
+class TestDescribeDataviewIgnoresFilterSortLimit:
+    """Tests that describe_dataview silently ignores filter/sort/limit kwargs."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_filter_sort_limit_do_not_cause_error(self, mock_fn):
+        """--filter, --sort, --limit with --describe-dataview should not error."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    ["--describe-dataview", "dv_1", "--filter", "something", "--sort", "name", "--limit", "10"]
+                )
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_kwargs_absorbed(self, mock_profile, mock_configure, mock_cjapy):
+        """describe_dataview() should accept and ignore unexpected kwargs via **_kwargs."""
+        from cja_auto_sdr.generator import describe_dataview
+
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test", "owner": {"name": "Admin"}}
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame([{"id": "m1"}])
+        cja.getDimensions.return_value = pd.DataFrame([{"id": "d1"}])
+        cja.getFilters.return_value = pd.DataFrame()
+        cja.getCalculatedMetrics.return_value = pd.DataFrame()
+
+        # These should be silently absorbed by **_kwargs
+        result = describe_dataview(
+            "dv_1",
+            output_format="json",
+            filter_pattern="anything",
+            exclude_pattern="something",
+            limit=10,
+            sort_expression="-name",
+        )
+        assert result is True

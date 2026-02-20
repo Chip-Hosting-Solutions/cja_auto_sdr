@@ -87,7 +87,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,756 comprehensive tests**
+**Total: 4,769 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -152,7 +152,7 @@ tests/
 | `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
-| `test_cli_command_handlers.py` | 98 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
+| `test_cli_command_handlers.py` | 111 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
 | `test_config_and_resolution.py` | 81 | Config status, validation, stats, name resolution |
@@ -172,7 +172,7 @@ tests/
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
-| **Total** | **4,756** | **Collected via pytest --collect-only** |
+| **Total** | **4,769** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -576,7 +576,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,756 tests total)
+- [x] Comprehensive test coverage (4,769 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
