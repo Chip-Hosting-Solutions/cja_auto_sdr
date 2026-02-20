@@ -4273,15 +4273,17 @@ class TestDescribeDataview:
         cja.getDataView.return_value = None
 
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stderr, redirect_stdout
 
-        f = io.StringIO()
-        with redirect_stdout(f):
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
             result = describe_dataview("dv_nonexistent", output_format="json")
 
-        assert result is True
-        output = json.loads(f.getvalue())
+        assert result is False
+        output = json.loads(err.getvalue())
         assert "error" in output
+        assert output["error_type"] == "not_found"
 
 
 class TestListMetrics:
@@ -4293,7 +4295,7 @@ class TestListMetrics:
     def test_list_metrics_json(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getMetrics.return_value = pd.DataFrame(
@@ -4322,7 +4324,7 @@ class TestListMetrics:
     def test_list_metrics_csv(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getMetrics.return_value = pd.DataFrame(
@@ -4348,7 +4350,7 @@ class TestListMetrics:
     def test_list_metrics_empty(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getMetrics.return_value = pd.DataFrame()
@@ -4370,7 +4372,7 @@ class TestListMetrics:
     def test_list_metrics_with_filter(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getMetrics.return_value = pd.DataFrame(
@@ -4402,7 +4404,7 @@ class TestListDimensions:
     def test_list_dimensions_json(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getDimensions.return_value = pd.DataFrame(
@@ -4431,7 +4433,7 @@ class TestListDimensions:
     def test_list_dimensions_csv(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getDimensions.return_value = pd.DataFrame(
@@ -4457,7 +4459,7 @@ class TestListDimensions:
     def test_list_dimensions_empty(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getDimensions.return_value = pd.DataFrame()
@@ -4479,7 +4481,7 @@ class TestListDimensions:
     def test_list_dimensions_with_filter(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getDimensions.return_value = pd.DataFrame(
@@ -4511,7 +4513,7 @@ class TestListSegments:
     def test_list_segments_json(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getFilters.return_value = pd.DataFrame(
@@ -4552,7 +4554,7 @@ class TestListSegments:
     def test_list_segments_csv(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getFilters.return_value = pd.DataFrame(
@@ -4588,7 +4590,7 @@ class TestListSegments:
         """approved renders as Yes/No in table mode."""
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getFilters.return_value = pd.DataFrame(
@@ -4634,7 +4636,7 @@ class TestListSegments:
     def test_list_segments_empty(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getFilters.return_value = pd.DataFrame()
@@ -4660,7 +4662,7 @@ class TestListCalculatedMetrics:
     def test_list_calc_metrics_json(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getCalculatedMetrics.return_value = pd.DataFrame(
@@ -4704,7 +4706,7 @@ class TestListCalculatedMetrics:
     def test_list_calc_metrics_csv(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getCalculatedMetrics.return_value = pd.DataFrame(
@@ -4743,7 +4745,7 @@ class TestListCalculatedMetrics:
         """Table output omits precision column to save width."""
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getCalculatedMetrics.return_value = pd.DataFrame(
@@ -4783,7 +4785,7 @@ class TestListCalculatedMetrics:
     def test_list_calc_metrics_empty(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
-        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
         import pandas as pd
 
         cja.getCalculatedMetrics.return_value = pd.DataFrame()

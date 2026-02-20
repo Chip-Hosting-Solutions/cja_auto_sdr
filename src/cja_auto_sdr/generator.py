@@ -7548,6 +7548,10 @@ class DiscoveryArgumentError(ValueError):
     """Raised when discovery filter/sort arguments are invalid."""
 
 
+class DiscoveryNotFoundError(LookupError):
+    """Raised when a requested discovery resource is not found."""
+
+
 _NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
 
 
@@ -7762,6 +7766,13 @@ def _run_list_command(
 
         return True
 
+    except DiscoveryNotFoundError as e:
+        if is_machine_readable:
+            print(json.dumps({"error": str(e), "error_type": "not_found"}), file=sys.stderr)
+        else:
+            print(ConsoleColors.error(f"ERROR: {e}"))
+        return False
+
     except DiscoveryArgumentError as e:
         if is_machine_readable:
             print(json.dumps({"error": str(e), "error_type": "invalid_arguments"}), file=sys.stderr)
@@ -7910,12 +7921,10 @@ def _fetch_describe_dataview(
 ) -> Callable:
     """Return a fetch_and_format callback for describe_dataview."""
 
-    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+    def _inner(cja: Any, _is_machine_readable: bool) -> str | None:
         raw_dv = cja.getDataView(data_view_id)
         if raw_dv is None:
-            if is_machine_readable:
-                return json.dumps({"error": f"Data view '{data_view_id}' not found"}, indent=2)
-            return f"\nData view '{data_view_id}' not found.\n"
+            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
         if isinstance(raw_dv, pd.DataFrame):
             raw_dv = raw_dv.to_dict("records")[0] if len(raw_dv) > 0 else {}
 
@@ -8064,15 +8073,17 @@ def describe_dataview(
 def _resolve_dataview_name(cja: Any, data_view_id: str) -> str:
     """Look up a data view's display name by ID.
 
+    Uses ``getDataView(id)`` to fetch a single resource instead of
+    listing all data views, avoiding an expensive API round-trip.
+
     Returns the name if found, or ``"Unknown"`` on failure.
     """
     with contextlib.suppress(Exception):
-        available_dvs = cja.getDataViews()
-        if isinstance(available_dvs, pd.DataFrame):
-            available_dvs = available_dvs.to_dict("records")
-        for dv in available_dvs or []:
-            if isinstance(dv, dict) and dv.get("id") == data_view_id:
-                return dv.get("name", "Unknown")
+        raw_dv = cja.getDataView(data_view_id)
+        if isinstance(raw_dv, pd.DataFrame):
+            raw_dv = raw_dv.to_dict("records")[0] if len(raw_dv) > 0 else {}
+        if isinstance(raw_dv, dict):
+            return raw_dv.get("name", "Unknown")
     return "Unknown"
 
 
