@@ -95,6 +95,31 @@ cja_auto_sdr dv_12345 --quality-report json --output quality_issues.json
 
 > **Quality constraints:** `--fail-on-quality` and `--quality-report` are SDR-only and cannot be used with `--skip-validation`.
 
+## Discovery Inspection Commands
+
+```bash
+# Inspect a data view (metadata, component counts, owner, dates)
+cja_auto_sdr --describe-dataview dv_abc123
+
+# Browse metrics (with filter)
+cja_auto_sdr --list-metrics dv_abc123 --filter revenue
+
+# Export dimensions to CSV
+cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv
+
+# List segments as JSON
+cja_auto_sdr --list-segments dv_abc123 --format json
+
+# Find calculated metrics by pattern
+cja_auto_sdr --list-calculated-metrics dv_abc123 --filter percent
+
+# Sort and limit results
+cja_auto_sdr --list-metrics dv_abc123 --sort name --limit 20
+
+# Pipe to jq for scripting
+cja_auto_sdr --list-dimensions dv_abc123 --format json --output - | jq '.[].name'
+```
+
 ## Diff Comparison Commands (Diff Mode)
 
 ```bash

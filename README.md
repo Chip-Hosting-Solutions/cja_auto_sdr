@@ -256,6 +256,9 @@ cja_auto_sdr "Production Analytics"
 | List as JSON (for scripting) | `cja_auto_sdr --list-dataviews --format json` |
 | Interactive Data View selection | `cja_auto_sdr --interactive` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
+| Inspect a data view | `cja_auto_sdr --describe-dataview dv_abc123` |
+| List metrics (with filter) | `cja_auto_sdr --list-metrics dv_abc123 --filter revenue` |
+| List dimensions as CSV | `cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv` |
 | Validate config only | `cja_auto_sdr --validate-config` |
 | **Diff Comparison** (default: console output) | |
 | Compare two Data Views | `cja_auto_sdr --diff dv_1 dv_2` |

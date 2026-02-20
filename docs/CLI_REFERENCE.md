@@ -15,6 +15,7 @@ Complete command-line interface documentation for the CJA SDR Generator.
   - [Configuration](#configuration)
   - [Profile Management](#profile-management)
   - [Validation & Testing](#validation--testing)
+  - [Discovery Inspection](#discovery-inspection)
   - [Caching](#caching)
   - [Retry Configuration](#retry-configuration)
   - [Diff Comparison](#diff-comparison)
@@ -27,6 +28,7 @@ Complete command-line interface documentation for the CJA SDR Generator.
   - [Single Data View](#single-data-view)
   - [Multiple Data Views](#multiple-data-views)
   - [Discovery Commands](#discovery-commands)
+  - [Discovery Inspection Commands](#discovery-inspection-commands)
   - [Quick Statistics](#quick-statistics)
   - [Interactive Data View Selection](#interactive-data-view-selection)
   - [Auto-Open Generated Files](#auto-open-generated-files)
@@ -215,6 +217,22 @@ cja_auto_sdr --list-dataviews
 | `--sort FIELD` | Sort discovery output by field (prefix `-` for descending), e.g. `--sort name` or `--sort=-id` | - |
 | `-i, --interactive` | Launch interactive mode for guided SDR generation. Walks through: data view selection, output format, and inventory options. Ideal for new users | False |
 | `--sample-config` | Generate sample config file and exit | False |
+
+### Discovery Inspection
+
+Drill into individual data view resources. These commands let you inspect a single data view's metadata, metrics, dimensions, segments, and calculated metrics without generating a full SDR report.
+
+| Option | Argument | Description |
+|--------|----------|-------------|
+| `--describe-dataview` | `DATA_VIEW_ID` | Show detailed metadata and component counts for a single data view |
+| `--list-metrics` | `DATA_VIEW_ID` | List all metrics in a data view |
+| `--list-dimensions` | `DATA_VIEW_ID` | List all dimensions in a data view |
+| `--list-segments` | `DATA_VIEW_ID` | List all segments/filters scoped to a data view |
+| `--list-calculated-metrics` | `DATA_VIEW_ID` | List all calculated metrics for a data view |
+
+> **Mutual exclusivity:** These commands are mutually exclusive with each other and with all other discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`).
+>
+> **Filter/Sort/Limit:** `--list-metrics`, `--list-dimensions`, `--list-segments`, and `--list-calculated-metrics` support `--filter`, `--sort`, and `--limit` for filtering, ordering, and limiting results. `--describe-dataview` does not support these options (it returns a single resource).
 
 ### Caching
 
@@ -567,6 +585,53 @@ cja_auto_sdr dv_12345 --dry-run
 > **Note:** `--list-connections` requires the API service account to be a CJA Product Admin for full connection details (names, owners, datasets). Without admin privileges, the tool falls back to showing connection IDs derived from data views.
 >
 > **Discovery Filters:** All discovery commands support `--filter`, `--exclude`, `--limit`, and `--sort` for filtering, limiting, and ordering results.
+
+### Discovery Inspection Commands
+
+```bash
+# Inspect a single data view (metadata, component counts, owner, dates)
+cja_auto_sdr --describe-dataview dv_abc123
+
+# Describe data view as JSON (for scripting)
+cja_auto_sdr --describe-dataview dv_abc123 --format json
+
+# List all metrics in a data view
+cja_auto_sdr --list-metrics dv_abc123
+
+# Filter metrics by name pattern
+cja_auto_sdr --list-metrics dv_abc123 --filter "revenue"
+
+# Sort metrics by name (descending)
+cja_auto_sdr --list-metrics dv_abc123 --sort=-name
+
+# List all dimensions in a data view
+cja_auto_sdr --list-dimensions dv_abc123
+
+# Export dimensions to CSV file
+cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv
+
+# List first 20 dimensions
+cja_auto_sdr --list-dimensions dv_abc123 --limit 20
+
+# List all segments/filters scoped to a data view
+cja_auto_sdr --list-segments dv_abc123
+
+# List segments as JSON
+cja_auto_sdr --list-segments dv_abc123 --format json
+
+# List calculated metrics for a data view
+cja_auto_sdr --list-calculated-metrics dv_abc123
+
+# Find calculated metrics matching a pattern
+cja_auto_sdr --list-calculated-metrics dv_abc123 --filter "percent"
+
+# Use with a profile
+cja_auto_sdr --profile client-a --list-metrics dv_abc123
+```
+
+> **Note:** Discovery inspection commands are mutually exclusive with each other and with `--list-dataviews`, `--list-connections`, and `--list-datasets`.
+>
+> **Filter/Sort/Limit:** All list commands (`--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) support `--filter`, `--sort`, and `--limit`. `--describe-dataview` does not (it returns a single resource).
 
 ### Quick Statistics
 
