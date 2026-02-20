@@ -17,6 +17,7 @@ from cja_auto_sdr.generator import (
     _extract_dataset_info,
     describe_dataview,
     generate_sample_config,
+    list_calculated_metrics,
     list_connections,
     list_datasets,
     list_dataviews,
@@ -4544,6 +4545,125 @@ class TestListSegments:
         f = io.StringIO()
         with redirect_stdout(f):
             result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+
+
+class TestListCalculatedMetrics:
+    """Tests for --list-calculated-metrics command."""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_json(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame([
+            {
+                "id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
+                "description": "Bounce rate calc", "type": "percent",
+                "polarity": "negative", "precision": 2,
+                "approved": True, "tags": [],
+                "created": "2025-01-01", "modified": "2025-06-01",
+            },
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViewId"] == "dv_1"
+        assert output["count"] == 1
+        cm = output["calculatedMetrics"][0]
+        assert cm["name"] == "Bounce Rate"
+        assert cm["polarity"] == "negative"
+        assert cm["type"] == "percent"
+        assert cm["precision"] == 2
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_csv(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame([
+            {"id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
+             "description": "", "type": "percent", "polarity": "negative",
+             "precision": 2, "approved": True, "tags": [],
+             "created": "2025-01-01", "modified": "2025-06-01"},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert "polarity" in lines[0] and "precision" in lines[0]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_table_omits_precision(self, mock_profile, mock_configure, mock_cjapy):
+        """Table output omits precision column to save width."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame([
+            {"id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
+             "description": "", "type": "percent", "polarity": "negative",
+             "precision": 2, "approved": True, "tags": [],
+             "created": "", "modified": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        assert "Bounce Rate" in output
+        # Table should show polarity and approved but NOT precision
+        assert "Precision" not in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_empty(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
 
         assert result is True
         output = json.loads(f.getvalue())

@@ -8388,6 +8388,137 @@ def list_segments(
     )
 
 
+# ==================== LIST CALCULATED METRICS ====================
+
+
+def _fetch_calculated_metrics_list(
+    data_view_id: str,
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_calculated_metrics."""
+
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+        dv_name = _resolve_dataview_name(cja, data_view_id)
+
+        raw_metrics = cja.getCalculatedMetrics(dataIds=data_view_id, full=True)
+
+        if raw_metrics is None or (hasattr(raw_metrics, "__len__") and len(raw_metrics) == 0):
+            if is_machine_readable:
+                if output_format == "json":
+                    return json.dumps(
+                        {"dataViewId": data_view_id, "dataViewName": dv_name, "calculatedMetrics": [], "count": 0},
+                        indent=2,
+                    )
+                return "id,name,owner,type,polarity,precision,approved,tags,created,modified,description\n"
+            return f"\nNo calculated metrics found for data view '{data_view_id}'.\n"
+
+        if isinstance(raw_metrics, pd.DataFrame):
+            raw_metrics = raw_metrics.to_dict("records")
+
+        # Build display dicts with native types
+        display_data: list[dict[str, Any]] = []
+        for item in raw_metrics:
+            if not isinstance(item, dict):
+                continue
+            raw_tags = item.get("tags") or []
+            tags = [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in raw_tags]
+            approved_raw = item.get("approved")
+            display_data.append({
+                "id": item.get("id", "N/A"),
+                "name": item.get("name", "N/A"),
+                "owner": _extract_owner_name(item.get("owner")),
+                "description": item.get("description", ""),
+                "type": item.get("type", ""),
+                "polarity": item.get("polarity", ""),
+                "precision": item.get("precision", 0),
+                "approved": approved_raw if isinstance(approved_raw, bool) else None,
+                "tags": tags,
+                "created": item.get("created", ""),
+                "modified": item.get("modified", ""),
+            })
+
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
+            default_sort_field="name",
+        )
+
+        if output_format == "json":
+            return _format_as_json({
+                "dataViewId": data_view_id,
+                "dataViewName": dv_name,
+                "calculatedMetrics": display_data,
+                "count": len(display_data),
+            })
+
+        # For table/CSV, convert approved and tags to display strings
+        table_data = [
+            {
+                **row,
+                "approved": _approved_display(row.get("approved")),
+                "tags": ", ".join(row.get("tags") or []),
+            }
+            for row in display_data
+        ]
+
+        if output_format == "csv":
+            return _format_as_csv(
+                ["id", "name", "owner", "type", "polarity", "precision", "approved", "tags", "created", "modified", "description"],
+                table_data,
+            )
+        return _format_as_table(
+            f"Found {len(table_data)} calculated metric(s) in data view '{dv_name}':",
+            table_data,
+            columns=["id", "name", "owner", "type", "polarity", "approved", "description"],
+            col_labels=["ID", "Name", "Owner", "Type", "Polarity", "Approved", "Description"],
+        )
+
+    return _inner
+
+
+def list_calculated_metrics(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all calculated metrics for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING CALCULATED METRICS FOR DATA VIEW: {data_view_id}",
+        command_name="list_calculated_metrics",
+        fetch_and_format=_fetch_calculated_metrics_list(
+            data_view_id,
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
 # ==================== LIST CONNECTIONS ====================
 
 
