@@ -7958,9 +7958,18 @@ def _fetch_describe_dataview(
 
         if output_format == "csv":
             columns = [
-                "id", "name", "owner", "description", "connection_id",
-                "created", "modified", "dimensions", "metrics",
-                "calculated_metrics", "segments", "total",
+                "id",
+                "name",
+                "owner",
+                "description",
+                "connection_id",
+                "created",
+                "modified",
+                "dimensions",
+                "metrics",
+                "calculated_metrics",
+                "segments",
+                "total",
             ]
             row = {
                 "id": dv_id,
@@ -8092,12 +8101,14 @@ def _fetch_metrics_list(
         )
 
         if output_format == "json":
-            return _format_as_json({
-                "dataViewId": data_view_id,
-                "dataViewName": dv_name,
-                "metrics": display_data,
-                "count": len(display_data),
-            })
+            return _format_as_json(
+                {
+                    "dataViewId": data_view_id,
+                    "dataViewName": dv_name,
+                    "metrics": display_data,
+                    "count": len(display_data),
+                }
+            )
         if output_format == "csv":
             return _format_as_csv(["id", "name", "type", "description"], display_data)
         return _format_as_table(
@@ -8198,12 +8209,14 @@ def _fetch_dimensions_list(
         )
 
         if output_format == "json":
-            return _format_as_json({
-                "dataViewId": data_view_id,
-                "dataViewName": dv_name,
-                "dimensions": display_data,
-                "count": len(display_data),
-            })
+            return _format_as_json(
+                {
+                    "dataViewId": data_view_id,
+                    "dataViewName": dv_name,
+                    "dimensions": display_data,
+                    "count": len(display_data),
+                }
+            )
         if output_format == "csv":
             return _format_as_csv(["id", "name", "type", "description"], display_data)
         return _format_as_table(
@@ -8299,16 +8312,18 @@ def _fetch_segments_list(
             raw_tags = item.get("tags") or []
             tags = [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in raw_tags]
             approved_raw = item.get("approved")
-            display_data.append({
-                "id": item.get("id", "N/A"),
-                "name": item.get("name", "N/A"),
-                "owner": _extract_owner_name(item.get("owner")),
-                "description": item.get("description", ""),
-                "approved": approved_raw if isinstance(approved_raw, bool) else None,
-                "tags": tags,
-                "created": item.get("created", ""),
-                "modified": item.get("modified", ""),
-            })
+            display_data.append(
+                {
+                    "id": item.get("id", "N/A"),
+                    "name": item.get("name", "N/A"),
+                    "owner": _extract_owner_name(item.get("owner")),
+                    "description": item.get("description", ""),
+                    "approved": approved_raw if isinstance(approved_raw, bool) else None,
+                    "tags": tags,
+                    "created": item.get("created", ""),
+                    "modified": item.get("modified", ""),
+                }
+            )
 
         display_data = _apply_discovery_filters_and_sort(
             display_data,
@@ -8321,12 +8336,14 @@ def _fetch_segments_list(
         )
 
         if output_format == "json":
-            return _format_as_json({
-                "dataViewId": data_view_id,
-                "dataViewName": dv_name,
-                "segments": display_data,
-                "count": len(display_data),
-            })
+            return _format_as_json(
+                {
+                    "dataViewId": data_view_id,
+                    "dataViewName": dv_name,
+                    "segments": display_data,
+                    "count": len(display_data),
+                }
+            )
 
         # For table/CSV, convert approved and tags to display strings
         table_data = [
@@ -8427,19 +8444,21 @@ def _fetch_calculated_metrics_list(
             raw_tags = item.get("tags") or []
             tags = [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in raw_tags]
             approved_raw = item.get("approved")
-            display_data.append({
-                "id": item.get("id", "N/A"),
-                "name": item.get("name", "N/A"),
-                "owner": _extract_owner_name(item.get("owner")),
-                "description": item.get("description", ""),
-                "type": item.get("type", ""),
-                "polarity": item.get("polarity", ""),
-                "precision": item.get("precision", 0),
-                "approved": approved_raw if isinstance(approved_raw, bool) else None,
-                "tags": tags,
-                "created": item.get("created", ""),
-                "modified": item.get("modified", ""),
-            })
+            display_data.append(
+                {
+                    "id": item.get("id", "N/A"),
+                    "name": item.get("name", "N/A"),
+                    "owner": _extract_owner_name(item.get("owner")),
+                    "description": item.get("description", ""),
+                    "type": item.get("type", ""),
+                    "polarity": item.get("polarity", ""),
+                    "precision": item.get("precision", 0),
+                    "approved": approved_raw if isinstance(approved_raw, bool) else None,
+                    "tags": tags,
+                    "created": item.get("created", ""),
+                    "modified": item.get("modified", ""),
+                }
+            )
 
         display_data = _apply_discovery_filters_and_sort(
             display_data,
@@ -8452,12 +8471,14 @@ def _fetch_calculated_metrics_list(
         )
 
         if output_format == "json":
-            return _format_as_json({
-                "dataViewId": data_view_id,
-                "dataViewName": dv_name,
-                "calculatedMetrics": display_data,
-                "count": len(display_data),
-            })
+            return _format_as_json(
+                {
+                    "dataViewId": data_view_id,
+                    "dataViewName": dv_name,
+                    "calculatedMetrics": display_data,
+                    "count": len(display_data),
+                }
+            )
 
         # For table/CSV, convert approved and tags to display strings
         table_data = [
@@ -8471,7 +8492,19 @@ def _fetch_calculated_metrics_list(
 
         if output_format == "csv":
             return _format_as_csv(
-                ["id", "name", "owner", "type", "polarity", "precision", "approved", "tags", "created", "modified", "description"],
+                [
+                    "id",
+                    "name",
+                    "owner",
+                    "type",
+                    "polarity",
+                    "precision",
+                    "approved",
+                    "tags",
+                    "created",
+                    "modified",
+                    "description",
+                ],
                 table_data,
             )
         return _format_as_table(

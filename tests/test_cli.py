@@ -4128,9 +4128,13 @@ class TestDescribeDataview:
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
         cja.getDataView.return_value = {
-            "id": "dv_1", "name": "Test", "owner": {"name": "Jane"},
-            "description": "", "parentDataGroupId": "conn_1",
-            "created": "2025-01-01", "modified": "2025-06-01",
+            "id": "dv_1",
+            "name": "Test",
+            "owner": {"name": "Jane"},
+            "description": "",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
         }
         cja.getMetrics.return_value = [{"id": "m1"}]
         cja.getDimensions.return_value = [{"id": "d1"}]
@@ -4156,9 +4160,13 @@ class TestDescribeDataview:
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
         cja.getDataView.return_value = {
-            "id": "dv_1", "name": "Test View", "owner": {"name": "Jane"},
-            "description": "Desc", "parentDataGroupId": "conn_1",
-            "created": "2025-01-01", "modified": "2025-06-01",
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": "Desc",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
         }
         cja.getMetrics.return_value = [{"id": "m1"}, {"id": "m2"}]
         cja.getDimensions.return_value = [{"id": "d1"}]
@@ -4187,9 +4195,13 @@ class TestDescribeDataview:
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
         cja.getDataView.return_value = {
-            "id": "dv_1", "name": "Test", "owner": {"name": "Jane"},
-            "description": "", "parentDataGroupId": "conn_1",
-            "created": "2025-01-01", "modified": "2025-06-01",
+            "id": "dv_1",
+            "name": "Test",
+            "owner": {"name": "Jane"},
+            "description": "",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
         }
         cja.getMetrics.return_value = [{"id": "m1"}]
         cja.getDimensions.return_value = [{"id": "d1"}]
@@ -4240,10 +4252,12 @@ class TestListMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getMetrics.return_value = pd.DataFrame([
-            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": "Total views"},
-            {"id": "metrics/visits", "name": "Visits", "type": "decimal", "description": "Unique visits"},
-        ])
+        cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": "Total views"},
+                {"id": "metrics/visits", "name": "Visits", "type": "decimal", "description": "Unique visits"},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4267,9 +4281,11 @@ class TestListMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getMetrics.return_value = pd.DataFrame([
-            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
-        ])
+        cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4313,10 +4329,12 @@ class TestListMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getMetrics.return_value = pd.DataFrame([
-            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
-            {"id": "metrics/revenue", "name": "Revenue", "type": "currency", "description": ""},
-        ])
+        cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
+                {"id": "metrics/revenue", "name": "Revenue", "type": "currency", "description": ""},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4343,10 +4361,12 @@ class TestListDimensions:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getDimensions.return_value = pd.DataFrame([
-            {"id": "variables/page", "name": "Page", "type": "string", "description": "Page URL"},
-            {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
-        ])
+        cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {"id": "variables/page", "name": "Page", "type": "string", "description": "Page URL"},
+                {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4370,9 +4390,11 @@ class TestListDimensions:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getDimensions.return_value = pd.DataFrame([
-            {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
-        ])
+        cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4416,10 +4438,12 @@ class TestListDimensions:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getDimensions.return_value = pd.DataFrame([
-            {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
-            {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
-        ])
+        cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
+                {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4446,13 +4470,20 @@ class TestListSegments:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getFilters.return_value = pd.DataFrame([
-            {
-                "id": "s1", "name": "Mobile", "owner": {"name": "Jane"},
-                "description": "Mobile visitors", "approved": True,
-                "tags": [{"name": "prod"}], "created": "2025-01-01", "modified": "2025-06-01",
-            },
-        ])
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Mobile",
+                    "owner": {"name": "Jane"},
+                    "description": "Mobile visitors",
+                    "approved": True,
+                    "tags": [{"name": "prod"}],
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4480,13 +4511,20 @@ class TestListSegments:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getFilters.return_value = pd.DataFrame([
-            {
-                "id": "s1", "name": "Mobile", "owner": {"name": "Jane"},
-                "description": "", "approved": False, "tags": [],
-                "created": "2025-01-01", "modified": "2025-06-01",
-            },
-        ])
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Mobile",
+                    "owner": {"name": "Jane"},
+                    "description": "",
+                    "approved": False,
+                    "tags": [],
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4509,12 +4547,30 @@ class TestListSegments:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getFilters.return_value = pd.DataFrame([
-            {"id": "s1", "name": "Approved Seg", "owner": {"name": "Jane"},
-             "description": "", "approved": True, "tags": [], "created": "", "modified": ""},
-            {"id": "s2", "name": "Unapproved Seg", "owner": {"name": "Bob"},
-             "description": "", "approved": False, "tags": [], "created": "", "modified": ""},
-        ])
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Approved Seg",
+                    "owner": {"name": "Jane"},
+                    "description": "",
+                    "approved": True,
+                    "tags": [],
+                    "created": "",
+                    "modified": "",
+                },
+                {
+                    "id": "s2",
+                    "name": "Unapproved Seg",
+                    "owner": {"name": "Bob"},
+                    "description": "",
+                    "approved": False,
+                    "tags": [],
+                    "created": "",
+                    "modified": "",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4563,15 +4619,23 @@ class TestListCalculatedMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getCalculatedMetrics.return_value = pd.DataFrame([
-            {
-                "id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
-                "description": "Bounce rate calc", "type": "percent",
-                "polarity": "negative", "precision": 2,
-                "approved": True, "tags": [],
-                "created": "2025-01-01", "modified": "2025-06-01",
-            },
-        ])
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Bounce Rate",
+                    "owner": {"name": "Jane"},
+                    "description": "Bounce rate calc",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [],
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4599,12 +4663,23 @@ class TestListCalculatedMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getCalculatedMetrics.return_value = pd.DataFrame([
-            {"id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
-             "description": "", "type": "percent", "polarity": "negative",
-             "precision": 2, "approved": True, "tags": [],
-             "created": "2025-01-01", "modified": "2025-06-01"},
-        ])
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Bounce Rate",
+                    "owner": {"name": "Jane"},
+                    "description": "",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [],
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout
@@ -4627,12 +4702,23 @@ class TestListCalculatedMetrics:
         cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
         import pandas as pd
 
-        cja.getCalculatedMetrics.return_value = pd.DataFrame([
-            {"id": "cm1", "name": "Bounce Rate", "owner": {"name": "Jane"},
-             "description": "", "type": "percent", "polarity": "negative",
-             "precision": 2, "approved": True, "tags": [],
-             "created": "", "modified": ""},
-        ])
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Bounce Rate",
+                    "owner": {"name": "Jane"},
+                    "description": "",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [],
+                    "created": "",
+                    "modified": "",
+                },
+            ]
+        )
 
         import io
         from contextlib import redirect_stdout

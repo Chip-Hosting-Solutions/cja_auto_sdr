@@ -1985,12 +1985,18 @@ class TestDiscoveryInspectionDispatch:
         mock_fn.return_value = True
         with pytest.raises(SystemExit):
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                args = parse_arguments([
-                    "--list-segments", "dv_1",
-                    "--filter", "active.*",
-                    "--sort", "name",
-                    "--limit", "10",
-                ])
+                args = parse_arguments(
+                    [
+                        "--list-segments",
+                        "dv_1",
+                        "--filter",
+                        "active.*",
+                        "--sort",
+                        "name",
+                        "--limit",
+                        "10",
+                    ]
+                )
                 mock_pa.return_value = args
                 _main_impl()
         call_kwargs = mock_fn.call_args
