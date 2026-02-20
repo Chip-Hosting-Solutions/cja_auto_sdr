@@ -618,6 +618,9 @@ RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
 # subclasses (e.g., KeyboardInterrupt/SystemExit) to propagate.
 RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS
+# Optional git snapshot re-fetch runs after successful SDR generation and must
+# not terminate the command. Keep broad to preserve graceful degradation.
+RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Data quality validation is intentionally best-effort for SDR generation:
 # validator/runtime/threadpool failures should not abort report generation.
 # Quality-report mode still surfaces this as a failed result via
@@ -682,6 +685,41 @@ def _run_optional_inventory_step[T](
             summary_mode=summary_mode,
         )
     return None
+
+
+def _refetch_git_snapshot_for_commit(
+    *,
+    snapshot: DataViewSnapshot,
+    data_view_id: str,
+    config_file: str,
+    profile: str | None,
+    include_calculated_metrics: bool,
+    include_segments_inventory: bool,
+) -> DataViewSnapshot:
+    """Best-effort snapshot re-fetch used by optional --git-commit flow."""
+    needs_fetch = not snapshot.metrics and not snapshot.dimensions
+    needs_inventory = include_calculated_metrics or include_segments_inventory
+    if not (needs_fetch or needs_inventory):
+        return snapshot
+
+    fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
+    print(f"Fetching {fetch_reason} for Git snapshot...")
+    try:
+        temp_logger = logging.getLogger("git_snapshot")
+        temp_logger.setLevel(logging.WARNING)
+        cja = initialize_cja(config_file, temp_logger, profile=profile)
+        if cja:
+            snapshot_mgr = SnapshotManager(temp_logger)
+            return snapshot_mgr.create_snapshot(
+                cja,
+                data_view_id,
+                quiet=True,
+                include_calculated_metrics=include_calculated_metrics,
+                include_segments=include_segments_inventory,
+            )
+    except RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS as e:
+        print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
+    return snapshot
 
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
@@ -14334,30 +14372,14 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                         dimensions=result.dimensions_data if hasattr(result, "dimensions_data") else [],
                     )
 
-                    # If we don't have the raw data in result, or if inventory is requested,
-                    # we need to fetch it via create_snapshot
-                    needs_fetch = not snapshot.metrics and not snapshot.dimensions
-                    needs_inventory = include_calc or include_segs
-
-                    if needs_fetch or needs_inventory:
-                        # Re-fetch data for Git snapshot (with optional inventory)
-                        fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
-                        print(f"Fetching {fetch_reason} for Git snapshot...")
-                        try:
-                            temp_logger = logging.getLogger("git_snapshot")
-                            temp_logger.setLevel(logging.WARNING)
-                            cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, "profile", None))
-                            if cja:
-                                snapshot_mgr = SnapshotManager(temp_logger)
-                                snapshot = snapshot_mgr.create_snapshot(
-                                    cja,
-                                    result.data_view_id,
-                                    quiet=True,
-                                    include_calculated_metrics=include_calc,
-                                    include_segments=include_segs,
-                                )
-                        except (APIError, ConfigurationError, OSError, ValueError) as e:
-                            print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
+                    snapshot = _refetch_git_snapshot_for_commit(
+                        snapshot=snapshot,
+                        data_view_id=result.data_view_id,
+                        config_file=args.config_file,
+                        profile=getattr(args, "profile", None),
+                        include_calculated_metrics=include_calc,
+                        include_segments_inventory=include_segs,
+                    )
 
                     # Save Git-friendly snapshot
                     print(f"Saving snapshot to: {git_dir}")
