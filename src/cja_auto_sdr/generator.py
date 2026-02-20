@@ -7476,7 +7476,8 @@ def _format_as_table(
     term_width = shutil.get_terminal_size().columns
     if sum(widths) > term_width and len(widths) > 1:
         other_width = sum(widths[:-1])
-        widths[-1] = max(term_width - other_width, len(labels[-1]) + 2, 20)
+        if other_width < term_width:
+            widths[-1] = max(term_width - other_width, len(labels[-1]) + 2, 20)
     lines: list[str] = ["", header_line, ""]
     lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths, strict=True)))
     lines.append("-" * min(sum(widths), term_width))
@@ -8002,7 +8003,7 @@ def _fetch_describe_dataview(
 
         # Table output
         term_width = shutil.get_terminal_size().columns
-        rule_width = max(60, term_width)
+        rule_width = term_width
         lines: list[str] = []
         lines.append("")
         lines.append(f"Data View: {dv_name}")

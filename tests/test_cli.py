@@ -4226,10 +4226,10 @@ class TestDescribeDataview:
             if "Description" in line or (line.startswith("                 ") and "long" in line)
         ]
         assert len(desc_lines) > 1, "Long description should wrap to multiple lines"
-        # No single line should exceed terminal width by much
+        # No line should exceed terminal width (80 columns)
         for line in output.split("\n"):
-            if line.strip() and not line.startswith("="):
-                assert len(line) <= 85, f"Line too long ({len(line)}): {line[:50]}..."
+            if line.strip():
+                assert len(line) <= 80, f"Line too long ({len(line)}): {line[:50]}..."
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
