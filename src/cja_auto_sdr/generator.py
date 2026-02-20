@@ -12207,7 +12207,7 @@ def handle_diff_snapshot_command(
                     target_snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
                     if not quiet and not quiet_diff:
                         print(f"  Calculated metrics: {len(target_snapshot.calculated_metrics_inventory)} items")
-                except Exception as e:
+                except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
                     logger.warning(f"Failed to build calculated metrics inventory: {e}")
 
             if include_segments:
@@ -12219,7 +12219,7 @@ def handle_diff_snapshot_command(
                     target_snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
                     if not quiet and not quiet_diff:
                         print(f"  Segments: {len(target_snapshot.segments_inventory)} items")
-                except Exception as e:
+                except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
                     logger.warning(f"Failed to build segments inventory: {e}")
 
             if not quiet and not quiet_diff:
