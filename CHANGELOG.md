@@ -11,11 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Discovery Inspection Commands**: Five new commands for drilling into individual data view resources without generating a full SDR:
-  - `--describe-dataview <ID>` — Show detailed metadata and component counts (metrics, dimensions, segments, calculated metrics)
-  - `--list-metrics <ID>` — List all metrics in a data view with `--filter`/`--sort`/`--limit` support
-  - `--list-dimensions <ID>` — List all dimensions in a data view with `--filter`/`--sort`/`--limit` support
-  - `--list-segments <ID>` — List all segments/filters scoped to a data view with owner and governance fields
-  - `--list-calculated-metrics <ID>` — List all calculated metrics with type, polarity, and governance fields
+  - `--describe-dataview <ID_OR_NAME>` — Show detailed metadata and component counts (metrics, dimensions, segments, calculated metrics)
+  - `--list-metrics <ID_OR_NAME>` — List all metrics in a data view with `--filter`/`--sort`/`--limit` support
+  - `--list-dimensions <ID_OR_NAME>` — List all dimensions in a data view with `--filter`/`--sort`/`--limit` support
+  - `--list-segments <ID_OR_NAME>` — List all segments/filters scoped to a data view with owner and governance fields
+  - `--list-calculated-metrics <ID_OR_NAME>` — List all calculated metrics with type, polarity, and governance fields
+- **Data View Name Resolution**: All five inspection commands accept data view names in addition to IDs (`dv_...`), matching the diff mode pattern. Names are resolved via the API with `--name-match` support (exact, insensitive, fuzzy). Ambiguous names prompt for interactive disambiguation.
 - All five commands support `--format table/json/csv`, `--output`, and `--profile` for multi-org workflows
 - Graceful degradation: `--describe-dataview` shows "N/A" for component counts when API permissions are limited
 
