@@ -8145,6 +8145,112 @@ def list_metrics(
     )
 
 
+# ==================== LIST DIMENSIONS ====================
+
+
+def _fetch_dimensions_list(
+    data_view_id: str,
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_dimensions."""
+
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+        dv_name = _resolve_dataview_name(cja, data_view_id)
+
+        raw_dimensions = cja.getDimensions(data_view_id, inclType=True, full=True)
+
+        if raw_dimensions is None or (hasattr(raw_dimensions, "__len__") and len(raw_dimensions) == 0):
+            if is_machine_readable:
+                if output_format == "json":
+                    return json.dumps(
+                        {"dataViewId": data_view_id, "dataViewName": dv_name, "dimensions": [], "count": 0},
+                        indent=2,
+                    )
+                return "id,name,type,description\n"
+            return f"\nNo dimensions found for data view '{data_view_id}'.\n"
+
+        if isinstance(raw_dimensions, pd.DataFrame):
+            raw_dimensions = raw_dimensions.to_dict("records")
+
+        display_data = [
+            {
+                "id": d.get("id", "N/A"),
+                "name": d.get("name", "N/A"),
+                "type": d.get("type", "N/A"),
+                "description": d.get("description", ""),
+            }
+            for d in raw_dimensions
+            if isinstance(d, dict)
+        ]
+
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "type", "description"],
+            default_sort_field="name",
+        )
+
+        if output_format == "json":
+            return _format_as_json({
+                "dataViewId": data_view_id,
+                "dataViewName": dv_name,
+                "dimensions": display_data,
+                "count": len(display_data),
+            })
+        if output_format == "csv":
+            return _format_as_csv(["id", "name", "type", "description"], display_data)
+        return _format_as_table(
+            f"Found {len(display_data)} dimension(s) in data view '{dv_name}':",
+            display_data,
+            columns=["id", "name", "type", "description"],
+            col_labels=["ID", "Name", "Type", "Description"],
+        )
+
+    return _inner
+
+
+def list_dimensions(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all dimensions for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING DIMENSIONS FOR DATA VIEW: {data_view_id}",
+        command_name="list_dimensions",
+        fetch_and_format=_fetch_dimensions_list(
+            data_view_id,
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
 # ==================== LIST CONNECTIONS ====================
 
 

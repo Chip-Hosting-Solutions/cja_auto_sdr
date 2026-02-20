@@ -20,6 +20,7 @@ from cja_auto_sdr.generator import (
     list_connections,
     list_datasets,
     list_dataviews,
+    list_dimensions,
     list_metrics,
     parse_arguments,
 )
@@ -4326,3 +4327,106 @@ class TestListMetrics:
         output = json.loads(f.getvalue())
         assert output["count"] == 1
         assert output["metrics"][0]["name"] == "Revenue"
+
+
+class TestListDimensions:
+    """Tests for --list-dimensions command."""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_json(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame([
+            {"id": "variables/page", "name": "Page", "type": "string", "description": "Page URL"},
+            {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViewId"] == "dv_1"
+        assert output["count"] == 2
+        assert "dimensions" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_csv(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame([
+            {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert lines[0] == "id,name,type,description"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_empty(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_with_filter(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame([
+            {"id": "variables/page", "name": "Page", "type": "string", "description": ""},
+            {"id": "variables/browser", "name": "Browser", "type": "string", "description": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="json", filter_pattern="browser")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 1
+        assert output["dimensions"][0]["name"] == "Browser"
