@@ -8024,6 +8024,127 @@ def describe_dataview(
     )
 
 
+# ==================== LIST METRICS ====================
+
+
+def _resolve_dataview_name(cja: Any, data_view_id: str) -> str:
+    """Look up a data view's display name by ID.
+
+    Returns the name if found, or ``"Unknown"`` on failure.
+    """
+    with contextlib.suppress(Exception):
+        available_dvs = cja.getDataViews()
+        if isinstance(available_dvs, pd.DataFrame):
+            available_dvs = available_dvs.to_dict("records")
+        for dv in available_dvs or []:
+            if isinstance(dv, dict) and dv.get("id") == data_view_id:
+                return dv.get("name", "Unknown")
+    return "Unknown"
+
+
+def _fetch_metrics_list(
+    data_view_id: str,
+    output_format: str,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_metrics."""
+
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+        dv_name = _resolve_dataview_name(cja, data_view_id)
+
+        raw_metrics = cja.getMetrics(data_view_id, inclType=True, full=True)
+
+        if raw_metrics is None or (hasattr(raw_metrics, "__len__") and len(raw_metrics) == 0):
+            if is_machine_readable:
+                if output_format == "json":
+                    return json.dumps(
+                        {"dataViewId": data_view_id, "dataViewName": dv_name, "metrics": [], "count": 0},
+                        indent=2,
+                    )
+                return "id,name,type,description\n"
+            return f"\nNo metrics found for data view '{data_view_id}'.\n"
+
+        if isinstance(raw_metrics, pd.DataFrame):
+            raw_metrics = raw_metrics.to_dict("records")
+
+        display_data = [
+            {
+                "id": m.get("id", "N/A"),
+                "name": m.get("name", "N/A"),
+                "type": m.get("type", "N/A"),
+                "description": m.get("description", ""),
+            }
+            for m in raw_metrics
+            if isinstance(m, dict)
+        ]
+
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=["id", "name", "type", "description"],
+            default_sort_field="name",
+        )
+
+        if output_format == "json":
+            return _format_as_json({
+                "dataViewId": data_view_id,
+                "dataViewName": dv_name,
+                "metrics": display_data,
+                "count": len(display_data),
+            })
+        if output_format == "csv":
+            return _format_as_csv(["id", "name", "type", "description"], display_data)
+        return _format_as_table(
+            f"Found {len(display_data)} metric(s) in data view '{dv_name}':",
+            display_data,
+            columns=["id", "name", "type", "description"],
+            col_labels=["ID", "Name", "Type", "Description"],
+        )
+
+    return _inner
+
+
+def list_metrics(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all metrics for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING METRICS FOR DATA VIEW: {data_view_id}",
+        command_name="list_metrics",
+        fetch_and_format=_fetch_metrics_list(
+            data_view_id,
+            output_format,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
 # ==================== LIST CONNECTIONS ====================
 
 

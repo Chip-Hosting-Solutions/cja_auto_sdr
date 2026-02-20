@@ -20,6 +20,7 @@ from cja_auto_sdr.generator import (
     list_connections,
     list_datasets,
     list_dataviews,
+    list_metrics,
     parse_arguments,
 )
 
@@ -4222,3 +4223,106 @@ class TestDescribeDataview:
         assert result is True
         output = json.loads(f.getvalue())
         assert "error" in output
+
+
+class TestListMetrics:
+    """Tests for --list-metrics command."""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_json(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame([
+            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": "Total views"},
+            {"id": "metrics/visits", "name": "Visits", "type": "decimal", "description": "Unique visits"},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViewId"] == "dv_1"
+        assert output["count"] == 2
+        assert output["metrics"][0]["id"] in ("metrics/pageviews", "metrics/visits")
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_csv(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame([
+            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert lines[0] == "id,name,type,description"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_empty(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_with_filter(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame([
+            {"id": "metrics/pageviews", "name": "Page Views", "type": "decimal", "description": ""},
+            {"id": "metrics/revenue", "name": "Revenue", "type": "currency", "description": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="json", filter_pattern="revenue")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 1
+        assert output["metrics"][0]["name"] == "Revenue"
