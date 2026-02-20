@@ -22,6 +22,7 @@ from cja_auto_sdr.generator import (
     list_dataviews,
     list_dimensions,
     list_metrics,
+    list_segments,
     parse_arguments,
 )
 
@@ -4430,3 +4431,120 @@ class TestListDimensions:
         output = json.loads(f.getvalue())
         assert output["count"] == 1
         assert output["dimensions"][0]["name"] == "Browser"
+
+
+class TestListSegments:
+    """Tests for --list-segments command."""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_json(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame([
+            {
+                "id": "s1", "name": "Mobile", "owner": {"name": "Jane"},
+                "description": "Mobile visitors", "approved": True,
+                "tags": [{"name": "prod"}], "created": "2025-01-01", "modified": "2025-06-01",
+            },
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViewId"] == "dv_1"
+        assert output["count"] == 1
+        seg = output["segments"][0]
+        assert seg["name"] == "Mobile"
+        assert seg["owner"] == "Jane"
+        assert seg["approved"] is True
+        assert seg["tags"] == ["prod"]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_csv(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame([
+            {
+                "id": "s1", "name": "Mobile", "owner": {"name": "Jane"},
+                "description": "", "approved": False, "tags": [],
+                "created": "2025-01-01", "modified": "2025-06-01",
+            },
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert "id" in lines[0] and "approved" in lines[0]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_table_approved_rendering(self, mock_profile, mock_configure, mock_cjapy):
+        """approved renders as Yes/No in table mode."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame([
+            {"id": "s1", "name": "Approved Seg", "owner": {"name": "Jane"},
+             "description": "", "approved": True, "tags": [], "created": "", "modified": ""},
+            {"id": "s2", "name": "Unapproved Seg", "owner": {"name": "Bob"},
+             "description": "", "approved": False, "tags": [], "created": "", "modified": ""},
+        ])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        assert "Yes" in output
+        assert "No" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_empty(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataViews.return_value = [{"id": "dv_1", "name": "Test View"}]
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
