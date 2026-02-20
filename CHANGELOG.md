@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Discovery Inspection Commands**: Five new commands for drilling into individual data view resources without generating a full SDR:
+  - `--describe-dataview <ID>` — Show detailed metadata and component counts (metrics, dimensions, segments, calculated metrics)
+  - `--list-metrics <ID>` — List all metrics in a data view with `--filter`/`--sort`/`--limit` support
+  - `--list-dimensions <ID>` — List all dimensions in a data view with `--filter`/`--sort`/`--limit` support
+  - `--list-segments <ID>` — List all segments/filters scoped to a data view with owner and governance fields
+  - `--list-calculated-metrics <ID>` — List all calculated metrics with type, polarity, and governance fields
+- All five commands support `--format table/json/csv`, `--output`, and `--profile` for multi-org workflows
+- Graceful degradation: `--describe-dataview` shows "N/A" for component counts when API permissions are limited
+
 ## [3.3.1] - 2026-02-18
 
 ### Added

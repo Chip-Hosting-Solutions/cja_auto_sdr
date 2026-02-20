@@ -67,6 +67,7 @@ A **Solution Design Reference** is the essential documentation that bridges your
 | | Profile Testing | Validate credentials with `--profile-test` before use |
 | **Developer UX** | Quick Stats Mode | Get metrics/dimensions count instantly with `--stats` (no full report) |
 | | Connection & Dataset Discovery | `--list-connections` and `--list-datasets` for infrastructure inventory |
+| | Discovery Inspection | Drill into a data view's metrics, dimensions, segments, and calculated metrics |
 | | Machine-Readable Discovery | `--list-dataviews --format json` for scripting integration |
 | | Dry-Run Mode | Test configuration without generating reports |
 | | Color-Coded Output | Global color controls via `--no-color`, `NO_COLOR`, and `FORCE_COLOR` |
@@ -259,6 +260,8 @@ cja_auto_sdr "Production Analytics"
 | Inspect a data view | `cja_auto_sdr --describe-dataview dv_abc123` |
 | List metrics (with filter) | `cja_auto_sdr --list-metrics dv_abc123 --filter revenue` |
 | List dimensions as CSV | `cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv` |
+| List segments | `cja_auto_sdr --list-segments dv_abc123` |
+| List calculated metrics | `cja_auto_sdr --list-calculated-metrics dv_abc123 --format json` |
 | Validate config only | `cja_auto_sdr --validate-config` |
 | **Diff Comparison** (default: console output) | |
 | Compare two Data Views | `cja_auto_sdr --diff dv_1 dv_2` |

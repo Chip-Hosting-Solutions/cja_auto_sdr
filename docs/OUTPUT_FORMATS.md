@@ -16,15 +16,17 @@ The tool supports multiple output formats beyond Excel, providing flexible integ
 
 ### Format Availability by Mode
 
-| Format | SDR Generation | Diff Comparison | Org-Wide Analysis |
-|--------|----------------|-----------------|-------------------|
-| Excel | ✓ (default) | ✓ | ✓ |
-| CSV | ✓ | ✓ | ✓ |
-| JSON | ✓ | ✓ | ✓ |
-| HTML | ✓ | ✓ | ✓ |
-| Markdown | ✓ | ✓ | ✓ |
-| Console | ✗ | ✓ (default) | ✓ (default) |
-| All | ✓ | ✓ | ✓ |
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis | Discovery Inspection |
+|--------|----------------|-----------------|-------------------|----------------------|
+| Excel | ✓ (default) | ✓ | ✓ | ✗ |
+| CSV | ✓ | ✓ | ✓ | ✓ |
+| JSON | ✓ | ✓ | ✓ | ✓ |
+| HTML | ✓ | ✓ | ✓ | ✗ |
+| Markdown | ✓ | ✓ | ✓ | ✗ |
+| Console/Table | ✗ | ✓ (default) | ✓ (default) | ✓ (default) |
+| All | ✓ | ✓ | ✓ | ✗ |
+
+> **Discovery Inspection** commands (`--describe-dataview`, `--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) output table (console), JSON, or CSV. They do not generate file-based formats like Excel, HTML, or Markdown.
 
 ### Format Aliases (introduced in v3.2.0)
 

@@ -400,6 +400,19 @@ uv run cja_auto_sdr --list-datasets
 
 This is useful for understanding which datasets feed into which data views before generating an SDR.
 
+You can also drill into individual data view components without generating a full SDR:
+
+```bash
+# Inspect a data view's metadata and component counts
+uv run cja_auto_sdr --describe-dataview dv_677ea9291244fd082f02dd42
+
+# Browse metrics, dimensions, segments, or calculated metrics
+uv run cja_auto_sdr --list-metrics dv_677ea9291244fd082f02dd42 --filter "revenue"
+uv run cja_auto_sdr --list-segments dv_677ea9291244fd082f02dd42
+```
+
+See [CLI Reference](CLI_REFERENCE.md#discovery-inspection) for the full set of inspection commands.
+
 > **Note:** Full connection details require the API service account to be a CJA Product Admin. If you only see connection IDs (like `dg_...`) instead of names, see [Troubleshooting](TROUBLESHOOTING.md#connections-api-returns-empty-results) for how to grant the technical account admin rights.
 
 ### 4.3 Choose a Data View
