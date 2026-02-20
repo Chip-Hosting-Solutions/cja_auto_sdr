@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import (
     _emit_output,
     _extract_dataset_info,
+    describe_dataview,
     generate_sample_config,
     list_connections,
     list_datasets,
@@ -4072,3 +4073,152 @@ class TestDiscoveryInspectionParsing:
         """New flags are mutually exclusive with each other."""
         with pytest.raises(SystemExit):
             parse_arguments(["--describe-dataview", "dv_1", "--list-metrics", "dv_1"])
+
+
+class TestDescribeDataview:
+    """Tests for --describe-dataview command."""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_json(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": "A test view",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": f"m{i}"} for i in range(5)]
+        cja.getDimensions.return_value = [{"id": f"d{i}"} for i in range(3)]
+        cja.getFilters.return_value = [{"id": f"s{i}"} for i in range(2)]
+        cja.getCalculatedMetrics.return_value = [{"id": f"cm{i}"} for i in range(1)]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        dv = output["dataView"]
+        assert dv["id"] == "dv_1"
+        assert dv["name"] == "Test View"
+        assert dv["owner"] == "Jane"
+        assert dv["components"]["metrics"] == 5
+        assert dv["components"]["dimensions"] == 3
+        assert dv["components"]["segments"] == 2
+        assert dv["components"]["calculatedMetrics"] == 1
+        assert dv["components"]["total"] == 11
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_csv(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1", "name": "Test", "owner": {"name": "Jane"},
+            "description": "", "parentDataGroupId": "conn_1",
+            "created": "2025-01-01", "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert "id" in lines[0]
+        assert "dv_1" in lines[1]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_table(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1", "name": "Test View", "owner": {"name": "Jane"},
+            "description": "Desc", "parentDataGroupId": "conn_1",
+            "created": "2025-01-01", "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}, {"id": "m2"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = [{"id": "s1"}]
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        assert "Test View" in output
+        assert "Jane" in output
+        assert "Dimensions" in output
+        assert "Metrics" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_graceful_segment_failure(self, mock_profile, mock_configure, mock_cjapy):
+        """If getFilters fails, segments count shows as N/A."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1", "name": "Test", "owner": {"name": "Jane"},
+            "description": "", "parentDataGroupId": "conn_1",
+            "created": "2025-01-01", "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.side_effect = Exception("API error")
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataView"]["components"]["segments"] == "N/A"
+        assert output["dataView"]["components"]["total"] == "N/A"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = None
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_nonexistent", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert "error" in output

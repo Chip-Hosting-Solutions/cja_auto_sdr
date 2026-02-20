@@ -7887,6 +7887,143 @@ def list_dataviews(
     )
 
 
+# ==================== DESCRIBE DATA VIEW ====================
+
+
+def _fetch_describe_dataview(
+    data_view_id: str,
+    output_format: str,
+) -> Callable:
+    """Return a fetch_and_format callback for describe_dataview."""
+
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+        raw_dv = cja.getDataView(data_view_id)
+        if raw_dv is None:
+            if is_machine_readable:
+                return json.dumps({"error": f"Data view '{data_view_id}' not found"}, indent=2)
+            return f"\nData view '{data_view_id}' not found.\n"
+        if isinstance(raw_dv, pd.DataFrame):
+            raw_dv = raw_dv.to_dict("records")[0] if len(raw_dv) > 0 else {}
+
+        dv_id = raw_dv.get("id", data_view_id)
+        dv_name = raw_dv.get("name", "N/A")
+        owner_name = _extract_owner_name(raw_dv.get("owner"))
+        description = raw_dv.get("description", "")
+        connection_id = raw_dv.get("parentDataGroupId", "N/A")
+        created = raw_dv.get("created", "N/A")
+        modified = raw_dv.get("modified", "N/A")
+
+        def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
+            """Call an API method and return the item count, or 'N/A' on failure."""
+            try:
+                result = api_call(*args, **kwargs)
+                if isinstance(result, pd.DataFrame):
+                    return len(result)
+                if isinstance(result, list):
+                    return len(result)
+                return 0
+            except Exception:
+                return "N/A"
+
+        n_metrics = _safe_count(cja.getMetrics, data_view_id)
+        n_dimensions = _safe_count(cja.getDimensions, data_view_id)
+        n_segments = _safe_count(cja.getFilters, dataIds=data_view_id, full=True)
+        n_calc_metrics = _safe_count(cja.getCalculatedMetrics, dataIds=data_view_id, full=True)
+
+        # Compute total only when all counts are numeric
+        counts = [n_metrics, n_dimensions, n_segments, n_calc_metrics]
+        numeric_counts = [c for c in counts if isinstance(c, int)]
+        total = sum(numeric_counts) if len(numeric_counts) == len(counts) else "N/A"
+
+        if output_format == "json":
+            payload = {
+                "dataView": {
+                    "id": dv_id,
+                    "name": dv_name,
+                    "owner": owner_name,
+                    "description": description,
+                    "connectionId": connection_id,
+                    "created": created,
+                    "modified": modified,
+                    "components": {
+                        "dimensions": n_dimensions,
+                        "metrics": n_metrics,
+                        "calculatedMetrics": n_calc_metrics,
+                        "segments": n_segments,
+                        "total": total,
+                    },
+                }
+            }
+            return _format_as_json(payload)
+
+        if output_format == "csv":
+            columns = [
+                "id", "name", "owner", "description", "connection_id",
+                "created", "modified", "dimensions", "metrics",
+                "calculated_metrics", "segments", "total",
+            ]
+            row = {
+                "id": dv_id,
+                "name": dv_name,
+                "owner": owner_name,
+                "description": description,
+                "connection_id": connection_id,
+                "created": created,
+                "modified": modified,
+                "dimensions": n_dimensions,
+                "metrics": n_metrics,
+                "calculated_metrics": n_calc_metrics,
+                "segments": n_segments,
+                "total": total,
+            }
+            return _format_as_csv(columns, [row])
+
+        # Table output
+        lines: list[str] = []
+        lines.append("")
+        lines.append(f"Data View: {dv_name}")
+        lines.append("=" * 60)
+        lines.append(f"  ID:            {dv_id}")
+        lines.append(f"  Owner:         {owner_name}")
+        lines.append(f"  Description:   {description or '(none)'}")
+        lines.append(f"  Connection:    {connection_id}")
+        lines.append(f"  Created:       {created}")
+        lines.append(f"  Modified:      {modified}")
+        lines.append("")
+        lines.append("  Components:")
+        lines.append(f"    Dimensions:          {n_dimensions}")
+        lines.append(f"    Metrics:             {n_metrics}")
+        lines.append(f"    Calculated Metrics:  {n_calc_metrics}")
+        lines.append(f"    Segments:            {n_segments}")
+        lines.append("    ─────────────────────────")
+        lines.append(f"    Total:               {total}")
+        lines.append("=" * 60)
+        lines.append("")
+        return "\n".join(lines)
+
+    return _inner
+
+
+def describe_dataview(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    **_kwargs: Any,
+) -> bool:
+    """Describe a single data view with component counts and exit."""
+    return _run_list_command(
+        banner_text=f"DESCRIBING DATA VIEW: {data_view_id}",
+        command_name="describe_dataview",
+        fetch_and_format=_fetch_describe_dataview(data_view_id, output_format),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+    )
+
+
 # ==================== LIST CONNECTIONS ====================
 
 
