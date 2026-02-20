@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data View Name Resolution**: All five inspection commands accept data view names in addition to IDs (`dv_...`), matching the diff mode pattern. Names are resolved via the API with `--name-match` support (exact, insensitive, fuzzy). Ambiguous names prompt for interactive disambiguation.
 - All five commands support `--format table/json/csv`, `--output`, and `--profile` for multi-org workflows
 - Graceful degradation: `--describe-dataview` shows "N/A" for component counts when API permissions are limited
+- **Terminal-aware text wrapping**: All five discovery inspection commands now wrap long text (e.g. descriptions) at the terminal width instead of overflowing horizontally
 
 ## [3.3.1] - 2026-02-18
 

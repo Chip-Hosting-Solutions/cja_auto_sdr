@@ -87,7 +87,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,769 comprehensive tests**
+**Total: 4,774 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -97,7 +97,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 310 | Command-line interface and argument parsing |
+| `test_cli.py` | 311 | Command-line interface and argument parsing |
 | `test_profiles.py` | 48 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -126,7 +126,7 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
-| `test_discovery_formatters.py` | 27 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
+| `test_discovery_formatters.py` | 31 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
@@ -172,7 +172,7 @@ tests/
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
-| **Total** | **4,769** | **Collected via pytest --collect-only** |
+| **Total** | **4,774** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
