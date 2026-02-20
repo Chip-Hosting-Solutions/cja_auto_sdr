@@ -7472,12 +7472,27 @@ def _format_as_table(
         max(len(lbl), max((len(str(item.get(col, ""))) for item in items), default=0)) + 2
         for col, lbl in zip(columns, labels, strict=True)
     ]
+    # Constrain total width to terminal so the last column wraps instead of overflowing
+    term_width = shutil.get_terminal_size().columns
+    if sum(widths) > term_width and len(widths) > 1:
+        other_width = sum(widths[:-1])
+        widths[-1] = max(term_width - other_width, len(labels[-1]) + 2, 20)
     lines: list[str] = ["", header_line, ""]
     lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths, strict=True)))
-    lines.append("-" * sum(widths))
-    lines.extend(
-        "".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)) for item in items
-    )
+    lines.append("-" * min(sum(widths), term_width))
+    for item in items:
+        cells = [str(item.get(col, "")) for col in columns]
+        last_text_w = widths[-1] - 2
+        if len(cells[-1]) > last_text_w > 0:
+            wrapped = textwrap.wrap(cells[-1], width=last_text_w) or [""]
+            prefix = "".join(f"{cells[i]:<{widths[i]}}" for i in range(len(columns) - 1))
+            lines.append(prefix + wrapped[0])
+            indent = " " * sum(widths[:-1])
+            lines.extend(indent + cont for cont in wrapped[1:])
+        else:
+            lines.append(
+                "".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True))
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -7988,13 +8003,24 @@ def _fetch_describe_dataview(
             return _format_as_csv(columns, [row])
 
         # Table output
+        term_width = shutil.get_terminal_size().columns
+        rule_width = max(60, term_width)
         lines: list[str] = []
         lines.append("")
         lines.append(f"Data View: {dv_name}")
-        lines.append("=" * 60)
+        lines.append("=" * rule_width)
         lines.append(f"  ID:            {dv_id}")
         lines.append(f"  Owner:         {owner_name}")
-        lines.append(f"  Description:   {description or '(none)'}")
+        desc_text = description or "(none)"
+        desc_prefix = "  Description:   "
+        desc_avail = term_width - len(desc_prefix)
+        if desc_avail > 20 and len(desc_text) > desc_avail:
+            wrapped = textwrap.wrap(desc_text, width=desc_avail)
+            lines.append(desc_prefix + wrapped[0])
+            indent = " " * len(desc_prefix)
+            lines.extend(indent + cont for cont in wrapped[1:])
+        else:
+            lines.append(f"{desc_prefix}{desc_text}")
         lines.append(f"  Connection:    {connection_id}")
         lines.append(f"  Created:       {created}")
         lines.append(f"  Modified:      {modified}")
@@ -8006,7 +8032,7 @@ def _fetch_describe_dataview(
         lines.append(f"    Segments:            {n_segments}")
         lines.append("    ─────────────────────────")
         lines.append(f"    Total:               {total}")
-        lines.append("=" * 60)
+        lines.append("=" * rule_width)
         lines.append("")
         return "\n".join(lines)
 

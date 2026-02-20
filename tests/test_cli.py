@@ -4187,6 +4187,46 @@ class TestDescribeDataview:
         assert "Dimensions" in output
         assert "Metrics" in output
 
+    @patch("cja_auto_sdr.generator.shutil.get_terminal_size", return_value=os.terminal_size((80, 24)))
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_long_description_wraps(self, mock_profile, mock_configure, mock_cjapy, _mock_term):
+        """Long description text wraps within terminal width."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        long_desc = "This is a very long description. " * 10
+        cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": long_desc,
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        # Description should be split across multiple lines
+        desc_lines = [line for line in output.split("\n") if "Description" in line or (line.startswith("                 ") and "long" in line)]
+        assert len(desc_lines) > 1, "Long description should wrap to multiple lines"
+        # No single line should exceed terminal width by much
+        for line in output.split("\n"):
+            if line.strip() and not line.startswith("="):
+                assert len(line) <= 85, f"Line too long ({len(line)}): {line[:50]}..."
+
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
