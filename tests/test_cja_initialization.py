@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.api.client import configure_cjapy
+from cja_auto_sdr.core.exceptions import APIError
 from cja_auto_sdr.generator import (
     CredentialSourceError,
     initialize_cja,
@@ -492,12 +493,23 @@ class TestValidateDataView:
     def test_fails_on_api_exception(self, mock_logger):
         """Test failure when API raises exception"""
         mock_cja = Mock()
-        mock_cja.getDataView.side_effect = Exception("API Error")
+        mock_cja.getDataView.side_effect = APIError("API Error")
 
         result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
 
         assert result is False
         mock_logger.error.assert_called()
+
+    def test_fails_on_unexpected_runtime_exception(self, mock_logger):
+        """Unexpected runtime errors should return False (boolean contract), not propagate."""
+        mock_cja = Mock()
+        mock_cja.getDataView.side_effect = RuntimeError("unexpected cjapy runtime failure")
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is False
+        error_calls = [str(call) for call in mock_logger.error.call_args_list]
+        assert any("DATA VIEW VALIDATION ERROR" in call for call in error_calls)
 
     def test_fails_on_attribute_error(self, mock_logger):
         """Test failure when API method not available"""
@@ -508,6 +520,45 @@ class TestValidateDataView:
 
         assert result is False
         mock_logger.error.assert_called()
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": None},
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": "Test Owner"},
+            {"id": "dv_test_12345", "name": "Test Data View", "owner": {"name": "Test Owner"}, "components": None},
+            ["not", "a", "dict"],
+        ],
+    )
+    def test_fails_for_malformed_payload_shapes(self, mock_logger, payload):
+        """Malformed API payloads should not raise and must return False."""
+        mock_cja = Mock()
+        mock_cja.getDataView.return_value = payload
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is False
+        calls = [str(c) for c in mock_logger.error.call_args_list]
+        assert any("Malformed data view payload returned by API" in c for c in calls)
+
+    @pytest.mark.parametrize(
+        "description",
+        [42, 3.14, ["a", "b"], {"key": "val"}, None, True],
+        ids=["int", "float", "list", "dict", "none", "bool"],
+    )
+    def test_non_string_description_does_not_traceback(self, mock_logger, description):
+        """Non-string description values must not raise outside the handler."""
+        mock_cja = Mock()
+        mock_cja.getDataView.return_value = {
+            "id": "dv_test_12345",
+            "name": "Test Data View",
+            "owner": {"name": "Test Owner"},
+            "description": description,
+        }
+
+        result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
+
+        assert result is True
 
     def test_logs_data_view_details(self, mock_logger):
         """Test that data view details are logged"""
@@ -606,7 +657,7 @@ class TestListDataviews:
         """Test handling of API errors"""
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_cja.getDataViews.side_effect = Exception("API Error")
+        mock_cja.getDataViews.side_effect = APIError("API Error")
 
         result = list_dataviews(mock_config_file)
 
@@ -673,17 +724,21 @@ class TestValidateConfigOnly:
         mock_load_env.return_value = None
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_cja.getDataViews.side_effect = Exception("Connection failed")
+        mock_cja.getDataViews.side_effect = APIError("Connection failed")
 
         result = validate_config_only(mock_config_file)
 
         assert result is False
 
     @patch("cja_auto_sdr.generator.load_credentials_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
     @patch("builtins.print")
-    def test_shows_credential_status(self, mock_print, mock_load_env, mock_config_file):
+    def test_shows_credential_status(self, mock_print, mock_cjapy, mock_load_env, mock_config_file):
         """Test that credential status is shown"""
         mock_load_env.return_value = None
+        mock_cja = Mock()
+        mock_cjapy.CJA.return_value = mock_cja
+        mock_cja.getDataViews.side_effect = APIError("Connection failed")
 
         # Even if validation fails, it should print status
         validate_config_only(mock_config_file)

@@ -1,5 +1,6 @@
 """Tests for command-line interface"""
 
+import argparse
 import json
 import os
 import subprocess
@@ -565,8 +566,8 @@ class TestConsoleScriptEntryPoints:
             content = f.read()
 
         # Verify both entry point variants exist with correct targets
-        assert 'cja_auto_sdr = "cja_auto_sdr.generator:main"' in content
-        assert 'cja-auto-sdr = "cja_auto_sdr.generator:main"' in content
+        assert 'cja_auto_sdr = "cja_auto_sdr.__main__:main"' in content
+        assert 'cja-auto-sdr = "cja_auto_sdr.__main__:main"' in content
 
         # Verify [project.scripts] section exists
         assert "[project.scripts]" in content
@@ -610,6 +611,384 @@ class TestConsoleScriptEntryPoints:
         )
         assert result.returncode == 0
         assert __version__ in result.stdout
+
+        hyphen_result = subprocess.run(
+            ["uv", "run", "cja-auto-sdr", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        assert hyphen_result.returncode == 0
+        assert hyphen_result.stdout.strip().startswith("cja-auto-sdr ")
+        assert __version__ in hyphen_result.stdout
+
+
+class TestFastPathEntryPoint:
+    """Tests for the __main__.py fast-path that avoids heavyweight imports."""
+
+    def test_is_fast_path_flag_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "-V"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--profile", "client-a", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "dv_12345", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--vers"]) == "--version"
+
+    def test_is_fast_path_flag_version_respects_option_value_consumption(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--profile", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--profile-import", "client-a", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--profile-import", "client-a", "source.json", "--version"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--", "--version"]) is None
+        assert _is_fast_path_flag(["prog", "--v"]) is None
+
+    def test_is_fast_path_flag_rejects_ambiguous_prefix_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--v", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_explicit_value_for_version_option(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version=foo"]) is None
+        assert _is_fast_path_flag(["prog", "-V=foo"]) is None
+
+    def test_is_fast_path_flag_rejects_explicit_value_for_zero_arity_option(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--quiet=1", "--version"]) is None
+
+    def test_is_fast_path_flag_help_precedes_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--help", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_missing_value_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--profile", "--quiet", "--version"]) is None
+
+    def test_is_fast_path_flag_rejects_mutex_conflict_before_version(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--list-dataviews", "--list-connections", "--version"]) is None
+
+    def test_is_fast_path_flag_version_handles_unknown_options_like_argparse(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--unknown-option", "--version"]) == "--version"
+
+    def test_is_fast_path_flag_version_takes_precedence_over_later_parse_errors(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version", "--v"]) == "--version"
+        assert _is_fast_path_flag(["prog", "--version", "--quiet=1"]) == "--version"
+
+    def test_is_fast_path_flag_exit_codes(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--exit-codes"]) == "--exit-codes"
+
+    def test_is_fast_path_flag_none_for_regular_args(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "dv_12345"]) is None
+        assert _is_fast_path_flag(["prog"]) is None
+        assert _is_fast_path_flag(["prog", "--exit-codes", "extra"]) is None
+
+    def test_is_fast_path_flag_none_when_run_summary_requested(self):
+        from cja_auto_sdr.__main__ import _is_fast_path_flag
+
+        assert _is_fast_path_flag(["prog", "--version", "--run-summary-json", "stdout"]) is None
+        assert _is_fast_path_flag(["prog", "--version", "--profile", "--run-summary-json", "stdout"]) is None
+        assert _is_fast_path_flag(["prog", "--exit-codes", "--run-summary-j", "stdout"]) is None
+
+    def test_has_run_summary_contract_flag_ignores_value_consumption_ordering(self):
+        from cja_auto_sdr.__main__ import _has_run_summary_contract_flag
+
+        assert _has_run_summary_contract_flag(["--version", "--profile", "--run-summary-json", "stdout"]) is True
+        assert _has_run_summary_contract_flag(["--profile-import", "client-a", "--run-summary-json"]) is True
+
+    def test_is_argcomplete_completion_active_detection(self):
+        from cja_auto_sdr.__main__ import _is_argcomplete_completion_active
+
+        assert _is_argcomplete_completion_active({}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "1"}) is True
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "true"}) is True
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "0"}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": "off"}) is False
+        assert _is_argcomplete_completion_active({"_ARGCOMPLETE": ""}) is False
+
+    def test_has_run_summary_flag_rejects_ambiguous_prefixes(self):
+        """Ambiguous prefixes must not falsely match --run-summary-json."""
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--r"]) is False
+        assert _has_run_summary_flag(["--re"]) is False
+        assert _has_run_summary_flag(["--retry"]) is False
+
+    def test_has_run_summary_flag_accepts_unambiguous_prefixes(self):
+        """Unambiguous argparse-style prefixes should match."""
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--ru"]) is True
+        assert _has_run_summary_flag(["--run"]) is True
+        assert _has_run_summary_flag(["--run-s"]) is True
+        assert _has_run_summary_flag(["--run-summary"]) is True
+        assert _has_run_summary_flag(["--run-summary-json"]) is True
+        assert _has_run_summary_flag(["--run-summary-j"]) is True
+        assert _has_run_summary_flag(["--run-summary-js"]) is True
+        assert _has_run_summary_flag(["--run-summary-json=stdout"]) is True
+
+    def test_has_run_summary_flag_ignores_tokens_consumed_as_option_values(self):
+        from cja_auto_sdr.__main__ import _has_run_summary_flag
+
+        assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json"]) is False
+        assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json", "--version"]) is False
+
+    def test_fast_path_version_output(self, capsys):
+        from cja_auto_sdr.__main__ import _print_version
+        from cja_auto_sdr.core.version import __version__
+
+        _print_version()
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja_auto_sdr {__version__}"
+
+    def test_fast_path_resolve_program_name(self):
+        import os
+        import sys
+
+        from cja_auto_sdr.__main__ import _resolve_program_name
+
+        assert _resolve_program_name("cja_auto_sdr") == "cja_auto_sdr"
+        assert _resolve_program_name("/usr/local/bin/cja-auto-sdr") == "cja-auto-sdr"
+        expected_module_prog = f"{os.path.basename(sys.executable)} -m cja_auto_sdr"
+        assert _resolve_program_name("/tmp/cja_auto_sdr/__main__.py", "cja_auto_sdr.__main__") == expected_module_prog
+        assert (
+            _resolve_program_name("/tmp/cja_auto_sdr/__main__.py", "cja_auto_sdr.__main__", "python3")
+            == "python3 -m cja_auto_sdr"
+        )
+        assert _resolve_program_name("") == "cja_auto_sdr"
+
+    def test_fast_path_version_output_uses_program_name(self, capsys):
+        from cja_auto_sdr.__main__ import _print_version
+        from cja_auto_sdr.core.version import __version__
+
+        _print_version("cja-auto-sdr")
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja-auto-sdr {__version__}"
+
+    def test_fast_path_exit_codes_output(self, capsys):
+        from cja_auto_sdr.__main__ import _print_exit_codes
+        from cja_auto_sdr.core.constants import BANNER_WIDTH
+
+        _print_exit_codes()
+        captured = capsys.readouterr()
+        assert "EXIT CODE REFERENCE" in captured.out
+        assert "CI/CD Examples:" in captured.out
+        assert captured.out.splitlines()[0] == "=" * BANNER_WIDTH
+
+    def test_fast_path_main_version_exits_zero(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+    def test_fast_path_main_version_after_other_option_exits_zero(self, capsys):
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile", "client-a", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja_auto_sdr {__version__}"
+
+    def test_fast_path_main_version_like_value_token_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--profile", "--version"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_malformed_version_invocations_fall_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        malformed_argv = [
+            ["cja_auto_sdr", "--v", "--version"],
+            ["cja_auto_sdr", "--version=foo"],
+            ["cja_auto_sdr", "-V=foo"],
+            ["cja_auto_sdr", "--quiet=1", "--version"],
+            ["cja_auto_sdr", "--profile", "--quiet", "--version"],
+            ["cja_auto_sdr", "--list-dataviews", "--list-connections", "--version"],
+        ]
+        for argv in malformed_argv:
+            with patch.object(sys, "argv", argv):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_version_takes_precedence_over_later_parse_errors(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        valid_version_argv = [
+            ["cja_auto_sdr", "--version", "--v"],
+            ["cja_auto_sdr", "--version", "--quiet=1"],
+        ]
+        for argv in valid_version_argv:
+            with patch.object(sys, "argv", argv):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    with pytest.raises(SystemExit) as exc_info:
+                        fast_main()
+                    assert exc_info.value.code == 0
+                    mock_gen_main.assert_not_called()
+
+    def test_fast_path_main_version_uses_invoked_program_name(self, capsys):
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["/tmp/cja-auto-sdr", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja-auto-sdr {__version__}"
+
+    def test_fast_path_main_version_module_invocation_name(self, capsys):
+        import os
+        import sys
+
+        from cja_auto_sdr.__main__ import main as fast_main
+        from cja_auto_sdr.core.version import __version__
+
+        with patch.object(sys, "argv", ["/tmp/cja_auto_sdr/__main__.py", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        expected_prefix = f"{os.path.basename(sys.executable)} -m cja_auto_sdr"
+        assert captured.out.strip() == f"{expected_prefix} {__version__}"
+
+    def test_fast_path_main_exit_codes_exits_zero(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes"]):
+            with pytest.raises(SystemExit) as exc_info:
+                fast_main()
+            assert exc_info.value.code == 0
+
+    def test_fast_path_main_version_falls_through_when_argcomplete_active(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "1"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_exit_codes_falls_through_when_argcomplete_active(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "1"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes"]):
+                with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                    fast_main()
+                    mock_gen_main.assert_called_once()
+
+    def test_fast_path_main_version_uses_fast_path_when_argcomplete_disabled(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.dict(os.environ, {"_ARGCOMPLETE": "0"}):
+            with patch.object(sys, "argv", ["cja_auto_sdr", "--version"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    fast_main()
+                assert exc_info.value.code == 0
+
+    def test_fast_path_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_run_summary_after_option_needing_value_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--profile", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_short_version_with_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "-V", "--run-summary-json", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    def test_fast_path_version_with_abbrev_run_summary_falls_through_to_generator(self):
+        from cja_auto_sdr.__main__ import main as fast_main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--run", "stdout"]):
+            with patch("cja_auto_sdr.generator.main") as mock_gen_main:
+                fast_main()
+                mock_gen_main.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("argv_tail", "stderr_substring"),
+        [
+            (["--v", "--version"], "ambiguous option"),
+            (["--version=foo"], "ignored explicit argument"),
+            (["-V=foo"], "ignored explicit argument"),
+            (["--profile", "--quiet", "--version"], "expected one argument"),
+            (["--list-dataviews", "--list-connections", "--version"], "not allowed with argument"),
+        ],
+    )
+    def test_fast_path_malformed_version_invocations_preserve_argparse_error_exit(self, argv_tail, stderr_substring):
+        import subprocess
+
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", *argv_tail],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 2
+        assert stderr_substring in result.stderr
+
+    def test_fast_path_help_before_version_preserves_help_precedence(self):
+        import subprocess
+
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--help", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 0
+        assert "usage:" in result.stdout
+        assert "show this help message and exit" in result.stdout
 
 
 class TestQualityGateAndReport:
@@ -1317,7 +1696,7 @@ class TestRetryArguments:
 
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("cja_auto_sdr.generator._bootstrap_dotenv", side_effect=_bootstrap_side_effect) as mock_bootstrap,
+            patch("cja_auto_sdr.api.client._bootstrap_dotenv", side_effect=_bootstrap_side_effect) as mock_bootstrap,
             patch.object(sys, "argv", test_args),
         ):
             args = parse_arguments()
@@ -1327,6 +1706,14 @@ class TestRetryArguments:
         assert args.max_retries == 9
         assert args.profile == "dotenv-profile"
         mock_bootstrap.assert_called_once()
+
+    def test_return_parser_mode_skips_dotenv_bootstrap(self):
+        """Parser-metadata mode should not trigger dotenv/bootstrap side effects."""
+        with patch("cja_auto_sdr.api.client._bootstrap_dotenv") as mock_bootstrap:
+            parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+
+        assert isinstance(parser, argparse.ArgumentParser)
+        mock_bootstrap.assert_not_called()
 
     def test_invalid_retry_env_max_retries_falls_back_to_default(self):
         """Invalid MAX_RETRIES env values should not crash argument parsing."""
@@ -3217,6 +3604,58 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "exit_codes"
         assert "EXIT CODE REFERENCE" not in result.stdout
         assert "EXIT CODE REFERENCE" in result.stderr
+
+    def test_run_summary_stdout_subprocess_version_is_order_independent(self):
+        """E2E: --version should still emit run summary JSON regardless of flag order."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        commands = [
+            ["uv", "run", "cja_auto_sdr", "--version", "--run-summary-json", "stdout"],
+            ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "--version"],
+            ["uv", "run", "cja_auto_sdr", "-V", "--run-summary-json", "stdout"],
+            ["uv", "run", "cja_auto_sdr", "--run-summary-json", "stdout", "-V"],
+            ["uv", "run", "cja_auto_sdr", "--version", "--profile", "--run-summary-json", "stdout"],
+        ]
+
+        for cmd in commands:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+            )
+            assert result.returncode == 0
+            payload = json.loads(result.stdout)
+            self._assert_run_summary_schema(payload)
+            assert payload["exit_code"] == 0
+            assert payload["mode"] == "unknown"
+            assert "cja_auto_sdr " not in result.stdout
+            assert "cja_auto_sdr " in result.stderr
+
+    def test_module_invocation_version_banner_consistent_with_and_without_run_summary(self):
+        """`python -m cja_auto_sdr --version` should keep the same banner prefix across paths."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        fast_path = subprocess.run(
+            ["uv", "run", "python", "-m", "cja_auto_sdr", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert fast_path.returncode == 0
+        assert " -m cja_auto_sdr " in fast_path.stdout
+        fast_prefix = fast_path.stdout.strip().split(" -m cja_auto_sdr ")[0]
+
+        fallback = subprocess.run(
+            ["uv", "run", "python", "-m", "cja_auto_sdr", "--version", "--run-summary-json", "stdout"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        assert fallback.returncode == 0
+        payload = json.loads(fallback.stdout)
+        self._assert_run_summary_schema(payload)
+        assert payload["exit_code"] == 0
+        assert f"{fast_prefix} -m cja_auto_sdr " in fallback.stderr
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")

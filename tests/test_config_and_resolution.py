@@ -23,6 +23,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, ConfigurationError
+
 logger = logging.getLogger("test_config_and_resolution")
 
 
@@ -108,6 +110,30 @@ class TestShowConfigStatusFile:
         assert result is False
         data = json.loads(capsys.readouterr().out)
         assert data["valid"] is False
+
+    @pytest.mark.parametrize("output_json", [True, False])
+    def test_config_file_non_utf8_bytes_returns_controlled_error(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        output_json: bool,
+    ) -> None:
+        """Non-UTF8 config bytes should not escape as traceback in --config-status."""
+        from cja_auto_sdr.generator import show_config_status
+
+        config = tmp_path / "config.json"
+        config.write_bytes(b"\xff\xfe\xfd")
+
+        result = show_config_status(config_file=str(config), output_json=output_json)
+
+        assert result is False
+        output = capsys.readouterr().out
+        if output_json:
+            payload = json.loads(output)
+            assert payload["valid"] is False
+            assert "Cannot read" in payload["error"]
+        else:
+            assert "Cannot read" in output
 
     def test_config_file_not_found(self, tmp_path: Path) -> None:
         from cja_auto_sdr.generator import show_config_status
@@ -205,8 +231,72 @@ class TestValidateConfigOnly:
             json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
         )
         mock_cja = MagicMock()
-        mock_cja.getDataViews.side_effect = RuntimeError("connection refused")
+        mock_cja.getDataViews.side_effect = APIError("connection refused")
         mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_connection_missing_method_failure(self, mock_cjapy, tmp_path: Path) -> None:
+        """Missing client methods (AttributeError) should degrade gracefully."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cjapy.CJA.return_value = object()  # no getDataViews attribute
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_connection_transport_failure(self, mock_cjapy, tmp_path: Path) -> None:
+        """Transport failures (OSError subclasses) should be handled gracefully."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = ConnectionError("timeout")
+        mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_connection_unexpected_exception(
+        self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Plain Exception from cjapy.CJA()/getDataViews() should return False, not traceback."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = Exception("unexpected auth bootstrap failure")
+        mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+        captured = capsys.readouterr()
+        assert "API connection failed (unexpected)" in captured.out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_api_cja_init_unexpected_exception(self, mock_cjapy, tmp_path: Path) -> None:
+        """RuntimeError from CJA() constructor should return False, not traceback."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cjapy.CJA.side_effect = RuntimeError("bootstrap crash")
         with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
             result = validate_config_only(config_file=str(config))
         assert result is False
@@ -367,12 +457,81 @@ class TestShowStats:
 
         mock_config.return_value = (True, "file", None)
         mock_cja = MagicMock()
-        mock_cja.getDataView.side_effect = RuntimeError("API error")
+        mock_cja.getDataView.side_effect = APIError("API error")
         mock_cjapy.CJA.return_value = mock_cja
         result = show_stats(["dv_test"], output_format="json")
         assert result is True
         data = json.loads(capsys.readouterr().out)
         assert data["stats"][0]["name"] == "ERROR"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_per_dv_transport_exception_continues(self, mock_config, mock_cjapy, capsys: pytest.CaptureFixture) -> None:
+        """Transport failure for one data view should not abort remaining IDs."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = [
+            ConnectionError("network issue"),
+            {"name": "Healthy DV", "owner": {"name": "Alice"}, "description": ""},
+        ]
+        mock_cja.getMetrics.return_value = pd.DataFrame({"id": ["m1"]})
+        mock_cja.getDimensions.return_value = pd.DataFrame({"id": ["d1"]})
+        mock_cjapy.CJA.return_value = mock_cja
+
+        result = show_stats(["dv_bad", "dv_ok"], output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["count"] == 2
+        assert data["stats"][0]["name"] == "ERROR"
+        assert data["stats"][1]["name"] == "Healthy DV"
+
+    @pytest.mark.parametrize(
+        "failure_stage",
+        ["getDataView", "getMetrics", "getDimensions"],
+    )
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_per_dv_unexpected_runtime_exception_continues(
+        self,
+        mock_config,
+        mock_cjapy,
+        capsys: pytest.CaptureFixture,
+        failure_stage: str,
+    ) -> None:
+        """Unexpected runtime failures for one DV should not abort remaining stats rows."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+
+        def _get_dv(dv_id: str):
+            if failure_stage == "getDataView" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected dv lookup failure")
+            return {"name": "Healthy DV", "owner": {"name": "Alice"}, "description": "ok"}
+
+        def _get_metrics(dv_id: str):
+            if failure_stage == "getMetrics" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected metrics failure")
+            return pd.DataFrame({"id": ["m1"]})
+
+        def _get_dimensions(dv_id: str):
+            if failure_stage == "getDimensions" and dv_id == "dv_bad":
+                raise RuntimeError("unexpected dimensions failure")
+            return pd.DataFrame({"id": ["d1"]})
+
+        mock_cja.getDataView.side_effect = _get_dv
+        mock_cja.getMetrics.side_effect = _get_metrics
+        mock_cja.getDimensions.side_effect = _get_dimensions
+        mock_cjapy.CJA.return_value = mock_cja
+
+        result = show_stats(["dv_bad", "dv_ok"], output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["count"] == 2
+        assert data["stats"][0]["name"] == "ERROR"
+        assert data["stats"][1]["name"] == "Healthy DV"
 
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "Config error", None))
     def test_config_failure(self, _mock_config) -> None:
@@ -394,19 +553,36 @@ class TestShowStats:
 
         assert show_stats(["dv_test"], output_format="json") is False
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("boom"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
     def test_generic_exception(self, _mock_config) -> None:
         """Lines 10404-10410: generic exception handler."""
         from cja_auto_sdr.generator import show_stats
 
         assert show_stats(["dv_test"]) is False
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("boom"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
     def test_generic_exception_machine_readable(self, _mock_config) -> None:
         """Lines 10405-10407: generic exception with JSON output."""
         from cja_auto_sdr.generator import show_stats
 
         assert show_stats(["dv_test"], output_format="json") is False
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_cja_constructor_exception_returns_controlled_failure(
+        self,
+        mock_config,
+        mock_cjapy,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """Bare constructor failures from cjapy should be handled without traceback."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        assert show_stats(["dv_test"]) is False
+        assert "Failed to get stats: auth bootstrap failed" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -501,13 +677,28 @@ class TestResolveDataViewNames:
         ids, _ = resolve_data_view_names(["dv_test"])
         assert ids == []
 
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("unexpected"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=APIError("unexpected"))
     def test_generic_exception(self, _mock_config) -> None:
         """Lines 8358-8360: generic exception handler."""
         from cja_auto_sdr.generator import resolve_data_view_names
 
         ids, _ = resolve_data_view_names(["dv_test"])
         assert ids == []
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_transport_exception_returns_empty(self, mock_config, mock_cjapy) -> None:
+        """Transport failures while listing data views should return controlled failure."""
+        from cja_auto_sdr.generator import resolve_data_view_names
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = ConnectionError("timed out")
+        mock_cjapy.CJA.return_value = mock_cja
+
+        ids, name_map = resolve_data_view_names(["My DV"])
+        assert ids == []
+        assert name_map == {}
 
     def test_invalid_match_mode(self) -> None:
         from cja_auto_sdr.generator import resolve_data_view_names

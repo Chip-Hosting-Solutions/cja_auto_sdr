@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.3.0.
+Single-page command cheat sheet for CJA SDR Generator v3.3.1.
 
 ## Four Main Modes
 
@@ -273,6 +273,7 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 
 | Option | Purpose | Mode |
 |--------|---------|------|
+| `-V, --version` | Show program version and exit | Both |
 | `--profile NAME`, `-p` | Use named profile from `~/.cja/orgs/` | Both |
 | `--output-dir PATH` | Save output to specific directory | Both |
 | `--output PATH` | Output file path; use `-` for stdout (JSON/CSV) | Both |

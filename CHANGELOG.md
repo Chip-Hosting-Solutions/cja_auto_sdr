@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-02-18
+
+### Added
+- **Startup fast-path**: `--version` / `-V` and `--exit-codes` now resolve in under
+  100 ms by bypassing heavyweight imports (pandas, cjapy, tqdm) via lightweight
+  `__main__.py` entry point
+- **`-V` short flag**: Added `-V` as a convenience alias for `--version`
+- **CLI parser extraction**: Extracted `parse_arguments()` into `cli/parser.py` module
+  for better code organization (~1,280 lines moved out of generator.py)
+- **CLI option resolution**: Extracted `cli/option_resolution.py` with
+  `resolve_long_option_token()` for argparse-compatible abbreviation handling
+- **Exit-code deduplication**: Extracted `print_exit_codes()` into `core/exit_codes.py`
+  to keep fast-path and full-path output in sync
+- **Exception policy constants**: 10 named `RECOVERABLE_*_EXCEPTIONS` tuples
+  centralising error-boundary definitions across all command handlers
+- **Exception contract tests**: `test_exception_contracts.py` with 10 tests verifying
+  error-boundary behaviour across CLI command handlers
+- **CI smoke tests**: Added Windows and macOS smoke-test jobs for fast-path commands
+  and parser/contract tests
+- **Startup performance benchmarks**: Added benchmarks to `docs/PERFORMANCE.md`
+
+### Fixed
+- **Typed exception handling**: Replaced ~35 broad `except Exception` catches with
+  specific typed exception tuples (`RECOVERABLE_API_EXCEPTIONS`,
+  `RECOVERABLE_CONFIG_API_EXCEPTIONS`, etc.) for better error diagnostics
+- **Transport failure handling**: Graceful handling of `ConnectionError`,
+  `BrokenProcessPool`, and other transport failures across all discovery commands,
+  interactive flows, org-reports, inventory lookups, diff/snapshot flows, and
+  dry-run validation
+- **Data view description coercion**: Non-string `description` payloads from the API
+  now coerce safely instead of crashing on string-slicing operations
+- **Stats command resilience**: One broken data view no longer aborts the entire
+  `--stats` command; error rows are returned per-item instead
+- **Git-commit snapshot re-fetch**: Snapshot re-fetch in `--git-commit` flow is now
+  non-fatal — prints a warning and continues instead of aborting
+- **Run-summary prefix matching**: Fixed false-positive detection triggered by `--run`
+  alone; now requires `--run-summary-` prefix
+- **Argcomplete bypass**: Fast-path correctly defers during tab-completion mode
+- **Version banner consistency**: Fast-path version banner now matches the program
+  name argparse would use (e.g. `python -m cja_auto_sdr` vs `cja_auto_sdr`)
+
 ## [3.3.0] - 2026-02-17
 
 ### Added

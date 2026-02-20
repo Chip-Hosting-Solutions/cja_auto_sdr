@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pandas as pd
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, ConfigurationError
 from cja_auto_sdr.generator import (
     _apply_discovery_filters_and_sort,
     _emit_output,
@@ -497,7 +498,7 @@ class TestRunListCommand:
         assert "Operation cancelled" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("API timeout"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("API timeout"))
     def test_generic_exception_table_mode_line_8784_8788(self, _mock_config, _mock_cjapy, capsys):
         """Lines 8784-8788: generic Exception in table mode."""
         result = _run_list_command(
@@ -511,7 +512,7 @@ class TestRunListCommand:
         assert "Failed to connect to CJA API: API timeout" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
-    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=RuntimeError("API timeout"))
+    @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("API timeout"))
     def test_generic_exception_machine_readable_line_8785_8786(self, _mock_config, _mock_cjapy, capsys):
         """Lines 8785-8786: generic Exception in JSON mode → stderr."""
         result = _run_list_command(
@@ -525,6 +526,41 @@ class TestRunListCommand:
         err = capsys.readouterr().err
         parsed = json.loads(err)
         assert "API timeout" in parsed["error"]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_from_fetch_is_recoverable(self, _mock_config, mock_cjapy, capsys):
+        """AttributeError in fetch callback should return False with a user-facing API error."""
+        mock_cjapy.CJA.return_value = Mock()
+
+        def _raise_attr_error(_cja, _machine_readable):
+            raise AttributeError("missing getDataViews")
+
+        result = _run_list_command(
+            banner_text="TEST",
+            command_name="test",
+            fetch_and_format=_raise_attr_error,
+            config_file="config.json",
+        )
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: missing getDataViews" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_cja_constructor_exception_is_recoverable(self, _mock_config, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return a controlled command error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = _run_list_command(
+            banner_text="TEST",
+            command_name="test",
+            fetch_and_format=lambda cja, mr: "data",
+            config_file="config.json",
+        )
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
 
 
 # ===========================================================================
@@ -623,13 +659,36 @@ class TestInteractiveSelectDataviews:
     def test_generic_exception_line_9495_9497(self, _cfg, mock_cjapy, capsys):
         """Lines 9495-9497: generic Exception → error message and return []."""
         mock_cja = Mock()
-        mock_cja.getDataViews.side_effect = RuntimeError("network error")
+        mock_cja.getDataViews.side_effect = APIError("network error")
         mock_cjapy.CJA.return_value = mock_cja
 
         result = interactive_select_dataviews("config.json")
         assert result == []
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: network error" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_constructor_exception_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return [] with a controlled error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = interactive_select_dataviews("config.json")
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Missing API method should be surfaced as a handled connection error."""
+        mock_cjapy.CJA.return_value = object()
+
+        result = interactive_select_dataviews("config.json")
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API" in out
+        assert "getDataViews" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
@@ -1002,13 +1061,36 @@ class TestInteractiveWizard:
     def test_generic_exception_line_9732_9734(self, _cfg, mock_cjapy, capsys):
         """Lines 9732-9734: generic Exception → error message, return None."""
         mock_cja = Mock()
-        mock_cja.getDataViews.side_effect = RuntimeError("API down")
+        mock_cja.getDataViews.side_effect = APIError("API down")
         mock_cjapy.CJA.return_value = mock_cja
 
         result = interactive_wizard("config.json")
         assert result is None
         out = capsys.readouterr().out
         assert "Failed to connect to CJA API: API down" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_constructor_exception_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Bare constructor failures from cjapy should return None with a controlled error."""
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        result = interactive_wizard("config.json")
+        assert result is None
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API: auth bootstrap failed" in out
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))
+    def test_attribute_error_during_startup_is_recoverable(self, _cfg, mock_cjapy, capsys):
+        """Missing API method during startup should return None with a user-facing error."""
+        mock_cjapy.CJA.return_value = object()
+
+        result = interactive_wizard("config.json")
+        assert result is None
+        out = capsys.readouterr().out
+        assert "Failed to connect to CJA API" in out
+        assert "getDataViews" in out
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "mock", None))

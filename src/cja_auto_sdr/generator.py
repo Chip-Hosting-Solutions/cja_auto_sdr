@@ -18,12 +18,13 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, NoReturn, Protocol, TypeVar, runtime_checkable
+from typing import Any, NoReturn, Protocol, runtime_checkable
 
 import cjapy
 import pandas as pd
@@ -31,21 +32,9 @@ from tqdm import tqdm
 
 # Dotenv loading is intentionally performed during runtime paths (CLI parsing and
 # API configuration), not at import time, to avoid import-time filesystem I/O.
-
-
-# Attempt to load argcomplete for shell tab-completion (optional dependency)
-_ARGCOMPLETE_AVAILABLE = False
-try:
-    import argcomplete
-
-    _ARGCOMPLETE_AVAILABLE = True  # pragma: no cover
-except ImportError:
-    pass  # argcomplete not installed
-
 # ==================== IMPORTS FROM MODULAR SUBPACKAGES ====================
 # These imports are from the new modular structure introduced in v3.2.0
 # They are re-exported here for backwards compatibility
-
 from cja_auto_sdr.api.resilience import (
     RETRYABLE_EXCEPTIONS,
     CircuitBreaker,
@@ -53,6 +42,7 @@ from cja_auto_sdr.api.resilience import (
     make_api_call_with_retry,
     retry_with_backoff,
 )
+from cja_auto_sdr.cli.option_resolution import resolve_long_option_token as _resolve_long_option_token
 from cja_auto_sdr.core.colors import (
     ConsoleColors,
     _format_error_msg,
@@ -75,6 +65,8 @@ from cja_auto_sdr.core.constants import (
     CONFIG_SCHEMA,
     CREDENTIAL_FIELDS,
     DEFAULT_API_FETCH_WORKERS,
+    DEFAULT_AUTO_PRUNE_KEEP_LAST,
+    DEFAULT_AUTO_PRUNE_KEEP_SINCE,
     DEFAULT_BATCH_WORKERS,
     DEFAULT_CACHE,
     DEFAULT_CACHE_SIZE,
@@ -91,6 +83,8 @@ from cja_auto_sdr.core.constants import (
     LOG_FILE_BACKUP_COUNT,
     LOG_FILE_MAX_BYTES,
     MAX_BATCH_WORKERS,
+    QUALITY_SEVERITY_ORDER,
+    QUALITY_SEVERITY_RANK,
     RETRYABLE_STATUS_CODES,
     VALIDATION_SCHEMA,
     _get_credential_fields,
@@ -213,10 +207,6 @@ class OutputWriter(Protocol):
 
 # Type alias for validation issues
 ValidationIssue = dict[str, Any]
-
-# Type variable for generic return types
-T = TypeVar("T")
-
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
 # cja_auto_sdr.core and are imported above.
@@ -504,7 +494,10 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
         if token == option_name or token.startswith(f"{option_name}="):
             return True
 
-        if option_name.startswith("--") and _resolve_long_option_token(token, known_long_options) == option_name:
+        if (
+            option_name.startswith("--")
+            and _resolve_long_option_token(token, known_long_options).canonical_option == option_name
+        ):
             return True
 
     return False
@@ -514,27 +507,11 @@ def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bo
 def _known_long_options() -> frozenset[str]:
     """Return canonical long-option strings from the configured parser."""
     parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+    # CPython argparse internals: `_actions` is the parser's canonical option
+    # registry and keeps this aligned with argparse abbreviation semantics.
     return frozenset(
         option for action in parser._actions for option in action.option_strings if option.startswith("--")
     )
-
-
-def _resolve_long_option_token(token: str, known_long_options: frozenset[str]) -> str | None:
-    """Resolve a token to a canonical long option if argparse would accept it.
-
-    Returns None for non-option tokens and ambiguous abbreviations.
-    """
-    token_name = token.split("=", 1)[0]
-    if not token_name.startswith("--") or token_name == "--":
-        return None
-
-    if token_name in known_long_options:
-        return token_name
-
-    matches = [option for option in known_long_options if option.startswith(token_name)]
-    if len(matches) == 1:
-        return matches[0]
-    return None
 
 
 def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | None:
@@ -558,7 +535,7 @@ def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | 
             canonical_option = option_name
             inline_value = token.split("=", 1)[1]
         elif option_name.startswith("--"):
-            resolved_option = _resolve_long_option_token(token, known_long_options)
+            resolved_option = _resolve_long_option_token(token, known_long_options).canonical_option
             if resolved_option == option_name:
                 canonical_option = option_name
                 if "=" in token:
@@ -584,10 +561,6 @@ def _cli_option_value(option_name: str, argv: list[str] | None = None) -> str | 
     return resolved_value
 
 
-QUALITY_SEVERITY_ORDER: tuple[str, ...] = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
-QUALITY_SEVERITY_RANK = {severity: index for index, severity in enumerate(QUALITY_SEVERITY_ORDER)}
-DEFAULT_AUTO_PRUNE_KEEP_LAST = 20
-DEFAULT_AUTO_PRUNE_KEEP_SINCE = "30d"
 QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
     "Data View ID",
     "Data View Name",
@@ -599,6 +572,154 @@ QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
     "Details",
 )
 QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset({"fail_on_quality", "quality_report", "max_issues"})
+
+# Recoverable API/runtime failures that should surface as user-facing command
+# errors (not uncaught tracebacks). Keep this centralized to avoid accidental
+# exception narrowing drift across CLI command handlers.
+RECOVERABLE_API_EXCEPTIONS: tuple[type[Exception], ...] = (
+    APIError,
+    RetryableHTTPError,
+    OSError,
+    AttributeError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+RECOVERABLE_CONFIG_API_EXCEPTIONS: tuple[type[Exception], ...] = (
+    ConfigurationError,
+    *RECOVERABLE_API_EXCEPTIONS,
+)
+RECOVERABLE_BATCH_WORKER_EXCEPTIONS: tuple[type[Exception], ...] = (
+    BrokenProcessPool,
+    CJASDRError,
+    *RECOVERABLE_API_EXCEPTIONS,
+)
+RECOVERABLE_ORG_REPORT_EXCEPTIONS: tuple[type[Exception], ...] = (
+    CJASDRError,
+    *RECOVERABLE_CONFIG_API_EXCEPTIONS,
+)
+# Final guard for CLI command handlers. Some runtime/auth/bootstrap failures
+# from third-party dependencies (notably cjapy) still surface as plain
+# `Exception`; command boundaries should return controlled failures, not
+# tracebacks.
+#
+# Prefer the tiered pattern used in handle_compare_snapshots_command()
+# (FileNotFoundError -> ValueError -> CJASDRError|OSError -> Exception)
+# for new command handlers to preserve differentiated user messaging.
+RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS: tuple[type[Exception], ...] = (
+    CJASDRError,
+    *RECOVERABLE_CONFIG_API_EXCEPTIONS,
+    Exception,
+)
+# Recoverable failures during optional inventory collection. These code paths
+# are best-effort and must never fail the primary SDR/inventory-summary flow.
+# Keep this broad by design to protect command robustness against unexpected
+# third-party or builder regressions while still allowing BaseException
+# subclasses (e.g., KeyboardInterrupt/SystemExit) to propagate.
+RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS
+# Optional git snapshot re-fetch runs after successful SDR generation and must
+# not terminate the command. Keep broad to preserve graceful degradation.
+RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Data quality validation is intentionally best-effort for SDR generation:
+# validator/runtime/threadpool failures should not abort report generation.
+# Quality-report mode still surfaces this as a failed result via
+# `validation_failed` state in process_single_dataview().
+RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Per-item stats collection must be fully resilient: one broken DV must never
+# abort the stats command. Intentionally broad.
+RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+
+
+def _log_optional_inventory_failure(
+    logger: Any,
+    *,
+    inventory_label: str,
+    error: Exception,
+    summary_mode: bool,
+) -> None:
+    """Log non-fatal optional inventory failures consistently."""
+    if summary_mode:
+        logger.warning(f"Failed to build {inventory_label}: {error}")
+    else:
+        logger.error(_format_error_msg(f"during {inventory_label}", error=error))
+        logger.info(f"Continuing with SDR generation despite {inventory_label} errors")
+    logger.debug(f"Optional inventory failure details: {error!r}")
+
+
+def _log_validation_failure(logger: Any, *, error: Exception) -> None:
+    """Log non-fatal validation failures consistently."""
+    logger.error(_format_error_msg("during data quality validation", error=error))
+    logger.info("Continuing with SDR generation despite validation errors")
+    logger.debug(f"Validation failure details: {error!r}")
+
+
+def _run_optional_inventory_step[T](
+    *,
+    logger: Any,
+    inventory_label: str,
+    summary_mode: bool,
+    build_inventory: Callable[[], T],
+    recoverable_exceptions: tuple[type[Exception], ...] = RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS,
+    on_import_error: Callable[[ImportError], None] | None = None,
+) -> T | None:
+    """Run best-effort optional inventory logic without aborting the primary command flow."""
+    try:
+        return build_inventory()
+    except ImportError as e:
+        if on_import_error is not None:
+            on_import_error(e)
+        else:
+            _log_optional_inventory_failure(
+                logger,
+                inventory_label=inventory_label,
+                error=e,
+                summary_mode=summary_mode,
+            )
+        logger.debug(f"Optional inventory import failure details: {e!r}")
+    except recoverable_exceptions as e:
+        _log_optional_inventory_failure(
+            logger,
+            inventory_label=inventory_label,
+            error=e,
+            summary_mode=summary_mode,
+        )
+    return None
+
+
+def _refetch_git_snapshot_for_commit(
+    *,
+    snapshot: DataViewSnapshot,
+    data_view_id: str,
+    config_file: str,
+    profile: str | None,
+    include_calculated_metrics: bool,
+    include_segments_inventory: bool,
+) -> DataViewSnapshot:
+    """Best-effort snapshot re-fetch used by optional --git-commit flow."""
+    needs_fetch = not snapshot.metrics and not snapshot.dimensions
+    needs_inventory = include_calculated_metrics or include_segments_inventory
+    if not (needs_fetch or needs_inventory):
+        return snapshot
+
+    fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
+    print(f"Fetching {fetch_reason} for Git snapshot...")
+    try:
+        temp_logger = logging.getLogger("git_snapshot")
+        temp_logger.setLevel(logging.WARNING)
+        cja = initialize_cja(config_file, temp_logger, profile=profile)
+        if cja:
+            snapshot_mgr = SnapshotManager(temp_logger)
+            return snapshot_mgr.create_snapshot(
+                cja,
+                data_view_id,
+                quiet=True,
+                include_calculated_metrics=include_calculated_metrics,
+                include_segments=include_segments_inventory,
+            )
+    except RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS as e:
+        print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
+    return snapshot
 
 
 def _canonical_quality_policy_key(raw_key: Any) -> str:
@@ -1166,6 +1287,7 @@ def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
         if isinstance(config, dict):
             return {k: str(v).strip() for k, v in config.items() if v}
         return None
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
     except OSError, json.JSONDecodeError:
         return None
 
@@ -1853,7 +1975,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             logger.error("  3. Authentication failed silently")
             logger.debug(f"AttributeError details: {e}")
             return False
-        except Exception as api_error:
+        except (APIError, ConfigurationError, OSError) as api_error:
             logger.error(f"API call failed: {api_error!s}")
             logger.error("Possible reasons:")
             logger.error("  1. Data view does not exist")
@@ -1879,7 +2001,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
                     if available_count > 10:
                         logger.info(f"  ... and {available_count - 10} more")
                     logger.info("")
-            except Exception as list_error:
+            except (APIError, AttributeError, KeyError, TypeError, ValueError) as list_error:
                 logger.debug(f"Could not list available data views: {list_error!s}")
 
             # Show enhanced error message
@@ -1888,9 +2010,28 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             return False
 
         # Extract and validate data view details
-        dv_name = dv_info.get("name", "Unknown")
-        dv_description = dv_info.get("description", "No description")
-        dv_owner = dv_info.get("owner", {}).get("name", "Unknown")
+        try:
+            if not isinstance(dv_info, dict):
+                raise TypeError(f"Expected data view payload to be dict, got {type(dv_info).__name__}")
+
+            dv_name = dv_info.get("name", "Unknown")
+            dv_description = dv_info.get("description", "No description")
+            if not isinstance(dv_description, str):
+                dv_description = str(dv_description) if dv_description is not None else "No description"
+
+            owner_info = dv_info.get("owner", {})
+            if not isinstance(owner_info, dict):
+                raise TypeError(f"Expected data view owner payload to be dict, got {type(owner_info).__name__}")
+            dv_owner = owner_info.get("name", "Unknown")
+
+            has_components = "components" in dv_info
+            components = dv_info.get("components", {})
+            if has_components and not isinstance(components, dict):
+                raise TypeError(f"Expected components payload to be dict, got {type(components).__name__}")
+        except (AttributeError, KeyError, TypeError, ValueError) as payload_error:
+            logger.error("Malformed data view payload returned by API")
+            logger.debug(f"Payload validation error: {payload_error!s}")
+            return False
 
         logger.info("✓ Data view validated successfully!")
         logger.info(f"  Name: {dv_name}")
@@ -1902,10 +2043,8 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         # Additional validation checks
         warnings = []
 
-        if "components" in dv_info:
-            components = dv_info.get("components", {})
-            if not components.get("dimensions") and not components.get("metrics"):
-                warnings.append("Data view appears to have no components defined")
+        if has_components and not components.get("dimensions") and not components.get("metrics"):
+            warnings.append("Data view appears to have no components defined")
 
         if warnings:
             logger.warning("Data view validation warnings:")
@@ -1914,6 +2053,8 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
         return True
 
+    except KeyboardInterrupt, SystemExit:
+        raise
     except Exception as e:
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
@@ -2286,7 +2427,7 @@ def apply_excel_formatting(
 
         logger.info(f"Successfully formatted sheet: {sheet_name}")
 
-    except Exception as e:
+    except (OutputError, OSError, KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg(f"formatting sheet {sheet_name}", error=e))
         raise
 
@@ -5059,8 +5200,12 @@ def process_inventory_summary(
     try:
         lookup_data = cja.dataviews.get_single(data_view_id)
         dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-    except Exception as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
+        return {"error": str(e)}
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to fetch data view (unexpected): {e}"), file=sys.stderr)
+        logger.debug("Unexpected error fetching data view", exc_info=True)
         return {"error": str(e)}
 
     if not quiet:
@@ -5072,7 +5217,8 @@ def process_inventory_summary(
 
     # Fetch derived fields inventory
     if include_derived:
-        try:
+
+        def _build_derived_inventory_summary() -> Any:
             from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
             # Need metrics and dimensions for derived fields
@@ -5083,37 +5229,60 @@ def process_inventory_summary(
             dimensions_df = pd.DataFrame(dimensions_data) if dimensions_data else pd.DataFrame()
 
             builder = DerivedFieldInventoryBuilder(logger=logger)
-            derived_inventory = builder.build(metrics_df, dimensions_df, data_view_id, dv_name)
+            derived = builder.build(metrics_df, dimensions_df, data_view_id, dv_name)
             if not quiet:
-                print(ConsoleColors.dim(f"  Derived fields: {derived_inventory.total_derived_fields}"))
-        except Exception as e:
-            logger.warning(f"Failed to build derived fields inventory: {e}")
+                print(ConsoleColors.dim(f"  Derived fields: {derived.total_derived_fields}"))
+            return derived
+
+        derived_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="derived fields inventory",
+            summary_mode=True,
+            build_inventory=_build_derived_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Fetch calculated metrics inventory
     if include_calculated:
-        try:
+
+        def _build_calculated_inventory_summary() -> Any:
             from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder  # pragma: no cover
 
             builder = CalculatedMetricsInventoryBuilder(logger=logger)  # pragma: no cover
-            calculated_inventory = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
+            calculated = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
             if not quiet:  # pragma: no cover
                 print(
-                    ConsoleColors.dim(f"  Calculated metrics: {calculated_inventory.total_calculated_metrics}")
+                    ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}")
                 )  # pragma: no cover
-        except Exception as e:
-            logger.warning(f"Failed to build calculated metrics inventory: {e}")
+            return calculated  # pragma: no cover
+
+        calculated_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="calculated metrics inventory",
+            summary_mode=True,
+            build_inventory=_build_calculated_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Fetch segments inventory
     if include_segments:
-        try:
+
+        def _build_segments_inventory_summary() -> Any:
             from cja_segments_inventory import SegmentsInventoryBuilder  # pragma: no cover
 
             builder = SegmentsInventoryBuilder(logger=logger)  # pragma: no cover
-            segments_inventory = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
+            segments = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
             if not quiet:  # pragma: no cover
-                print(ConsoleColors.dim(f"  Segments: {segments_inventory.total_segments}"))  # pragma: no cover
-        except Exception as e:
-            logger.warning(f"Failed to build segments inventory: {e}")
+                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))  # pragma: no cover
+            return segments  # pragma: no cover
+
+        segments_inventory = _run_optional_inventory_step(
+            logger=logger,
+            inventory_label="segments inventory",
+            summary_mode=True,
+            build_inventory=_build_segments_inventory_summary,
+            recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
+        )
 
     # Display summary
     return display_inventory_summary(
@@ -5420,9 +5589,8 @@ def process_single_dataview(
                 # End performance tracking
                 perf_tracker.end("Data Quality Validation")
 
-            except Exception as e:
-                logger.error(_format_error_msg("during data quality validation", error=e))
-                logger.info("Continuing with SDR generation despite validation errors")
+            except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
+                _log_validation_failure(logger, error=e)
                 perf_tracker.end("Data Quality Validation")
                 validation_failed = True
                 validation_error_message = str(e)
@@ -5457,27 +5625,35 @@ def process_single_dataview(
             logger.info("Building derived field inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_derived_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.derived_fields import DerivedFieldInventoryBuilder
 
                 builder = DerivedFieldInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                derived_inventory_obj = builder.build(metrics, dimensions, data_view_id, dv_name)
+                derived_inventory = builder.build(metrics, dimensions, data_view_id, dv_name)
 
-                derived_inventory_df = derived_inventory_obj.get_dataframe()
+                derived_df = derived_inventory.get_dataframe()
 
-                inv_summary = derived_inventory_obj.get_summary()
+                inv_summary = derived_inventory.get_summary()
                 logger.info(
                     f"Derived field inventory: {inv_summary.get('total_derived_fields', 0)} fields "
                     f"({inv_summary.get('metrics_count', 0)} metrics, {inv_summary.get('dimensions_count', 0)} dimensions)",
                 )
+                return derived_inventory, derived_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import derived field inventory: {e}")
+            def _handle_derived_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import derived field inventory: {error}")
                 logger.info("Skipping derived field inventory - module not available")
-            except Exception as e:
-                logger.error(_format_error_msg("during derived field inventory", error=e))
-                logger.info("Continuing with SDR generation despite derived field inventory errors")
+
+            derived_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="derived field inventory",
+                summary_mode=False,
+                build_inventory=_build_derived_inventory,
+                on_import_error=_handle_derived_import_error,
+            )
+            if derived_inventory_payload is not None:
+                derived_inventory_obj, derived_inventory_df = derived_inventory_payload
 
         # Calculated metrics inventory (if enabled)
         calculated_metrics_df = pd.DataFrame()
@@ -5487,24 +5663,32 @@ def process_single_dataview(
             logger.info("Building calculated metrics inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_calculated_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
 
                 builder = CalculatedMetricsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                calculated_inventory_obj = builder.build(cja, data_view_id, dv_name)
+                calculated_inventory = builder.build(cja, data_view_id, dv_name)
 
-                calculated_metrics_df = calculated_inventory_obj.get_dataframe()
+                calculated_df = calculated_inventory.get_dataframe()
 
-                calc_summary = calculated_inventory_obj.get_summary()
+                calc_summary = calculated_inventory.get_summary()
                 logger.info(f"Calculated metrics inventory: {calc_summary.get('total_calculated_metrics', 0)} metrics")
+                return calculated_inventory, calculated_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import calculated metrics inventory: {e}")
+            def _handle_calculated_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import calculated metrics inventory: {error}")
                 logger.info("Skipping calculated metrics inventory - module not available")
-            except Exception as e:
-                logger.error(_format_error_msg("during calculated metrics inventory", error=e))
-                logger.info("Continuing with SDR generation despite calculated metrics inventory errors")
+
+            calculated_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="calculated metrics inventory",
+                summary_mode=False,
+                build_inventory=_build_calculated_inventory,
+                on_import_error=_handle_calculated_import_error,
+            )
+            if calculated_inventory_payload is not None:
+                calculated_inventory_obj, calculated_metrics_df = calculated_inventory_payload
 
         # Segments inventory (if enabled)
         segments_inventory_df = pd.DataFrame()
@@ -5514,24 +5698,32 @@ def process_single_dataview(
             logger.info("Building segments inventory")
             logger.info("=" * BANNER_WIDTH)
 
-            try:
+            def _build_segments_inventory() -> tuple[Any, pd.DataFrame]:
                 from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
 
                 builder = SegmentsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                segments_inventory_obj = builder.build(cja, data_view_id, dv_name)
+                segments_inventory = builder.build(cja, data_view_id, dv_name)
 
-                segments_inventory_df = segments_inventory_obj.get_dataframe()
+                segments_df = segments_inventory.get_dataframe()
 
-                seg_summary = segments_inventory_obj.get_summary()
+                seg_summary = segments_inventory.get_summary()
                 logger.info(f"Segments inventory: {seg_summary.get('total_segments', 0)} segments")
+                return segments_inventory, segments_df
 
-            except ImportError as e:
-                logger.warning(f"Could not import segments inventory: {e}")
+            def _handle_segments_import_error(error: ImportError) -> None:
+                logger.warning(f"Could not import segments inventory: {error}")
                 logger.info("Skipping segments inventory - module not available")
-            except Exception as e:
-                logger.error(_format_error_msg("during segments inventory", error=e))
-                logger.info("Continuing with SDR generation despite segments inventory errors")
+
+            segments_inventory_payload = _run_optional_inventory_step(
+                logger=logger,
+                inventory_label="segments inventory",
+                summary_mode=False,
+                build_inventory=_build_segments_inventory,
+                on_import_error=_handle_segments_import_error,
+            )
+            if segments_inventory_payload is not None:
+                segments_inventory_obj, segments_inventory_df = segments_inventory_payload
 
         # Data processing
         logger.info("=" * BANNER_WIDTH)
@@ -5546,7 +5738,7 @@ def process_single_dataview(
             lookup_data_copy = {k: v + [None] * (max_length - len(v)) for k, v in lookup_data_copy.items()}
             lookup_df = pd.DataFrame(lookup_data_copy)
             logger.info(f"Processed lookup data with {len(lookup_df)} rows")
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             logger.error(_format_error_msg("processing lookup data", error=e))
             lookup_df = pd.DataFrame({"Error": ["Failed to process data view information"]})
 
@@ -5673,7 +5865,7 @@ def process_single_dataview(
             # Create enhanced metadata DataFrame
             metadata_df = pd.DataFrame({"Property": metadata_properties, "Value": metadata_values})
             logger.info("Metadata created successfully")
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             logger.error(_format_error_msg("creating metadata", error=e))
             metadata_df = pd.DataFrame({"Property": ["Error"], "Value": ["Failed to create metadata"]})
 
@@ -5684,7 +5876,7 @@ def process_single_dataview(
                 if isinstance(value, (dict, list)):
                     return json.dumps(value, indent=2)
                 return value
-            except Exception as e:
+            except (TypeError, ValueError) as e:
                 logger.warning(f"Error formatting JSON cell: {e!s}")
                 return str(value)
 
@@ -5704,7 +5896,7 @@ def process_single_dataview(
                     dimensions[col] = dimensions[col].map(format_json_cell)
 
             logger.info("JSON formatting applied successfully")
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             logger.error(_format_error_msg("applying JSON formatting", error=e))
 
         # Create Excel file name
@@ -5717,7 +5909,7 @@ def process_single_dataview(
             # Add output directory path
             output_path = Path(output_dir) / excel_file_name
             logger.info(f"Excel file will be saved as: {output_path}")
-        except Exception as e:
+        except (KeyError, TypeError, ValueError) as e:
             logger.error(_format_error_msg("creating filename", error=e))
             excel_file_name = f"CJA_DataView_{data_view_id}_SDR.xlsx"
             output_path = Path(output_dir) / excel_file_name
@@ -5856,7 +6048,7 @@ def process_single_dataview(
                                     apply_excel_formatting(writer, placeholder_df, sheet_name, logger, format_cache)
                                 else:
                                     apply_excel_formatting(writer, sheet_data, sheet_name, logger, format_cache)
-                            except Exception as e:
+                            except (OutputError, OSError, KeyError, TypeError, ValueError) as e:
                                 logger.error(f"Failed to write sheet {sheet_name}: {e!s}")
                                 continue
 
@@ -6344,7 +6536,11 @@ class BatchProcessor:
                                 f.cancel()
                             raise
                         except Exception as e:
-                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: EXCEPTION - {e!s}")
+                            is_expected = isinstance(e, RECOVERABLE_BATCH_WORKER_EXCEPTIONS)
+                            prefix = "EXCEPTION" if is_expected else "UNEXPECTED EXCEPTION"
+                            self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: {prefix} - {e!s}")
+                            if not is_expected:
+                                self.logger.debug("Unexpected batch worker error", exc_info=True)
                             results["failed"].append(
                                 ProcessingResult(
                                     data_view_id=dv_id,
@@ -6494,6 +6690,11 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
 
     all_passed = True
 
+    def _dry_run_error_text(error: Exception) -> str:
+        """Return a stable non-empty error string for user-facing dry-run output."""
+        text = str(error).strip()
+        return text or error.__class__.__name__
+
     # Step 1: Validate credentials
     print("[1/3] Validating credentials...")
     if profile:
@@ -6557,8 +6758,19 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         print()
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
+        print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
+        all_passed = False
+        print()
+        print("=" * BANNER_WIDTH)
+        print("DRY-RUN FAILED - Cannot connect to CJA API")
+        print("=" * BANNER_WIDTH)
+        return False
     except Exception as e:
-        print(f"  ✗ API connection failed: {e!s}")
+        # Defensive fallback: dry-run should surface a controlled failure, even
+        # when dependency/runtime exceptions fall outside expected API types.
+        logger.debug("Unexpected dry-run API connection failure", exc_info=True)
+        print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
         all_passed = False
         print()
         print("=" * BANNER_WIDTH)
@@ -6610,8 +6822,10 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if metrics is not None:
                         metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
-                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
+                except Exception as e:
+                    logger.debug(f"Unexpected metrics count error for {dv_id}: {e!s}", exc_info=True)
 
                 try:
                     dimensions = make_api_call_with_retry(
@@ -6622,8 +6836,10 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                     )
                     if dimensions is not None:
                         dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
-                except (APIError, RetryableHTTPError, OSError, ValueError, TypeError) as e:
+                except RECOVERABLE_API_EXCEPTIONS as e:
                     logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
+                except Exception as e:
+                    logger.debug(f"Unexpected dimensions count error for {dv_id}: {e!s}", exc_info=True)
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
@@ -6642,8 +6858,13 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
-        except Exception as e:
+        except RECOVERABLE_API_EXCEPTIONS as e:
             print(f"  ✗ {dv_id}: Error - {e!s}")
+            invalid_count += 1
+            all_passed = False
+        except Exception as e:
+            logger.debug(f"Unexpected dry-run validation error for {dv_id}: {e!s}", exc_info=True)
+            print(f"  ✗ {dv_id}: Error - {_dry_run_error_text(e)}")
             invalid_count += 1
             all_passed = False
 
@@ -6684,1251 +6905,14 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
 
 
 # ==================== COMMAND-LINE INTERFACE ====================
-
-
-def _bounded_float(min_val: float, max_val: float):
-    """Argparse type factory for a float bounded to [min_val, max_val]."""
-
-    def _type(value: str) -> float:
-        f = float(value)
-        if f < min_val or f > max_val:
-            raise argparse.ArgumentTypeError(f"must be between {min_val} and {max_val}, got {f}")
-        return f
-
-    _type.__name__ = f"float[{min_val}-{max_val}]"
-    return _type
-
-
-def _safe_env_number(env_var: str, default: int | float, cast: Callable[[str], int | float]) -> int | float:
-    """Read a numeric env var and fall back to default when invalid."""
-    raw = os.environ.get(env_var)
-    if raw is None:
-        return default
-    try:
-        return cast(raw)
-    except TypeError, ValueError:
-        return default
-
-
-def parse_arguments(
-    argv: list[str] | None = None,
-    *,
-    return_parser: bool = False,
-    enable_autocomplete: bool = True,
-) -> argparse.Namespace | argparse.ArgumentParser:
-    """Build and parse CLI arguments.
-
-    Args:
-        argv: Optional argv list to parse. Defaults to sys.argv when None.
-        return_parser: When True, return the configured parser without parsing.
-        enable_autocomplete: Enable argcomplete integration when available.
-    """
-    # Load .env before reading any os.environ-backed defaults so options like
-    # --output-dir, --log-level, --max-retries, and --profile honor .env values.
-    _bootstrap_dotenv(logging.getLogger(__name__))
-
-    parser = argparse.ArgumentParser(
-        description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Single data view
-  cja_auto_sdr dv_12345
-
-  # Multiple data views (automatically triggers parallel processing)
-  cja_auto_sdr dv_12345 dv_67890 dv_abcde
-
-  # Batch processing with explicit flag (same as above)
-  cja_auto_sdr --batch dv_12345 dv_67890 dv_abcde
-
-  # Auto-detect optimal workers (default)
-  cja_auto_sdr --batch dv_12345 dv_67890 --workers auto
-
-  # Or specify explicit worker count
-  cja_auto_sdr --batch dv_12345 dv_67890 --workers 2
-
-  # Custom output directory
-  cja_auto_sdr dv_12345 --output-dir ./reports
-
-  # Continue on errors
-  cja_auto_sdr --batch dv_* --continue-on-error
-
-  # With custom log level
-  cja_auto_sdr --batch dv_* --log-level WARNING
-
-  # JSON structured logging (for Splunk, ELK, CloudWatch)
-  cja_auto_sdr dv_12345 --log-format json
-
-  # Export as CSV files
-  cja_auto_sdr dv_12345 --format csv
-
-  # Export as JSON
-  cja_auto_sdr dv_12345 --format json
-
-  # Export as HTML
-  cja_auto_sdr dv_12345 --format html
-
-  # Export as Markdown (GitHub/Confluence)
-  cja_auto_sdr dv_12345 --format markdown
-
-  # Export in all formats
-  cja_auto_sdr dv_12345 --format all
-
-  # Dry-run to validate config and connectivity
-  cja_auto_sdr dv_12345 --dry-run
-
-  # Quiet mode (errors only)
-  cja_auto_sdr dv_12345 --quiet
-
-  # List all accessible data views
-  cja_auto_sdr --list-dataviews
-
-  # Skip data quality validation (faster processing)
-  cja_auto_sdr dv_12345 --skip-validation
-
-  # Generate sample configuration file
-  cja_auto_sdr --sample-config
-
-  # Limit data quality issues to top 10 by severity
-  cja_auto_sdr dv_12345 --max-issues 10
-
-  # Apply reusable quality policy defaults from file
-  cja_auto_sdr dv_12345 --quality-policy ./quality_policy.json
-
-  # Validate only (alias for --dry-run)
-  cja_auto_sdr dv_12345 --validate-only
-
-  # --- Data View Comparison (Diff) ---
-
-  # Compare two live data views
-  cja_auto_sdr --diff dv_prod_12345 dv_staging_67890
-  cja_auto_sdr --diff "Production Analytics" "Staging Analytics"
-
-  # Save a snapshot for later comparison
-  cja_auto_sdr dv_12345 --snapshot ./snapshots/baseline.json
-
-  # Compare current state against a saved snapshot
-  cja_auto_sdr dv_12345 --diff-snapshot ./snapshots/baseline.json
-
-  # Diff output options
-  cja_auto_sdr --diff dv_A dv_B --format html --output-dir ./reports
-  cja_auto_sdr --diff dv_A dv_B --format all
-  cja_auto_sdr --diff dv_A dv_B --changes-only
-  cja_auto_sdr --diff dv_A dv_B --summary
-
-  # Advanced diff options
-  cja_auto_sdr --diff dv_A dv_B --ignore-fields description,title
-  cja_auto_sdr --diff dv_A dv_B --diff-labels Production Staging
-
-  # Auto-snapshot: automatically save snapshots during diff for audit trail
-  cja_auto_sdr --diff dv_A dv_B --auto-snapshot
-  cja_auto_sdr --diff dv_A dv_B --auto-snapshot --snapshot-dir ./history
-  cja_auto_sdr --diff dv_A dv_B --auto-snapshot --keep-last 10
-
-  # --- Quick UX Features ---
-
-  # Quick stats without full report
-  cja_auto_sdr dv_12345 --stats
-  cja_auto_sdr dv_1 dv_2 dv_3 --stats
-
-  # Stats in JSON format for scripting
-  cja_auto_sdr dv_12345 --stats --format json
-  cja_auto_sdr dv_12345 --stats --output -    # Output to stdout
-
-  # Open file after generation
-  cja_auto_sdr dv_12345 --open
-
-  # List data views in JSON format (for scripting/piping)
-  cja_auto_sdr --list-dataviews --format json
-  cja_auto_sdr --list-dataviews --output -    # JSON to stdout
-
-  # List connections with their datasets
-  cja_auto_sdr --list-connections
-  cja_auto_sdr --list-connections --format json
-  cja_auto_sdr --list-connections --format csv --output connections.csv
-
-  # List data views with their backing connections and datasets
-  cja_auto_sdr --list-datasets
-  cja_auto_sdr --list-datasets --format json
-  cja_auto_sdr --list-datasets --format csv --output datasets.csv
-
-  # --- Profile Management ---
-
-  # List all available profiles
-  cja_auto_sdr --profile-list
-
-  # Use a named profile
-  cja_auto_sdr --profile client-a --list-dataviews
-  cja_auto_sdr -p client-a "My Data View" --format excel
-
-  # Create a new profile interactively
-  cja_auto_sdr --profile-add client-c
-
-  # Test profile credentials
-  cja_auto_sdr --profile-test client-a
-
-  # Show profile configuration (secrets masked)
-  cja_auto_sdr --profile-show client-a
-
-  # Import profile non-interactively from JSON/.env file
-  cja_auto_sdr --profile-import client-d ./client-d.env
-  cja_auto_sdr --profile-import client-d ./client-d.json --profile-overwrite
-
-  # Use profile via environment variable
-  export CJA_PROFILE=client-a
-  cja_auto_sdr --list-dataviews
-
-Note:
-  At least one data view ID or name is required for SDR, stats, and diff comparison modes.
-  Use 'cja_auto_sdr --help' to see all options.
-
-Exit Codes:
-  0 - Success (diff: no differences found)
-  1 - Error occurred
-  2 - Policy threshold exceeded (diff changes, quality gate, or governance threshold)
-
-Requirements:
-  Python 3.14 or higher required. Verify with: python3 --version
-        """,
-    )
-
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-        help="Show program version and exit",
-    )
-
-    parser.add_argument("--exit-codes", action="store_true", help="Display exit code reference and exit")
-
-    parser.add_argument(
-        "data_views",
-        nargs="*",
-        metavar="DATA_VIEW_ID_OR_NAME",
-        help="Data view IDs (e.g., dv_12345) or exact names (use quotes for names with spaces). "
-        "If a name matches multiple data views, all will be processed. "
-        "At least one required unless using --version, --list-dataviews, etc.",
-    )
-
-    parser.add_argument("--batch", action="store_true", help="Enable batch processing mode (parallel execution)")
-
-    parser.add_argument(
-        "--workers",
-        type=str,
-        default="auto",
-        help=f"Number of parallel workers for batch mode (1-{MAX_BATCH_WORKERS}). "
-        f'Use "auto" (default) for intelligent detection based on CPU cores, '
-        f"data view count, and component complexity. Auto-reduces workers for "
-        f"large data views (>5K components) to prevent memory exhaustion",
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=os.environ.get("OUTPUT_DIR", "."),
-        help="Output directory for generated files (default: current directory, or OUTPUT_DIR env var)",
-    )
-
-    parser.add_argument(
-        "--config-file",
-        type=str,
-        default="config.json",
-        help="Path to CJA configuration file (default: config.json)",
-    )
-
-    parser.add_argument(
-        "--continue-on-error",
-        action="store_true",
-        help="Continue processing remaining data views if one fails",
-    )
-
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        default=os.environ.get("LOG_LEVEL", "INFO"),
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging level (default: INFO, or LOG_LEVEL environment variable)",
-    )
-
-    parser.add_argument(
-        "--log-format",
-        type=str,
-        default="text",
-        choices=["text", "json"],
-        help='Log output format: "text" (default) for human-readable, '
-        '"json" for structured logging (Splunk, ELK, CloudWatch compatible)',
-    )
-
-    parser.add_argument(
-        "--production",
-        action="store_true",
-        help="Enable production mode (minimal logging for maximum performance)",
-    )
-
-    parser.add_argument(
-        "--enable-cache",
-        action="store_true",
-        help="Enable validation result caching (50-90%% faster on repeated validations)",
-    )
-
-    parser.add_argument(
-        "--clear-cache",
-        action="store_true",
-        help="Clear validation cache before processing (use with --enable-cache for fresh validation)",
-    )
-
-    parser.add_argument(
-        "--cache-size",
-        type=int,
-        default=DEFAULT_CACHE_SIZE,
-        help=f"Maximum number of cached validation results (default: {DEFAULT_CACHE_SIZE})",
-    )
-
-    parser.add_argument(
-        "--cache-ttl",
-        type=int,
-        default=DEFAULT_CACHE_TTL,
-        help=f"Cache time-to-live in seconds (default: {DEFAULT_CACHE_TTL} = 1 hour)",
-    )
-
-    parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=int(_safe_env_number("MAX_RETRIES", DEFAULT_RETRY_CONFIG["max_retries"], int)),
-        help=f"Maximum API retry attempts (default: {DEFAULT_RETRY_CONFIG['max_retries']}, or MAX_RETRIES env var)",
-    )
-
-    parser.add_argument(
-        "--retry-base-delay",
-        type=float,
-        default=float(_safe_env_number("RETRY_BASE_DELAY", DEFAULT_RETRY_CONFIG["base_delay"], float)),
-        help=f"Initial retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['base_delay']}, or RETRY_BASE_DELAY env var)",
-    )
-
-    parser.add_argument(
-        "--retry-max-delay",
-        type=float,
-        default=float(_safe_env_number("RETRY_MAX_DELAY", DEFAULT_RETRY_CONFIG["max_delay"], float)),
-        help=f"Maximum retry delay in seconds (default: {DEFAULT_RETRY_CONFIG['max_delay']}, or RETRY_MAX_DELAY env var)",
-    )
-
-    # ==================== RELIABILITY/PERFORMANCE ARGUMENTS ====================
-
-    reliability_group = parser.add_argument_group(
-        "Reliability & Performance",
-        "Options for API resilience and performance tuning",
-    )
-
-    reliability_group.add_argument(
-        "--api-auto-tune",
-        action="store_true",
-        help="Enable automatic API worker tuning based on response times. "
-        "Scales workers up when responses are fast, down when slow",
-    )
-
-    reliability_group.add_argument(
-        "--api-min-workers",
-        type=int,
-        default=1,
-        metavar="N",
-        help="Minimum workers for auto-tuning (default: 1, requires --api-auto-tune)",
-    )
-
-    reliability_group.add_argument(
-        "--api-max-workers",
-        type=int,
-        default=10,
-        metavar="N",
-        help="Maximum workers for auto-tuning (default: 10, requires --api-auto-tune)",
-    )
-
-    reliability_group.add_argument(
-        "--circuit-breaker",
-        action="store_true",
-        help="Enable circuit breaker pattern for API calls. "
-        "Prevents cascading failures by stopping requests after repeated failures",
-    )
-
-    reliability_group.add_argument(
-        "--circuit-failure-threshold",
-        type=int,
-        default=5,
-        metavar="N",
-        help="Consecutive failures before opening circuit (default: 5, requires --circuit-breaker)",
-    )
-
-    reliability_group.add_argument(
-        "--circuit-timeout",
-        type=float,
-        default=30.0,
-        metavar="SECONDS",
-        help="Seconds before attempting recovery from open circuit (default: 30, requires --circuit-breaker)",
-    )
-
-    reliability_group.add_argument(
-        "--shared-cache",
-        action="store_true",
-        help="Share validation cache across batch workers (requires --batch and --enable-cache). "
-        "Enables cache reuse across data views for common validation patterns",
-    )
-
-    parser.add_argument(
-        "--format",
-        type=str,
-        default=None,
-        choices=["console", "excel", "csv", "json", "html", "markdown", "all", "reports", "data", "ci"],
-        help="Output format: excel, csv, json, html, markdown, all, or aliases (reports=excel+markdown, data=csv+json, ci=json+markdown). Default: excel for SDR, console for diff",
-    )
-
-    parser.add_argument(
-        "--dry-run",
-        "--validate-only",
-        action="store_true",
-        dest="dry_run",
-        help="Validate configuration and connectivity without generating reports",
-    )
-
-    parser.add_argument(
-        "--quiet",
-        "-q",
-        action="store_true",
-        help="Quiet mode - suppress all output except errors and final summary",
-    )
-
-    discovery_group = parser.add_argument_group(
-        "Discovery",
-        "Commands to explore available CJA resources (mutually exclusive)",
-    )
-    discovery_mx = discovery_group.add_mutually_exclusive_group()
-
-    discovery_mx.add_argument(
-        "--list-dataviews",
-        action="store_true",
-        help="List all accessible data views and exit (no data view ID required)",
-    )
-
-    discovery_mx.add_argument(
-        "--list-connections",
-        action="store_true",
-        help="List all accessible connections with their datasets and exit",
-    )
-
-    discovery_mx.add_argument(
-        "--list-datasets",
-        action="store_true",
-        help="List all data views with their backing connections and datasets, then exit",
-    )
-
-    parser.add_argument(
-        "--sort",
-        type=str,
-        dest="discovery_sort",
-        metavar="FIELD",
-        help='Sort discovery output by field (prefix "-" for descending), e.g. --sort name or --sort=-id',
-    )
-
-    parser.add_argument(
-        "--skip-validation",
-        action="store_true",
-        help="Skip data quality validation for faster processing (20-30%% faster)",
-    )
-
-    parser.add_argument("--sample-config", action="store_true", help="Generate a sample configuration file and exit")
-
-    parser.add_argument(
-        "--validate-config",
-        action="store_true",
-        help="Validate configuration and API connectivity without processing any data views",
-    )
-
-    parser.add_argument(
-        "--config-status",
-        action="store_true",
-        help="Show configuration status (source, fields, masked credentials) without API call. "
-        "Faster than --validate-config for quick troubleshooting",
-    )
-
-    parser.add_argument(
-        "--config-json",
-        action="store_true",
-        help="Output --config-status as machine-readable JSON (for scripting and CI/CD)",
-    )
-
-    parser.add_argument(
-        "--yes",
-        "-y",
-        action="store_true",
-        dest="assume_yes",
-        help="Skip confirmation prompts (e.g., for large batch operations)",
-    )
-
-    parser.add_argument(
-        "--max-issues",
-        type=int,
-        default=0,
-        metavar="N",
-        help="Limit data quality issues to top N by severity (0 = show all, default: 0)",
-    )
-
-    parser.add_argument(
-        "--fail-on-quality",
-        type=str.upper,
-        choices=list(QUALITY_SEVERITY_ORDER),
-        metavar="SEVERITY",
-        help="Exit with code 2 when quality issues at or above SEVERITY are found (CRITICAL, HIGH, MEDIUM, LOW, INFO)",
-    )
-
-    parser.add_argument(
-        "--quality-report",
-        type=str,
-        choices=["json", "csv"],
-        metavar="FORMAT",
-        help="Generate standalone quality issues report only (json or csv) without SDR files",
-    )
-
-    parser.add_argument(
-        "--quality-policy",
-        type=str,
-        metavar="PATH",
-        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, max_issues). "
-        "Explicit CLI flags take precedence.",
-    )
-
-    # ==================== UX ENHANCEMENT ARGUMENTS ====================
-
-    parser.add_argument(
-        "--show-timings",
-        action="store_true",
-        help="Display performance timing breakdown after processing (API calls, validation, output generation)",
-    )
-
-    parser.add_argument(
-        "--open",
-        action="store_true",
-        help="Open the generated file(s) in the default application after creation",
-    )
-
-    parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show quick statistics about data view(s) without generating full reports. "
-        "Displays counts of metrics, dimensions, and basic info",
-    )
-
-    parser.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Launch interactive mode for guided SDR generation. "
-        "Walks through: (1) data view selection, (2) output format, "
-        "(3) inventory options (segments, calculated metrics, derived fields). "
-        "Ideal for new users or one-off generation tasks",
-    )
-
-    parser.add_argument(
-        "--name-match",
-        type=str,
-        choices=["exact", "insensitive", "fuzzy"],
-        default="exact",
-        help="Data view name matching mode: exact (default), case-insensitive, or fuzzy nearest match",
-    )
-
-    parser.add_argument(
-        "--output",
-        type=str,
-        metavar="PATH",
-        help='Output file path. Use "-" or "stdout" to write to standard output (JSON/CSV only). '
-        "For stdout, implies --quiet to suppress other output",
-    )
-
-    parser.add_argument(
-        "--run-summary-json",
-        type=str,
-        metavar="PATH",
-        help='Write a machine-readable run summary JSON (all modes). Use "-" or "stdout" for stdout.',
-    )
-
-    # ==================== DIFF COMPARISON ARGUMENTS ====================
-
-    diff_group = parser.add_argument_group("Diff Comparison", "Options for comparing data views")
-
-    diff_group.add_argument(
-        "--diff",
-        action="store_true",
-        help="Compare two data views. Provide exactly 2 data view IDs/names as positional arguments",
-    )
-
-    diff_group.add_argument(
-        "--snapshot",
-        type=str,
-        metavar="FILE",
-        help="Save a snapshot of the data view to a JSON file (use with single data view)",
-    )
-
-    diff_group.add_argument(
-        "--list-snapshots",
-        action="store_true",
-        help="List snapshots from --snapshot-dir (optional DATA_VIEW_ID filters via positional args)",
-    )
-
-    diff_group.add_argument(
-        "--prune-snapshots",
-        action="store_true",
-        help="Apply retention policies to snapshots in --snapshot-dir without running a diff",
-    )
-
-    diff_group.add_argument(
-        "--diff-snapshot",
-        type=str,
-        metavar="FILE",
-        help="Compare data view against a saved snapshot file",
-    )
-
-    diff_group.add_argument(
-        "--compare-with-prev",
-        action="store_true",
-        help="Compare data view against its most recent snapshot in --snapshot-dir (default: ./snapshots)",
-    )
-
-    diff_group.add_argument(
-        "--compare-snapshots",
-        nargs=2,
-        metavar=("SOURCE", "TARGET"),
-        help="Compare two snapshot files directly (no API calls required). "
-        "Example: --compare-snapshots baseline.json current.json",
-    )
-
-    diff_group.add_argument(
-        "--changes-only",
-        action="store_true",
-        help="Only show changed items in diff output (hide unchanged)",
-    )
-
-    diff_group.add_argument("--summary", action="store_true", help="Show summary statistics only (no detailed changes)")
-
-    diff_group.add_argument(
-        "--ignore-fields",
-        type=str,
-        metavar="FIELDS",
-        help='Comma-separated list of fields to ignore during comparison (e.g., "description,title")',
-    )
-
-    diff_group.add_argument(
-        "--diff-labels",
-        nargs=2,
-        metavar=("SOURCE", "TARGET"),
-        help="Custom labels for the two sides of the comparison (default: Source, Target)",
-    )
-
-    diff_group.add_argument(
-        "--show-only",
-        type=str,
-        metavar="TYPES",
-        help="Filter diff output to show only specific change types. "
-        'Comma-separated list: added,removed,modified,unchanged (e.g., "added,modified")',
-    )
-
-    diff_group.add_argument(
-        "--metrics-only",
-        action="store_true",
-        help="Only include metrics (exclude dimensions). Works for both SDR generation and diff comparison",
-    )
-
-    diff_group.add_argument(
-        "--dimensions-only",
-        action="store_true",
-        help="Only include dimensions (exclude metrics). Works for both SDR generation and diff comparison",
-    )
-
-    diff_group.add_argument(
-        "--extended-fields",
-        action="store_true",
-        help="Use extended field comparison including attribution, format, bucketing, "
-        "persistence settings (default: basic fields only)",
-    )
-
-    diff_group.add_argument(
-        "--side-by-side",
-        action="store_true",
-        help="Show side-by-side comparison view for modified items (console and markdown)",
-    )
-
-    diff_group.add_argument("--no-color", action="store_true", help="Disable ANSI color codes in console output")
-
-    diff_group.add_argument(
-        "--color-theme",
-        type=str,
-        choices=["default", "accessible"],
-        default="default",
-        help='Color theme for diff output: "default" (green/red) or "accessible" (blue/orange for accessibility)',
-    )
-
-    diff_group.add_argument(
-        "--quiet-diff",
-        action="store_true",
-        help="Suppress diff output, only return exit code (0=no changes, 2=changes found)",
-    )
-
-    diff_group.add_argument(
-        "--reverse-diff",
-        action="store_true",
-        help="Reverse the comparison direction (swap source and target)",
-    )
-
-    diff_group.add_argument(
-        "--warn-threshold",
-        type=float,
-        metavar="PERCENT",
-        help="Exit with code 3 if change percentage exceeds threshold (e.g., --warn-threshold 10)",
-    )
-
-    diff_group.add_argument(
-        "--group-by-field",
-        action="store_true",
-        help="Group changes by field name instead of by component",
-    )
-
-    diff_group.add_argument(
-        "--group-by-field-limit",
-        type=int,
-        default=10,
-        metavar="N",
-        help="Max items per section in --group-by-field output (default: 10, 0 = unlimited)",
-    )
-
-    diff_group.add_argument(
-        "--diff-output",
-        type=str,
-        metavar="FILE",
-        help="Write diff output directly to file instead of stdout",
-    )
-
-    diff_group.add_argument(
-        "--format-pr-comment",
-        action="store_true",
-        help="Output in GitHub/GitLab PR comment format (markdown with collapsible details)",
-    )
-
-    diff_group.add_argument(
-        "--auto-snapshot",
-        action="store_true",
-        help="Automatically save snapshots of data views during diff comparison. "
-        "Creates timestamped snapshots in --snapshot-dir for audit trail",
-    )
-
-    diff_group.add_argument(
-        "--auto-prune",
-        action="store_true",
-        help=(
-            "When used with --auto-snapshot, automatically apply default retention "
-            f"(--keep-last {DEFAULT_AUTO_PRUNE_KEEP_LAST} and --keep-since {DEFAULT_AUTO_PRUNE_KEEP_SINCE}) "
-            "if explicit retention flags are not provided"
-        ),
-    )
-
-    diff_group.add_argument(
-        "--snapshot-dir",
-        type=str,
-        default="./snapshots",
-        metavar="DIR",
-        help="Directory for auto-saved snapshots (default: ./snapshots). Used with --auto-snapshot",
-    )
-
-    diff_group.add_argument(
-        "--keep-last",
-        type=int,
-        default=0,
-        metavar="N",
-        help="Retention policy: keep only the last N snapshots per data view (0 = keep all). Used with --auto-snapshot",
-    )
-
-    diff_group.add_argument(
-        "--keep-since",
-        type=str,
-        default=None,
-        metavar="PERIOD",
-        help="Date-based retention: delete snapshots older than PERIOD. "
-        "Formats: 7d (7 days), 2w (2 weeks), 1m (1 month), 30 (30 days). "
-        "Used with --auto-snapshot. Can be combined with --keep-last.",
-    )
-
-    # ==================== PROFILE MANAGEMENT ARGUMENTS ====================
-
-    profile_group = parser.add_argument_group(
-        "Profile Management",
-        "Manage organization/credential profiles stored in ~/.cja/orgs/",
-    )
-
-    profile_group.add_argument(
-        "--profile",
-        "-p",
-        type=str,
-        metavar="NAME",
-        default=os.environ.get("CJA_PROFILE"),
-        help="Use named profile from ~/.cja/orgs/<NAME>/. Can also be set via CJA_PROFILE environment variable",
-    )
-
-    profile_group.add_argument("--profile-list", action="store_true", help="List all available profiles and exit")
-
-    profile_group.add_argument("--profile-add", type=str, metavar="NAME", help="Create a new profile interactively")
-
-    profile_group.add_argument(
-        "--profile-test",
-        type=str,
-        metavar="NAME",
-        help="Test profile credentials and API connectivity",
-    )
-
-    profile_group.add_argument(
-        "--profile-show",
-        type=str,
-        metavar="NAME",
-        help="Show profile configuration (with masked secrets)",
-    )
-
-    profile_group.add_argument(
-        "--profile-import",
-        nargs=2,
-        metavar=("NAME", "FILE"),
-        help="Import profile credentials from JSON/.env file (or profile directory) without prompts",
-    )
-
-    profile_group.add_argument(
-        "--profile-overwrite",
-        action="store_true",
-        help="Allow --profile-import to overwrite an existing profile",
-    )
-
-    # ==================== GIT INTEGRATION ARGUMENTS ====================
-
-    git_group = parser.add_argument_group("Git Integration", "Options for version-controlled snapshots")
-
-    git_group.add_argument(
-        "--git-commit",
-        action="store_true",
-        help="Save snapshot in Git-friendly format and commit to Git repository. "
-        "Creates separate JSON files (metrics.json, dimensions.json, metadata.json) "
-        "for easy diffing in Git",
-    )
-
-    git_group.add_argument(
-        "--git-push",
-        action="store_true",
-        help="Push to remote after committing (requires --git-commit)",
-    )
-
-    git_group.add_argument(
-        "--git-message",
-        type=str,
-        metavar="MESSAGE",
-        help="Custom message for Git commit (used with --git-commit)",
-    )
-
-    git_group.add_argument(
-        "--git-dir",
-        type=str,
-        default="./sdr-snapshots",
-        metavar="DIR",
-        help="Directory for Git-tracked snapshots (default: ./sdr-snapshots). "
-        "Will be initialized as Git repo if not already",
-    )
-
-    git_group.add_argument(
-        "--git-init",
-        action="store_true",
-        help="Initialize a new Git repository for snapshots at --git-dir location",
-    )
-
-    # ==================== DERIVED FIELD INVENTORY ARGUMENTS ====================
-
-    derived_group = parser.add_argument_group(
-        "Derived Field Inventory",
-        "Include summary inventory of derived fields in SDR output",
-    )
-
-    derived_group.add_argument(
-        "--include-derived",
-        action="store_true",
-        dest="include_derived_inventory",
-        help='Include derived field inventory in SDR output. Adds a "Derived Fields" sheet/section '
-        "with complexity scores, functions used, and logic summaries. "
-        "Note: For SDR generation only; not used in snapshot diff comparisons since derived "
-        "fields are already captured in standard metrics/dimensions output.",
-    )
-
-    # ==================== CALCULATED METRICS INVENTORY ARGUMENTS ====================
-
-    calc_metrics_group = parser.add_argument_group(
-        "Calculated Metrics Inventory",
-        "Include summary inventory of calculated metrics in SDR output",
-    )
-
-    calc_metrics_group.add_argument(
-        "--include-calculated",
-        action="store_true",
-        dest="include_calculated_metrics",
-        help='Include calculated metrics inventory in SDR output. Adds a "Calculated Metrics" sheet/section '
-        "with complexity scores, formula summaries, and metric references",
-    )
-
-    # ==================== SEGMENTS INVENTORY ARGUMENTS ====================
-
-    segments_group = parser.add_argument_group(
-        "Segments Inventory",
-        "Include summary inventory of segments (filters) in SDR output",
-    )
-
-    segments_group.add_argument(
-        "--include-segments",
-        action="store_true",
-        dest="include_segments_inventory",
-        help='Include segments inventory in SDR output. Adds a "Segments" sheet/section '
-        "with complexity scores, definition summaries, and dimension/metric references",
-    )
-
-    # ==================== INVENTORY-ONLY MODE ====================
-
-    inventory_only_group = parser.add_argument_group(
-        "Inventory-Only Mode",
-        "Generate output with only inventory sheets (no standard SDR content)",
-    )
-
-    inventory_only_group.add_argument(
-        "--inventory-only",
-        action="store_true",
-        dest="inventory_only",
-        help="Output only inventory sheets (Calculated Metrics, Segments, Derived Fields). "
-        "Skips standard SDR sheets (Metadata, Data Quality, DataView, Metrics, Dimensions). "
-        "Requires at least one --include-* flag.",
-    )
-
-    inventory_only_group.add_argument(
-        "--inventory-summary",
-        action="store_true",
-        dest="inventory_summary",
-        help="Display quick inventory statistics without generating full output files. "
-        "Shows counts, complexity distribution, and high-complexity warnings. "
-        "Requires at least one --include-* flag. Cannot be used with --inventory-only.",
-    )
-
-    inventory_only_group.add_argument(
-        "--include-all-inventory",
-        action="store_true",
-        dest="include_all_inventory",
-        help="Enable all inventory options. In SDR mode, enables --include-segments, "
-        "--include-calculated, and --include-derived. In snapshot/snapshot-diff modes "
-        "(--snapshot, --diff-snapshot, --compare-snapshots, --compare-with-prev) and "
-        "with --git-commit, enables only --include-segments and --include-calculated "
-        "(derived fields are not supported there).",
-    )
-
-    # ==================== ORG-WIDE ANALYSIS ARGUMENTS ====================
-
-    org_group = parser.add_argument_group(
-        "Org-Wide Analysis",
-        "Analyze component distribution across all data views in the organization",
-    )
-
-    org_group.add_argument(
-        "--org-report",
-        action="store_true",
-        help="Generate org-wide component analysis report. Analyzes all accessible "
-        "data views to show component distribution, similarity matrix, and "
-        "governance recommendations. No data view arguments required.",
-    )
-
-    org_group.add_argument(
-        "--filter",
-        type=str,
-        metavar="PATTERN",
-        dest="org_filter",
-        help="Include only data views whose name matches this regex pattern "
-        '(e.g., "Prod.*" or "prod|production"). Avoid complex nested quantifiers',
-    )
-
-    org_group.add_argument(
-        "--exclude",
-        type=str,
-        metavar="PATTERN",
-        dest="org_exclude",
-        help="Exclude data views whose name matches this regex pattern "
-        '(e.g., "Test.*|Dev.*|sandbox"). Avoid complex nested quantifiers',
-    )
-
-    org_group.add_argument(
-        "--limit",
-        type=int,
-        metavar="N",
-        dest="org_limit",
-        help="Limit the number of data views to analyze (useful for testing or large orgs)",
-    )
-
-    org_group.add_argument(
-        "--core-threshold",
-        type=float,
-        default=0.5,
-        metavar="PERCENT",
-        help='Threshold for "core" components as fraction of data views '
-        "(default: 0.5 = components in >= 50%% of DVs are core)",
-    )
-
-    org_group.add_argument(
-        "--core-min-count",
-        type=int,
-        metavar="N",
-        help='Minimum absolute count for "core" components (overrides --core-threshold). '
-        "E.g., --core-min-count 5 means components in >= 5 DVs are core",
-    )
-
-    org_group.add_argument(
-        "--overlap-threshold",
-        type=_bounded_float(0.0, 1.0),
-        default=0.8,
-        metavar="PERCENT",
-        help='Threshold for "high overlap" pairs in similarity analysis '
-        "(default: 0.8). Note: For governance checks (--fail-on-threshold), "
-        "values above 0.9 are capped at 90%% to ensure duplicate detection",
-    )
-
-    org_group.add_argument(
-        "--skip-similarity",
-        action="store_true",
-        help="Skip the O(n^2) pairwise similarity matrix calculation. Useful for very large orgs with many data views",
-    )
-
-    org_group.add_argument(
-        "--similarity-max-dvs",
-        type=int,
-        metavar="N",
-        dest="org_similarity_max_dvs",
-        default=250,
-        help="Guardrail to skip similarity when data views exceed N (default: 250). "
-        "Use --force-similarity to override.",
-    )
-
-    org_group.add_argument(
-        "--force-similarity",
-        action="store_true",
-        dest="org_force_similarity",
-        help="Force similarity matrix even if guardrails would skip it",
-    )
-
-    org_group.add_argument(
-        "--include-names",
-        action="store_true",
-        dest="org_include_names",
-        help="Include component names in the report (slower - requires fetching full component details)",
-    )
-
-    org_group.add_argument(
-        "--org-summary",
-        action="store_true",
-        help="Show only summary statistics, suppress detailed component lists",
-    )
-
-    org_group.add_argument(
-        "--org-verbose",
-        action="store_true",
-        help="Include full component lists and detailed breakdowns in output",
-    )
-
-    # Component type breakdown (enabled by default)
-    org_group.add_argument(
-        "--no-component-types",
-        action="store_true",
-        dest="no_component_types",
-        help="Disable component type breakdown (standard vs derived metrics/dimensions)",
-    )
-
-    # Metadata
-    org_group.add_argument(
-        "--include-metadata",
-        action="store_true",
-        dest="org_include_metadata",
-        help="Include data view metadata (owner, creation/modification dates, descriptions)",
-    )
-
-    # Drift detection
-    org_group.add_argument(
-        "--include-drift",
-        action="store_true",
-        dest="org_include_drift",
-        help="Include component drift details showing exact differences between similar DV pairs",
-    )
-
-    org_group.add_argument(
-        "--org-shared-client",
-        action="store_true",
-        dest="org_shared_client",
-        help="Use a single shared cjapy client across threads. WARNING: This is experimental "
-        "and may cause race conditions if cjapy is not thread-safe. Use only if you have "
-        "tested with your cjapy version. Default creates one client per thread (safer)",
-    )
-
-    # Sampling options
-    org_group.add_argument(
-        "--sample",
-        type=int,
-        metavar="N",
-        dest="org_sample_size",
-        help="Randomly sample N data views (useful for very large orgs)",
-    )
-
-    org_group.add_argument(
-        "--sample-seed",
-        type=int,
-        metavar="SEED",
-        dest="org_sample_seed",
-        help="Random seed for reproducible sampling",
-    )
-
-    org_group.add_argument(
-        "--sample-stratified",
-        action="store_true",
-        dest="org_sample_stratified",
-        help="Stratify sample by data view name prefix",
-    )
-
-    # Caching options
-    org_group.add_argument(
-        "--use-cache",
-        action="store_true",
-        dest="org_use_cache",
-        help="Enable caching of data view components for faster repeat runs",
-    )
-
-    org_group.add_argument(
-        "--cache-max-age",
-        type=int,
-        metavar="HOURS",
-        default=24,
-        dest="org_cache_max_age",
-        help="Maximum cache age in hours (default: 24)",
-    )
-
-    org_group.add_argument(
-        "--refresh-cache",
-        action="store_true",
-        dest="org_clear_cache",
-        help="Clear the org-report cache and fetch fresh data",
-    )
-
-    org_group.add_argument(
-        "--validate-cache",
-        action="store_true",
-        dest="org_validate_cache",
-        help="Validate cached entries against data view modification timestamps before using",
-    )
-
-    org_group.add_argument(
-        "--memory-warning",
-        type=int,
-        metavar="MB",
-        default=100,
-        dest="org_memory_warning",
-        help="Warn if component index estimated memory exceeds this threshold in MB (default: 100, 0 to disable)",
-    )
-
-    org_group.add_argument(
-        "--memory-limit",
-        type=int,
-        metavar="MB",
-        default=None,
-        dest="org_memory_limit",
-        help="Abort if component index exceeds this size in MB. Protects against OOM for very large orgs (default: no limit)",
-    )
-
-    # Clustering options
-    org_group.add_argument(
-        "--cluster",
-        action="store_true",
-        dest="org_cluster",
-        help="Enable hierarchical clustering to group related data views (requires 'clustering' extra: uv pip install 'cja-auto-sdr[clustering]')",
-    )
-
-    org_group.add_argument(
-        "--cluster-method",
-        type=str,
-        choices=["average", "complete"],
-        default="average",
-        dest="org_cluster_method",
-        help="Clustering linkage method: average (recommended) or complete. Both work correctly with Jaccard distances",
-    )
-
-    # Feature 1: Governance exit codes
-    org_group.add_argument(
-        "--duplicate-threshold",
-        type=int,
-        metavar="N",
-        dest="org_duplicate_threshold",
-        help="Maximum allowed high-similarity pairs (>=90%%). Exit with code 2 if exceeded when --fail-on-threshold is set",
-    )
-
-    org_group.add_argument(
-        "--isolated-threshold",
-        type=_bounded_float(0.0, 1.0),
-        metavar="PERCENT",
-        dest="org_isolated_threshold",
-        help="Maximum isolated component percentage (0.0-1.0). Exit with code 2 if exceeded when --fail-on-threshold is set",
-    )
-
-    org_group.add_argument(
-        "--fail-on-threshold",
-        action="store_true",
-        dest="org_fail_on_threshold",
-        help="Enable exit code 2 when governance thresholds are exceeded (for CI/CD integration)",
-    )
-
-    # Feature 2: Org summary stats mode
-    org_group.add_argument(
-        "--org-stats",
-        action="store_true",
-        dest="org_stats_only",
-        help="Quick summary stats only - skips similarity matrix and clustering for faster results",
-    )
-
-    # Feature 3: Naming convention audit
-    org_group.add_argument(
-        "--audit-naming",
-        action="store_true",
-        dest="org_audit_naming",
-        help="Detect naming pattern inconsistencies (snake_case vs camelCase, stale prefixes, etc.)",
-    )
-
-    # Feature 4: Trending/drift report
-    org_group.add_argument(
-        "--compare-org-report",
-        type=str,
-        metavar="PREV.json",
-        dest="org_compare_report",
-        help="Compare current org-report to a previous JSON report for trending/drift analysis",
-    )
-
-    # Feature 5: Owner/team summary
-    org_group.add_argument(
-        "--owner-summary",
-        action="store_true",
-        dest="org_owner_summary",
-        help="Group statistics by data view owner (requires --include-metadata)",
-    )
-
-    # Feature 6: Stale component heuristics
-    org_group.add_argument(
-        "--flag-stale",
-        action="store_true",
-        dest="org_flag_stale",
-        help="Flag components with stale naming patterns (test, old, temp, deprecated, version suffixes, date patterns)",
-    )
-
-    # Enable shell tab-completion if argcomplete is installed
-    if enable_autocomplete and _ARGCOMPLETE_AVAILABLE:
-        argcomplete.autocomplete(parser)  # pragma: no cover
-
-    if return_parser:
-        return parser
-
-    return parser.parse_args(argv)
-
+# Canonical implementation lives in ``cli.parser``; re-exported here for
+# backwards compatibility with code that imports from ``generator``.
+
+from cja_auto_sdr.cli.parser import (
+    _bounded_float,
+    _safe_env_number,
+    parse_arguments,
+)
 
 # ==================== DATA VIEW NAME RESOLUTION ====================
 
@@ -8357,8 +7341,12 @@ def resolve_data_view_names(
     except FileNotFoundError:
         logger.error(f"Configuration file '{config_file}' not found")
         return [], {}
-    except Exception as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         logger.error(f"Failed to resolve data view names: {e!s}")
+        return [], {}
+    except Exception as e:
+        logger.error(f"Failed to resolve data view names (unexpected): {e!s}")
+        logger.debug("Unexpected error during name resolution", exc_info=True)
         return [], {}
 
 
@@ -8783,7 +7771,7 @@ def _run_list_command(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except Exception as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         if is_machine_readable:
             print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
         else:
@@ -9494,7 +8482,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         print(ConsoleColors.warning("Operation cancelled."))
         return []
 
-    except Exception as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return []
 
@@ -9731,7 +8719,7 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         print("Run: cja_auto_sdr --sample-config")
         return None
-    except Exception as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
         return None
 
@@ -9861,6 +8849,25 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
 # ==================== CONFIG STATUS ====================
 
 
+def _read_config_status_file(config_file: str, logger: logging.Logger) -> tuple[dict[str, Any] | None, str | None]:
+    """Read config JSON for --config-status and return a controlled error message on failure."""
+    try:
+        with open(config_file, encoding="utf-8") as f:
+            payload = json.load(f)
+    except json.JSONDecodeError:
+        return None, f"{config_file} is not valid JSON"
+    except (UnicodeDecodeError, ConfigurationError, OSError) as e:
+        return None, f"Cannot read {config_file}: {e}"
+    except Exception as e:
+        logger.debug("Unexpected error reading config file in --config-status", exc_info=True)
+        return None, f"Cannot read {config_file}: {e}"
+
+    if not isinstance(payload, dict):
+        return None, f"{config_file} must contain a JSON object"
+
+    return payload, None
+
+
 def show_config_status(config_file: str = "config.json", profile: str | None = None, output_json: bool = False) -> bool:
     """
     Show configuration status without connecting to API.
@@ -9890,7 +8897,22 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
     config_source_type = None  # 'profile', 'environment', 'file'
     config_data = {}
     logger = logging.getLogger(__name__)
-    error_message = None
+
+    def _emit_config_status_error(message: str, *, include_help: bool = False) -> bool:
+        if output_json:
+            print(json.dumps({"error": message, "valid": False}, indent=2))
+        else:
+            print(ConsoleColors.error(f"ERROR: {message}"))
+            if include_help:
+                print()
+                print("Options:")
+                print(f"  1. Create config file: {config_file}")
+                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
+                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
+                print()
+                print("Generate a sample config with:")
+                print("  cja_auto_sdr --sample-config")
+        return False
 
     # Priority 1: Profile credentials
     if profile:
@@ -9901,12 +8923,7 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
                 config_source_type = "profile"
                 config_data = profile_creds
         except (ProfileNotFoundError, ProfileConfigError) as e:
-            error_message = f"Profile '{profile}' - {e}"
-            if output_json:
-                print(json.dumps({"error": error_message, "valid": False}, indent=2))
-            else:
-                print(ConsoleColors.error(f"ERROR: {error_message}"))
-            return False
+            return _emit_config_status_error(f"Profile '{profile}' - {e}")
 
     # Priority 2: Environment variables
     if not config_source:
@@ -9920,40 +8937,14 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
     if not config_source:
         config_path = Path(config_file)
         if config_path.exists():
-            try:
-                with open(config_file) as f:
-                    config_data = json.load(f)
-                config_source = f"Config file: {config_path.resolve()}"
-                config_source_type = "file"
-            except json.JSONDecodeError:
-                error_message = f"{config_file} is not valid JSON"
-                if output_json:
-                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
-                else:
-                    print(ConsoleColors.error(f"ERROR: {error_message}"))
-                return False
-            except Exception as e:
-                error_message = f"Cannot read {config_file}: {e}"
-                if output_json:
-                    print(json.dumps({"error": error_message, "valid": False}, indent=2))
-                else:
-                    print(ConsoleColors.error(f"ERROR: {error_message}"))
-                return False
+            config_payload, read_error = _read_config_status_file(config_file, logger)
+            if read_error:
+                return _emit_config_status_error(read_error)
+            config_data = config_payload or {}
+            config_source = f"Config file: {config_path.resolve()}"
+            config_source_type = "file"
         else:
-            error_message = "No configuration found"
-            if output_json:
-                print(json.dumps({"error": error_message, "valid": False}, indent=2))
-            else:
-                print(ConsoleColors.error(f"ERROR: {error_message}"))
-                print()
-                print("Options:")
-                print(f"  1. Create config file: {config_file}")
-                print("  2. Set environment variables: ORG_ID, CLIENT_ID, SECRET, SCOPES")
-                print("  3. Create a profile: cja_auto_sdr --profile-add <name>")
-                print()
-                print("Generate a sample config with:")
-                print("  cja_auto_sdr --sample-config")
-            return False
+            return _emit_config_status_error("No configuration found", include_help=True)
 
     # Define field display order and metadata
     fields = [
@@ -10206,8 +9197,12 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
-    except Exception as e:
+    except RECOVERABLE_API_EXCEPTIONS as e:
         print(f"  ✗ API connection failed: {e!s}")
+        all_passed = False
+    except Exception as e:
+        print(f"  ✗ API connection failed (unexpected): {e!s}")
+        logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
 
     # Summary
@@ -10223,6 +9218,67 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
 
 
 # ==================== STATS COMMAND ====================
+
+
+def _stats_error_row(data_view_id: str, error: Exception) -> dict[str, Any]:
+    """Build a consistent non-fatal stats error row for one data view."""
+    return {
+        "id": data_view_id,
+        "name": "ERROR",
+        "owner": "N/A",
+        "metrics": 0,
+        "dimensions": 0,
+        "total_components": 0,
+        "description": f"Error: {error!s}",
+    }
+
+
+def _coerce_stats_component_count(payload: Any) -> int:
+    """Return a safe component count for API payloads with mixed shapes."""
+    if payload is None:
+        return 0
+    if isinstance(payload, pd.DataFrame):
+        return len(payload) if not payload.empty else 0
+    if isinstance(payload, (list, tuple, set, dict)):
+        return len(payload)
+    return 0
+
+
+def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
+    """Fetch one data view's stats row. Raises on API/runtime errors."""
+    dv_info = cja.getDataView(data_view_id)
+    dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
+
+    metrics_payload = cja.getMetrics(data_view_id)
+    dimensions_payload = cja.getDimensions(data_view_id)
+    metrics_count = _coerce_stats_component_count(metrics_payload)
+    dimensions_count = _coerce_stats_component_count(dimensions_payload)
+
+    owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
+    owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
+
+    raw_description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
+    description_text = str(raw_description) if raw_description is not None else ""
+
+    return {
+        "id": data_view_id,
+        "name": dv_name,
+        "owner": owner_name,
+        "metrics": metrics_count,
+        "dimensions": dimensions_count,
+        "total_components": metrics_count + dimensions_count,
+        "description": description_text[:100] + "..." if len(description_text) > 100 else description_text,
+    }
+
+
+def _collect_stats_row_with_fallback(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger) -> dict[str, Any]:
+    """Return one stats row, converting non-fatal per-item failures into an ERROR row."""
+    try:
+        return _collect_stats_row(cja, data_view_id)
+    except RECOVERABLE_STATS_ROW_EXCEPTIONS as e:
+        # Keep per-item stats resilient: one bad DV must not abort the full command.
+        logger.debug("Failed to collect stats row for %s", data_view_id, exc_info=True)
+        return _stats_error_row(data_view_id, e)
 
 
 def show_stats(
@@ -10265,53 +9321,9 @@ def show_stats(
             print(ConsoleColors.error(f"ERROR: {source}"))
             return False
         cja = cjapy.CJA()
+        logger = logging.getLogger(__name__)
 
-        stats_data = []
-
-        for dv_id in data_views:
-            try:
-                # Get data view info
-                dv_info = cja.getDataView(dv_id)
-                dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
-
-                # Get metrics and dimensions
-                metrics_df = cja.getMetrics(dv_id)
-                dimensions_df = cja.getDimensions(dv_id)
-
-                metrics_count = len(metrics_df) if metrics_df is not None and not metrics_df.empty else 0
-                dimensions_count = len(dimensions_df) if dimensions_df is not None and not dimensions_df.empty else 0
-
-                # Get owner info
-                owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
-                owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
-
-                # Get description
-                description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
-
-                stats_data.append(
-                    {
-                        "id": dv_id,
-                        "name": dv_name,
-                        "owner": owner_name,
-                        "metrics": metrics_count,
-                        "dimensions": dimensions_count,
-                        "total_components": metrics_count + dimensions_count,
-                        "description": description[:100] + "..." if len(description) > 100 else description,
-                    },
-                )
-
-            except Exception as e:
-                stats_data.append(
-                    {
-                        "id": dv_id,
-                        "name": "ERROR",
-                        "owner": "N/A",
-                        "metrics": 0,
-                        "dimensions": 0,
-                        "total_components": 0,
-                        "description": f"Error: {e!s}",
-                    },
-                )
+        stats_data = [_collect_stats_row_with_fallback(cja, dv_id, logger) for dv_id in data_views]
 
         # Output based on format
         if output_format == "json" or (is_stdout and output_format != "csv"):
@@ -10403,7 +9415,7 @@ def show_stats(
             print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except Exception as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         if is_machine_readable:
             error_json = json.dumps({"error": f"Failed to get stats: {e!s}"})
             print(error_json, file=sys.stderr if is_stdout else sys.stdout)
@@ -12456,7 +11468,7 @@ def run_org_report(
                 _status_print(
                     ConsoleColors.error(f"ERROR: Invalid JSON in previous report: {org_config.compare_org_report}"),
                 )
-            except Exception as e:
+            except RECOVERABLE_API_EXCEPTIONS as e:
                 _status_print(ConsoleColors.warning(f"Warning: Could not compare reports: {e}"))
 
         # Generate output based on format
@@ -12583,9 +11595,12 @@ def run_org_report(
             _status_print(ConsoleColors.warning("Operation cancelled."))
         raise
 
-    except Exception as e:
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         _status_print(ConsoleColors.error(f"ERROR: Org report failed: {e!s}"))
-        logger.exception("Org report error")
+        if isinstance(e, RECOVERABLE_ORG_REPORT_EXCEPTIONS):
+            logger.exception("Org report error")
+        else:
+            logger.exception("Unexpected org report error")
         return False, False
 
 
@@ -12675,7 +11690,10 @@ def handle_snapshot_command(
 
         return True
 
-    except Exception as e:
+    except KeyboardInterrupt, SystemExit:
+        # Let signals propagate before broad catch.
+        raise
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to create snapshot: {e!s}"), file=sys.stderr)
         return False
 
@@ -12982,11 +12000,11 @@ def handle_diff_command(
         append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
-    except Exception as e:
+    except KeyboardInterrupt, SystemExit:
+        raise
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
+        logger.debug("Diff comparison failed", exc_info=True)
         return False, False, None
 
 
@@ -13227,7 +12245,7 @@ def handle_diff_snapshot_command(
                     target_snapshot.calculated_metrics_inventory = [m.to_full_dict() for m in inventory.metrics]
                     if not quiet and not quiet_diff:
                         print(f"  Calculated metrics: {len(target_snapshot.calculated_metrics_inventory)} items")
-                except Exception as e:
+                except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
                     logger.warning(f"Failed to build calculated metrics inventory: {e}")
 
             if include_segments:
@@ -13239,7 +12257,7 @@ def handle_diff_snapshot_command(
                     target_snapshot.segments_inventory = [s.to_full_dict() for s in inventory.segments]
                     if not quiet and not quiet_diff:
                         print(f"  Segments: {len(target_snapshot.segments_inventory)} items")
-                except Exception as e:
+                except RECOVERABLE_OPTIONAL_INVENTORY_EXCEPTIONS as e:
                     logger.warning(f"Failed to build segments inventory: {e}")
 
             if not quiet and not quiet_diff:
@@ -13367,11 +12385,11 @@ def handle_diff_snapshot_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
-    except Exception as e:
+    except KeyboardInterrupt, SystemExit:
+        raise
+    except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {e!s}"), file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
+        logger.debug("Diff-snapshot comparison failed", exc_info=True)
         return False, False, None
 
 
@@ -13599,11 +12617,15 @@ def handle_compare_snapshots_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
-    except Exception as e:
+    except KeyboardInterrupt, SystemExit:
+        raise
+    except (CJASDRError, OSError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
+        logger.debug("Snapshot comparison failed", exc_info=True)
+        return False, False, None
+    except Exception as e:
+        print(ConsoleColors.error(f"ERROR: Failed to compare snapshots (unexpected): {e!s}"), file=sys.stderr)
+        logger.debug("Unexpected snapshot comparison error", exc_info=True)
         return False, False, None
 
 
@@ -13739,44 +12761,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --exit-codes mode (no data view required)
     if getattr(args, "exit_codes", False):
-        print("=" * BANNER_WIDTH)
-        print("EXIT CODE REFERENCE")
-        print("=" * BANNER_WIDTH)
-        print()
-        print("  Code  Meaning")
-        print("  ----  " + "-" * 50)
-        print("    0   Success")
-        print("        - SDR generated successfully")
-        print("        - Diff comparison: no changes found")
-        print("        - Validation passed")
-        print()
-        print("    1   Error occurred")
-        print("        - Configuration error (invalid credentials, missing file)")
-        print("        - API error (network, authentication, rate limit)")
-        print("        - Validation failed")
-        print("        - File I/O error")
-        print()
-        print("    2   Policy threshold exceeded (not a runtime error)")
-        print("        - Diff mode: changes found")
-        print("        - SDR mode: quality gate failed (--fail-on-quality)")
-        print("        - Org mode: governance threshold failed (--fail-on-threshold)")
-        print()
-        print("    3   Diff: Warning threshold exceeded")
-        print("        - Triggered by --warn-threshold PERCENT")
-        print("        - Example: cja_auto_sdr --diff dv_A dv_B --warn-threshold 10")
-        print("        - Exits 3 if change percentage > threshold")
-        print()
-        print("=" * BANNER_WIDTH)
-        print("CI/CD Examples:")
-        print("=" * BANNER_WIDTH)
-        print()
-        print("  # Fail CI if any changes detected")
-        print("  cja_auto_sdr --diff dv_prod dv_staging --quiet")
-        print("  if [ $? -eq 2 ]; then echo 'Changes detected!'; exit 1; fi")
-        print()
-        print("  # Fail CI only if >10% changes")
-        print("  cja_auto_sdr --diff dv_A dv_B --warn-threshold 10 --quiet")
-        print()
+        from cja_auto_sdr.core.exit_codes import print_exit_codes
+
+        print_exit_codes(banner_width=BANNER_WIDTH)
         sys.exit(0)
 
     # Handle --sample-config mode (no data view required)
@@ -15385,30 +14372,14 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                         dimensions=result.dimensions_data if hasattr(result, "dimensions_data") else [],
                     )
 
-                    # If we don't have the raw data in result, or if inventory is requested,
-                    # we need to fetch it via create_snapshot
-                    needs_fetch = not snapshot.metrics and not snapshot.dimensions
-                    needs_inventory = include_calc or include_segs
-
-                    if needs_fetch or needs_inventory:
-                        # Re-fetch data for Git snapshot (with optional inventory)
-                        fetch_reason = "inventory" if needs_inventory and not needs_fetch else "data"
-                        print(f"Fetching {fetch_reason} for Git snapshot...")
-                        try:
-                            temp_logger = logging.getLogger("git_snapshot")
-                            temp_logger.setLevel(logging.WARNING)
-                            cja = initialize_cja(args.config_file, temp_logger, profile=getattr(args, "profile", None))
-                            if cja:
-                                snapshot_mgr = SnapshotManager(temp_logger)
-                                snapshot = snapshot_mgr.create_snapshot(
-                                    cja,
-                                    result.data_view_id,
-                                    quiet=True,
-                                    include_calculated_metrics=include_calc,
-                                    include_segments=include_segs,
-                                )
-                        except Exception as e:
-                            print(ConsoleColors.warning(f"  Could not fetch snapshot data: {e}"))
+                    snapshot = _refetch_git_snapshot_for_commit(
+                        snapshot=snapshot,
+                        data_view_id=result.data_view_id,
+                        config_file=args.config_file,
+                        profile=getattr(args, "profile", None),
+                        include_calculated_metrics=include_calc,
+                        include_segments_inventory=include_segs,
+                    )
 
                     # Save Git-friendly snapshot
                     print(f"Saving snapshot to: {git_dir}")
@@ -15481,7 +14452,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     print(ConsoleColors.success("Quality report written to stdout"))
                 else:
                     print(ConsoleColors.success(f"Quality report written to: {report_target}"))
-        except Exception as e:
+        except (OSError, OutputError, KeyError, TypeError, ValueError) as e:
             print(ConsoleColors.error(f"ERROR: Failed to write quality report: {e!s}"), file=sys.stderr)
             overall_failure = True
 

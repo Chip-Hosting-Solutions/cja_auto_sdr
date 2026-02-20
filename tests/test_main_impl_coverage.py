@@ -30,7 +30,14 @@ import pandas as pd
 import pytest
 
 from cja_auto_sdr.core.config import APITuningConfig, CircuitBreakerConfig
-from cja_auto_sdr.core.exceptions import OutputError, ProfileConfigError, ProfileNotFoundError
+from cja_auto_sdr.core.exceptions import (
+    APIError,
+    ConfigurationError,
+    OutputError,
+    ProfileConfigError,
+    ProfileNotFoundError,
+    RetryableHTTPError,
+)
 from cja_auto_sdr.generator import (
     BatchProcessor,
     ProcessingResult,
@@ -466,7 +473,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_derived_inventory_generic_exception(
+    def test_derived_inventory_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -481,7 +488,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during derived field inventory building is caught."""
+        """Unexpected runtime exception during derived field inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -570,7 +577,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_calculated_metrics_generic_exception(
+    def test_calculated_metrics_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -585,7 +592,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during calculated metrics inventory is caught."""
+        """Unexpected runtime exception during calculated metrics inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -612,6 +619,60 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert result.success is True
         assert result.calculated_metrics_count == 0
         assert _mock_call_contains(mock_logger.error, "Error during calculated metrics inventory: calc fail")
+        assert _mock_call_contains(
+            mock_logger.info,
+            "Continuing with SDR generation despite calculated metrics inventory errors",
+        )
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_calculated_metrics_transport_exception(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Transport errors during calculated metrics inventory should be non-fatal."""
+        mock_logger, _, _ = _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        with patch(
+            "cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder",
+        ) as mock_cls:
+            mock_cls.return_value.build.side_effect = ConnectionError("calc transport fail")
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_calculated_metrics=True,
+                skip_validation=True,
+            )
+        assert result.success is True
+        assert result.calculated_metrics_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during calculated metrics inventory: calc transport fail")
         assert _mock_call_contains(
             mock_logger.info,
             "Continuing with SDR generation despite calculated metrics inventory errors",
@@ -675,7 +736,7 @@ class TestProcessSingleDataviewInventoryBuilding:
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
     @patch("pandas.ExcelWriter")
-    def test_segments_inventory_generic_exception(
+    def test_segments_inventory_runtime_error_exception(
         self,
         mock_excel_writer,
         mock_apply_formatting,
@@ -690,7 +751,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Generic exception during segments inventory is caught."""
+        """Unexpected runtime exception during segments inventory is non-fatal."""
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
@@ -717,6 +778,57 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert result.success is True
         assert result.segments_count == 0
         assert _mock_call_contains(mock_logger.error, "Error during segments inventory: seg fail")
+        assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_segments_inventory_transport_exception(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_validate_dv,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Transport errors during segments inventory should be non-fatal."""
+        mock_logger, _, _ = _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_validate_dv,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        with patch(
+            "cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder",
+        ) as mock_cls:
+            mock_cls.return_value.build.side_effect = ConnectionError("segments transport fail")
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_segments_inventory=True,
+                skip_validation=True,
+            )
+        assert result.success is True
+        assert result.segments_count == 0
+        assert _mock_call_contains(mock_logger.error, "Error during segments inventory: segments transport fail")
         assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
 
 
@@ -830,8 +942,8 @@ class TestProcessSingleDataviewMetadataWithInventory:
         # providing a metrics DataFrame whose 'type' column blows up
         bad_metrics = sample_metrics_df.copy()
         bad_type_series = Mock()
-        bad_type_series.value_counts.side_effect = RuntimeError("boom")
-        with patch.object(bad_metrics, "__getitem__", side_effect=RuntimeError("boom")):
+        bad_type_series.value_counts.side_effect = TypeError("boom")
+        with patch.object(bad_metrics, "__getitem__", side_effect=TypeError("boom")):
             # Reconfigure fetcher to return the bad metrics
             mock_fetcher = mock_fetcher_class.return_value
             mock_fetcher.fetch_all_data.return_value = (
@@ -888,8 +1000,8 @@ class TestProcessSingleDataviewLookupDataException:
         mock_fetcher = Mock()
         # Return lookup_data that will cause issues: values that error on iteration
         bad_lookup = MagicMock(spec=dict)
-        bad_lookup.__iter__ = Mock(side_effect=RuntimeError("bad iter"))
-        bad_lookup.items.side_effect = RuntimeError("bad items")
+        bad_lookup.__iter__ = Mock(side_effect=TypeError("bad iter"))
+        bad_lookup.items.side_effect = TypeError("bad items")
         bad_lookup.get.return_value = "Unknown"
         bad_lookup.__isinstance__ = Mock(return_value=True)
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, bad_lookup)
@@ -967,7 +1079,7 @@ class TestProcessSingleDataviewJSONFormatException:
         def failing_map(self, func, **kwargs):
             # Fail on the 4th call to exercise the except block
             if next(map_calls) == 4:
-                raise RuntimeError("map failed")
+                raise ValueError("map failed")
             return original_map(self, func, **kwargs)
 
         with patch.object(pd.Series, "map", failing_map):
@@ -1324,7 +1436,7 @@ class TestProcessSingleDataviewExcelPlaceholders:
             sample_dimensions_df,
             sample_dataview_info,
         )
-        mock_apply_formatting.side_effect = RuntimeError("write fail")
+        mock_apply_formatting.side_effect = OSError("write fail")
 
         result = process_single_dataview(
             data_view_id="dv_test_12345",
@@ -1526,8 +1638,11 @@ class TestBatchProcessorStopOnError:
     """Cover lines 6330-6336: stop batch when continue_on_error=False."""
 
     @patch("cja_auto_sdr.generator.setup_logging")
-    @patch("cja_auto_sdr.generator.process_single_dataview_worker")
-    def test_batch_stops_on_first_error(self, mock_worker, mock_setup_logging, tmp_path, mock_config_file):
+    @patch("cja_auto_sdr.generator.as_completed")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    def test_batch_stops_on_first_error(
+        self, mock_executor_cls, mock_as_completed, mock_setup_logging, tmp_path, mock_config_file
+    ):
         """When continue_on_error=False, batch stops after first failure."""
         mock_setup_logging.return_value = Mock()
 
@@ -1544,8 +1659,21 @@ class TestBatchProcessorStopOnError:
             success=True,
             duration=0.5,
         )
-        # First call fails, second succeeds but should not run
-        mock_worker.side_effect = [failed_result, success_result]
+
+        # Mock the executor to avoid ProcessPoolExecutor pickling issues
+        mock_future_fail = Mock()
+        mock_future_fail.result.return_value = failed_result
+        mock_future_ok = Mock()
+        mock_future_ok.result.return_value = success_result
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.side_effect = [mock_future_fail, mock_future_ok]
+        mock_executor_cls.return_value = mock_executor_instance
+
+        # Return only the first future — batch should stop after the failure
+        mock_as_completed.return_value = [mock_future_fail]
 
         output_dir = str(tmp_path / "batch_output")
 
@@ -1613,7 +1741,12 @@ class TestRunDryRunProfileValidation:
         ):
             mock_cja = MagicMock()
             mock_cjapy.CJA.return_value = mock_cja
-            mock_retry.return_value = [{"id": "dv_test", "name": "Test"}]
+            mock_retry.side_effect = [
+                [{"id": "dv_test", "name": "Test"}],  # getDataViews
+                {"name": "Test", "id": "dv_test"},  # getDataView
+                [],  # getMetrics
+                [],  # getDimensions
+            ]
             run_dry_run(["dv_test"], "config.json", logger, profile="goodprofile")
         captured = capsys.readouterr()
         assert "Profile 'goodprofile' found and valid" in captured.out
@@ -1642,11 +1775,40 @@ class TestRunDryRunAPIValidation:
             patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
         ):
-            mock_cjapy.CJA.side_effect = RuntimeError("connection refused")
+            mock_cjapy.CJA.side_effect = ConfigurationError("connection refused")
             result = run_dry_run(["dv_test"], "config.json", logger)
         assert result is False
         captured = capsys.readouterr()
         assert "API connection failed" in captured.out
+
+    def test_api_connection_missing_method_exception(self, capsys):
+        """Missing cjapy methods should be reported as controlled dry-run failure."""
+        logger = logging.getLogger("test_dry_run_api_missing_method")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
+            mock_cjapy.CJA.return_value = object()  # no getDataViews attribute
+            result = run_dry_run(["dv_test"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "API connection failed" in captured.out
+
+    def test_api_connection_unexpected_runtime_exception(self, capsys):
+        """Unexpected runtime exceptions during API probe should still fail gracefully."""
+        logger = logging.getLogger("test_dry_run_api_runtime")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry", side_effect=RuntimeError("runtime boom")),
+        ):
+            mock_cjapy.CJA.return_value = MagicMock()
+            result = run_dry_run(["dv_test"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "API connection failed: runtime boom" in captured.out
 
     def test_dv_validation_with_metric_dimension_errors(self, capsys):
         """Lines 6611-6624: errors fetching metrics/dimensions counts are handled."""
@@ -1707,13 +1869,71 @@ class TestRunDryRunAPIValidation:
 
             mock_retry.side_effect = [
                 [],  # getDataViews
-                RuntimeError("unexpected error"),
+                APIError("unexpected error"),
             ]
 
             result = run_dry_run(["dv_err"], "config.json", logger)
         assert result is False
         captured = capsys.readouterr()
         assert "Error" in captured.out
+
+    def test_dv_validation_unexpected_runtime_exception(self, capsys):
+        """Unexpected runtime errors during per-view validation should not traceback."""
+        logger = logging.getLogger("test_dry_run_dv_runtime_exc")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry") as mock_retry,
+        ):
+            mock_cja = MagicMock()
+            mock_cjapy.CJA.return_value = mock_cja
+
+            mock_retry.side_effect = [
+                [],  # getDataViews
+                RuntimeError("per-view runtime failure"),
+            ]
+
+            result = run_dry_run(["dv_err"], "config.json", logger)
+        assert result is False
+        captured = capsys.readouterr()
+        assert "dv_err: Error - per-view runtime failure" in captured.out
+
+    def test_dv_validation_retryable_error_continues_to_next_view(self, capsys):
+        """Retryable transport failure for one data view should not abort the full loop."""
+        logger = logging.getLogger("test_dry_run_retryable_continue")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry") as mock_retry,
+        ):
+            mock_cja = MagicMock()
+            mock_cjapy.CJA.return_value = mock_cja
+
+            def _mock_retry_call(*_args, **kwargs):
+                op = kwargs.get("operation_name")
+                if op == "getDataViews (dry-run)":
+                    return []
+                if op == "getDataView(dv_flaky)":
+                    raise RetryableHTTPError(504, "gateway timeout")
+                if op == "getDataView(dv_ok)":
+                    return {"name": "Healthy DV"}
+                if op == "getMetrics(dv_ok)":
+                    return []
+                if op == "getDimensions(dv_ok)":
+                    return []
+                raise AssertionError(f"Unexpected operation: {op}")
+
+            mock_retry.side_effect = _mock_retry_call
+
+            result = run_dry_run(["dv_flaky", "dv_ok"], "config.json", logger)
+
+        # One invalid + one valid should still complete the loop and return False.
+        assert result is False
+        captured = capsys.readouterr()
+        assert "dv_flaky" in captured.out
+        assert "dv_ok: Healthy DV" in captured.out
 
 
 # ============================================================================
@@ -1950,6 +2170,8 @@ class TestRunDryRunAPIReturnsNone:
             mock_retry.side_effect = [
                 None,  # getDataViews (unstable)
                 {"name": "Found DV"},  # getDataView
+                [],  # getMetrics
+                [],  # getDimensions
             ]
 
             run_dry_run(["dv_test"], "config.json", logger)

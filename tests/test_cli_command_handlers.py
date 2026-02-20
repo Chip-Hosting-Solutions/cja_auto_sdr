@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cja_auto_sdr.core.exceptions import APIError, CJASDRError
 from cja_auto_sdr.generator import (
     DiffConfig,
     DiffSnapshotConfig,
@@ -103,13 +104,49 @@ class TestProcessInventorySummary:
         mock_ctx.return_value = logging.getLogger("test")
 
         mock_cja = MagicMock()
-        mock_cja.dataviews.get_single.side_effect = Exception("API Error 404")
+        mock_cja.dataviews.get_single.side_effect = APIError("API Error 404")
         mock_init.return_value = mock_cja
 
         result = process_inventory_summary("dv_bad_id", config_file="config.json")
 
         assert "error" in result
         assert "API Error 404" in result["error"]
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_data_view_fetch_transport_failure_returns_error(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport failures during data view lookup should return error dict."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.side_effect = ConnectionError("network timeout")
+        mock_init.return_value = mock_cja
+
+        result = process_inventory_summary("dv_bad_id", config_file="config.json")
+
+        assert "error" in result
+        assert "network timeout" in result["error"]
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_data_view_fetch_unexpected_exception_returns_error(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Plain Exception during data view fetch should return error dict, not traceback."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.side_effect = Exception("unexpected client crash")
+        mock_init.return_value = mock_cja
+
+        result = process_inventory_summary("dv_bad_id", config_file="config.json")
+
+        assert "error" in result
+        assert "unexpected client crash" in result["error"]
 
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -189,7 +226,7 @@ class TestProcessInventorySummary:
 
         mock_cja = MagicMock()
         mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
-        mock_cja.dataviews.get_metrics.side_effect = Exception("metrics API error")
+        mock_cja.dataviews.get_metrics.side_effect = APIError("metrics API error")
         mock_init.return_value = mock_cja
         mock_display.return_value = {"ok": True}
 
@@ -225,6 +262,32 @@ class TestProcessInventorySummary:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.with_log_context")
     @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_calculated_transport_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport errors in calculated inventory should be non-fatal."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = ConnectionError("calc transport down")
+        with patch.dict(
+            "sys.modules",
+            {"cja_calculated_metrics_inventory": MagicMock(CalculatedMetricsInventoryBuilder=mock_builder_cls)},
+        ):
+            result = process_inventory_summary("dv_test123", include_calculated=True)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["calculated_inventory"] is None
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
     def test_include_segments_import_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
         """When segments import fails, should continue gracefully."""
         mock_setup.return_value = logging.getLogger("test")
@@ -243,6 +306,94 @@ class TestProcessInventorySummary:
             result = process_inventory_summary("dv_test123", include_segments=True)
 
         assert result == {"ok": True}
+
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_segments_transport_failure(self, mock_setup, mock_ctx, mock_init, mock_display):
+        """Transport errors in segments inventory should be non-fatal."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = ConnectionError("segments transport down")
+        with patch.dict(
+            "sys.modules",
+            {"cja_segments_inventory": MagicMock(SegmentsInventoryBuilder=mock_builder_cls)},
+        ):
+            result = process_inventory_summary("dv_test123", include_segments=True)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["segments_inventory"] is None
+
+    @pytest.mark.parametrize(
+        ("module_name", "builder_attr", "include_kwargs", "summary_key"),
+        [
+            (
+                "cja_auto_sdr.inventory.derived_fields",
+                "DerivedFieldInventoryBuilder",
+                {"include_derived": True},
+                "derived_inventory",
+            ),
+            (
+                "cja_calculated_metrics_inventory",
+                "CalculatedMetricsInventoryBuilder",
+                {"include_calculated": True},
+                "calculated_inventory",
+            ),
+            (
+                "cja_segments_inventory",
+                "SegmentsInventoryBuilder",
+                {"include_segments": True},
+                "segments_inventory",
+            ),
+        ],
+    )
+    @patch("cja_auto_sdr.generator.display_inventory_summary")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.with_log_context")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_include_optional_inventory_runtime_failure_non_fatal(
+        self,
+        mock_setup,
+        mock_ctx,
+        mock_init,
+        mock_display,
+        module_name,
+        builder_attr,
+        include_kwargs,
+        summary_key,
+    ):
+        """Unexpected RuntimeError in optional inventory builders should not abort summary mode."""
+        mock_setup.return_value = logging.getLogger("test")
+        mock_ctx.return_value = logging.getLogger("test")
+
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.return_value = {"name": "DV1"}
+        mock_cja.dataviews.get_metrics.return_value = [{"id": "m1"}]
+        mock_cja.dataviews.get_dimensions.return_value = [{"id": "d1"}]
+        mock_init.return_value = mock_cja
+        mock_display.return_value = {"ok": True}
+
+        mock_builder_cls = MagicMock()
+        mock_builder_cls.return_value.build.side_effect = RuntimeError("unexpected builder runtime failure")
+
+        with patch.dict(
+            "sys.modules",
+            {module_name: MagicMock(**{builder_attr: mock_builder_cls})},
+        ):
+            result = process_inventory_summary("dv_test123", quiet=True, **include_kwargs)
+
+        assert result == {"ok": True}
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs[summary_key] is None
 
     @patch("cja_auto_sdr.generator.display_inventory_summary")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -557,7 +708,7 @@ class TestHandleDiffCommand:
     def test_diff_exception_returns_false(self, mock_conf, mock_cjapy):
         """General exception during diff returns (False, False, None)."""
         mock_conf.return_value = (True, "config_path", {})
-        mock_cjapy.CJA.side_effect = Exception("Unexpected boom")
+        mock_cjapy.CJA.side_effect = CJASDRError("Unexpected boom")
 
         success, has_changes, exit_override = handle_diff_command(
             source_id="dv_a",
@@ -568,6 +719,46 @@ class TestHandleDiffCommand:
         assert success is False
         assert has_changes is False
         assert exit_override is None
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_diff_plain_exception_returns_false(self, mock_conf, mock_cjapy):
+        """Bare dependency exceptions should be converted to controlled diff failures."""
+        mock_conf.return_value = (True, "config_path", {})
+        mock_cjapy.CJA.side_effect = Exception("auth bootstrap failed")
+
+        success, has_changes, exit_override = handle_diff_command(
+            source_id="dv_a",
+            target_id="dv_b",
+            quiet=True,
+        )
+
+        assert success is False
+        assert has_changes is False
+        assert exit_override is None
+
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_diff_snapshot_value_error_returns_false(self, mock_conf, mock_cjapy, mock_sm_cls, capsys):
+        """ValueError during snapshot fetch should be handled as a diff failure."""
+        mock_conf.return_value = (True, "config_path", {})
+        mock_cjapy.CJA.return_value = MagicMock()
+
+        mock_sm = MagicMock()
+        mock_sm.create_snapshot.side_effect = ValueError("data view not found")
+        mock_sm_cls.return_value = mock_sm
+
+        success, has_changes, exit_override = handle_diff_command(
+            source_id="dv_missing",
+            target_id="dv_target",
+            quiet=True,
+        )
+
+        assert success is False
+        assert has_changes is False
+        assert exit_override is None
+        assert "Failed to compare data views" in capsys.readouterr().err
 
     def test_diff_config_dataclass_unpacking(self):
         """DiffConfig is correctly unpacked into local vars in handle_diff_command."""
@@ -930,7 +1121,7 @@ class TestHandleDiffSnapshotCommand:
         mock_sm_cls.return_value = mock_sm
 
         mock_conf.return_value = (True, "config_path", {})
-        mock_cjapy.CJA.side_effect = RuntimeError("unexpected")
+        mock_cjapy.CJA.side_effect = CJASDRError("unexpected")
 
         success, _has_changes, _ = handle_diff_snapshot_command(
             data_view_id="dv_test",

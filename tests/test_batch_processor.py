@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from concurrent.futures.process import BrokenProcessPool
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -295,7 +296,7 @@ class TestBatchProcessorProcessBatch:
         mock_tqdm.return_value.__exit__ = Mock(return_value=False)
 
         mock_future = Mock()
-        mock_future.result.side_effect = Exception("Unexpected error")
+        mock_future.result.side_effect = ValueError("Unexpected error")
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
@@ -309,6 +310,40 @@ class TestBatchProcessorProcessBatch:
 
         assert len(results["failed"]) == 1
         assert "Unexpected error" in results["failed"][0].error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_broken_process_pool_handling(
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """BrokenProcessPool should be captured as failed result, not raised."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = BrokenProcessPool("worker terminated abruptly")
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=True)
+            results = processor.process_batch(["dv_test_12345"])
+
+        assert len(results["failed"]) == 1
+        assert "worker terminated abruptly" in results["failed"][0].error_message
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
@@ -329,7 +364,117 @@ class TestBatchProcessorProcessBatch:
         mock_tqdm.return_value.__exit__ = Mock(return_value=False)
 
         mock_future = Mock()
-        mock_future.result.side_effect = Exception("Boom")
+        mock_future.result.side_effect = ValueError("Boom")
+        mock_future.cancel = Mock()
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                continue_on_error=False,
+            )
+            processor.process_batch(["dv_test_12345"])
+
+        mock_future.cancel.assert_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_broken_process_pool_cancels_when_continue_on_error_false(
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """BrokenProcessPool should trigger cancellation when stop-on-error is enabled."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = BrokenProcessPool("worker terminated abruptly")
+        mock_future.cancel = Mock()
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                continue_on_error=False,
+            )
+            processor.process_batch(["dv_test_12345"])
+
+        mock_future.cancel.assert_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_unexpected_exception_captured_as_failed(
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """Plain Exception from worker/executor plumbing should be captured, not raised."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = RuntimeError("executor plumbing failure")
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.__enter__ = Mock(return_value=mock_executor_instance)
+        mock_executor_instance.__exit__ = Mock(return_value=False)
+        mock_executor_instance.submit.return_value = mock_future
+        mock_executor.return_value = mock_executor_instance
+
+        with patch("cja_auto_sdr.generator.as_completed", return_value=[mock_future]):
+            processor = BatchProcessor(config_file=mock_config_file, output_dir=temp_output_dir, continue_on_error=True)
+            results = processor.process_batch(["dv_test_12345"])
+
+        assert len(results["failed"]) == 1
+        assert "executor plumbing failure" in results["failed"][0].error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_process_batch_unexpected_exception_cancels_when_stop_on_error(
+        self,
+        mock_tqdm,
+        mock_executor,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """Plain Exception should cancel remaining futures when continue_on_error=False."""
+        mock_setup_logging.return_value = Mock()
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        mock_future = Mock()
+        mock_future.result.side_effect = RuntimeError("executor plumbing failure")
         mock_future.cancel = Mock()
 
         mock_executor_instance = MagicMock()
