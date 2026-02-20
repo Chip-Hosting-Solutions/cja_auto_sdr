@@ -4038,3 +4038,37 @@ class TestProfileImportCLI:
                 main()
 
         assert exc_info.value.code == 1
+
+
+class TestDiscoveryInspectionParsing:
+    """Tests for new discovery inspection CLI arguments."""
+
+    def test_describe_dataview_stores_id(self):
+        args = parse_arguments(["--describe-dataview", "dv_abc123"])
+        assert args.describe_dataview == "dv_abc123"
+
+    def test_list_metrics_stores_id(self):
+        args = parse_arguments(["--list-metrics", "dv_abc123"])
+        assert args.list_metrics == "dv_abc123"
+
+    def test_list_dimensions_stores_id(self):
+        args = parse_arguments(["--list-dimensions", "dv_abc123"])
+        assert args.list_dimensions == "dv_abc123"
+
+    def test_list_segments_stores_id(self):
+        args = parse_arguments(["--list-segments", "dv_abc123"])
+        assert args.list_segments == "dv_abc123"
+
+    def test_list_calculated_metrics_stores_id(self):
+        args = parse_arguments(["--list-calculated-metrics", "dv_abc123"])
+        assert args.list_calculated_metrics == "dv_abc123"
+
+    def test_new_flags_mutual_exclusivity_with_existing(self):
+        """New flags are mutually exclusive with existing discovery commands."""
+        with pytest.raises(SystemExit):
+            parse_arguments(["--list-dataviews", "--describe-dataview", "dv_1"])
+
+    def test_new_flags_mutual_exclusivity_with_each_other(self):
+        """New flags are mutually exclusive with each other."""
+        with pytest.raises(SystemExit):
+            parse_arguments(["--describe-dataview", "dv_1", "--list-metrics", "dv_1"])
