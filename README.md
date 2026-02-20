@@ -258,6 +258,7 @@ cja_auto_sdr "Production Analytics"
 | Interactive Data View selection | `cja_auto_sdr --interactive` |
 | Pipe to other tools | `cja_auto_sdr --list-dataviews --output - \| jq '.dataViews[]'` |
 | Inspect a data view | `cja_auto_sdr --describe-dataview dv_abc123` |
+| Inspect by name | `cja_auto_sdr --describe-dataview "Production Web Data"` |
 | List metrics (with filter) | `cja_auto_sdr --list-metrics dv_abc123 --filter revenue` |
 | List dimensions as CSV | `cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv` |
 | List segments | `cja_auto_sdr --list-segments dv_abc123` |
@@ -408,7 +409,7 @@ cja_auto_sdr/
 │   ├── GIT_INTEGRATION.md     # Git integration guide
 │   ├── ORG_WIDE_ANALYSIS.md   # Org-wide report guide
 │   └── ...                    # Additional guides
-├── tests/                     # Test suite (4,745+ tests)
+├── tests/                     # Test suite (4,756+ tests)
 ├── sample_outputs/            # Example output files
 │   ├── excel/                 # Sample Excel SDR
 │   ├── csv/                   # Sample CSV output

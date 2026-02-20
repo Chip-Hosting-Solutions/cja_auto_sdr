@@ -224,12 +224,14 @@ Drill into individual data view resources. These commands let you inspect a sing
 
 | Option | Argument | Description |
 |--------|----------|-------------|
-| `--describe-dataview` | `DATA_VIEW_ID` | Show detailed metadata and component counts for a single data view |
-| `--list-metrics` | `DATA_VIEW_ID` | List all metrics in a data view |
-| `--list-dimensions` | `DATA_VIEW_ID` | List all dimensions in a data view |
-| `--list-segments` | `DATA_VIEW_ID` | List all segments/filters scoped to a data view |
-| `--list-calculated-metrics` | `DATA_VIEW_ID` | List all calculated metrics for a data view |
+| `--describe-dataview` | `DATA_VIEW_ID_OR_NAME` | Show detailed metadata and component counts for a single data view |
+| `--list-metrics` | `DATA_VIEW_ID_OR_NAME` | List all metrics in a data view |
+| `--list-dimensions` | `DATA_VIEW_ID_OR_NAME` | List all dimensions in a data view |
+| `--list-segments` | `DATA_VIEW_ID_OR_NAME` | List all segments/filters scoped to a data view |
+| `--list-calculated-metrics` | `DATA_VIEW_ID_OR_NAME` | List all calculated metrics for a data view |
 
+> **Name resolution:** These commands accept a data view ID (`dv_...`) or a data view name. When a name is provided, it is resolved via the API. Use `--name-match` to control matching (exact, insensitive, or fuzzy). If a name matches multiple data views, you will be prompted to select one interactively.
+>
 > **Mutual exclusivity:** These commands are mutually exclusive with each other and with all other discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`).
 >
 > **Filter/Sort/Limit:** `--list-metrics`, `--list-dimensions`, `--list-segments`, and `--list-calculated-metrics` support `--filter`, `--sort`, and `--limit` for filtering, ordering, and limiting results. `--describe-dataview` does not support these options (it returns a single resource).
@@ -627,9 +629,17 @@ cja_auto_sdr --list-calculated-metrics dv_abc123 --filter "percent"
 
 # Use with a profile
 cja_auto_sdr --profile client-a --list-metrics dv_abc123
+
+# Use a data view name instead of ID
+cja_auto_sdr --describe-dataview "Production Web Data"
+
+# Name with fuzzy matching
+cja_auto_sdr --list-metrics "Prod Web" --name-match fuzzy
 ```
 
 > **Note:** Discovery inspection commands are mutually exclusive with each other and with `--list-dataviews`, `--list-connections`, and `--list-datasets`.
+>
+> **Name resolution:** You can pass a data view name instead of an ID. Use `--name-match` to control matching mode (exact, insensitive, fuzzy). If a name matches multiple views, you'll be prompted to choose one interactively.
 >
 > **Filter/Sort/Limit:** All list commands (`--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) support `--filter`, `--sort`, and `--limit`. `--describe-dataview` does not (it returns a single resource).
 

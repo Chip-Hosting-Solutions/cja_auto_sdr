@@ -118,6 +118,12 @@ cja_auto_sdr --list-metrics dv_abc123 --sort name --limit 20
 
 # Pipe to jq for scripting
 cja_auto_sdr --list-dimensions dv_abc123 --format json --output - | jq '.[].name'
+
+# Use a data view name instead of ID
+cja_auto_sdr --describe-dataview "Production Web Data"
+
+# Name with fuzzy matching
+cja_auto_sdr --list-metrics "Prod Web" --name-match fuzzy
 ```
 
 ## Diff Comparison Commands (Diff Mode)

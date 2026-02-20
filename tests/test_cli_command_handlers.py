@@ -2003,3 +2003,181 @@ class TestDiscoveryInspectionDispatch:
         assert call_kwargs[1]["filter_pattern"] == "active.*"
         assert call_kwargs[1]["sort_expression"] == "name"
         assert call_kwargs[1]["limit"] == 10
+
+
+class TestDiscoveryInspectionNameResolution:
+    """Tests for data view name resolution in ID-bearing discovery commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_id_passthrough_skips_resolution(self, mock_fn, mock_resolve):
+        """Data view IDs (dv_...) should pass through without calling resolve_data_view_names."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_123"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_not_called()
+        assert mock_fn.call_args[0][0] == "dv_123"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_resolves_to_single_id(self, mock_fn, mock_resolve):
+        """A name that resolves to a single data view ID should be passed to the command."""
+        mock_resolve.return_value = (["dv_resolved"], {"My View": ["dv_resolved"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "My View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_resolved"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_exits_one(self, mock_fn, mock_resolve, capsys):
+        """A name with no matches should exit 1 with an error."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Nonexistent View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Could not resolve data view" in captured.err
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_interactive_select(self, mock_fn, mock_resolve, mock_prompt):
+        """An ambiguous name in interactive mode should call prompt_for_selection."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        mock_prompt.return_value = "dv_b"
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Shared"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_prompt.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_b"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_non_interactive_exits_one(self, mock_fn, mock_resolve, mock_prompt, capsys):
+        """An ambiguous name in non-interactive mode should exit 1 with disambiguation list."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        mock_prompt.return_value = None  # non-interactive
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Shared"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        captured = capsys.readouterr()
+        assert "ambiguous" in captured.err.lower()
+        assert "dv_a" in captured.err
+        assert "dv_b" in captured.err
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_match_option_forwarded(self, mock_fn, mock_resolve):
+        """--name-match should be forwarded to resolve_data_view_names as match_mode."""
+        mock_resolve.return_value = (["dv_found"], {"View": ["dv_found"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "View", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_resolve.call_args[1]["match_mode"] == "fuzzy"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution(self, mock_fn, mock_resolve):
+        """--list-metrics should resolve names to IDs."""
+        mock_resolve.return_value = (["dv_m1"], {"Metrics View": ["dv_m1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Metrics View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_m1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_name_resolution(self, mock_fn, mock_resolve):
+        """--list-dimensions should resolve names to IDs."""
+        mock_resolve.return_value = (["dv_d1"], {"Dims View": ["dv_d1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "Dims View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_d1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_name_resolution(self, mock_fn, mock_resolve):
+        """--list-segments should resolve names to IDs."""
+        mock_resolve.return_value = (["dv_s1"], {"Segs View": ["dv_s1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "Segs View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_s1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_list_calculated_metrics_name_resolution(self, mock_fn, mock_resolve):
+        """--list-calculated-metrics should resolve names to IDs."""
+        mock_resolve.return_value = (["dv_cm1"], {"Calc View": ["dv_cm1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "Calc View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_cm1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_id_passthrough_list_metrics(self, mock_fn, mock_resolve):
+        """--list-metrics with a dv_ ID should skip resolution."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_456"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_not_called()
+        assert mock_fn.call_args[0][0] == "dv_456"

@@ -13541,7 +13541,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 run_state["details"] = {"operation_success": success, "discovery_command": attr}
             sys.exit(0 if success else 1)
 
-    # ID-bearing discovery commands (inspection commands that take a data view ID)
+    # ID-bearing discovery commands (inspection commands that take a data view ID or name)
     _discovery_commands_id = {
         "describe_dataview": describe_dataview,
         "list_metrics": list_metrics,
@@ -13550,8 +13550,48 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         "list_calculated_metrics": list_calculated_metrics,
     }
     for attr, func in _discovery_commands_id.items():
-        resource_id = getattr(args, attr, None)
-        if resource_id:
+        resource_id_or_name = getattr(args, attr, None)
+        if resource_id_or_name:
+            # Resolve name → ID if needed (IDs pass through without API call)
+            if is_data_view_id(resource_id_or_name):
+                resource_id = resource_id_or_name
+            else:
+                temp_logger = logging.getLogger("name_resolution")
+                temp_logger.setLevel(logging.WARNING)
+                resolved_ids, _ = resolve_data_view_names(
+                    [resource_id_or_name],
+                    args.config_file,
+                    temp_logger,
+                    profile=getattr(args, "profile", None),
+                    match_mode=getattr(args, "name_match", "exact"),
+                )
+                if not resolved_ids:
+                    _exit_error(
+                        f"Could not resolve data view: '{resource_id_or_name}'\n"
+                        "  Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                    )
+                if len(resolved_ids) > 1:
+                    options = [(dv_id, f"{resource_id_or_name} ({dv_id})") for dv_id in resolved_ids]
+                    selected = prompt_for_selection(
+                        options,
+                        f"Name '{resource_id_or_name}' matches {len(resolved_ids)} data views. Please select one:",
+                    )
+                    if selected:
+                        resource_id = selected
+                    else:
+                        print(
+                            ConsoleColors.error(
+                                f"ERROR: Name '{resource_id_or_name}' is ambiguous — matches {len(resolved_ids)} data views:",
+                            ),
+                            file=sys.stderr,
+                        )
+                        for dv_id in resolved_ids:
+                            print(f"  • {dv_id}", file=sys.stderr)
+                        print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    resource_id = resolved_ids[0]
+
             list_format = "table"
             if args.format in ("json", "csv"):
                 list_format = args.format
