@@ -7490,9 +7490,7 @@ def _format_as_table(
             indent = " " * sum(widths[:-1])
             lines.extend(indent + cont for cont in wrapped[1:])
         else:
-            lines.append(
-                "".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True))
-            )
+            lines.append("".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)))
     lines.append("")
     return "\n".join(lines)
 

@@ -4220,7 +4220,11 @@ class TestDescribeDataview:
         assert result is True
         output = f.getvalue()
         # Description should be split across multiple lines
-        desc_lines = [line for line in output.split("\n") if "Description" in line or (line.startswith("                 ") and "long" in line)]
+        desc_lines = [
+            line
+            for line in output.split("\n")
+            if "Description" in line or (line.startswith("                 ") and "long" in line)
+        ]
         assert len(desc_lines) > 1, "Long description should wrap to multiple lines"
         # No single line should exceed terminal width by much
         for line in output.split("\n"):
