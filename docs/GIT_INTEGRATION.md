@@ -542,6 +542,10 @@ cja_auto_sdr dv_1 dv_2 dv_3 --batch --git-commit
 cja_auto_sdr dv_prod --format excel --git-commit
 ```
 
+## Snapshot Re-Fetch Behaviour
+
+When using `--git-commit` with inventory flags (`--include-calculated`, `--include-segments`), the tool may need to re-fetch snapshot data if the initial fetch was incomplete. As of v3.3.1, **snapshot re-fetch failures are non-fatal** — the tool prints a warning and continues with whatever data was successfully fetched, rather than aborting the entire commit flow. This ensures that a transient API error during re-fetch does not prevent the core metrics/dimensions snapshot from being committed.
+
 ## Limitations
 
 1. **Read-Only**: Git integration provides audit/tracking capabilities only. This tool reads from CJA and saves snapshots locally—it cannot push changes back to CJA. Any configuration changes must be made directly in the CJA UI.

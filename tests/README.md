@@ -82,6 +82,8 @@ tests/
 ├── test_org_cache_branches.py       # Org cache branch coverage
 ├── test_org_writer_coverage.py      # Org writer edge cases and coverage
 ├── test_output_writer_coverage.py   # Output writer edge cases and coverage
+├── test_exception_contracts.py      # Exception boundary contract tests
+├── test_parallel_validation.py      # Parallel validation operations
 └── README.md                        # This file
 ```
 
@@ -166,6 +168,10 @@ tests/
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
 | `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
+| `test_backwards_compat.py` | 34 | Backwards compatibility tests |
+| `test_exception_contracts.py` | 13 | Exception boundary contract tests |
+| `test_parallel_validation.py` | 9 | Parallel validation operations |
+| `test_update_test_counts.py` | 2 | Test count validation tests |
 | **Total** | **4,708** | **Collected via pytest --collect-only** |
 
 ## Running Tests

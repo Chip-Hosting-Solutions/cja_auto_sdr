@@ -358,7 +358,7 @@ uv run cja_auto_sdr --list-dataviews
 **Successful output:**
 ```
 ============================================================
-INITIALIZING CJA CONNECTION
+LISTING ACCESSIBLE DATA VIEWS
 ============================================================
 ✓ API connection successful! Found 12 data view(s)
 
@@ -486,47 +486,30 @@ The tool displays real-time progress:
 ```
 Processing data view: dv_677ea9291244fd082f02dd42
 
-============================================================
-INITIALIZING CJA CONNECTION
-============================================================
-✓ API connection successful! Found 12 data view(s)
+✓ CJA connection established successfully
+✓ Data view validation complete - proceeding with data fetch
 
 ============================================================
-VALIDATING DATA VIEW
+Starting optimized data fetch operations
 ============================================================
-✓ Data view validated successfully!
-  Name: Production Analytics
-  ID: dv_677ea9291244fd082f02dd42
+Data fetch operations completed successfully
 
 ============================================================
-EXTRACTING DATA VIEW CONFIGURATION
+Starting data quality validation (optimized)
 ============================================================
-Extracting metrics... ━━━━━━━━━━━━━━━━━━━━ 100% 0:00:02
-Extracting dimensions... ━━━━━━━━━━━━━━━━━━━━ 100% 0:00:03
-
-============================================================
-RUNNING DATA QUALITY VALIDATION
-============================================================
-Running validation checks...
 ✓ Duplicate ID check: PASSED
 ✓ Missing name check: PASSED (2 warnings)
 ✓ Null value check: PASSED
 ...
 
 ============================================================
-GENERATING EXCEL REPORT
+Generating output in format: excel
 ============================================================
-Creating workbook...
-Writing Metadata sheet...
-Writing Data Quality sheet...
-Writing DataView Details sheet...
-Writing Metrics sheet (145 metrics)...
-Writing Dimensions sheet (287 dimensions)...
-Applying formatting...
+Generating Excel file...
 
 ============================================================
-✓ SDR generation complete!
-  File: CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
+✓ SDR generation complete! File saved as:
+  CJA_DataView_Production_Analytics_dv_677ea9291244fd082f02dd42_SDR.xlsx
   Size: 2.5 MB
   Time: 18.3 seconds
 ============================================================
