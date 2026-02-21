@@ -7935,9 +7935,14 @@ def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
     return raw_dv if isinstance(raw_dv, dict) else None
 
 
+def _normalized_payload_keys(payload: dict[str, Any]) -> set[str]:
+    """Return normalized dictionary keys for payload-shape checks."""
+    return {str(key).strip().casefold() for key in payload}
+
+
 def _looks_like_dataview_error_payload(payload: dict[str, Any]) -> bool:
     """Return True when a getDataView payload matches API error object shape."""
-    normalized_keys = {str(key).strip().casefold() for key in payload}
+    normalized_keys = _normalized_payload_keys(payload)
     if not normalized_keys:
         return True
 
@@ -7960,6 +7965,125 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     return payload
 
 
+_COMPONENT_SEQUENCE_KEYS = ("content", "items", "results", "data", "rows")
+
+
+def _extract_component_sequence(payload: dict[str, Any]) -> list[Any] | None:
+    """Extract list-like component rows from common API envelope shapes."""
+    for key in _COMPONENT_SEQUENCE_KEYS:
+        if key not in payload:
+            continue
+        value = payload.get(key)
+        if value is None:
+            return []
+        if isinstance(value, pd.DataFrame):
+            return value.to_dict("records")
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        if isinstance(value, dict):
+            nested = _extract_component_sequence(value)
+            if nested is not None:
+                return nested
+        return []
+    return None
+
+
+def _looks_like_component_error_payload(payload: dict[str, Any]) -> bool:
+    """Return True when a component API payload row matches error object shape."""
+    normalized_keys = _normalized_payload_keys(payload)
+    if not normalized_keys:
+        return True
+
+    explicit_error_keys = {"error", "errorcode", "errordescription", "error_description"}
+    if normalized_keys & explicit_error_keys:
+        return True
+
+    has_component_identity = bool(payload.get("id")) or bool(payload.get("name"))
+    generic_error_keys = {"statuscode", "status_code", "status", "message", "detail", "title", "type"}
+    return not has_component_identity and bool(normalized_keys & generic_error_keys)
+
+
+def _coerce_component_rows(raw_payload: Any) -> list[Any] | None:
+    """Normalize component API payloads into row lists when possible."""
+    if raw_payload is None:
+        return []
+    if isinstance(raw_payload, pd.DataFrame):
+        return raw_payload.to_dict("records")
+    if isinstance(raw_payload, (list, tuple, set)):
+        return list(raw_payload)
+    if isinstance(raw_payload, dict):
+        extracted = _extract_component_sequence(raw_payload)
+        if extracted is not None:
+            return extracted
+        return [raw_payload]
+    return None
+
+
+def _is_component_error_payload(raw_payload: Any) -> bool:
+    """Return True when a component API payload appears to be an error object."""
+    if isinstance(raw_payload, pd.DataFrame):
+        # A bare empty frame (no rows, no columns) is a legitimate "no results" shape.
+        if raw_payload.empty and len(raw_payload.columns) == 0:
+            return False
+        if _looks_like_component_error_payload({str(column): None for column in raw_payload.columns}):
+            if raw_payload.empty:
+                return True
+            for row in raw_payload.to_dict("records"):
+                if isinstance(row, dict) and _looks_like_component_error_payload(row):
+                    return True
+        return False
+
+    if isinstance(raw_payload, dict):
+        if _looks_like_component_error_payload(raw_payload):
+            return True
+        extracted = _extract_component_sequence(raw_payload)
+        if extracted is not None:
+            return _is_component_error_payload(extracted)
+        return False
+
+    if isinstance(raw_payload, (list, tuple, set)):
+        rows = list(raw_payload)
+        if not rows:
+            return False
+        return any(isinstance(row, dict) and _looks_like_component_error_payload(row) for row in rows)
+
+    return False
+
+
+def _normalize_component_records_or_raise(
+    raw_payload: Any,
+    *,
+    component_label: str,
+    data_view_id: str,
+) -> list[dict[str, Any]]:
+    """Normalize component payloads to dict rows or fail on error-shaped responses."""
+    if _is_component_error_payload(raw_payload):
+        raise DiscoveryNotFoundError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
+
+    rows = _coerce_component_rows(raw_payload)
+    if rows is None:
+        raise DiscoveryNotFoundError(
+            f"Unexpected {component_label} payload type for data view '{data_view_id}'",
+        )
+    if not rows:
+        return []
+
+    dict_rows = [row for row in rows if isinstance(row, dict)]
+    if not dict_rows:
+        raise DiscoveryNotFoundError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
+    return dict_rows
+
+
+def _count_component_items_or_na(raw_payload: Any) -> int | str:
+    """Return component count or 'N/A' when payload is unavailable/invalid."""
+    if _is_component_error_payload(raw_payload):
+        return "N/A"
+    rows = _coerce_component_rows(raw_payload)
+    if rows is None:
+        return "N/A"
+    return len(rows)
+
+
 def _fetch_describe_dataview(
     data_view_id: str,
     output_format: str,
@@ -7980,12 +8104,7 @@ def _fetch_describe_dataview(
         def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
             """Call an API method and return the item count, or 'N/A' on failure."""
             try:
-                result = api_call(*args, **kwargs)
-                if isinstance(result, pd.DataFrame):
-                    return len(result)
-                if isinstance(result, list):
-                    return len(result)
-                return 0
+                return _count_component_items_or_na(api_call(*args, **kwargs))
             except Exception:
                 return "N/A"
 
@@ -8140,9 +8259,13 @@ def _fetch_metrics_list(
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         dv_name = _resolve_dataview_name(cja, data_view_id)
 
-        raw_metrics = cja.getMetrics(data_view_id, inclType=True, full=True)
+        raw_metrics = _normalize_component_records_or_raise(
+            cja.getMetrics(data_view_id, inclType=True, full=True),
+            component_label="metrics",
+            data_view_id=data_view_id,
+        )
 
-        if raw_metrics is None or (hasattr(raw_metrics, "__len__") and len(raw_metrics) == 0):
+        if not raw_metrics:
             if is_machine_readable:
                 if output_format == "json":
                     return json.dumps(
@@ -8151,9 +8274,6 @@ def _fetch_metrics_list(
                     )
                 return "id,name,type,description\n"
             return f"\nNo metrics found for data view '{data_view_id}'.\n"
-
-        if isinstance(raw_metrics, pd.DataFrame):
-            raw_metrics = raw_metrics.to_dict("records")
 
         display_data = [
             {
@@ -8248,9 +8368,13 @@ def _fetch_dimensions_list(
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         dv_name = _resolve_dataview_name(cja, data_view_id)
 
-        raw_dimensions = cja.getDimensions(data_view_id, inclType=True, full=True)
+        raw_dimensions = _normalize_component_records_or_raise(
+            cja.getDimensions(data_view_id, inclType=True, full=True),
+            component_label="dimensions",
+            data_view_id=data_view_id,
+        )
 
-        if raw_dimensions is None or (hasattr(raw_dimensions, "__len__") and len(raw_dimensions) == 0):
+        if not raw_dimensions:
             if is_machine_readable:
                 if output_format == "json":
                     return json.dumps(
@@ -8259,9 +8383,6 @@ def _fetch_dimensions_list(
                     )
                 return "id,name,type,description\n"
             return f"\nNo dimensions found for data view '{data_view_id}'.\n"
-
-        if isinstance(raw_dimensions, pd.DataFrame):
-            raw_dimensions = raw_dimensions.to_dict("records")
 
         display_data = [
             {
@@ -8365,9 +8486,13 @@ def _fetch_segments_list(
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         dv_name = _resolve_dataview_name(cja, data_view_id)
 
-        raw_segments = cja.getFilters(dataIds=data_view_id, full=True)
+        raw_segments = _normalize_component_records_or_raise(
+            cja.getFilters(dataIds=data_view_id, full=True),
+            component_label="segments",
+            data_view_id=data_view_id,
+        )
 
-        if raw_segments is None or (hasattr(raw_segments, "__len__") and len(raw_segments) == 0):
+        if not raw_segments:
             if is_machine_readable:
                 if output_format == "json":
                     return json.dumps(
@@ -8376,9 +8501,6 @@ def _fetch_segments_list(
                     )
                 return "id,name,owner,approved,description,tags,created,modified\n"
             return f"\nNo segments found for data view '{data_view_id}'.\n"
-
-        if isinstance(raw_segments, pd.DataFrame):
-            raw_segments = raw_segments.to_dict("records")
 
         # Build display dicts with native types
         display_data: list[dict[str, Any]] = []
@@ -8497,9 +8619,13 @@ def _fetch_calculated_metrics_list(
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
         dv_name = _resolve_dataview_name(cja, data_view_id)
 
-        raw_metrics = cja.getCalculatedMetrics(dataIds=data_view_id, full=True)
+        raw_metrics = _normalize_component_records_or_raise(
+            cja.getCalculatedMetrics(dataIds=data_view_id, full=True),
+            component_label="calculated metrics",
+            data_view_id=data_view_id,
+        )
 
-        if raw_metrics is None or (hasattr(raw_metrics, "__len__") and len(raw_metrics) == 0):
+        if not raw_metrics:
             if is_machine_readable:
                 if output_format == "json":
                     return json.dumps(
@@ -8508,9 +8634,6 @@ def _fetch_calculated_metrics_list(
                     )
                 return "id,name,owner,type,polarity,precision,approved,tags,created,modified,description\n"
             return f"\nNo calculated metrics found for data view '{data_view_id}'.\n"
-
-        if isinstance(raw_metrics, pd.DataFrame):
-            raw_metrics = raw_metrics.to_dict("records")
 
         # Build display dicts with native types
         display_data: list[dict[str, Any]] = []

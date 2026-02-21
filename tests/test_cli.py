@@ -4313,6 +4313,41 @@ class TestDescribeDataview:
         assert payload["error_type"] == "not_found"
         assert "dv_missing" in payload["error"]
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_component_error_payload_reports_na(self, mock_profile, mock_configure, mock_cjapy):
+        """Error-shaped component payloads should degrade to N/A counts, not numeric zero."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": "Desc",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
+        }
+        cja.getMetrics.return_value = {"statusCode": 500, "message": "backend timeout"}
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        components = output["dataView"]["components"]
+        assert components["metrics"] == "N/A"
+        assert components["dimensions"] == 1
+        assert components["total"] == "N/A"
+
 
 class TestListMetrics:
     """Tests for --list-metrics command."""
@@ -4418,6 +4453,28 @@ class TestListMetrics:
         payload = json.loads(err.getvalue())
         assert payload["error_type"] == "not_found"
         cja.getMetrics.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_component_error_payload_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Error-shaped metrics payloads should fail, not produce count=0 success."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        cja.getMetrics.return_value = {"statusCode": 403, "errorCode": "forbidden"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4552,6 +4609,28 @@ class TestListDimensions:
         payload = json.loads(err.getvalue())
         assert payload["error_type"] == "not_found"
         cja.getDimensions.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_component_error_payload_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Error-shaped dimensions payloads should fail, not produce count=0 success."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        cja.getDimensions.return_value = {"statusCode": 403, "message": "forbidden"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_dimensions("dv_1", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4755,6 +4834,28 @@ class TestListSegments:
         assert payload["error_type"] == "not_found"
         cja.getFilters.assert_not_called()
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_component_error_payload_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Error-shaped segments payloads should fail, not produce count=0 success."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        cja.getFilters.return_value = {"statusCode": 403, "errorCode": "forbidden"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+
 
 class TestListCalculatedMetrics:
     """Tests for --list-calculated-metrics command."""
@@ -4928,3 +5029,30 @@ class TestListCalculatedMetrics:
         payload = json.loads(err.getvalue())
         assert payload["error_type"] == "not_found"
         cja.getCalculatedMetrics.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_component_error_payload_fails_not_found(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """Error-shaped calculated metrics payloads should fail, not produce count=0 success."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        cja.getCalculatedMetrics.return_value = {"statusCode": 403, "message": "forbidden"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
