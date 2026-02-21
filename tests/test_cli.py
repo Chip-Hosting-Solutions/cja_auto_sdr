@@ -4348,6 +4348,50 @@ class TestDescribeDataview:
         assert components["dimensions"] == 1
         assert components["total"] == "N/A"
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_empty_typed_component_tables_count_as_zero(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """Empty typed DataFrames are valid no-result responses and should count as zero."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": "Desc",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
+        }
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame(columns=["id", "name", "type"])
+        cja.getDimensions.return_value = pd.DataFrame(columns=["id", "name", "type"])
+        cja.getFilters.return_value = pd.DataFrame(columns=["id", "name", "type"])
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(columns=["id", "name", "type"])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        components = output["dataView"]["components"]
+        assert components["metrics"] == 0
+        assert components["dimensions"] == 0
+        assert components["segments"] == 0
+        assert components["calculatedMetrics"] == 0
+        assert components["total"] == 0
+
 
 class TestListMetrics:
     """Tests for --list-metrics command."""
@@ -4428,6 +4472,30 @@ class TestListMetrics:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_empty_typed_dataframe_is_not_error(self, mock_profile, mock_configure, mock_cjapy):
+        """A zero-row metrics table with standard columns is a valid empty result."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame(columns=["id", "name", "type", "description"])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+        assert output["metrics"] == []
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4584,6 +4652,30 @@ class TestListDimensions:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_empty_typed_dataframe_is_not_error(self, mock_profile, mock_configure, mock_cjapy):
+        """A zero-row dimensions table with standard columns is a valid empty result."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame(columns=["id", "name", "type", "description"])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+        assert output["dimensions"] == []
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4887,6 +4979,30 @@ class TestListSegments:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_empty_typed_dataframe_is_not_error(self, mock_profile, mock_configure, mock_cjapy):
+        """A zero-row segments table with typed columns is a valid empty result."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame(columns=["id", "name", "type"])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+        assert output["segments"] == []
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_list_segments_invalid_dataview_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
         """Invalid/inaccessible data views should fail instead of returning empty segments."""
         mock_configure.return_value = (True, "config", None)
@@ -5162,6 +5278,30 @@ class TestListCalculatedMetrics:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_empty_typed_dataframe_is_not_error(self, mock_profile, mock_configure, mock_cjapy):
+        """A zero-row calculated metrics table with standard columns is valid empty data."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(columns=["id", "name", "type", "description"])
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["count"] == 0
+        assert output["calculatedMetrics"] == []
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")

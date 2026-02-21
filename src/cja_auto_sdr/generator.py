@@ -92,6 +92,33 @@ from cja_auto_sdr.core.constants import (
     infer_format_from_path,
     should_generate_format,
 )
+from cja_auto_sdr.core.discovery_payloads import (
+    PayloadKind as _PayloadKind,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    assess_component_payload as _assess_component_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    coerce_component_rows_or_none as _coerce_component_rows_or_none,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    count_component_items_or_na as _count_component_items_or_na_from_assessment,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    extract_component_sequence as _extract_component_sequence_from_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    is_component_error_payload as _is_component_error_payload_from_assessment,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    is_dataview_error_payload as _is_dataview_error_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    looks_like_component_error_payload as _looks_like_component_error_row,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    normalized_payload_keys as _normalized_payload_keys_set,
+)
 from cja_auto_sdr.core.exceptions import (
     APIError,
     CircuitBreakerOpen,
@@ -7211,7 +7238,7 @@ def _set_name_resolution_diagnostics(
     """Attach name-resolution diagnostics to the logger for caller-side decisions."""
     if logger is None:
         return
-    setattr(logger, "_name_resolution_diagnostics", diagnostics)
+    logger._name_resolution_diagnostics = diagnostics
 
 
 def _get_name_resolution_diagnostics(logger: logging.Logger | None) -> NameResolutionDiagnostics:
@@ -7610,7 +7637,7 @@ def _normalize_optional_text(value: Any, *, default: str = "") -> str:
     except TypeError, ValueError:
         pass
     text = str(value).strip()
-    return text if text else default
+    return text or default
 
 
 def _extract_owner_name_from_record(record: dict[str, Any]) -> str:
@@ -8099,22 +8126,12 @@ def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
 
 def _normalized_payload_keys(payload: dict[str, Any]) -> set[str]:
     """Return normalized dictionary keys for payload-shape checks."""
-    return {str(key).strip().casefold() for key in payload}
+    return _normalized_payload_keys_set(payload)
 
 
 def _looks_like_dataview_error_payload(payload: dict[str, Any]) -> bool:
     """Return True when a getDataView payload matches API error object shape."""
-    normalized_keys = _normalized_payload_keys(payload)
-    if not normalized_keys:
-        return True
-
-    explicit_error_keys = {"error", "errorcode", "errordescription", "error_description"}
-    if normalized_keys & explicit_error_keys:
-        return True
-
-    has_identity = bool(payload.get("id")) or bool(payload.get("name"))
-    generic_error_keys = {"statuscode", "status_code", "status", "message", "detail", "title", "type"}
-    return not has_identity and bool(normalized_keys & generic_error_keys)
+    return _is_dataview_error_payload(payload)
 
 
 def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
@@ -8127,89 +8144,24 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     return payload
 
 
-_COMPONENT_SEQUENCE_KEYS = ("content", "items", "results", "data", "rows")
-
-
 def _extract_component_sequence(payload: dict[str, Any]) -> list[Any] | None:
     """Extract list-like component rows from common API envelope shapes."""
-    for key in _COMPONENT_SEQUENCE_KEYS:
-        if key not in payload:
-            continue
-        value = payload.get(key)
-        if value is None:
-            return []
-        if isinstance(value, pd.DataFrame):
-            return value.to_dict("records")
-        if isinstance(value, (list, tuple, set)):
-            return list(value)
-        if isinstance(value, dict):
-            nested = _extract_component_sequence(value)
-            if nested is not None:
-                return nested
-        return []
-    return None
+    return _extract_component_sequence_from_payload(payload)
 
 
 def _looks_like_component_error_payload(payload: dict[str, Any]) -> bool:
     """Return True when a component API payload row matches error object shape."""
-    normalized_keys = _normalized_payload_keys(payload)
-    if not normalized_keys:
-        return True
-
-    explicit_error_keys = {"error", "errorcode", "errordescription", "error_description"}
-    if normalized_keys & explicit_error_keys:
-        return True
-
-    has_component_identity = bool(payload.get("id")) or bool(payload.get("name"))
-    generic_error_keys = {"statuscode", "status_code", "status", "message", "detail", "title", "type"}
-    return not has_component_identity and bool(normalized_keys & generic_error_keys)
+    return _looks_like_component_error_row(payload)
 
 
 def _coerce_component_rows(raw_payload: Any) -> list[Any] | None:
     """Normalize component API payloads into row lists when possible."""
-    if raw_payload is None:
-        return []
-    if isinstance(raw_payload, pd.DataFrame):
-        return raw_payload.to_dict("records")
-    if isinstance(raw_payload, (list, tuple, set)):
-        return list(raw_payload)
-    if isinstance(raw_payload, dict):
-        extracted = _extract_component_sequence(raw_payload)
-        if extracted is not None:
-            return extracted
-        return [raw_payload]
-    return None
+    return _coerce_component_rows_or_none(raw_payload)
 
 
 def _is_component_error_payload(raw_payload: Any) -> bool:
     """Return True when a component API payload appears to be an error object."""
-    if isinstance(raw_payload, pd.DataFrame):
-        # A bare empty frame (no rows, no columns) is a legitimate "no results" shape.
-        if raw_payload.empty and len(raw_payload.columns) == 0:
-            return False
-        if _looks_like_component_error_payload({str(column): None for column in raw_payload.columns}):
-            if raw_payload.empty:
-                return True
-            for row in raw_payload.to_dict("records"):
-                if isinstance(row, dict) and _looks_like_component_error_payload(row):
-                    return True
-        return False
-
-    if isinstance(raw_payload, dict):
-        if _looks_like_component_error_payload(raw_payload):
-            return True
-        extracted = _extract_component_sequence(raw_payload)
-        if extracted is not None:
-            return _is_component_error_payload(extracted)
-        return False
-
-    if isinstance(raw_payload, (list, tuple, set)):
-        rows = list(raw_payload)
-        if not rows:
-            return False
-        return any(isinstance(row, dict) and _looks_like_component_error_payload(row) for row in rows)
-
-    return False
+    return _is_component_error_payload_from_assessment(raw_payload)
 
 
 def _normalize_component_records_or_raise(
@@ -8219,31 +8171,19 @@ def _normalize_component_records_or_raise(
     data_view_id: str,
 ) -> list[dict[str, Any]]:
     """Normalize component payloads to dict rows or fail on error-shaped responses."""
-    if _is_component_error_payload(raw_payload):
+    assessment = _assess_component_payload(raw_payload)
+    if assessment.kind is _PayloadKind.ERROR:
         raise DiscoveryNotFoundError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
-
-    rows = _coerce_component_rows(raw_payload)
-    if rows is None:
+    if assessment.kind is _PayloadKind.INVALID:
         raise DiscoveryNotFoundError(
             f"Unexpected {component_label} payload type for data view '{data_view_id}'",
         )
-    if not rows:
-        return []
-
-    dict_rows = [row for row in rows if isinstance(row, dict)]
-    if not dict_rows:
-        raise DiscoveryNotFoundError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
-    return dict_rows
+    return assessment.rows
 
 
 def _count_component_items_or_na(raw_payload: Any) -> int | str:
     """Return component count or 'N/A' when payload is unavailable/invalid."""
-    if _is_component_error_payload(raw_payload):
-        return "N/A"
-    rows = _coerce_component_rows(raw_payload)
-    if rows is None:
-        return "N/A"
-    return len(rows)
+    return _count_component_items_or_na_from_assessment(raw_payload)
 
 
 def _fetch_describe_dataview(
