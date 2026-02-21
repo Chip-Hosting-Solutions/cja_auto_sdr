@@ -1996,6 +1996,20 @@ class TestExtractDatasetInfo:
         result = _extract_dataset_info({"dataset_id": "ds_333", "dataset_name": "Legacy Events"})
         assert result == {"id": "ds_333", "name": "Legacy Events"}
 
+    def test_pd_na_fields_fallback_to_na(self):
+        """Pandas missing scalars in id/name fields should not raise and should normalize to N/A."""
+        import pandas as pd
+
+        result = _extract_dataset_info({"id": pd.NA, "name": pd.NA})
+        assert result == {"id": "N/A", "name": "N/A"}
+
+    def test_pd_na_prefers_alternate_fields(self):
+        """Missing primary dataset fields should fall back to alternate aliases."""
+        import pandas as pd
+
+        result = _extract_dataset_info({"id": pd.NA, "datasetId": "ds_999", "name": pd.NA, "datasetName": "Alt Name"})
+        assert result == {"id": "ds_999", "name": "Alt Name"}
+
 
 class TestListDataviewsFunction:
     """Test list_dataviews() function with mocks"""
@@ -2081,6 +2095,50 @@ class TestListDataviewsFunction:
         output = f.getvalue()
         assert "N/A" in output
         assert "None" not in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dataviews_owner_scalar_nan_shows_na(self, mock_profile, mock_configure, mock_cjapy):
+        """NaN scalar owner values should normalize to N/A."""
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [{"id": "dv_1", "name": "Test View", "owner": float("nan")}]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViews"][0]["owner"] == "N/A"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dataviews_owner_dict_pd_na_name_falls_back(self, mock_profile, mock_configure, mock_cjapy):
+        """Owner dict fields should skip pd.NA values and fall back to populated aliases."""
+        import pandas as pd
+
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getDataViews.return_value = [
+            {"id": "dv_1", "name": "Test View", "owner": {"name": pd.NA, "email": "owner@example.com"}},
+        ]
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dataviews(output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataViews"][0]["owner"] == "owner@example.com"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -2310,6 +2368,43 @@ class TestListConnectionsFunction:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["connections"][0]["owner"] == "N/A"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_connections_pd_na_owner_full_name_falls_back_to_owner(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """pd.NA ownerFullName should not error and should fall back to owner object aliases."""
+        import pandas as pd
+
+        mock_configure.return_value = (True, "config", None)
+        mock_cja_instance = mock_cjapy.CJA.return_value
+        mock_cja_instance.getConnections.return_value = {
+            "content": [
+                {
+                    "id": "conn_1",
+                    "name": "Test Conn",
+                    "ownerFullName": pd.NA,
+                    "owner": {"name": "Fallback Owner"},
+                    "dataSets": [],
+                },
+            ],
+        }
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_connections(output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["connections"][0]["owner"] == "Fallback Owner"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4839,6 +4934,66 @@ class TestListSegments:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_mixed_tags_and_missing_owner_values(self, mock_profile, mock_configure, mock_cjapy):
+        """Mixed tagged/untagged rows with NaN/pd.NA values should normalize without errors."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Tagged Segment",
+                    "owner": {"name": "Owner One"},
+                    "approved": True,
+                    "tags": [{"name": "prod"}],
+                    "created": "2025-01-01",
+                    "modified": "2025-01-02",
+                },
+                {
+                    "id": "s2",
+                    "name": "Untagged Segment",
+                    "owner": float("nan"),
+                    "ownerFullName": "Alias Owner",
+                    "approved": False,
+                    "tags": float("nan"),
+                    "createdDate": "2025-01-03",
+                    "modifiedDate": "2025-01-04",
+                },
+                {
+                    "id": "s3",
+                    "name": "NA Owner Segment",
+                    "owner": pd.NA,
+                    "ownerFullName": "Alias Owner NA",
+                    "approved": False,
+                    "tags": pd.NA,
+                    "createdDate": "2025-01-05",
+                    "modifiedDate": "2025-01-06",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        segments_by_id = {segment["id"]: segment for segment in output["segments"]}
+        assert segments_by_id["s1"]["tags"] == ["prod"]
+        assert segments_by_id["s2"]["tags"] == []
+        assert segments_by_id["s3"]["tags"] == []
+        assert segments_by_id["s2"]["owner"] == "Alias Owner"
+        assert segments_by_id["s3"]["owner"] == "Alias Owner NA"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_list_segments_owner_and_date_aliases_table(self, mock_profile, mock_configure, mock_cjapy):
         """Alias-based governance metadata should also appear in table output."""
         mock_configure.return_value = (True, "config", None)
@@ -5136,6 +5291,78 @@ class TestListCalculatedMetrics:
         assert cm["owner"] == "Alias Owner"
         assert cm["created"] == "2025-01-01"
         assert cm["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_mixed_tags_and_missing_owner_values(self, mock_profile, mock_configure, mock_cjapy):
+        """Mixed tags and missing owner scalars should normalize without raising TypeError."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Tagged Metric",
+                    "owner": {"name": "Owner One"},
+                    "description": "Tagged metric",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [{"name": "prod"}],
+                    "created": "2025-01-01",
+                    "modified": "2025-01-02",
+                },
+                {
+                    "id": "cm2",
+                    "name": "Untagged Metric",
+                    "owner": float("nan"),
+                    "ownerFullName": "Alias Metric Owner",
+                    "description": "Untagged metric",
+                    "type": "number",
+                    "polarity": "positive",
+                    "precision": 0,
+                    "approved": False,
+                    "tags": float("nan"),
+                    "createdDate": "2025-01-03",
+                    "modifiedDate": "2025-01-04",
+                },
+                {
+                    "id": "cm3",
+                    "name": "NA Owner Metric",
+                    "owner": pd.NA,
+                    "ownerFullName": "Alias Metric Owner NA",
+                    "description": "pd.NA owner",
+                    "type": "number",
+                    "polarity": "positive",
+                    "precision": 0,
+                    "approved": False,
+                    "tags": pd.NA,
+                    "createdDate": "2025-01-05",
+                    "modifiedDate": "2025-01-06",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        metrics_by_id = {metric["id"]: metric for metric in output["calculatedMetrics"]}
+        assert metrics_by_id["cm1"]["tags"] == ["prod"]
+        assert metrics_by_id["cm2"]["tags"] == []
+        assert metrics_by_id["cm3"]["tags"] == []
+        assert metrics_by_id["cm2"]["owner"] == "Alias Metric Owner"
+        assert metrics_by_id["cm3"]["owner"] == "Alias Metric Owner NA"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
