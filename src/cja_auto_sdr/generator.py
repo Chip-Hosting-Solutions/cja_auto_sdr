@@ -7592,12 +7592,52 @@ def _extract_owner_name(owner_data: Any) -> str:
     if isinstance(owner_data, str):
         return owner_data or "N/A"
     if isinstance(owner_data, dict):
-        for key in ("name", "login", "email", "imsUserId", "id"):
+        for key in ("name", "fullName", "full_name", "ownerFullName", "login", "email", "imsUserId", "id"):
             val = owner_data.get(key)
             if val:
                 return str(val)
         return "N/A"
     return str(owner_data) or "N/A"
+
+
+def _normalize_optional_text(value: Any, *, default: str = "") -> str:
+    """Normalize optional display values, handling None/NaN and whitespace."""
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except TypeError, ValueError:
+        pass
+    text = str(value).strip()
+    return text if text else default
+
+
+def _extract_owner_name_from_record(record: dict[str, Any]) -> str:
+    """Extract owner name from record-level owner aliases used by CJA endpoints."""
+    owner_name = _extract_owner_name(record.get("owner"))
+    if owner_name != "N/A":
+        return owner_name
+
+    for key in ("ownerFullName", "ownerName", "owner_name", "owner_full_name"):
+        alias_name = _normalize_optional_text(record.get(key))
+        if alias_name:
+            return alias_name
+    return "N/A"
+
+
+def _extract_timestamp_from_record(record: dict[str, Any], field: str) -> str:
+    """Extract created/modified timestamps from common CJA field aliases."""
+    aliases_by_field = {
+        "created": ("created", "createdDate", "createdAt", "created_date"),
+        "modified": ("modified", "modifiedDate", "modifiedAt", "modified_date"),
+    }
+    aliases = aliases_by_field.get(field, (field,))
+    for key in aliases:
+        value = _normalize_optional_text(record.get(key))
+        if value:
+            return value
+    return ""
 
 
 def _extract_connections_list(raw_connections: Any) -> list:
@@ -8636,12 +8676,12 @@ def _fetch_segments_list(
                 {
                     "id": item.get("id", "N/A"),
                     "name": item.get("name", "N/A"),
-                    "owner": _extract_owner_name(item.get("owner")),
+                    "owner": _extract_owner_name_from_record(item),
                     "description": item.get("description", ""),
                     "approved": approved_raw if isinstance(approved_raw, bool) else None,
                     "tags": tags,
-                    "created": item.get("created", ""),
-                    "modified": item.get("modified", ""),
+                    "created": _extract_timestamp_from_record(item, "created"),
+                    "modified": _extract_timestamp_from_record(item, "modified"),
                 }
             )
 
@@ -8769,15 +8809,15 @@ def _fetch_calculated_metrics_list(
                 {
                     "id": item.get("id", "N/A"),
                     "name": item.get("name", "N/A"),
-                    "owner": _extract_owner_name(item.get("owner")),
+                    "owner": _extract_owner_name_from_record(item),
                     "description": item.get("description", ""),
                     "type": item.get("type", ""),
                     "polarity": item.get("polarity", ""),
                     "precision": item.get("precision", 0),
                     "approved": approved_raw if isinstance(approved_raw, bool) else None,
                     "tags": tags,
-                    "created": item.get("created", ""),
-                    "modified": item.get("modified", ""),
+                    "created": _extract_timestamp_from_record(item, "created"),
+                    "modified": _extract_timestamp_from_record(item, "modified"),
                 }
             )
 

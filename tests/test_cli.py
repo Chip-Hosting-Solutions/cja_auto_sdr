@@ -4708,6 +4708,81 @@ class TestListSegments:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_owner_and_date_aliases_json(self, mock_profile, mock_configure, mock_cjapy):
+        """ownerFullName/createdDate/modifiedDate aliases should populate governance fields."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Mobile",
+                    "ownerFullName": "Alias Owner",
+                    "description": "Alias metadata segment",
+                    "approved": True,
+                    "tags": [],
+                    "createdDate": "2025-02-01",
+                    "modifiedDate": "2025-07-15",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        seg = output["segments"][0]
+        assert seg["owner"] == "Alias Owner"
+        assert seg["created"] == "2025-02-01"
+        assert seg["modified"] == "2025-07-15"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_owner_and_date_aliases_table(self, mock_profile, mock_configure, mock_cjapy):
+        """Alias-based governance metadata should also appear in table output."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Mobile",
+                    "ownerFullName": "Alias Owner",
+                    "description": "Alias metadata segment",
+                    "approved": True,
+                    "tags": [],
+                    "createdDate": "2025-02-01",
+                    "modifiedDate": "2025-07-15",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        assert "Alias Owner" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_list_segments_csv(self, mock_profile, mock_configure, mock_cjapy):
         mock_configure.return_value = (True, "config", None)
         cja = mock_cjapy.CJA.return_value
@@ -4903,6 +4978,89 @@ class TestListCalculatedMetrics:
         assert cm["polarity"] == "negative"
         assert cm["type"] == "percent"
         assert cm["precision"] == 2
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_owner_and_date_aliases_json(self, mock_profile, mock_configure, mock_cjapy):
+        """Alias owner/date fields should be normalized in calculated metrics JSON output."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Bounce Rate",
+                    "ownerFullName": "Alias Owner",
+                    "description": "Bounce rate calc",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [],
+                    "createdDate": "2025-01-01",
+                    "modifiedDate": "2025-06-01",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        cm = output["calculatedMetrics"][0]
+        assert cm["owner"] == "Alias Owner"
+        assert cm["created"] == "2025-01-01"
+        assert cm["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_owner_and_date_aliases_csv(self, mock_profile, mock_configure, mock_cjapy):
+        """Alias owner/date fields should propagate into calculated metrics CSV output."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm1",
+                    "name": "Bounce Rate",
+                    "ownerFullName": "Alias Owner",
+                    "description": "Bounce rate calc",
+                    "type": "percent",
+                    "polarity": "negative",
+                    "precision": 2,
+                    "approved": True,
+                    "tags": [],
+                    "createdDate": "2025-01-01",
+                    "modifiedDate": "2025-06-01",
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="csv")
+
+        assert result is True
+        lines = f.getvalue().strip().split("\n")
+        assert "Alias Owner" in lines[1]
+        assert "2025-01-01" in lines[1]
+        assert "2025-06-01" in lines[1]
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
