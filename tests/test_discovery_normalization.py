@@ -67,4 +67,3 @@ def test_extract_tags_handles_scalar_missing_values() -> None:
     assert extract_tags(pd.NA) == []
     assert extract_tags("nan") == []
     assert extract_tags("prod") == ["prod"]
-

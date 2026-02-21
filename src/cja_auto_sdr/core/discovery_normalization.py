@@ -185,4 +185,3 @@ def extract_tags(tags_data: Any) -> list[str]:
         if normalized:
             tags.append(normalized)
     return tags
-
