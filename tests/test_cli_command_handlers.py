@@ -23,6 +23,7 @@ from cja_auto_sdr.core.exceptions import APIError, CJASDRError
 from cja_auto_sdr.generator import (
     DiffConfig,
     DiffSnapshotConfig,
+    NameResolutionDiagnostics,
     _main_impl,
     handle_diff_command,
     handle_diff_snapshot_command,
@@ -2084,6 +2085,156 @@ class TestDiscoveryInspectionNameResolution:
         captured = capsys.readouterr()
         assert "Could not resolve data view" in captured.err
 
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Nonexistent View", "--format", "json"],
+            ["--describe-dataview", "Nonexistent View", "--format", "csv"],
+            ["--describe-dataview", "Nonexistent View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_machine_readable_emits_structured_error(self, mock_fn, mock_resolve, capsys, argv):
+        """Machine-readable inspection modes should emit a structured JSON error for unresolved names."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "not_found"
+        assert "Could not resolve data view" in payload["error"]
+        assert "--list-dataviews" in payload["error"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Broken View", "--format", "json"],
+            ["--describe-dataview", "Broken View", "--format", "csv"],
+            ["--describe-dataview", "Broken View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_setup_failure_reports_configuration_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+        argv,
+    ):
+        """Setup/configuration failures should not be mislabeled as not_found."""
+
+        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
+            setattr(
+                logger,
+                "_name_resolution_diagnostics",
+                NameResolutionDiagnostics(
+                    error_type="configuration_error",
+                    error_message="Failed to configure credentials: Missing credentials",
+                ),
+            )
+            return [], {}
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "configuration_error"
+        assert "Failed to configure credentials" in payload["error"]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_connectivity_failure_reports_connectivity_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+    ):
+        """Connectivity/API failures should surface as connectivity_error."""
+
+        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
+            setattr(
+                logger,
+                "_name_resolution_diagnostics",
+                NameResolutionDiagnostics(
+                    error_type="connectivity_error",
+                    error_message="Failed to resolve data view names: network timeout",
+                ),
+            )
+            return [], {}
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--describe-dataview", "Timeout View", "--format", "json"])
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "connectivity_error"
+        assert "network timeout" in payload["error"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Noisy View", "--format", "json"],
+            ["--describe-dataview", "Noisy View", "--format", "csv"],
+            ["--describe-dataview", "Noisy View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_logs_do_not_pollute_json_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+        argv,
+    ):
+        """Resolver logger output must not precede machine-readable JSON errors."""
+
+        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
+            logger.error("resolver plain log line")
+            setattr(
+                logger,
+                "_name_resolution_diagnostics",
+                NameResolutionDiagnostics(
+                    error_type="configuration_error",
+                    error_message="Failed to configure credentials: bad profile",
+                ),
+            )
+            return [], {}
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        stderr_output = capsys.readouterr().err
+        payload = json.loads(stderr_output)
+        assert payload["error_type"] == "configuration_error"
+        assert "resolver plain log line" not in stderr_output
+
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.prompt_for_selection")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2121,6 +2272,41 @@ class TestDiscoveryInspectionNameResolution:
         assert "ambiguous" in captured.err.lower()
         assert "dv_a" in captured.err
         assert "dv_b" in captured.err
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Shared", "--format", "json"],
+            ["--describe-dataview", "Shared", "--format", "csv"],
+            ["--describe-dataview", "Shared", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_machine_readable_emits_structured_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        mock_prompt,
+        capsys,
+        argv,
+    ):
+        """Machine-readable inspection modes should fail with structured ambiguity details."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        mock_prompt.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "ambiguous_name"
+        assert payload["data_view_name"] == "Shared"
+        assert payload["matches"] == ["dv_a", "dv_b"]
+        assert "Specify an exact data view ID" in payload["error"]
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")

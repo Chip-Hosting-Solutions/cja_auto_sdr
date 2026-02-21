@@ -7196,6 +7196,44 @@ def prompt_for_selection(options: list[tuple[str, str]], prompt_text: str) -> st
             return None
 
 
+@dataclass(frozen=True)
+class NameResolutionDiagnostics:
+    """Diagnostic metadata captured during data view name resolution."""
+
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+def _set_name_resolution_diagnostics(
+    logger: logging.Logger | None,
+    diagnostics: NameResolutionDiagnostics,
+) -> None:
+    """Attach name-resolution diagnostics to the logger for caller-side decisions."""
+    if logger is None:
+        return
+    setattr(logger, "_name_resolution_diagnostics", diagnostics)
+
+
+def _get_name_resolution_diagnostics(logger: logging.Logger | None) -> NameResolutionDiagnostics:
+    """Return caller-visible diagnostics produced by resolve_data_view_names."""
+    if logger is None:
+        return NameResolutionDiagnostics()
+    diagnostics = getattr(logger, "_name_resolution_diagnostics", None)
+    if isinstance(diagnostics, NameResolutionDiagnostics):
+        return diagnostics
+    return NameResolutionDiagnostics()
+
+
+def _build_inspection_name_resolution_logger() -> logging.Logger:
+    """Create a muted logger for inspection resolution to keep stderr machine-safe."""
+    logger = logging.getLogger("name_resolution.inspection")
+    logger.setLevel(logging.CRITICAL + 1)
+    logger.propagate = False
+    if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+        logger.addHandler(logging.NullHandler())
+    return logger
+
+
 def resolve_data_view_names(
     identifiers: list[str],
     config_file: str = "config.json",
@@ -7227,6 +7265,7 @@ def resolve_data_view_names(
     """
     if logger is None:
         logger = logging.getLogger(__name__)
+    _set_name_resolution_diagnostics(logger, NameResolutionDiagnostics())
 
     match_mode = (match_mode or "exact").strip().lower()
     if match_mode not in {"exact", "insensitive", "fuzzy"}:
@@ -7234,13 +7273,19 @@ def resolve_data_view_names(
 
     resolved_ids = []
     name_to_ids_map = {}
+    unresolved_names: list[str] = []
 
     try:
         # Initialize CJA connection
         logger.info(f"Resolving data view identifiers: {identifiers}")
         success, source, credentials = configure_cjapy(profile, config_file, logger)
         if not success:
-            logger.error(f"Failed to configure credentials: {source}")
+            error_message = f"Failed to configure credentials: {source}"
+            logger.error(error_message)
+            _set_name_resolution_diagnostics(
+                logger,
+                NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+            )
             return [], {}
         cja = cjapy.CJA()
 
@@ -7255,7 +7300,12 @@ def resolve_data_view_names(
         available_dvs = get_cached_data_views(cja, cache_key, logger)
 
         if not available_dvs:
-            logger.error("No data views found or no access to any data views")
+            error_message = "No data views found or no access to any data views"
+            logger.error(error_message)
+            _set_name_resolution_diagnostics(
+                logger,
+                NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+            )
             return [], {}
 
         # Build a lookup map: name -> list of IDs
@@ -7321,6 +7371,7 @@ def resolve_data_view_names(
                         logger.info(f"Name '{identifier}' matched {len(matching_ids)} data views: {matching_ids}")
                 else:
                     logger.error(f"Data view name '{identifier}' not found in accessible data views")
+                    unresolved_names.append(identifier)
 
                     if suggest_similar:
                         similar = find_similar_names(identifier, list(name_to_id_lookup.keys()))
@@ -7340,18 +7391,45 @@ def resolve_data_view_names(
                         logger.error("  → Name matching uses fuzzy nearest-match mode")
                     logger.error("  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
 
+        if not resolved_ids and unresolved_names:
+            unresolved_label = unresolved_names[0]
+            _set_name_resolution_diagnostics(
+                logger,
+                NameResolutionDiagnostics(
+                    error_type="not_found",
+                    error_message=(
+                        f"Could not resolve data view: '{unresolved_label}'. "
+                        "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                    ),
+                ),
+            )
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
         return resolved_ids, name_to_ids_map
 
     except FileNotFoundError:
-        logger.error(f"Configuration file '{config_file}' not found")
+        error_message = f"Configuration file '{config_file}' not found"
+        logger.error(error_message)
+        _set_name_resolution_diagnostics(
+            logger,
+            NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+        )
         return [], {}
     except RECOVERABLE_API_EXCEPTIONS as e:
-        logger.error(f"Failed to resolve data view names: {e!s}")
+        error_message = f"Failed to resolve data view names: {e!s}"
+        logger.error(error_message)
+        _set_name_resolution_diagnostics(
+            logger,
+            NameResolutionDiagnostics(error_type="connectivity_error", error_message=error_message),
+        )
         return [], {}
     except Exception as e:
-        logger.error(f"Failed to resolve data view names (unexpected): {e!s}")
+        error_message = f"Failed to resolve data view names (unexpected): {e!s}"
+        logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
+        _set_name_resolution_diagnostics(
+            logger,
+            NameResolutionDiagnostics(error_type="connectivity_error", error_message=error_message),
+        )
         return [], {}
 
 
@@ -7560,6 +7638,42 @@ class DiscoveryNotFoundError(LookupError):
 _NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
 
 
+def _is_machine_readable_output(output_format: str | None, output_file: str | None = None) -> bool:
+    """Return True when command output is intended for machine consumption."""
+    return output_format in ("json", "csv") or output_file in ("-", "stdout")
+
+
+def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout: bool) -> str:
+    """Normalize discovery output format with stdout piping semantics."""
+    if raw_format in ("json", "csv"):
+        return raw_format
+    if output_to_stdout:
+        return "json"
+    return "table"
+
+
+def _emit_discovery_error(
+    message: str,
+    *,
+    is_machine_readable: bool,
+    error_type: str | None = None,
+    additional_fields: dict[str, Any] | None = None,
+    human_to_stderr: bool = False,
+) -> None:
+    """Emit discovery/inspection errors in machine or human-readable form."""
+    if is_machine_readable:
+        payload: dict[str, Any] = {"error": message}
+        if error_type:
+            payload["error_type"] = error_type
+        if additional_fields:
+            payload.update(additional_fields)
+        print(json.dumps(payload), file=sys.stderr)
+        return
+
+    stream = sys.stderr if human_to_stderr else sys.stdout
+    print(ConsoleColors.error(f"ERROR: {message}"), file=stream)
+
+
 def _to_numeric_sort_value(value: Any) -> float | None:
     """Convert a sortable value to float when it is numerically representable."""
     if value is None or isinstance(value, bool):
@@ -7731,7 +7845,7 @@ def _run_list_command(
         True if successful, False otherwise.
     """
     is_stdout = output_file in ("-", "stdout")
-    is_machine_readable = output_format in ("json", "csv") or is_stdout
+    is_machine_readable = _is_machine_readable_output(output_format, output_file)
 
     active_profile = resolve_active_profile(profile)
 
@@ -7755,10 +7869,11 @@ def _run_list_command(
         logger.setLevel(logging.WARNING)
         success, source, _ = configure_cjapy(profile=active_profile, config_file=config_file, logger=logger)
         if not success:
-            if is_machine_readable:
-                print(json.dumps({"error": f"Configuration error: {source}"}), file=sys.stderr)
-            else:
-                print(f"Configuration error: {source}")
+            _emit_discovery_error(
+                f"Configuration error: {source}",
+                is_machine_readable=is_machine_readable,
+                human_to_stderr=False,
+            )
             return False
         cja = cjapy.CJA()
 
@@ -7772,24 +7887,30 @@ def _run_list_command(
         return True
 
     except DiscoveryNotFoundError as e:
-        if is_machine_readable:
-            print(json.dumps({"error": str(e), "error_type": "not_found"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: {e}"))
+        _emit_discovery_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            error_type="not_found",
+            human_to_stderr=False,
+        )
         return False
 
     except DiscoveryArgumentError as e:
-        if is_machine_readable:
-            print(json.dumps({"error": str(e), "error_type": "invalid_arguments"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: {e}"))
+        _emit_discovery_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            error_type="invalid_arguments",
+            human_to_stderr=False,
+        )
         return False
 
     except FileNotFoundError:
-        if is_machine_readable:
-            print(json.dumps({"error": f"Configuration file '{config_file}' not found"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        _emit_discovery_error(
+            f"Configuration file '{config_file}' not found",
+            is_machine_readable=is_machine_readable,
+            human_to_stderr=False,
+        )
+        if not is_machine_readable:
             print()
             print("Generate a sample configuration file with:")
             print("  cja_auto_sdr --sample-config")
@@ -7802,10 +7923,11 @@ def _run_list_command(
         raise
 
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
-        if is_machine_readable:
-            print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
+        _emit_discovery_error(
+            f"Failed to connect to CJA API: {e!s}",
+            is_machine_readable=is_machine_readable,
+            human_to_stderr=False,
+        )
         return False
 
 
@@ -13720,11 +13842,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     }
     for attr, func in _discovery_commands.items():
         if getattr(args, attr, False):
-            list_format = "table"
-            if args.format in ("json", "csv"):
-                list_format = args.format
-            elif output_to_stdout:
-                list_format = "json"
+            list_format = _resolve_discovery_output_format(args.format, output_to_stdout=output_to_stdout)
             success = func(
                 args.config_file,
                 output_format=list_format,
@@ -13751,12 +13869,14 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     for attr, func in _discovery_commands_id.items():
         resource_id_or_name = getattr(args, attr, None)
         if resource_id_or_name:
+            list_format = _resolve_discovery_output_format(args.format, output_to_stdout=output_to_stdout)
+            is_machine_readable_discovery = _is_machine_readable_output(list_format, getattr(args, "output", None))
             # Resolve name → ID if needed (IDs pass through without API call)
             if is_data_view_id(resource_id_or_name):
                 resource_id = resource_id_or_name
             else:
-                temp_logger = logging.getLogger("name_resolution")
-                temp_logger.setLevel(logging.WARNING)
+                temp_logger = _build_inspection_name_resolution_logger()
+                _set_name_resolution_diagnostics(temp_logger, NameResolutionDiagnostics())
                 resolved_ids, _ = resolve_data_view_names(
                     [resource_id_or_name],
                     args.config_file,
@@ -13765,11 +13885,41 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     match_mode=getattr(args, "name_match", "exact"),
                 )
                 if not resolved_ids:
-                    _exit_error(
-                        f"Could not resolve data view: '{resource_id_or_name}'\n"
-                        "  Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                    resolution_diagnostics = _get_name_resolution_diagnostics(temp_logger)
+                    resolution_error_type = resolution_diagnostics.error_type or "not_found"
+                    if resolution_error_type == "not_found":
+                        resolution_message = (
+                            f"Could not resolve data view: '{resource_id_or_name}'. "
+                            "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                        )
+                    else:
+                        resolution_message = (
+                            resolution_diagnostics.error_message
+                            or f"Failed to resolve data view: '{resource_id_or_name}'."
+                        )
+                    _emit_discovery_error(
+                        resolution_message,
+                        is_machine_readable=is_machine_readable_discovery,
+                        error_type=resolution_error_type,
+                        human_to_stderr=True,
                     )
+                    sys.exit(1)
                 if len(resolved_ids) > 1:
+                    if is_machine_readable_discovery:
+                        _emit_discovery_error(
+                            (
+                                f"Name '{resource_id_or_name}' is ambiguous and matches "
+                                f"{len(resolved_ids)} data views. Specify an exact data view ID."
+                            ),
+                            is_machine_readable=True,
+                            error_type="ambiguous_name",
+                            additional_fields={
+                                "data_view_name": resource_id_or_name,
+                                "matches": resolved_ids,
+                            },
+                            human_to_stderr=True,
+                        )
+                        sys.exit(1)
                     options = [(dv_id, f"{resource_id_or_name} ({dv_id})") for dv_id in resolved_ids]
                     selected = prompt_for_selection(
                         options,
@@ -13791,11 +13941,6 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 else:
                     resource_id = resolved_ids[0]
 
-            list_format = "table"
-            if args.format in ("json", "csv"):
-                list_format = args.format
-            elif output_to_stdout:
-                list_format = "json"
             success = func(
                 resource_id,
                 config_file=args.config_file,
