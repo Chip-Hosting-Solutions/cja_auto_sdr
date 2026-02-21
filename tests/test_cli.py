@@ -3966,6 +3966,8 @@ class TestRunModeInference:
         ("argv", "expected_mode"),
         [
             (["cja_auto_sdr", "--list-dataviews", "--org-report"], "discovery"),
+            (["cja_auto_sdr", "--describe-dataview", "dv_1"], "discovery"),
+            (["cja_auto_sdr", "--list-metrics", "dv_1"], "discovery"),
             (["cja_auto_sdr", "--config-status", "--validate-config"], "config_status"),
             (["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--dry-run"], "diff"),
             (["cja_auto_sdr", "dv_test", "--snapshot", "baseline.json", "--compare-with-prev"], "snapshot"),
@@ -4285,6 +4287,32 @@ class TestDescribeDataview:
         assert "error" in output
         assert output["error_type"] == "not_found"
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_error_payload_treated_as_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """API error-shaped payloads from getDataView should fail as not_found."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "statusCode": 404,
+            "errorCode": "resource_not_found",
+            "errorDescription": "Data view was not found",
+        }
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert "dv_missing" in payload["error"]
+
 
 class TestListMetrics:
     """Tests for --list-metrics command."""
@@ -4365,6 +4393,31 @@ class TestListMetrics:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_invalid_dataview_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Invalid/inaccessible data views should fail instead of returning empty metrics."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"statusCode": 404, "errorCode": "not_found"}
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_metrics("dv_bad", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        cja.getMetrics.assert_not_called()
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4474,6 +4527,31 @@ class TestListDimensions:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_invalid_dataview_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Invalid/inaccessible data views should fail instead of returning empty dimensions."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"statusCode": 403, "message": "forbidden"}
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_dimensions("dv_bad", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        cja.getDimensions.assert_not_called()
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4652,6 +4730,31 @@ class TestListSegments:
         output = json.loads(f.getvalue())
         assert output["count"] == 0
 
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_invalid_dataview_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Invalid/inaccessible data views should fail instead of returning empty segments."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"errorCode": "not_found", "errorDescription": "missing"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_segments("dv_bad", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        cja.getFilters.assert_not_called()
+
 
 class TestListCalculatedMetrics:
     """Tests for --list-calculated-metrics command."""
@@ -4800,3 +4903,28 @@ class TestListCalculatedMetrics:
         assert result is True
         output = json.loads(f.getvalue())
         assert output["count"] == 0
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_invalid_dataview_fails_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Invalid/inaccessible data views should fail instead of returning empty calculated metrics."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"statusCode": 403, "message": "forbidden"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame()
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_calculated_metrics("dv_bad", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        cja.getCalculatedMetrics.assert_not_called()

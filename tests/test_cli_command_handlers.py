@@ -1891,6 +1891,35 @@ class TestDiscoveryInspectionDispatch:
         assert mock_fn.call_args[0][0] == "dv_1"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_sets_discovery_mode_in_run_state(self, mock_fn):
+        """ID-bearing discovery inspection commands should infer discovery mode."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+
+        assert exc_info.value.code == 0
+        assert run_state["mode"] == "discovery"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_rejects_fail_on_quality(self, mock_fn, capsys):
+        """Discovery inspection commands should reject SDR-only --fail-on-quality."""
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--fail-on-quality", "HIGH"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        assert "--fail-on-quality is only supported in SDR generation mode" in capsys.readouterr().err
+        mock_fn.assert_not_called()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.list_metrics")
     def test_list_metrics_dispatch(self, mock_fn):
         mock_fn.return_value = True

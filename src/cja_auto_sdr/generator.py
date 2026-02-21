@@ -991,7 +991,12 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
             bool(
                 getattr(args, "list_dataviews", False)
                 or getattr(args, "list_connections", False)
-                or getattr(args, "list_datasets", False),
+                or getattr(args, "list_datasets", False)
+                or getattr(args, "describe_dataview", None)
+                or getattr(args, "list_metrics", None)
+                or getattr(args, "list_dimensions", None)
+                or getattr(args, "list_segments", None)
+                or getattr(args, "list_calculated_metrics", None)
             ),
         ),
         (RunMode.CONFIG_STATUS, bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
@@ -7915,6 +7920,46 @@ def list_dataviews(
 # ==================== DESCRIBE DATA VIEW ====================
 
 
+def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
+    """Normalize getDataView payloads to one dict row when possible."""
+    if raw_dv is None:
+        return None
+    if isinstance(raw_dv, pd.DataFrame):
+        if raw_dv.empty:
+            return None
+        records = raw_dv.to_dict("records")
+        if not records:
+            return None
+        first_record = records[0]
+        return first_record if isinstance(first_record, dict) else None
+    return raw_dv if isinstance(raw_dv, dict) else None
+
+
+def _looks_like_dataview_error_payload(payload: dict[str, Any]) -> bool:
+    """Return True when a getDataView payload matches API error object shape."""
+    normalized_keys = {str(key).strip().casefold() for key in payload}
+    if not normalized_keys:
+        return True
+
+    explicit_error_keys = {"error", "errorcode", "errordescription", "error_description"}
+    if normalized_keys & explicit_error_keys:
+        return True
+
+    has_identity = bool(payload.get("id")) or bool(payload.get("name"))
+    generic_error_keys = {"statuscode", "status_code", "status", "message", "detail", "title", "type"}
+    return not has_identity and bool(normalized_keys & generic_error_keys)
+
+
+def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
+    """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
+    payload = _normalize_single_dataview_payload(cja.getDataView(data_view_id))
+    if payload is None or _looks_like_dataview_error_payload(payload):
+        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
+    if not payload.get("id") and not payload.get("name"):
+        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
+    return payload
+
+
 def _fetch_describe_dataview(
     data_view_id: str,
     output_format: str,
@@ -7922,11 +7967,7 @@ def _fetch_describe_dataview(
     """Return a fetch_and_format callback for describe_dataview."""
 
     def _inner(cja: Any, _is_machine_readable: bool) -> str | None:
-        raw_dv = cja.getDataView(data_view_id)
-        if raw_dv is None:
-            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
-        if isinstance(raw_dv, pd.DataFrame):
-            raw_dv = raw_dv.to_dict("records")[0] if len(raw_dv) > 0 else {}
+        raw_dv = _require_accessible_dataview(cja, data_view_id)
 
         dv_id = raw_dv.get("id", data_view_id)
         dv_name = raw_dv.get("name", "N/A")
@@ -8076,15 +8117,14 @@ def _resolve_dataview_name(cja: Any, data_view_id: str) -> str:
     Uses ``getDataView(id)`` to fetch a single resource instead of
     listing all data views, avoiding an expensive API round-trip.
 
-    Returns the name if found, or ``"Unknown"`` on failure.
+    Raises DiscoveryNotFoundError if the data view is missing or inaccessible.
     """
-    with contextlib.suppress(Exception):
-        raw_dv = cja.getDataView(data_view_id)
-        if isinstance(raw_dv, pd.DataFrame):
-            raw_dv = raw_dv.to_dict("records")[0] if len(raw_dv) > 0 else {}
-        if isinstance(raw_dv, dict):
-            return raw_dv.get("name", "Unknown")
-    return "Unknown"
+    raw_dv = _require_accessible_dataview(cja, data_view_id)
+    raw_name = raw_dv.get("name")
+    if raw_name is None:
+        return "Unknown"
+    normalized_name = str(raw_name).strip()
+    return normalized_name or "Unknown"
 
 
 def _fetch_metrics_list(
