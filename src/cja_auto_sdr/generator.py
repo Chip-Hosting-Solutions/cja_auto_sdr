@@ -92,6 +92,24 @@ from cja_auto_sdr.core.constants import (
     infer_format_from_path,
     should_generate_format,
 )
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_owner_name as _extract_owner_name_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_owner_name_from_record as _extract_owner_name_from_record_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_tags as _extract_tags_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    is_missing_value as _is_missing_discovery_value,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    normalize_display_text as _normalize_display_text,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    pick_first_present_text as _pick_first_present_text,
+)
 from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind as _PayloadKind,
 )
@@ -7477,24 +7495,40 @@ def _extract_dataset_info(dataset: Any) -> dict:
         Dict with 'id' and 'name' keys (values may be 'N/A' if not found)
     """
     if not isinstance(dataset, dict):
-        return {"id": str(dataset) if dataset else "N/A", "name": "N/A"}
+        # Preserve previous fallback semantics for scalar falsey values while
+        # avoiding ambiguous truthiness checks on pandas missing scalars.
+        if _is_missing_discovery_value(dataset, treat_blank_string=True, treat_null_like_strings=True):
+            return {"id": "N/A", "name": "N/A"}
+        if isinstance(dataset, (bool, int, float)) and not dataset:
+            return {"id": "N/A", "name": "N/A"}
+        return {"id": _normalize_display_text(dataset, default="N/A"), "name": "N/A"}
 
     # Try common ID field names (prefer canonical/camelCase, keep snake_case for compatibility)
-    ds_id = (
-        dataset.get("id") or dataset.get("datasetId") or dataset.get("dataSetId") or dataset.get("dataset_id") or "N/A"
+    ds_id = _pick_first_present_text(
+        (
+            dataset.get("id"),
+            dataset.get("datasetId"),
+            dataset.get("dataSetId"),
+            dataset.get("dataset_id"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
     )
 
     # Try common name field names
-    ds_name = (
-        dataset.get("name")
-        or dataset.get("datasetName")
-        or dataset.get("dataSetName")
-        or dataset.get("dataset_name")
-        or dataset.get("title")
-        or "N/A"
+    ds_name = _pick_first_present_text(
+        (
+            dataset.get("name"),
+            dataset.get("datasetName"),
+            dataset.get("dataSetName"),
+            dataset.get("dataset_name"),
+            dataset.get("title"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
     )
 
-    return {"id": str(ds_id), "name": str(ds_name)}
+    return {"id": ds_id, "name": ds_name}
 
 
 # ==================== LIST HELPERS ====================
@@ -7614,43 +7648,21 @@ def _extract_owner_name(owner_data: Any) -> str:
     - Connections may return ``{"imsUserId": "ABC@AdobeID"}``
     - Some endpoints return ``None`` or a bare string.
     """
-    if owner_data is None:
-        return "N/A"
-    if isinstance(owner_data, str):
-        return owner_data or "N/A"
-    if isinstance(owner_data, dict):
-        for key in ("name", "fullName", "full_name", "ownerFullName", "login", "email", "imsUserId", "id"):
-            val = owner_data.get(key)
-            if val:
-                return str(val)
-        return "N/A"
-    return str(owner_data) or "N/A"
+    return _extract_owner_name_normalized(owner_data, default="N/A")
 
 
 def _normalize_optional_text(value: Any, *, default: str = "") -> str:
     """Normalize optional display values, handling None/NaN and whitespace."""
-    if value is None:
-        return default
-    try:
-        if pd.isna(value):
-            return default
-    except TypeError, ValueError:
-        pass
-    text = str(value).strip()
-    return text or default
+    return _normalize_display_text(
+        value,
+        default=default,
+        treat_null_like_strings=True,
+    )
 
 
 def _extract_owner_name_from_record(record: dict[str, Any]) -> str:
     """Extract owner name from record-level owner aliases used by CJA endpoints."""
-    owner_name = _extract_owner_name(record.get("owner"))
-    if owner_name != "N/A":
-        return owner_name
-
-    for key in ("ownerFullName", "ownerName", "owner_name", "owner_full_name"):
-        alias_name = _normalize_optional_text(record.get(key))
-        if alias_name:
-            return alias_name
-    return "N/A"
+    return _extract_owner_name_from_record_normalized(record, default="N/A")
 
 
 def _extract_timestamp_from_record(record: dict[str, Any], field: str) -> str:
@@ -8026,8 +8038,8 @@ def _fetch_dataviews(
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 owner_name = _extract_owner_name(dv.get("owner"))
                 display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
@@ -8195,13 +8207,13 @@ def _fetch_describe_dataview(
     def _inner(cja: Any, _is_machine_readable: bool) -> str | None:
         raw_dv = _require_accessible_dataview(cja, data_view_id)
 
-        dv_id = raw_dv.get("id", data_view_id)
-        dv_name = raw_dv.get("name", "N/A")
+        dv_id = _normalize_optional_text(raw_dv.get("id"), default=data_view_id)
+        dv_name = _normalize_optional_text(raw_dv.get("name"), default="N/A")
         owner_name = _extract_owner_name(raw_dv.get("owner"))
         description = raw_dv.get("description", "")
-        connection_id = raw_dv.get("parentDataGroupId", "N/A")
-        created = raw_dv.get("created", "N/A")
-        modified = raw_dv.get("modified", "N/A")
+        connection_id = _normalize_optional_text(raw_dv.get("parentDataGroupId"), default="N/A")
+        created = _normalize_optional_text(raw_dv.get("created"), default="N/A")
+        modified = _normalize_optional_text(raw_dv.get("modified"), default="N/A")
 
         def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
             """Call an API method and return the item count, or 'N/A' on failure."""
@@ -8341,10 +8353,7 @@ def _resolve_dataview_name(cja: Any, data_view_id: str) -> str:
     Raises DiscoveryNotFoundError if the data view is missing or inaccessible.
     """
     raw_dv = _require_accessible_dataview(cja, data_view_id)
-    raw_name = raw_dv.get("name")
-    if raw_name is None:
-        return "Unknown"
-    normalized_name = str(raw_name).strip()
+    normalized_name = _normalize_optional_text(raw_dv.get("name"), default="")
     return normalized_name or "Unknown"
 
 
@@ -8379,8 +8388,8 @@ def _fetch_metrics_list(
 
         display_data = [
             {
-                "id": m.get("id", "N/A"),
-                "name": m.get("name", "N/A"),
+                "id": _normalize_optional_text(m.get("id"), default="N/A"),
+                "name": _normalize_optional_text(m.get("name"), default="N/A"),
                 "type": m.get("type", "N/A"),
                 "description": m.get("description", ""),
             }
@@ -8488,8 +8497,8 @@ def _fetch_dimensions_list(
 
         display_data = [
             {
-                "id": d.get("id", "N/A"),
-                "name": d.get("name", "N/A"),
+                "id": _normalize_optional_text(d.get("id"), default="N/A"),
+                "name": _normalize_optional_text(d.get("name"), default="N/A"),
                 "type": d.get("type", "N/A"),
                 "description": d.get("description", ""),
             }
@@ -8609,13 +8618,12 @@ def _fetch_segments_list(
         for item in raw_segments:
             if not isinstance(item, dict):
                 continue
-            raw_tags = item.get("tags") or []
-            tags = [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in raw_tags]
+            tags = _extract_tags_normalized(item.get("tags"))
             approved_raw = item.get("approved")
             display_data.append(
                 {
-                    "id": item.get("id", "N/A"),
-                    "name": item.get("name", "N/A"),
+                    "id": _normalize_optional_text(item.get("id"), default="N/A"),
+                    "name": _normalize_optional_text(item.get("name"), default="N/A"),
                     "owner": _extract_owner_name_from_record(item),
                     "description": item.get("description", ""),
                     "approved": approved_raw if isinstance(approved_raw, bool) else None,
@@ -8650,7 +8658,7 @@ def _fetch_segments_list(
             {
                 **row,
                 "approved": _approved_display(row.get("approved")),
-                "tags": ", ".join(row.get("tags") or []),
+                "tags": ", ".join(_extract_tags_normalized(row.get("tags"))),
             }
             for row in display_data
         ]
@@ -8742,13 +8750,12 @@ def _fetch_calculated_metrics_list(
         for item in raw_metrics:
             if not isinstance(item, dict):
                 continue
-            raw_tags = item.get("tags") or []
-            tags = [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in raw_tags]
+            tags = _extract_tags_normalized(item.get("tags"))
             approved_raw = item.get("approved")
             display_data.append(
                 {
-                    "id": item.get("id", "N/A"),
-                    "name": item.get("name", "N/A"),
+                    "id": _normalize_optional_text(item.get("id"), default="N/A"),
+                    "name": _normalize_optional_text(item.get("name"), default="N/A"),
                     "owner": _extract_owner_name_from_record(item),
                     "description": item.get("description", ""),
                     "type": item.get("type", ""),
@@ -8786,7 +8793,7 @@ def _fetch_calculated_metrics_list(
             {
                 **row,
                 "approved": _approved_display(row.get("approved")),
-                "tags": ", ".join(row.get("tags") or []),
+                "tags": ", ".join(_extract_tags_normalized(row.get("tags"))),
             }
             for row in display_data
         ]
@@ -8881,7 +8888,7 @@ def _fetch_connections(
                 if not isinstance(dv, dict):
                     continue
                 pid = dv.get("parentDataGroupId")
-                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                if not _is_missing_discovery_value(pid, treat_blank_string=True, treat_null_like_strings=True):
                     conn_ids_from_dvs[pid] = conn_ids_from_dvs.get(pid, 0) + 1
 
             if conn_ids_from_dvs:
@@ -8950,9 +8957,10 @@ def _fetch_connections(
         for conn in connections:
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get("id", "N/A")
-            conn_name = conn.get("name", "N/A")
-            owner_name = _extract_owner_name(conn.get("ownerFullName") or conn.get("owner"))
+            conn_id = _normalize_optional_text(conn.get("id"), default="N/A")
+            conn_name = _normalize_optional_text(conn.get("name"), default="N/A")
+            owner_full_name = _normalize_optional_text(conn.get("ownerFullName"), default="")
+            owner_name = owner_full_name or _extract_owner_name(conn.get("owner"))
 
             raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
@@ -9080,8 +9088,8 @@ def _fetch_datasets(
         for conn in _extract_connections_list(raw_connections):
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get("id", "")
-            conn_name = conn.get("name", "N/A")
+            conn_id = _normalize_optional_text(conn.get("id"), default="")
+            conn_name = _normalize_optional_text(conn.get("name"), default="N/A")
             raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
                 raw_datasets = []
@@ -9109,7 +9117,7 @@ def _fetch_datasets(
                 if not isinstance(dv, dict):
                     continue
                 pid = dv.get("parentDataGroupId")
-                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                if not _is_missing_discovery_value(pid, treat_blank_string=True, treat_null_like_strings=True):
                     _no_conn_details = True
                     break
 
@@ -9120,8 +9128,8 @@ def _fetch_datasets(
         for i, dv in enumerate(available_dvs):
             if not isinstance(dv, dict):
                 continue
-            dv_id = dv.get("id", "N/A")
-            dv_name = dv.get("name", "N/A")
+            dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+            dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
 
             if not is_machine_readable:
                 print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end="\r")
@@ -9129,7 +9137,7 @@ def _fetch_datasets(
             parent_conn_id = dv.get("parentDataGroupId")
             # DataFrame-backed records can carry missing values as NaN/NA.
             # Normalize to None so machine-readable output emits "N/A", not NaN.
-            if parent_conn_id is not None and pd.isna(parent_conn_id):
+            if _is_missing_discovery_value(parent_conn_id, treat_blank_string=True, treat_null_like_strings=True):
                 parent_conn_id = None
 
             conn_info = conn_map.get(parent_conn_id) if parent_conn_id else None
@@ -9317,8 +9325,8 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 owner_name = _extract_owner_name(dv.get("owner"))
                 display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
@@ -9594,8 +9602,8 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 display_data.append({"id": dv_id, "name": dv_name})
 
         if not display_data:
