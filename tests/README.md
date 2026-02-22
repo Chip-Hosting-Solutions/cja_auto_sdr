@@ -19,6 +19,8 @@ tests/
 ├── test_derived_inventory.py        # Derived fields inventory tests
 ├── test_diff_comparison.py          # Data view diff comparison tests
 ├── test_discovery_formatters.py     # Discovery formatters and WorkerArgs tests
+├── test_discovery_normalization.py  # Discovery normalization helpers tests
+├── test_discovery_payloads.py       # Discovery payload classification tests
 ├── test_dry_run.py                  # Dry-run mode tests
 ├── test_early_exit.py               # Early exit optimization tests
 ├── test_edge_cases.py               # Edge cases and configuration tests
@@ -66,7 +68,7 @@ tests/
 ├── test_segments_coverage.py        # Segments module coverage (operators, containers)
 ├── test_small_module_coverage.py    # Small module coverage (logging, utils, calc metrics)
 ├── test_diff_inventory_output.py   # Inventory diff output across all formats
-├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots)
+├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots, discovery inspection)
 ├── test_profile_management.py      # Interactive profile creation, import, test, show
 ├── test_snapshot_commands.py        # Snapshot creation, comparison, name resolution
 ├── test_config_and_resolution.py    # Config status, validation, stats, name resolution
@@ -127,6 +129,8 @@ tests/
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_discovery_formatters.py` | 31 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
+| `test_discovery_normalization.py` | 8 | Discovery normalization helpers (missing values, owner extraction, tags) |
+| `test_discovery_payloads.py` | 9 | Discovery payload classification (error detection, component extraction) |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
@@ -152,7 +156,7 @@ tests/
 | `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
-| `test_cli_command_handlers.py` | 127 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
+| `test_cli_command_handlers.py` | 127 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
 | `test_config_and_resolution.py` | 81 | Config status, validation, stats, name resolution |

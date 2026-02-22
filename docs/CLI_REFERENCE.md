@@ -127,8 +127,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 
 **Format Availability by Mode:**
 
-| Format | SDR Generation | Diff Comparison | Org-Wide Analysis | Discovery Commands |
-|--------|----------------|-----------------|-------------------|--------------------|
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis | Discovery |
+|--------|----------------|-----------------|-------------------|-----------|
 | `excel` | ✓ (default) | ✓ | ✓ | ✗ |
 | `csv` | ✓ | ✓ | ✓ | ✓ |
 | `json` | ✓ | ✓ | ✓ | ✓ |
@@ -137,7 +137,9 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `console` | ✗ | ✓ (default) | ✓ (default) | ✓ (default) |
 | `all` | ✓ | ✓ | ✓ | ✗ |
 
-> **Note:** Console format is only supported for diff comparison and org-wide analysis. Using `--format console` with SDR generation will show an error with suggested alternatives.
+> **Note:** The Discovery column covers both discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`) and discovery inspection commands (`--describe-dataview`, `--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`). All share the same format support.
+>
+> **Note:** Console format is supported for diff comparison, org-wide analysis, and discovery. Using `--format console` with SDR generation will show an error with suggested alternatives.
 >
 > **Note:** In diff and org-wide modes, `--format all` includes console output (displayed in terminal) in addition to all file formats.
 
@@ -234,7 +236,7 @@ Drill into individual data view resources. These commands let you inspect a sing
 >
 > **Mutual exclusivity:** These commands are mutually exclusive with each other and with all other discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`).
 >
-> **Filter/Sort/Limit:** `--list-metrics`, `--list-dimensions`, `--list-segments`, and `--list-calculated-metrics` support `--filter`, `--sort`, and `--limit` for filtering, ordering, and limiting results. `--describe-dataview` does not support these options (it returns a single resource).
+> **Filter/Sort/Limit/Exclude:** `--list-metrics`, `--list-dimensions`, `--list-segments`, and `--list-calculated-metrics` support `--filter`, `--exclude`, `--sort`, and `--limit` for filtering, ordering, and limiting results. `--describe-dataview` does not support these options (it returns a single resource).
 
 ### Caching
 
@@ -586,7 +588,7 @@ cja_auto_sdr dv_12345 --dry-run
 >
 > **Note:** `--list-connections` requires the API service account to be a CJA Product Admin for full connection details (names, owners, datasets). Without admin privileges, the tool falls back to showing connection IDs derived from data views.
 >
-> **Discovery Filters:** All discovery commands support `--filter`, `--exclude`, `--limit`, and `--sort` for filtering, limiting, and ordering results.
+> **Discovery Filters:** `--list-dataviews`, `--list-connections`, and `--list-datasets` support `--filter`, `--exclude`, `--limit`, and `--sort` for filtering, limiting, and ordering results.
 
 ### Discovery Inspection Commands
 
@@ -641,7 +643,7 @@ cja_auto_sdr --list-metrics "Prod Web" --name-match fuzzy
 >
 > **Name resolution:** You can pass a data view name instead of an ID. Use `--name-match` to control matching mode (exact, insensitive, fuzzy). If a name matches multiple views, you'll be prompted to choose one interactively.
 >
-> **Filter/Sort/Limit:** All list commands (`--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) support `--filter`, `--sort`, and `--limit`. `--describe-dataview` does not (it returns a single resource).
+> **Filter/Sort/Limit/Exclude:** All list commands (`--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) support `--filter`, `--exclude`, `--sort`, and `--limit`. `--describe-dataview` does not (it returns a single resource).
 
 ### Quick Statistics
 

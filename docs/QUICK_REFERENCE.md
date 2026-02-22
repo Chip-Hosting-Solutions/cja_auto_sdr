@@ -10,6 +10,7 @@ Single-page command cheat sheet for CJA SDR Generator v3.3.2.
 | **Diff Comparison** | Compare two data views or snapshots to identify changes | Side-by-side comparison showing added, removed, and modified components |
 | **Org-Wide Analysis** | Analyze component usage across all data views in an organization | Distribution reports, similarity matrix, governance recommendations |
 | **Discovery** | List data views, connections, and datasets in your CJA org | Console table, JSON, or CSV output |
+| **Discovery Inspection** | Drill into a data view's metrics, dimensions, segments, and calculated metrics | Console table, JSON, or CSV output |
 
 **SDR Generation** creates a Solution Design Reference—a comprehensive inventory of all components in a data view. Use this for documentation, audits, and onboarding.
 
@@ -18,6 +19,8 @@ Single-page command cheat sheet for CJA SDR Generator v3.3.2.
 **Org-Wide Analysis** examines all accessible data views to identify core components, detect duplicates, and provide governance insights. Use this for audits, standardization, and understanding your analytics landscape.
 
 **Discovery** lists the CJA infrastructure: data views, connections, and their backing datasets. Use this for onboarding, infrastructure audits, and understanding the data pipeline before generating SDRs.
+
+**Discovery Inspection** drills into a single data view's components without generating a full SDR. Use this for quick audits, pre-SDR exploration, and verifying component availability.
 
 ## Running Commands
 
@@ -364,6 +367,8 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `markdown` | ✅ | ✅ | ✅ | ❌ | Documentation-ready |
 | `console` | ❌ | ✅ (default) | ✅ (default) | ✅ (default) | Terminal output |
 | `all` | ✅ | ✅ | ✅ | ❌ | All formats |
+
+> Discovery column covers both discovery commands (`--list-dataviews`, etc.) and inspection commands (`--describe-dataview`, `--list-metrics`, etc.).
 
 ### Format Aliases (Shortcuts)
 

@@ -14,6 +14,7 @@ Common scenarios and recommended practices for the CJA SDR Generator.
   - [Compliance Documentation](#compliance-documentation)
   - [Migration Planning](#migration-planning)
   - [Connection & Dataset Discovery](#connection--dataset-discovery)
+  - [Discovery Inspection](#discovery-inspection)
   - [Data View Drift Detection (CI/CD)](#data-view-drift-detection-cicd)
   - [Automated Audit Trail](#automated-audit-trail)
   - [Multi-Organization Management](#multi-organization-management)
@@ -205,6 +206,47 @@ done
 ```
 
 > **Note:** Full connection details (names, owners, dataset names) require the API service account to be a CJA Product Admin. Without admin privileges, the tool shows connection IDs derived from data views. See [Troubleshooting](TROUBLESHOOTING.md#connections-api-returns-empty-results) for setup instructions.
+
+### Discovery Inspection
+
+Drill into a single data view's components without generating a full SDR:
+- Quick-check what metrics, dimensions, segments, or calculated metrics exist
+- Pre-SDR exploration to verify a data view has the expected components
+- Filter and sort component lists to find specific items
+- Export component inventories for stakeholder review or automation
+
+**Best for:** Pre-SDR exploration, quick component audits, CI validation, data view onboarding
+
+```bash
+# Describe a data view — metadata and component counts at a glance
+cja_auto_sdr --describe-dataview dv_abc123
+
+# Use a data view name instead of an ID
+cja_auto_sdr --describe-dataview "Production Web Data"
+
+# List all metrics, filtered to revenue-related
+cja_auto_sdr --list-metrics dv_abc123 --filter revenue
+
+# Export dimensions as CSV for spreadsheet review
+cja_auto_sdr --list-dimensions dv_abc123 --format csv --output dims.csv
+
+# List segments with owner and governance info
+cja_auto_sdr --list-segments dv_abc123
+
+# Export calculated metrics as JSON for programmatic use
+cja_auto_sdr --list-calculated-metrics dv_abc123 --format json --output calcs.json
+
+# Combine filter, sort, and limit
+cja_auto_sdr --list-dimensions dv_abc123 --filter "evar|prop" --sort name --limit 20
+
+# Exclude test components
+cja_auto_sdr --list-metrics dv_abc123 --exclude "test|debug"
+
+# Fuzzy name matching across organizations
+cja_auto_sdr --list-metrics "Prod Web" --name-match fuzzy --profile client-a
+```
+
+> **Note:** All five inspection commands support `--format console/json/csv`, `--output`, `--profile`, and `--name-match`. The four list commands also support `--filter`, `--exclude`, `--sort`, and `--limit`. See [CLI Reference](CLI_REFERENCE.md#discovery-inspection) for full details.
 
 ### Data View Drift Detection (CI/CD)
 

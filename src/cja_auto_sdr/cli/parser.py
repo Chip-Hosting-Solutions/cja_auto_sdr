@@ -484,28 +484,28 @@ Requirements:
         "--list-metrics",
         type=str,
         metavar="DATA_VIEW_ID_OR_NAME",
-        help="List all metrics in a data view (supports --filter, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+        help="List all metrics in a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
     )
 
     discovery_mx.add_argument(
         "--list-dimensions",
         type=str,
         metavar="DATA_VIEW_ID_OR_NAME",
-        help="List all dimensions in a data view (supports --filter, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+        help="List all dimensions in a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
     )
 
     discovery_mx.add_argument(
         "--list-segments",
         type=str,
         metavar="DATA_VIEW_ID_OR_NAME",
-        help="List all segments/filters scoped to a data view (supports --filter, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+        help="List all segments/filters scoped to a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
     )
 
     discovery_mx.add_argument(
         "--list-calculated-metrics",
         type=str,
         metavar="DATA_VIEW_ID_OR_NAME",
-        help="List all calculated metrics for a data view (supports --filter, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+        help="List all calculated metrics for a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
     )
 
     parser.add_argument(
