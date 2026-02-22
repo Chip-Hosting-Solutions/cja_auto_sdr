@@ -2130,16 +2130,15 @@ class TestDiscoveryInspectionNameResolution:
     ):
         """Setup/configuration failures should not be mislabeled as not_found."""
 
-        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
-            setattr(
-                logger,
-                "_name_resolution_diagnostics",
+        def _mock_resolver(_identifiers, _config_file, _logger, **_kwargs):
+            return (
+                [],
+                {},
                 NameResolutionDiagnostics(
                     error_type="configuration_error",
                     error_message="Failed to configure credentials: Missing credentials",
                 ),
             )
-            return [], {}
 
         mock_resolve.side_effect = _mock_resolver
 
@@ -2165,16 +2164,15 @@ class TestDiscoveryInspectionNameResolution:
     ):
         """Connectivity/API failures should surface as connectivity_error."""
 
-        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
-            setattr(
-                logger,
-                "_name_resolution_diagnostics",
+        def _mock_resolver(_identifiers, _config_file, _logger, **_kwargs):
+            return (
+                [],
+                {},
                 NameResolutionDiagnostics(
                     error_type="connectivity_error",
                     error_message="Failed to resolve data view names: network timeout",
                 ),
             )
-            return [], {}
 
         mock_resolve.side_effect = _mock_resolver
 
@@ -2211,15 +2209,14 @@ class TestDiscoveryInspectionNameResolution:
 
         def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
             logger.error("resolver plain log line")
-            setattr(
-                logger,
-                "_name_resolution_diagnostics",
+            return (
+                [],
+                {},
                 NameResolutionDiagnostics(
                     error_type="configuration_error",
                     error_message="Failed to configure credentials: bad profile",
                 ),
             )
-            return [], {}
 
         mock_resolve.side_effect = _mock_resolver
 
@@ -2556,11 +2553,11 @@ class TestDiscoveryInspectionLimitDispatch:
 
 
 class TestDescribeDataviewIgnoresFilterSortLimit:
-    """Tests that describe_dataview silently ignores filter/sort/limit kwargs."""
+    """Tests that describe_dataview ignores filter/sort/limit kwargs with a warning."""
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.describe_dataview")
-    def test_filter_sort_limit_do_not_cause_error(self, mock_fn):
+    def test_filter_sort_limit_do_not_cause_error(self, mock_fn, capsys):
         """--filter, --sort, --limit with --describe-dataview should not error."""
         mock_fn.return_value = True
         with pytest.raises(SystemExit) as exc_info:
@@ -2572,6 +2569,34 @@ class TestDescribeDataviewIgnoresFilterSortLimit:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         mock_fn.assert_called_once()
+        assert "--filter, --sort, --limit options are ignored with --describe-dataview" in capsys.readouterr().err
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_filter_sort_limit_warning_suppressed_for_machine_readable_mode(self, mock_fn, capsys):
+        """Machine-readable describe mode should avoid warning text on stderr."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    [
+                        "--describe-dataview",
+                        "dv_1",
+                        "--format",
+                        "json",
+                        "--filter",
+                        "something",
+                        "--sort",
+                        "name",
+                        "--limit",
+                        "10",
+                    ]
+                )
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert "ignored with --describe-dataview" not in capsys.readouterr().err
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")

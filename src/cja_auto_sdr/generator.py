@@ -7249,24 +7249,38 @@ class NameResolutionDiagnostics:
     error_message: str | None = None
 
 
-def _set_name_resolution_diagnostics(
-    logger: logging.Logger | None,
+type NameResolutionResult = tuple[list[str], dict[str, list[str]]]
+type NameResolutionResultWithDiagnostics = tuple[list[str], dict[str, list[str]], NameResolutionDiagnostics]
+
+
+def _build_name_resolution_result(
+    resolved_ids: list[str],
+    name_to_ids_map: dict[str, list[str]],
     diagnostics: NameResolutionDiagnostics,
-) -> None:
-    """Attach name-resolution diagnostics to the logger for caller-side decisions."""
-    if logger is None:
-        return
-    logger._name_resolution_diagnostics = diagnostics
+    *,
+    include_diagnostics: bool,
+) -> NameResolutionResult | NameResolutionResultWithDiagnostics:
+    """Return either legacy 2-tuple or extended 3-tuple name-resolution output."""
+    if include_diagnostics:
+        return resolved_ids, name_to_ids_map, diagnostics
+    return resolved_ids, name_to_ids_map
 
 
-def _get_name_resolution_diagnostics(logger: logging.Logger | None) -> NameResolutionDiagnostics:
-    """Return caller-visible diagnostics produced by resolve_data_view_names."""
-    if logger is None:
-        return NameResolutionDiagnostics()
-    diagnostics = getattr(logger, "_name_resolution_diagnostics", None)
+def _coerce_name_resolution_result(
+    result: NameResolutionResult | NameResolutionResultWithDiagnostics,
+) -> NameResolutionResultWithDiagnostics:
+    """Normalize name-resolution return values into a diagnostics-bearing tuple.
+
+    This keeps CLI call sites robust when tests patch resolve_data_view_names with
+    the legacy 2-tuple return shape.
+    """
+    if len(result) == 2:
+        resolved_ids, name_to_ids_map = result
+        return resolved_ids, name_to_ids_map, NameResolutionDiagnostics()
+    resolved_ids, name_to_ids_map, diagnostics = result
     if isinstance(diagnostics, NameResolutionDiagnostics):
-        return diagnostics
-    return NameResolutionDiagnostics()
+        return resolved_ids, name_to_ids_map, diagnostics
+    return resolved_ids, name_to_ids_map, NameResolutionDiagnostics()
 
 
 def _build_inspection_name_resolution_logger() -> logging.Logger:
@@ -7286,7 +7300,8 @@ def resolve_data_view_names(
     suggest_similar: bool = True,
     profile: str | None = None,
     match_mode: str = "exact",
-) -> tuple[list[str], dict[str, list[str]]]:
+    include_diagnostics: bool = False,
+) -> NameResolutionResult | NameResolutionResultWithDiagnostics:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
     If it's a name, match based on ``match_mode``.
@@ -7304,13 +7319,14 @@ def resolve_data_view_names(
         match_mode: Name matching strategy: exact, insensitive, or fuzzy
 
     Returns:
-        Tuple of (resolved_ids, name_to_ids_map)
+        Tuple of (resolved_ids, name_to_ids_map), optionally with diagnostics when
+        ``include_diagnostics`` is True.
         - resolved_ids: List of all resolved data view IDs
         - name_to_ids_map: Dict mapping names to their resolved IDs (for reporting)
     """
     if logger is None:
         logger = logging.getLogger(__name__)
-    _set_name_resolution_diagnostics(logger, NameResolutionDiagnostics())
+    resolution_diagnostics = NameResolutionDiagnostics()
 
     match_mode = (match_mode or "exact").strip().lower()
     if match_mode not in {"exact", "insensitive", "fuzzy"}:
@@ -7327,11 +7343,16 @@ def resolve_data_view_names(
         if not success:
             error_message = f"Failed to configure credentials: {source}"
             logger.error(error_message)
-            _set_name_resolution_diagnostics(
-                logger,
-                NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="configuration_error",
+                error_message=error_message,
             )
-            return [], {}
+            return _build_name_resolution_result(
+                [],
+                {},
+                resolution_diagnostics,
+                include_diagnostics=include_diagnostics,
+            )
         cja = cjapy.CJA()
 
         # Get all available data views (with caching)
@@ -7347,11 +7368,16 @@ def resolve_data_view_names(
         if not available_dvs:
             error_message = "No data views found or no access to any data views"
             logger.error(error_message)
-            _set_name_resolution_diagnostics(
-                logger,
-                NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="configuration_error",
+                error_message=error_message,
             )
-            return [], {}
+            return _build_name_resolution_result(
+                [],
+                {},
+                resolution_diagnostics,
+                include_diagnostics=include_diagnostics,
+            )
 
         # Build a lookup map: name -> list of IDs
         name_to_id_lookup = {}
@@ -7438,44 +7464,61 @@ def resolve_data_view_names(
 
         if not resolved_ids and unresolved_names:
             unresolved_label = unresolved_names[0]
-            _set_name_resolution_diagnostics(
-                logger,
-                NameResolutionDiagnostics(
-                    error_type="not_found",
-                    error_message=(
-                        f"Could not resolve data view: '{unresolved_label}'. "
-                        "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
-                    ),
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="not_found",
+                error_message=(
+                    f"Could not resolve data view: '{unresolved_label}'. "
+                    "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
                 ),
             )
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
-        return resolved_ids, name_to_ids_map
+        return _build_name_resolution_result(
+            resolved_ids,
+            name_to_ids_map,
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
 
     except FileNotFoundError:
         error_message = f"Configuration file '{config_file}' not found"
         logger.error(error_message)
-        _set_name_resolution_diagnostics(
-            logger,
-            NameResolutionDiagnostics(error_type="configuration_error", error_message=error_message),
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="configuration_error",
+            error_message=error_message,
         )
-        return [], {}
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
     except RECOVERABLE_API_EXCEPTIONS as e:
         error_message = f"Failed to resolve data view names: {e!s}"
         logger.error(error_message)
-        _set_name_resolution_diagnostics(
-            logger,
-            NameResolutionDiagnostics(error_type="connectivity_error", error_message=error_message),
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="connectivity_error",
+            error_message=error_message,
         )
-        return [], {}
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
     except Exception as e:
         error_message = f"Failed to resolve data view names (unexpected): {e!s}"
         logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
-        _set_name_resolution_diagnostics(
-            logger,
-            NameResolutionDiagnostics(error_type="connectivity_error", error_message=error_message),
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="connectivity_error",
+            error_message=error_message,
         )
-        return [], {}
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
 
 
 # ==================== DATASET INFO HELPER ====================
@@ -8609,6 +8652,13 @@ def _approved_display(value: Any) -> str:
     return str(value)
 
 
+def _tags_display(tags: Any) -> str:
+    """Render already-normalized tag lists for table/csv output."""
+    if not isinstance(tags, list):
+        return ""
+    return ", ".join(tag for tag in tags if isinstance(tag, str))
+
+
 def _fetch_segments_list(
     data_view_id: str,
     output_format: str,
@@ -8683,7 +8733,7 @@ def _fetch_segments_list(
             {
                 **row,
                 "approved": _approved_display(row.get("approved")),
-                "tags": ", ".join(_extract_tags_normalized(row.get("tags"))),
+                "tags": _tags_display(row.get("tags")),
             }
             for row in display_data
         ]
@@ -8818,7 +8868,7 @@ def _fetch_calculated_metrics_list(
             {
                 **row,
                 "approved": _approved_display(row.get("approved")),
-                "tags": ", ".join(_extract_tags_normalized(row.get("tags"))),
+                "tags": _tags_display(row.get("tags")),
             }
             for row in display_data
         ]
@@ -13631,6 +13681,35 @@ def handle_compare_snapshots_command(
 # ==================== MAIN FUNCTION ====================
 
 
+def _describe_dataview_ignored_options(args: argparse.Namespace) -> list[str]:
+    """Return discovery filtering options that have no effect on --describe-dataview."""
+    ignored: list[str] = []
+    if getattr(args, "org_filter", None) is not None:
+        ignored.append("--filter")
+    if getattr(args, "org_exclude", None) is not None:
+        ignored.append("--exclude")
+    if getattr(args, "discovery_sort", None) is not None:
+        ignored.append("--sort")
+    if getattr(args, "org_limit", None) is not None:
+        ignored.append("--limit")
+    return ignored
+
+
+def _warn_describe_dataview_ignored_options(args: argparse.Namespace) -> None:
+    """Warn when describe_dataview is invoked with ignored discovery options."""
+    ignored_options = _describe_dataview_ignored_options(args)
+    if not ignored_options:
+        return
+    verb = "is" if len(ignored_options) == 1 else "are"
+    option_label = "option" if len(ignored_options) == 1 else "options"
+    print(
+        ConsoleColors.warning(
+            f"Warning: {', '.join(ignored_options)} {option_label} {verb} ignored with --describe-dataview."
+        ),
+        file=sys.stderr,
+    )
+
+
 def _main_impl(run_state: dict[str, Any] | None = None):
     """Main CLI implementation."""
 
@@ -13884,21 +13963,23 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         if resource_id_or_name:
             list_format = _resolve_discovery_output_format(args.format, output_to_stdout=output_to_stdout)
             is_machine_readable_discovery = _is_machine_readable_output(list_format, getattr(args, "output", None))
+            if attr == "describe_dataview" and not is_machine_readable_discovery:
+                _warn_describe_dataview_ignored_options(args)
             # Resolve name → ID if needed (IDs pass through without API call)
             if is_data_view_id(resource_id_or_name):
                 resource_id = resource_id_or_name
             else:
                 temp_logger = _build_inspection_name_resolution_logger()
-                _set_name_resolution_diagnostics(temp_logger, NameResolutionDiagnostics())
-                resolved_ids, _ = resolve_data_view_names(
+                resolution_result = resolve_data_view_names(
                     [resource_id_or_name],
                     args.config_file,
                     temp_logger,
                     profile=getattr(args, "profile", None),
                     match_mode=getattr(args, "name_match", "exact"),
+                    include_diagnostics=True,
                 )
+                resolved_ids, _, resolution_diagnostics = _coerce_name_resolution_result(resolution_result)
                 if not resolved_ids:
-                    resolution_diagnostics = _get_name_resolution_diagnostics(temp_logger)
                     resolution_error_type = resolution_diagnostics.error_type or "not_found"
                     if resolution_error_type == "not_found":
                         resolution_message = (
