@@ -4331,6 +4331,138 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_table_dataframe_nan_description(self, mock_profile, mock_configure, mock_cjapy):
+        """DataFrame-shaped getDataView payload with NaN description should render safely."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+
+        import pandas as pd
+
+        cja.getDataView.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "dv_1",
+                    "name": "Test View",
+                    "owner": {"name": "Jane"},
+                    "description": float("nan"),
+                    "parentDataGroupId": "conn_1",
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                }
+            ]
+        )
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="table")
+
+        assert result is True
+        output = f.getvalue()
+        assert "Description:   (none)" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_json_dataframe_nan_description_normalized(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """DataFrame payload null-like description should serialize as empty string."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+
+        import pandas as pd
+
+        cja.getDataView.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "dv_1",
+                    "name": "Test View",
+                    "ownerName": "Jane",
+                    "description": pd.NA,
+                    "connectionId": "conn_alias",
+                    "createdDate": "2025-01-01",
+                    "modifiedDate": "2025-06-01",
+                }
+            ]
+        )
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        assert output["dataView"]["description"] == ""
+        assert output["dataView"]["owner"] == "Jane"
+        assert output["dataView"]["connectionId"] == "conn_alias"
+        assert output["dataView"]["created"] == "2025-01-01"
+        assert output["dataView"]["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_csv_dataframe_nan_description_normalized(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """CSV output should not emit literal nan for null-like descriptions."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+
+        import csv
+        import io
+        import pandas as pd
+        from contextlib import redirect_stdout
+
+        cja.getDataView.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "dv_1",
+                    "name": "Test View",
+                    "owner": {"name": "Jane"},
+                    "description": float("nan"),
+                    "parentDataGroupId": "conn_1",
+                    "created": "2025-01-01",
+                    "modified": "2025-06-01",
+                }
+            ]
+        )
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="csv")
+
+        assert result is True
+        rows = list(csv.DictReader(io.StringIO(f.getvalue())))
+        assert len(rows) == 1
+        assert rows[0]["description"] == ""
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_graceful_segment_failure(self, mock_profile, mock_configure, mock_cjapy):
         """If getFilters fails, segments count shows as N/A."""
         mock_configure.return_value = (True, "config", None)

@@ -8198,6 +8198,30 @@ def _count_component_items_or_na(raw_payload: Any) -> int | str:
     return _count_component_items_or_na_from_assessment(raw_payload)
 
 
+def _normalize_describe_dataview_metadata(raw_dv: dict[str, Any], *, default_id: str) -> dict[str, str]:
+    """Normalize describe_dataview metadata fields for safe display/serialization."""
+    connection_id = _pick_first_present_text(
+        (
+            raw_dv.get("parentDataGroupId"),
+            raw_dv.get("connectionId"),
+            raw_dv.get("connection_id"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
+    )
+    created = _extract_timestamp_from_record(raw_dv, "created") or "N/A"
+    modified = _extract_timestamp_from_record(raw_dv, "modified") or "N/A"
+    return {
+        "id": _normalize_optional_text(raw_dv.get("id"), default=default_id),
+        "name": _normalize_optional_text(raw_dv.get("name"), default="N/A"),
+        "owner": _extract_owner_name_from_record(raw_dv),
+        "description": _normalize_optional_text(raw_dv.get("description"), default=""),
+        "connection_id": connection_id,
+        "created": created,
+        "modified": modified,
+    }
+
+
 def _fetch_describe_dataview(
     data_view_id: str,
     output_format: str,
@@ -8207,13 +8231,14 @@ def _fetch_describe_dataview(
     def _inner(cja: Any, _is_machine_readable: bool) -> str | None:
         raw_dv = _require_accessible_dataview(cja, data_view_id)
 
-        dv_id = _normalize_optional_text(raw_dv.get("id"), default=data_view_id)
-        dv_name = _normalize_optional_text(raw_dv.get("name"), default="N/A")
-        owner_name = _extract_owner_name(raw_dv.get("owner"))
-        description = raw_dv.get("description", "")
-        connection_id = _normalize_optional_text(raw_dv.get("parentDataGroupId"), default="N/A")
-        created = _normalize_optional_text(raw_dv.get("created"), default="N/A")
-        modified = _normalize_optional_text(raw_dv.get("modified"), default="N/A")
+        dv_metadata = _normalize_describe_dataview_metadata(raw_dv, default_id=data_view_id)
+        dv_id = dv_metadata["id"]
+        dv_name = dv_metadata["name"]
+        owner_name = dv_metadata["owner"]
+        description = dv_metadata["description"]
+        connection_id = dv_metadata["connection_id"]
+        created = dv_metadata["created"]
+        modified = dv_metadata["modified"]
 
         def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
             """Call an API method and return the item count, or 'N/A' on failure."""
@@ -8293,7 +8318,7 @@ def _fetch_describe_dataview(
         lines.append("=" * rule_width)
         lines.append(f"  ID:            {dv_id}")
         lines.append(f"  Owner:         {owner_name}")
-        desc_text = description or "(none)"
+        desc_text = description if description else "(none)"
         desc_prefix = "  Description:   "
         desc_avail = term_width - len(desc_prefix)
         if desc_avail > 20 and len(desc_text) > desc_avail:
