@@ -4430,8 +4430,9 @@ class TestDescribeDataview:
 
         import csv
         import io
-        import pandas as pd
         from contextlib import redirect_stdout
+
+        import pandas as pd
 
         cja.getDataView.return_value = pd.DataFrame(
             [

@@ -8318,7 +8318,7 @@ def _fetch_describe_dataview(
         lines.append("=" * rule_width)
         lines.append(f"  ID:            {dv_id}")
         lines.append(f"  Owner:         {owner_name}")
-        desc_text = description if description else "(none)"
+        desc_text = description or "(none)"
         desc_prefix = "  Description:   "
         desc_avail = term_width - len(desc_prefix)
         if desc_avail > 20 and len(desc_text) > desc_avail:

@@ -87,7 +87,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,834 comprehensive tests**
+**Total: 4,837 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -172,7 +172,7 @@ tests/
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
-| **Total** | **4,834** | **Collected via pytest --collect-only** |
+| **Total** | **4,837** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
