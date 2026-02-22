@@ -117,25 +117,10 @@ from cja_auto_sdr.core.discovery_payloads import (
     assess_component_payload as _assess_component_payload,
 )
 from cja_auto_sdr.core.discovery_payloads import (
-    coerce_component_rows_or_none as _coerce_component_rows_or_none,
-)
-from cja_auto_sdr.core.discovery_payloads import (
     count_component_items_or_na as _count_component_items_or_na_from_assessment,
 )
 from cja_auto_sdr.core.discovery_payloads import (
-    extract_component_sequence as _extract_component_sequence_from_payload,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    is_component_error_payload as _is_component_error_payload_from_assessment,
-)
-from cja_auto_sdr.core.discovery_payloads import (
     is_dataview_error_payload as _is_dataview_error_payload,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    looks_like_component_error_payload as _looks_like_component_error_row,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    normalized_payload_keys as _normalized_payload_keys_set,
 )
 from cja_auto_sdr.core.exceptions import (
     APIError,
@@ -8179,44 +8164,14 @@ def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
     return raw_dv if isinstance(raw_dv, dict) else None
 
 
-def _normalized_payload_keys(payload: dict[str, Any]) -> set[str]:
-    """Return normalized dictionary keys for payload-shape checks."""
-    return _normalized_payload_keys_set(payload)
-
-
-def _looks_like_dataview_error_payload(payload: dict[str, Any]) -> bool:
-    """Return True when a getDataView payload matches API error object shape."""
-    return _is_dataview_error_payload(payload)
-
-
 def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
     payload = _normalize_single_dataview_payload(cja.getDataView(data_view_id))
-    if payload is None or _looks_like_dataview_error_payload(payload):
+    if payload is None or _is_dataview_error_payload(payload):
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     if not payload.get("id") and not payload.get("name"):
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     return payload
-
-
-def _extract_component_sequence(payload: dict[str, Any]) -> list[Any] | None:
-    """Extract list-like component rows from common API envelope shapes."""
-    return _extract_component_sequence_from_payload(payload)
-
-
-def _looks_like_component_error_payload(payload: dict[str, Any]) -> bool:
-    """Return True when a component API payload row matches error object shape."""
-    return _looks_like_component_error_row(payload)
-
-
-def _coerce_component_rows(raw_payload: Any) -> list[Any] | None:
-    """Normalize component API payloads into row lists when possible."""
-    return _coerce_component_rows_or_none(raw_payload)
-
-
-def _is_component_error_payload(raw_payload: Any) -> bool:
-    """Return True when a component API payload appears to be an error object."""
-    return _is_component_error_payload_from_assessment(raw_payload)
 
 
 def _normalize_component_records_or_raise(
@@ -8234,11 +8189,6 @@ def _normalize_component_records_or_raise(
             f"Unexpected {component_label} payload type for data view '{data_view_id}'",
         )
     return assessment.rows
-
-
-def _count_component_items_or_na(raw_payload: Any) -> int | str:
-    """Return component count or 'N/A' when payload is unavailable/invalid."""
-    return _count_component_items_or_na_from_assessment(raw_payload)
 
 
 def _normalize_describe_dataview_metadata(raw_dv: dict[str, Any], *, default_id: str) -> dict[str, str]:
@@ -8286,7 +8236,7 @@ def _fetch_describe_dataview(
         def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
             """Call an API method and return the item count, or 'N/A' on failure."""
             try:
-                return _count_component_items_or_na(api_call(*args, **kwargs))
+                return _count_component_items_or_na_from_assessment(api_call(*args, **kwargs))
             except Exception:
                 return "N/A"
 
@@ -8395,7 +8345,6 @@ def describe_dataview(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
-    **_kwargs: Any,
 ) -> bool:
     """Describe a single data view with component counts and exit."""
     return _run_list_command(
@@ -8412,66 +8361,82 @@ def describe_dataview(
 # ==================== LIST METRICS ====================
 
 
-def _resolve_dataview_name(cja: Any, data_view_id: str) -> str:
-    """Look up a data view's display name by ID.
-
-    Uses ``getDataView(id)`` to fetch a single resource instead of
-    listing all data views, avoiding an expensive API round-trip.
-
-    Raises DiscoveryNotFoundError if the data view is missing or inaccessible.
-    """
+def _resolve_dataview_name(cja: Any, data_view_id: str, *, preferred_name: str | None = None) -> str:
+    """Look up a data view display name, preferring dispatch-resolved names when available."""
+    normalized_preferred = _normalize_optional_text(preferred_name, default="")
+    if normalized_preferred:
+        return normalized_preferred
     raw_dv = _require_accessible_dataview(cja, data_view_id)
     normalized_name = _normalize_optional_text(raw_dv.get("name"), default="")
     return normalized_name or "Unknown"
 
 
-def _fetch_metrics_list(
+def _format_governance_rows_for_tabular(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert governance fields into table/csv-friendly strings."""
+    return [
+        {
+            **row,
+            "approved": _approved_display(row.get("approved")),
+            "tags": _tags_display(row.get("tags")),
+        }
+        for row in rows
+    ]
+
+
+def _build_component_list_fetcher(
+    *,
     data_view_id: str,
+    data_view_name: str | None,
     output_format: str,
-    filter_pattern: str | None = None,
-    exclude_pattern: str | None = None,
-    limit: int | None = None,
-    sort_expression: str | None = None,
+    filter_pattern: str | None,
+    exclude_pattern: str | None,
+    limit: int | None,
+    sort_expression: str | None,
+    component_label: str,
+    table_item_label: str,
+    component_json_key: str,
+    empty_csv_header: str,
+    fetch_payload: Callable[[Any, str], Any],
+    display_row_builder: Callable[[dict[str, Any]], dict[str, Any]],
+    searchable_fields: list[str],
+    csv_columns: list[str],
+    table_columns: list[str],
+    table_labels: list[str],
+    table_row_transform: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> Callable:
-    """Return a fetch_and_format callback for list_metrics."""
+    """Return a shared fetch-and-format callback for list-* inspection commands."""
 
     def _inner(cja: Any, is_machine_readable: bool) -> str | None:
-        dv_name = _resolve_dataview_name(cja, data_view_id)
+        dv_name = _resolve_dataview_name(cja, data_view_id, preferred_name=data_view_name)
 
-        raw_metrics = _normalize_component_records_or_raise(
-            cja.getMetrics(data_view_id, inclType=True, full=True),
-            component_label="metrics",
+        raw_components = _normalize_component_records_or_raise(
+            fetch_payload(cja, data_view_id),
+            component_label=component_label,
             data_view_id=data_view_id,
         )
 
-        if not raw_metrics:
+        if not raw_components:
             if is_machine_readable:
                 if output_format == "json":
-                    return json.dumps(
-                        {"dataViewId": data_view_id, "dataViewName": dv_name, "metrics": [], "count": 0},
-                        indent=2,
+                    return _format_as_json(
+                        {
+                            "dataViewId": data_view_id,
+                            "dataViewName": dv_name,
+                            component_json_key: [],
+                            "count": 0,
+                        }
                     )
-                return "id,name,type,description\n"
-            return f"\nNo metrics found for data view '{data_view_id}'.\n"
+                return f"{empty_csv_header}\n"
+            return f"\nNo {component_label} found for data view '{data_view_id}'.\n"
 
-        display_data = [
-            {
-                "id": _normalize_optional_text(m.get("id"), default="N/A"),
-                "name": _normalize_optional_text(m.get("name"), default="N/A"),
-                "type": m.get("type", "N/A"),
-                "description": m.get("description", ""),
-            }
-            for m in raw_metrics
-            if isinstance(m, dict)
-        ]
-
+        display_data = [display_row_builder(item) for item in raw_components if isinstance(item, dict)]
         display_data = _apply_discovery_filters_and_sort(
             display_data,
             filter_pattern=filter_pattern,
             exclude_pattern=exclude_pattern,
             limit=limit,
             sort_expression=sort_expression,
-            searchable_fields=["id", "name", "type", "description"],
+            searchable_fields=searchable_fields,
             default_sort_field="name",
         )
 
@@ -8480,20 +8445,63 @@ def _fetch_metrics_list(
                 {
                     "dataViewId": data_view_id,
                     "dataViewName": dv_name,
-                    "metrics": display_data,
+                    component_json_key: display_data,
                     "count": len(display_data),
                 }
             )
+
+        tabular_data = table_row_transform(display_data) if table_row_transform else display_data
         if output_format == "csv":
-            return _format_as_csv(["id", "name", "type", "description"], display_data)
+            return _format_as_csv(csv_columns, tabular_data)
         return _format_as_table(
-            f"Found {len(display_data)} metric(s) in data view '{dv_name}':",
-            display_data,
-            columns=["id", "name", "type", "description"],
-            col_labels=["ID", "Name", "Type", "Description"],
+            f"Found {len(tabular_data)} {table_item_label}(s) in data view '{dv_name}':",
+            tabular_data,
+            columns=table_columns,
+            col_labels=table_labels,
         )
 
     return _inner
+
+
+def _build_metric_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one metrics-list row for output."""
+    return {
+        "id": _normalize_optional_text(item.get("id"), default="N/A"),
+        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        "type": item.get("type", "N/A"),
+        "description": item.get("description", ""),
+    }
+
+
+def _fetch_metrics_list(
+    data_view_id: str,
+    output_format: str,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_metrics."""
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="metrics",
+        table_item_label="metric",
+        component_json_key="metrics",
+        empty_csv_header="id,name,type,description",
+        fetch_payload=lambda cja, dv_id: cja.getMetrics(dv_id, inclType=True, full=True),
+        display_row_builder=_build_metric_display_row,
+        searchable_fields=["id", "name", "type", "description"],
+        csv_columns=["id", "name", "type", "description"],
+        table_columns=["id", "name", "type", "description"],
+        table_labels=["ID", "Name", "Type", "Description"],
+    )
 
 
 def list_metrics(
@@ -8502,6 +8510,7 @@ def list_metrics(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
@@ -8514,6 +8523,7 @@ def list_metrics(
         fetch_and_format=_fetch_metrics_list(
             data_view_id,
             output_format,
+            data_view_name=data_view_name,
             filter_pattern=filter_pattern,
             exclude_pattern=exclude_pattern,
             limit=limit,
@@ -8534,75 +8544,45 @@ def list_metrics(
 # ==================== LIST DIMENSIONS ====================
 
 
+def _build_dimension_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one dimensions-list row for output."""
+    return {
+        "id": _normalize_optional_text(item.get("id"), default="N/A"),
+        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        "type": item.get("type", "N/A"),
+        "description": item.get("description", ""),
+    }
+
+
 def _fetch_dimensions_list(
     data_view_id: str,
     output_format: str,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
     sort_expression: str | None = None,
 ) -> Callable:
     """Return a fetch_and_format callback for list_dimensions."""
-
-    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
-        dv_name = _resolve_dataview_name(cja, data_view_id)
-
-        raw_dimensions = _normalize_component_records_or_raise(
-            cja.getDimensions(data_view_id, inclType=True, full=True),
-            component_label="dimensions",
-            data_view_id=data_view_id,
-        )
-
-        if not raw_dimensions:
-            if is_machine_readable:
-                if output_format == "json":
-                    return json.dumps(
-                        {"dataViewId": data_view_id, "dataViewName": dv_name, "dimensions": [], "count": 0},
-                        indent=2,
-                    )
-                return "id,name,type,description\n"
-            return f"\nNo dimensions found for data view '{data_view_id}'.\n"
-
-        display_data = [
-            {
-                "id": _normalize_optional_text(d.get("id"), default="N/A"),
-                "name": _normalize_optional_text(d.get("name"), default="N/A"),
-                "type": d.get("type", "N/A"),
-                "description": d.get("description", ""),
-            }
-            for d in raw_dimensions
-            if isinstance(d, dict)
-        ]
-
-        display_data = _apply_discovery_filters_and_sort(
-            display_data,
-            filter_pattern=filter_pattern,
-            exclude_pattern=exclude_pattern,
-            limit=limit,
-            sort_expression=sort_expression,
-            searchable_fields=["id", "name", "type", "description"],
-            default_sort_field="name",
-        )
-
-        if output_format == "json":
-            return _format_as_json(
-                {
-                    "dataViewId": data_view_id,
-                    "dataViewName": dv_name,
-                    "dimensions": display_data,
-                    "count": len(display_data),
-                }
-            )
-        if output_format == "csv":
-            return _format_as_csv(["id", "name", "type", "description"], display_data)
-        return _format_as_table(
-            f"Found {len(display_data)} dimension(s) in data view '{dv_name}':",
-            display_data,
-            columns=["id", "name", "type", "description"],
-            col_labels=["ID", "Name", "Type", "Description"],
-        )
-
-    return _inner
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="dimensions",
+        table_item_label="dimension",
+        component_json_key="dimensions",
+        empty_csv_header="id,name,type,description",
+        fetch_payload=lambda cja, dv_id: cja.getDimensions(dv_id, inclType=True, full=True),
+        display_row_builder=_build_dimension_display_row,
+        searchable_fields=["id", "name", "type", "description"],
+        csv_columns=["id", "name", "type", "description"],
+        table_columns=["id", "name", "type", "description"],
+        table_labels=["ID", "Name", "Type", "Description"],
+    )
 
 
 def list_dimensions(
@@ -8611,6 +8591,7 @@ def list_dimensions(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
@@ -8623,6 +8604,7 @@ def list_dimensions(
         fetch_and_format=_fetch_dimensions_list(
             data_view_id,
             output_format,
+            data_view_name=data_view_name,
             filter_pattern=filter_pattern,
             exclude_pattern=exclude_pattern,
             limit=limit,
@@ -8659,98 +8641,52 @@ def _tags_display(tags: Any) -> str:
     return ", ".join(tag for tag in tags if isinstance(tag, str))
 
 
+def _build_segment_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one segments-list row for output."""
+    tags = _extract_tags_normalized(item.get("tags"))
+    approved_raw = item.get("approved")
+    return {
+        "id": _normalize_optional_text(item.get("id"), default="N/A"),
+        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        "owner": _extract_owner_name_from_record(item),
+        "description": item.get("description", ""),
+        "approved": approved_raw if isinstance(approved_raw, bool) else None,
+        "tags": tags,
+        "created": _extract_timestamp_from_record(item, "created"),
+        "modified": _extract_timestamp_from_record(item, "modified"),
+    }
+
+
 def _fetch_segments_list(
     data_view_id: str,
     output_format: str,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
     sort_expression: str | None = None,
 ) -> Callable:
     """Return a fetch_and_format callback for list_segments."""
-
-    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
-        dv_name = _resolve_dataview_name(cja, data_view_id)
-
-        raw_segments = _normalize_component_records_or_raise(
-            cja.getFilters(dataIds=data_view_id, full=True),
-            component_label="segments",
-            data_view_id=data_view_id,
-        )
-
-        if not raw_segments:
-            if is_machine_readable:
-                if output_format == "json":
-                    return json.dumps(
-                        {"dataViewId": data_view_id, "dataViewName": dv_name, "segments": [], "count": 0},
-                        indent=2,
-                    )
-                return "id,name,owner,approved,description,tags,created,modified\n"
-            return f"\nNo segments found for data view '{data_view_id}'.\n"
-
-        # Build display dicts with native types
-        display_data: list[dict[str, Any]] = []
-        for item in raw_segments:
-            if not isinstance(item, dict):
-                continue
-            tags = _extract_tags_normalized(item.get("tags"))
-            approved_raw = item.get("approved")
-            display_data.append(
-                {
-                    "id": _normalize_optional_text(item.get("id"), default="N/A"),
-                    "name": _normalize_optional_text(item.get("name"), default="N/A"),
-                    "owner": _extract_owner_name_from_record(item),
-                    "description": item.get("description", ""),
-                    "approved": approved_raw if isinstance(approved_raw, bool) else None,
-                    "tags": tags,
-                    "created": _extract_timestamp_from_record(item, "created"),
-                    "modified": _extract_timestamp_from_record(item, "modified"),
-                }
-            )
-
-        display_data = _apply_discovery_filters_and_sort(
-            display_data,
-            filter_pattern=filter_pattern,
-            exclude_pattern=exclude_pattern,
-            limit=limit,
-            sort_expression=sort_expression,
-            searchable_fields=["id", "name", "owner", "description", "tags"],
-            default_sort_field="name",
-        )
-
-        if output_format == "json":
-            return _format_as_json(
-                {
-                    "dataViewId": data_view_id,
-                    "dataViewName": dv_name,
-                    "segments": display_data,
-                    "count": len(display_data),
-                }
-            )
-
-        # For table/CSV, convert approved and tags to display strings
-        table_data = [
-            {
-                **row,
-                "approved": _approved_display(row.get("approved")),
-                "tags": _tags_display(row.get("tags")),
-            }
-            for row in display_data
-        ]
-
-        if output_format == "csv":
-            return _format_as_csv(
-                ["id", "name", "owner", "approved", "description", "tags", "created", "modified"],
-                table_data,
-            )
-        return _format_as_table(
-            f"Found {len(table_data)} segment(s) in data view '{dv_name}':",
-            table_data,
-            columns=["id", "name", "owner", "approved", "description"],
-            col_labels=["ID", "Name", "Owner", "Approved", "Description"],
-        )
-
-    return _inner
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="segments",
+        table_item_label="segment",
+        component_json_key="segments",
+        empty_csv_header="id,name,owner,approved,description,tags,created,modified",
+        fetch_payload=lambda cja, dv_id: cja.getFilters(dataIds=dv_id, full=True),
+        display_row_builder=_build_segment_display_row,
+        searchable_fields=["id", "name", "owner", "description", "tags"],
+        csv_columns=["id", "name", "owner", "approved", "description", "tags", "created", "modified"],
+        table_columns=["id", "name", "owner", "approved", "description"],
+        table_labels=["ID", "Name", "Owner", "Approved", "Description"],
+        table_row_transform=_format_governance_rows_for_tabular,
+    )
 
 
 def list_segments(
@@ -8759,6 +8695,7 @@ def list_segments(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
@@ -8771,6 +8708,7 @@ def list_segments(
         fetch_and_format=_fetch_segments_list(
             data_view_id,
             output_format,
+            data_view_name=data_view_name,
             filter_pattern=filter_pattern,
             exclude_pattern=exclude_pattern,
             limit=limit,
@@ -8791,113 +8729,67 @@ def list_segments(
 # ==================== LIST CALCULATED METRICS ====================
 
 
+def _build_calculated_metric_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one calculated-metrics row for output."""
+    tags = _extract_tags_normalized(item.get("tags"))
+    approved_raw = item.get("approved")
+    return {
+        "id": _normalize_optional_text(item.get("id"), default="N/A"),
+        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        "owner": _extract_owner_name_from_record(item),
+        "description": item.get("description", ""),
+        "type": item.get("type", ""),
+        "polarity": item.get("polarity", ""),
+        "precision": item.get("precision", 0),
+        "approved": approved_raw if isinstance(approved_raw, bool) else None,
+        "tags": tags,
+        "created": _extract_timestamp_from_record(item, "created"),
+        "modified": _extract_timestamp_from_record(item, "modified"),
+    }
+
+
 def _fetch_calculated_metrics_list(
     data_view_id: str,
     output_format: str,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
     sort_expression: str | None = None,
 ) -> Callable:
     """Return a fetch_and_format callback for list_calculated_metrics."""
-
-    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
-        dv_name = _resolve_dataview_name(cja, data_view_id)
-
-        raw_metrics = _normalize_component_records_or_raise(
-            cja.getCalculatedMetrics(dataIds=data_view_id, full=True),
-            component_label="calculated metrics",
-            data_view_id=data_view_id,
-        )
-
-        if not raw_metrics:
-            if is_machine_readable:
-                if output_format == "json":
-                    return json.dumps(
-                        {"dataViewId": data_view_id, "dataViewName": dv_name, "calculatedMetrics": [], "count": 0},
-                        indent=2,
-                    )
-                return "id,name,owner,type,polarity,precision,approved,tags,created,modified,description\n"
-            return f"\nNo calculated metrics found for data view '{data_view_id}'.\n"
-
-        # Build display dicts with native types
-        display_data: list[dict[str, Any]] = []
-        for item in raw_metrics:
-            if not isinstance(item, dict):
-                continue
-            tags = _extract_tags_normalized(item.get("tags"))
-            approved_raw = item.get("approved")
-            display_data.append(
-                {
-                    "id": _normalize_optional_text(item.get("id"), default="N/A"),
-                    "name": _normalize_optional_text(item.get("name"), default="N/A"),
-                    "owner": _extract_owner_name_from_record(item),
-                    "description": item.get("description", ""),
-                    "type": item.get("type", ""),
-                    "polarity": item.get("polarity", ""),
-                    "precision": item.get("precision", 0),
-                    "approved": approved_raw if isinstance(approved_raw, bool) else None,
-                    "tags": tags,
-                    "created": _extract_timestamp_from_record(item, "created"),
-                    "modified": _extract_timestamp_from_record(item, "modified"),
-                }
-            )
-
-        display_data = _apply_discovery_filters_and_sort(
-            display_data,
-            filter_pattern=filter_pattern,
-            exclude_pattern=exclude_pattern,
-            limit=limit,
-            sort_expression=sort_expression,
-            searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
-            default_sort_field="name",
-        )
-
-        if output_format == "json":
-            return _format_as_json(
-                {
-                    "dataViewId": data_view_id,
-                    "dataViewName": dv_name,
-                    "calculatedMetrics": display_data,
-                    "count": len(display_data),
-                }
-            )
-
-        # For table/CSV, convert approved and tags to display strings
-        table_data = [
-            {
-                **row,
-                "approved": _approved_display(row.get("approved")),
-                "tags": _tags_display(row.get("tags")),
-            }
-            for row in display_data
-        ]
-
-        if output_format == "csv":
-            return _format_as_csv(
-                [
-                    "id",
-                    "name",
-                    "owner",
-                    "type",
-                    "polarity",
-                    "precision",
-                    "approved",
-                    "tags",
-                    "created",
-                    "modified",
-                    "description",
-                ],
-                table_data,
-            )
-        return _format_as_table(
-            f"Found {len(table_data)} calculated metric(s) in data view '{dv_name}':",
-            table_data,
-            columns=["id", "name", "owner", "type", "polarity", "approved", "description"],
-            col_labels=["ID", "Name", "Owner", "Type", "Polarity", "Approved", "Description"],
-        )
-
-    return _inner
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="calculated metrics",
+        table_item_label="calculated metric",
+        component_json_key="calculatedMetrics",
+        empty_csv_header="id,name,owner,type,polarity,precision,approved,tags,created,modified,description",
+        fetch_payload=lambda cja, dv_id: cja.getCalculatedMetrics(dataIds=dv_id, full=True),
+        display_row_builder=_build_calculated_metric_display_row,
+        searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
+        csv_columns=[
+            "id",
+            "name",
+            "owner",
+            "type",
+            "polarity",
+            "precision",
+            "approved",
+            "tags",
+            "created",
+            "modified",
+            "description",
+        ],
+        table_columns=["id", "name", "owner", "type", "polarity", "approved", "description"],
+        table_labels=["ID", "Name", "Owner", "Type", "Polarity", "Approved", "Description"],
+        table_row_transform=_format_governance_rows_for_tabular,
+    )
 
 
 def list_calculated_metrics(
@@ -8906,6 +8798,7 @@ def list_calculated_metrics(
     output_format: str = "table",
     output_file: str | None = None,
     profile: str | None = None,
+    data_view_name: str | None = None,
     filter_pattern: str | None = None,
     exclude_pattern: str | None = None,
     limit: int | None = None,
@@ -8918,6 +8811,7 @@ def list_calculated_metrics(
         fetch_and_format=_fetch_calculated_metrics_list(
             data_view_id,
             output_format,
+            data_view_name=data_view_name,
             filter_pattern=filter_pattern,
             exclude_pattern=exclude_pattern,
             limit=limit,
@@ -13965,10 +13859,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             is_machine_readable_discovery = _is_machine_readable_output(list_format, getattr(args, "output", None))
             if attr == "describe_dataview" and not is_machine_readable_discovery:
                 _warn_describe_dataview_ignored_options(args)
+            resolved_resource_name: str | None = None
             # Resolve name → ID if needed (IDs pass through without API call)
             if is_data_view_id(resource_id_or_name):
                 resource_id = resource_id_or_name
             else:
+                resolved_resource_name = resource_id_or_name
                 temp_logger = _build_inspection_name_resolution_logger()
                 resolution_result = resolve_data_view_names(
                     [resource_id_or_name],
@@ -14035,17 +13931,28 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 else:
                     resource_id = resolved_ids[0]
 
-            success = func(
-                resource_id,
-                config_file=args.config_file,
-                output_format=list_format,
-                output_file=getattr(args, "output", None),
-                profile=getattr(args, "profile", None),
-                filter_pattern=getattr(args, "org_filter", None),
-                exclude_pattern=getattr(args, "org_exclude", None),
-                limit=getattr(args, "org_limit", None),
-                sort_expression=getattr(args, "discovery_sort", None),
-            )
+            if attr == "describe_dataview":
+                success = func(
+                    resource_id,
+                    config_file=args.config_file,
+                    output_format=list_format,
+                    output_file=getattr(args, "output", None),
+                    profile=getattr(args, "profile", None),
+                )
+            else:
+                list_kwargs: dict[str, Any] = {
+                    "config_file": args.config_file,
+                    "output_format": list_format,
+                    "output_file": getattr(args, "output", None),
+                    "profile": getattr(args, "profile", None),
+                    "filter_pattern": getattr(args, "org_filter", None),
+                    "exclude_pattern": getattr(args, "org_exclude", None),
+                    "limit": getattr(args, "org_limit", None),
+                    "sort_expression": getattr(args, "discovery_sort", None),
+                }
+                if resolved_resource_name is not None:
+                    list_kwargs["data_view_name"] = resolved_resource_name
+                success = func(resource_id, **list_kwargs)
             if run_state is not None:
                 run_state["output_format"] = list_format
                 run_state["details"] = {"operation_success": success, "discovery_command": attr}

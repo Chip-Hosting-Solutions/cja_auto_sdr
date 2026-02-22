@@ -2333,6 +2333,7 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_m1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Metrics View"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2348,6 +2349,7 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_d1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Dims View"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2363,6 +2365,7 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_s1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Segs View"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2378,6 +2381,7 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_cm1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Calc View"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2393,6 +2397,7 @@ class TestDiscoveryInspectionNameResolution:
         assert exc_info.value.code == 0
         mock_resolve.assert_not_called()
         assert mock_fn.call_args[0][0] == "dv_456"
+        assert "data_view_name" not in mock_fn.call_args[1]
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -2598,30 +2603,16 @@ class TestDescribeDataviewIgnoresFilterSortLimit:
         mock_fn.assert_called_once()
         assert "ignored with --describe-dataview" not in capsys.readouterr().err
 
-    @patch("cja_auto_sdr.generator.cjapy")
-    @patch("cja_auto_sdr.generator.configure_cjapy")
-    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
-    def test_describe_dataview_kwargs_absorbed(self, mock_profile, mock_configure, mock_cjapy):
-        """describe_dataview() should accept and ignore unexpected kwargs via **_kwargs."""
+    def test_describe_dataview_rejects_unexpected_kwargs(self):
+        """describe_dataview() should fail fast on unsupported kwargs."""
         from cja_auto_sdr.generator import describe_dataview
 
-        mock_configure.return_value = (True, "config", None)
-        cja = mock_cjapy.CJA.return_value
-        cja.getDataView.return_value = {"id": "dv_1", "name": "Test", "owner": {"name": "Admin"}}
-        import pandas as pd
-
-        cja.getMetrics.return_value = pd.DataFrame([{"id": "m1"}])
-        cja.getDimensions.return_value = pd.DataFrame([{"id": "d1"}])
-        cja.getFilters.return_value = pd.DataFrame()
-        cja.getCalculatedMetrics.return_value = pd.DataFrame()
-
-        # These should be silently absorbed by **_kwargs
-        result = describe_dataview(
-            "dv_1",
-            output_format="json",
-            filter_pattern="anything",
-            exclude_pattern="something",
-            limit=10,
-            sort_expression="-name",
-        )
-        assert result is True
+        with pytest.raises(TypeError):
+            describe_dataview(
+                "dv_1",
+                output_format="json",
+                filter_pattern="anything",
+                exclude_pattern="something",
+                limit=10,
+                sort_expression="-name",
+            )

@@ -644,6 +644,8 @@ cja_auto_sdr --list-metrics "Prod Web" --name-match fuzzy
 > **Name resolution:** You can pass a data view name instead of an ID. Use `--name-match` to control matching mode (exact, insensitive, fuzzy). If a name matches multiple views, you'll be prompted to choose one interactively.
 >
 > **Filter/Sort/Limit/Exclude:** All list commands (`--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`) support `--filter`, `--exclude`, `--sort`, and `--limit`. `--describe-dataview` does not (it returns a single resource).
+>
+> **Table column scope:** For readability, table output for `--list-segments` omits `tags`, `created`, and `modified`; table output for `--list-calculated-metrics` omits `precision`, `tags`, `created`, and `modified`. Use JSON/CSV for the full field set.
 
 ### Quick Statistics
 
