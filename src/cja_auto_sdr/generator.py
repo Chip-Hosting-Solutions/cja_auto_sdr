@@ -7612,7 +7612,12 @@ def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
 
 def _format_as_json(payload: dict) -> str:
     """Format a discovery result dict as indented JSON."""
-    return json.dumps(payload, indent=2)
+    try:
+        return json.dumps(payload, indent=2, allow_nan=False)
+    except ValueError as exc:
+        raise DiscoveryOutputContractError(
+            "Discovery output contains non-JSON-compliant values",
+        ) from exc
 
 
 def _format_as_csv(columns: list[str], rows: list[dict]) -> str:
@@ -7741,6 +7746,10 @@ class DiscoveryArgumentError(ValueError):
     """Raised when discovery filter/sort arguments are invalid."""
 
 
+class DiscoveryOutputContractError(ValueError):
+    """Raised when machine-readable discovery output violates JSON contracts."""
+
+
 class DiscoveryNotFoundError(LookupError):
     """Raised when a requested discovery resource is not found."""
 
@@ -7777,7 +7786,7 @@ def _emit_discovery_error(
             payload["error_type"] = error_type
         if additional_fields:
             payload.update(additional_fields)
-        print(json.dumps(payload), file=sys.stderr)
+        print(json.dumps(payload, allow_nan=False), file=sys.stderr)
         return
 
     stream = sys.stderr if human_to_stderr else sys.stdout
@@ -8010,6 +8019,15 @@ def _run_list_command(
             str(e),
             is_machine_readable=is_machine_readable,
             error_type="invalid_arguments",
+            human_to_stderr=False,
+        )
+        return False
+
+    except DiscoveryOutputContractError as e:
+        _emit_discovery_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            error_type="output_contract",
             human_to_stderr=False,
         )
         return False
@@ -8386,6 +8404,30 @@ def _format_governance_rows_for_tabular(rows: list[dict[str, Any]]) -> list[dict
     ]
 
 
+@dataclass(frozen=True)
+class _ComponentFetchSpec:
+    """Describe how to fetch one component collection for a data view."""
+
+    method_name: str
+    data_view_arg_name: str | None = None
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> Any:
+    """Invoke a component-list API call using a declarative fetch spec."""
+    fetch_method = getattr(cja, fetch_spec.method_name, None)
+    if not callable(fetch_method):
+        raise DiscoveryNotFoundError(
+            f"CJA client missing expected method '{fetch_spec.method_name}' for data view '{data_view_id}'",
+        )
+
+    kwargs = dict(fetch_spec.kwargs)
+    if fetch_spec.data_view_arg_name:
+        kwargs[fetch_spec.data_view_arg_name] = data_view_id
+        return fetch_method(**kwargs)
+    return fetch_method(data_view_id, **kwargs)
+
+
 def _build_component_list_fetcher(
     *,
     data_view_id: str,
@@ -8399,7 +8441,7 @@ def _build_component_list_fetcher(
     table_item_label: str,
     component_json_key: str,
     empty_csv_header: str,
-    fetch_payload: Callable[[Any, str], Any],
+    fetch_spec: _ComponentFetchSpec,
     display_row_builder: Callable[[dict[str, Any]], dict[str, Any]],
     searchable_fields: list[str],
     csv_columns: list[str],
@@ -8413,7 +8455,7 @@ def _build_component_list_fetcher(
         dv_name = _resolve_dataview_name(cja, data_view_id, preferred_name=data_view_name)
 
         raw_components = _normalize_component_records_or_raise(
-            fetch_payload(cja, data_view_id),
+            _fetch_component_payload(cja, data_view_id, fetch_spec),
             component_label=component_label,
             data_view_id=data_view_id,
         )
@@ -8466,13 +8508,49 @@ def _build_component_list_fetcher(
     return _inner
 
 
+def _normalize_component_text_fields(item: dict[str, Any], *, defaults: dict[str, str]) -> dict[str, str]:
+    """Normalize a component row's text fields with per-field defaults."""
+    return {
+        field_name: _normalize_optional_text(item.get(field_name), default=default_value)
+        for field_name, default_value in defaults.items()
+    }
+
+
+def _normalize_optional_component_int(value: Any, *, default: int = 0) -> int:
+    """Normalize optional integer-ish component values for strict JSON output."""
+    if _is_missing_discovery_value(value, treat_blank_string=True, treat_null_like_strings=True):
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return default
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return default
+        try:
+            return int(stripped)
+        except ValueError:
+            return default
+    return default
+
+
 def _build_metric_display_row(item: dict[str, Any]) -> dict[str, Any]:
     """Normalize one metrics-list row for output."""
     return {
-        "id": _normalize_optional_text(item.get("id"), default="N/A"),
-        "name": _normalize_optional_text(item.get("name"), default="N/A"),
-        "type": item.get("type", "N/A"),
-        "description": item.get("description", ""),
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "type": "N/A",
+                "description": "",
+            },
+        ),
     }
 
 
@@ -8498,7 +8576,10 @@ def _fetch_metrics_list(
         table_item_label="metric",
         component_json_key="metrics",
         empty_csv_header="id,name,type,description",
-        fetch_payload=lambda cja, dv_id: cja.getMetrics(dv_id, inclType=True, full=True),
+        fetch_spec=_ComponentFetchSpec(
+            method_name="getMetrics",
+            kwargs={"inclType": "hidden", "full": True},
+        ),
         display_row_builder=_build_metric_display_row,
         searchable_fields=["id", "name", "type", "description"],
         csv_columns=["id", "name", "type", "description"],
@@ -8550,10 +8631,15 @@ def list_metrics(
 def _build_dimension_display_row(item: dict[str, Any]) -> dict[str, Any]:
     """Normalize one dimensions-list row for output."""
     return {
-        "id": _normalize_optional_text(item.get("id"), default="N/A"),
-        "name": _normalize_optional_text(item.get("name"), default="N/A"),
-        "type": item.get("type", "N/A"),
-        "description": item.get("description", ""),
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "type": "N/A",
+                "description": "",
+            },
+        ),
     }
 
 
@@ -8579,7 +8665,10 @@ def _fetch_dimensions_list(
         table_item_label="dimension",
         component_json_key="dimensions",
         empty_csv_header="id,name,type,description",
-        fetch_payload=lambda cja, dv_id: cja.getDimensions(dv_id, inclType=True, full=True),
+        fetch_spec=_ComponentFetchSpec(
+            method_name="getDimensions",
+            kwargs={"inclType": "hidden", "full": True},
+        ),
         display_row_builder=_build_dimension_display_row,
         searchable_fields=["id", "name", "type", "description"],
         csv_columns=["id", "name", "type", "description"],
@@ -8649,10 +8738,15 @@ def _build_segment_display_row(item: dict[str, Any]) -> dict[str, Any]:
     tags = _extract_tags_normalized(item.get("tags"))
     approved_raw = item.get("approved")
     return {
-        "id": _normalize_optional_text(item.get("id"), default="N/A"),
-        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "description": "",
+            },
+        ),
         "owner": _extract_owner_name_from_record(item),
-        "description": item.get("description", ""),
         "approved": approved_raw if isinstance(approved_raw, bool) else None,
         "tags": tags,
         "created": _extract_timestamp_from_record(item, "created"),
@@ -8682,7 +8776,11 @@ def _fetch_segments_list(
         table_item_label="segment",
         component_json_key="segments",
         empty_csv_header="id,name,owner,approved,description,tags,created,modified",
-        fetch_payload=lambda cja, dv_id: cja.getFilters(dataIds=dv_id, full=True),
+        fetch_spec=_ComponentFetchSpec(
+            method_name="getFilters",
+            data_view_arg_name="dataIds",
+            kwargs={"full": True},
+        ),
         display_row_builder=_build_segment_display_row,
         searchable_fields=["id", "name", "owner", "description", "tags"],
         csv_columns=["id", "name", "owner", "approved", "description", "tags", "created", "modified"],
@@ -8737,13 +8835,18 @@ def _build_calculated_metric_display_row(item: dict[str, Any]) -> dict[str, Any]
     tags = _extract_tags_normalized(item.get("tags"))
     approved_raw = item.get("approved")
     return {
-        "id": _normalize_optional_text(item.get("id"), default="N/A"),
-        "name": _normalize_optional_text(item.get("name"), default="N/A"),
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "description": "",
+                "type": "",
+                "polarity": "",
+            },
+        ),
         "owner": _extract_owner_name_from_record(item),
-        "description": item.get("description", ""),
-        "type": item.get("type", ""),
-        "polarity": item.get("polarity", ""),
-        "precision": item.get("precision", 0),
+        "precision": _normalize_optional_component_int(item.get("precision"), default=0),
         "approved": approved_raw if isinstance(approved_raw, bool) else None,
         "tags": tags,
         "created": _extract_timestamp_from_record(item, "created"),
@@ -8773,7 +8876,11 @@ def _fetch_calculated_metrics_list(
         table_item_label="calculated metric",
         component_json_key="calculatedMetrics",
         empty_csv_header="id,name,owner,type,polarity,precision,approved,tags,created,modified,description",
-        fetch_payload=lambda cja, dv_id: cja.getCalculatedMetrics(dataIds=dv_id, full=True),
+        fetch_spec=_ComponentFetchSpec(
+            method_name="getCalculatedMetrics",
+            data_view_arg_name="dataIds",
+            kwargs={"full": True},
+        ),
         display_row_builder=_build_calculated_metric_display_row,
         searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
         csv_columns=[

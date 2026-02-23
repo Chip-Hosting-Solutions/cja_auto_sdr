@@ -4722,6 +4722,79 @@ class TestListMetrics:
         assert output["dataViewId"] == "dv_1"
         assert output["count"] == 2
         assert output["metrics"][0]["id"] in ("metrics/pageviews", "metrics/visits")
+        cja.getMetrics.assert_called_once_with("dv_1", inclType="hidden", full=True)
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_json_normalizes_nullable_fields(self, mock_profile, mock_configure, mock_cjapy):
+        """Null-like metric type/description values should normalize for strict JSON output."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "metrics/revenue",
+                    "name": "Revenue",
+                    "type": float("nan"),
+                    "description": pd.NA,
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output_text = f.getvalue()
+        assert '"type": NaN' not in output_text
+        assert '"description": NaN' not in output_text
+        output = json.loads(output_text)
+        assert output["metrics"][0]["type"] == "N/A"
+        assert output["metrics"][0]["description"] == ""
+
+    @patch("cja_auto_sdr.generator._build_metric_display_row")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_metrics_json_output_contract_failure_emits_structured_error(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+        mock_row_builder,
+    ):
+        """Unexpected non-JSON values should fail with output_contract errors."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        cja.getMetrics.return_value = [{"id": "metrics/raw", "name": "Raw Metric"}]
+        mock_row_builder.return_value = {
+            "id": "metrics/raw",
+            "name": "Raw Metric",
+            "type": float("nan"),
+            "description": "",
+        }
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = list_metrics("dv_1", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "output_contract"
+        assert "non-JSON-compliant" in payload["error"]
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -4902,6 +4975,43 @@ class TestListDimensions:
         assert output["dataViewId"] == "dv_1"
         assert output["count"] == 2
         assert "dimensions" in output
+        cja.getDimensions.assert_called_once_with("dv_1", inclType="hidden", full=True)
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_dimensions_json_normalizes_nullable_fields(self, mock_profile, mock_configure, mock_cjapy):
+        """Null-like dimension type/description values should normalize for strict JSON output."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getDimensions.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "variables/browser",
+                    "name": "Browser",
+                    "type": pd.NA,
+                    "description": float("nan"),
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_dimensions("dv_1", output_format="json")
+
+        assert result is True
+        output_text = f.getvalue()
+        assert '"type": NaN' not in output_text
+        assert '"description": NaN' not in output_text
+        output = json.loads(output_text)
+        assert output["dimensions"][0]["type"] == "N/A"
+        assert output["dimensions"][0]["description"] == ""
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -5133,6 +5243,41 @@ class TestListSegments:
         assert seg["owner"] == "Alias Owner"
         assert seg["created"] == "2025-02-01"
         assert seg["modified"] == "2025-07-15"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_segments_json_normalizes_nullable_description(self, mock_profile, mock_configure, mock_cjapy):
+        """Null-like segment descriptions should be normalized before JSON serialization."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getFilters.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "s1",
+                    "name": "Nullable Description Segment",
+                    "description": float("nan"),
+                    "approved": True,
+                    "tags": [],
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_segments("dv_1", output_format="json")
+
+        assert result is True
+        output_text = f.getvalue()
+        assert '"description": NaN' not in output_text
+        output = json.loads(output_text)
+        assert output["segments"][0]["description"] == ""
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -5494,6 +5639,51 @@ class TestListCalculatedMetrics:
         assert cm["owner"] == "Alias Owner"
         assert cm["created"] == "2025-01-01"
         assert cm["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_list_calc_metrics_json_normalizes_nullable_fields(self, mock_profile, mock_configure, mock_cjapy):
+        """Null-like calculated metric fields should be normalized before JSON emission."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_1", "name": "Test View"}
+        import pandas as pd
+
+        cja.getCalculatedMetrics.return_value = pd.DataFrame(
+            [
+                {
+                    "id": "cm_nullable",
+                    "name": "Nullable Metric",
+                    "description": float("nan"),
+                    "type": pd.NA,
+                    "polarity": float("nan"),
+                    "precision": float("nan"),
+                    "approved": True,
+                    "tags": [],
+                },
+            ]
+        )
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = list_calculated_metrics("dv_1", output_format="json")
+
+        assert result is True
+        output_text = f.getvalue()
+        assert '"description": NaN' not in output_text
+        assert '"type": NaN' not in output_text
+        assert '"polarity": NaN' not in output_text
+        assert '"precision": NaN' not in output_text
+        output = json.loads(output_text)
+        row = output["calculatedMetrics"][0]
+        assert row["description"] == ""
+        assert row["type"] == ""
+        assert row["polarity"] == ""
+        assert row["precision"] == 0
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
