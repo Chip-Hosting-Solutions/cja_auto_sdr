@@ -12,6 +12,7 @@ import pytest
 
 # Import the function we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cja_auto_sdr.core.exceptions import APIError
 from cja_auto_sdr.generator import (
     _emit_output,
     _extract_dataset_info,
@@ -4600,6 +4601,71 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_apierror_status_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Raised getDataView APIError(403/404) should preserve not_found contract."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.side_effect = APIError("Forbidden", status_code=403, operation="getDataView")
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_hidden", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert payload["error"] == "Data view 'dv_hidden' not found"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_apierror_message_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """Message-only APIError markers from getDataView should map to not_found."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.side_effect = APIError("resource_not_found for data view lookup")
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_apierror_5xx_remains_connectivity_error(self, mock_profile, mock_configure, mock_cjapy):
+        """Non-not-found API errors should remain connectivity failures."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.side_effect = APIError("Backend unavailable", status_code=503, operation="getDataView")
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_flaky", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert "error_type" not in payload
+        assert "Failed to connect to CJA API" in payload["error"]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_na_identity_fields_treated_as_not_found(self, mock_profile, mock_configure, mock_cjapy):
         """NA-like id/name payloads should fail as not_found, not generic command failures."""
         mock_configure.return_value = (True, "config", None)
@@ -4731,6 +4797,84 @@ def test_list_inspection_commands_na_identity_fields_treated_as_not_found(
     import pandas as pd
 
     cja.getDataView.return_value = {"id": pd.NA, "name": pd.NA}
+    getattr(cja, component_method).return_value = []
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = command("dv_missing", output_format="json")
+
+    assert result is False
+    payload = json.loads(err.getvalue())
+    assert payload["error_type"] == "not_found"
+    assert getattr(cja, component_method).call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "component_method"),
+    [
+        (list_metrics, "getMetrics"),
+        (list_dimensions, "getDimensions"),
+        (list_segments, "getFilters"),
+        (list_calculated_metrics, "getCalculatedMetrics"),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_get_dataview_apierror_status_treated_as_not_found(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+):
+    """Raised getDataView APIError(403/404) should fail with not_found for all list inspection commands."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+    cja.getDataView.side_effect = APIError("Forbidden", status_code=403, operation="getDataView")
+    getattr(cja, component_method).return_value = []
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = command("dv_hidden", output_format="json")
+
+    assert result is False
+    payload = json.loads(err.getvalue())
+    assert payload["error_type"] == "not_found"
+    assert getattr(cja, component_method).call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "component_method"),
+    [
+        (list_metrics, "getMetrics"),
+        (list_dimensions, "getDimensions"),
+        (list_segments, "getFilters"),
+        (list_calculated_metrics, "getCalculatedMetrics"),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_get_dataview_apierror_message_treated_as_not_found(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+):
+    """Message-only not_found APIError from getDataView should preserve not_found typing."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+    cja.getDataView.side_effect = APIError("resource_not_found while resolving data view")
     getattr(cja, component_method).return_value = []
 
     import io
