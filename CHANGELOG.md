@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All five commands support `--format console/json/csv`, `--output`, and `--profile` for multi-org workflows
 - Graceful degradation: `--describe-dataview` shows "N/A" for component counts when API permissions are limited
 - **Terminal-aware text wrapping**: All five discovery inspection commands now wrap long text (e.g. descriptions) at the terminal width instead of overflowing horizontally
+- **Shared discovery normalization helpers**: Extracted common owner/date/component normalization into reusable core utilities
+
+### Fixed
+- **Name resolution efficiency**: `--describe-dataview` now calls `getDataView()` (single) instead of `getDataViews()` (all) to avoid an expensive API round-trip
+- **Not-found exit code**: `--describe-dataview` returns exit code 1 with a machine-readable `error_type=not_found` on stderr when the requested resource is missing
+- **NaN/NA identity handling**: Discovery inspection commands no longer crash on `pd.NA`, `pd.NaT`, or `float('nan')` values in API payloads; these are coerced to display-safe placeholders
+- **Table wrapping edge cases**: Fixed column-width calculation when non-last columns already exceed terminal width
+- **Hidden component consistency**: Component counts now consistently exclude hidden items across all five inspection commands
+- **Ignored-option warnings**: Commands that don't support `--filter`/`--sort`/`--limit` now warn when those flags are passed instead of silently ignoring them
+
+### Changed
+- **Canonical data view names**: Inspection output now uses the API-returned data view name rather than the user-supplied input, ensuring consistent display
+- **Owner/date alias normalization**: List commands normalize variant field names (e.g. `ownerFullName` vs `owner`) to stable column headers across different API response shapes
+- **JSON output contracts**: Hardened JSON envelopes across discovery and snapshot commands to guarantee consistent key ordering and type contracts
+- **Typed error handling**: Dataview lookup errors now raise typed exceptions with structured diagnostics instead of generic strings
 
 ## [3.3.1] - 2026-02-18
 
