@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from cja_auto_sdr.core.discovery_normalization import is_missing_value
+
 EXPLICIT_ERROR_KEYS = frozenset({"error", "errorcode", "errordescription", "error_description"})
 STATUS_KEYS = frozenset({"statuscode", "status_code", "status"})
 ERROR_TEXT_KEYS = frozenset({"message", "detail", "title"})
@@ -39,17 +41,13 @@ def normalized_payload_keys(payload: Mapping[str, Any]) -> set[str]:
     return {str(key).strip().casefold() for key in payload}
 
 
-def _has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...]) -> bool:
+def has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...]) -> bool:
+    """Return True when any identity key has a non-missing value."""
     for key in identity_keys:
         value = payload.get(key)
-        if value is None:
+        if is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True):
             continue
-        if isinstance(value, str):
-            if value.strip():
-                return True
-            continue
-        if bool(value):
-            return True
+        return True
     return False
 
 
@@ -66,7 +64,7 @@ def _schema_indicates_error(keys: set[str], *, has_identity: bool) -> bool:
 def looks_like_error_payload(payload: Mapping[str, Any], *, identity_keys: tuple[str, ...] = ("id", "name")) -> bool:
     """Return True when object keys match an API-error-like shape."""
     keys = normalized_payload_keys(payload)
-    has_identity = _has_identity_value(payload, identity_keys)
+    has_identity = has_identity_value(payload, identity_keys)
     return _schema_indicates_error(keys, has_identity=has_identity)
 
 

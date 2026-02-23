@@ -63,3 +63,13 @@ def test_dataview_payload_error_shape_detected() -> None:
 def test_dataview_payload_with_identity_not_error() -> None:
     payload = {"id": "dv_1", "name": "Test View", "status": "active"}
     assert is_dataview_error_payload(payload) is False
+
+
+def test_dataview_payload_with_na_identity_values_is_treated_as_error() -> None:
+    payload = {"statusCode": 404, "message": "missing", "id": pd.NA, "name": pd.NA}
+    assert is_dataview_error_payload(payload) is True
+
+
+def test_dataview_payload_with_na_id_and_present_name_is_not_error() -> None:
+    payload = {"statusCode": 200, "message": "ok", "id": pd.NA, "name": "Test View"}
+    assert is_dataview_error_payload(payload) is False

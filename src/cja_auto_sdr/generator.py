@@ -120,6 +120,9 @@ from cja_auto_sdr.core.discovery_payloads import (
     count_component_items_or_na as _count_component_items_or_na_from_assessment,
 )
 from cja_auto_sdr.core.discovery_payloads import (
+    has_identity_value as _has_identity_discovery_value,
+)
+from cja_auto_sdr.core.discovery_payloads import (
     is_dataview_error_payload as _is_dataview_error_payload,
 )
 from cja_auto_sdr.core.exceptions import (
@@ -8169,7 +8172,7 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     payload = _normalize_single_dataview_payload(cja.getDataView(data_view_id))
     if payload is None or _is_dataview_error_payload(payload):
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
-    if not payload.get("id") and not payload.get("name"):
+    if not _has_identity_discovery_value(payload, ("id", "name")):
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     return payload
 

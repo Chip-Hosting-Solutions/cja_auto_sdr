@@ -4544,6 +4544,34 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_na_identity_fields_treated_as_not_found(self, mock_profile, mock_configure, mock_cjapy):
+        """NA-like id/name payloads should fail as not_found, not generic command failures."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+
+        import pandas as pd
+
+        cja.getDataView.return_value = {"id": pd.NA, "name": pd.NA, "description": "missing identity"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        cja.getMetrics.assert_not_called()
+        cja.getDimensions.assert_not_called()
+        cja.getFilters.assert_not_called()
+        cja.getCalculatedMetrics.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_component_error_payload_reports_na(self, mock_profile, mock_configure, mock_cjapy):
         """Error-shaped component payloads should degrade to N/A counts, not numeric zero."""
         mock_configure.return_value = (True, "config", None)
@@ -4619,6 +4647,48 @@ class TestDescribeDataview:
         assert components["segments"] == 0
         assert components["calculatedMetrics"] == 0
         assert components["total"] == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "component_method"),
+    [
+        (list_metrics, "getMetrics"),
+        (list_dimensions, "getDimensions"),
+        (list_segments, "getFilters"),
+        (list_calculated_metrics, "getCalculatedMetrics"),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_na_identity_fields_treated_as_not_found(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+):
+    """All list inspection commands should reject NA-like dataview identity payloads as not_found."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+
+    import pandas as pd
+
+    cja.getDataView.return_value = {"id": pd.NA, "name": pd.NA}
+    getattr(cja, component_method).return_value = []
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = command("dv_missing", output_format="json")
+
+    assert result is False
+    payload = json.loads(err.getvalue())
+    assert payload["error_type"] == "not_found"
+    assert getattr(cja, component_method).call_count == 0
 
 
 class TestListMetrics:
