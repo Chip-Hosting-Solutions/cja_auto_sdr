@@ -6849,35 +6849,18 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 dv_name = dv_info.get("name", "Unknown")
 
                 # Fetch component counts for predictions
-                metrics_count = 0
-                dimensions_count = 0
-                try:
-                    metrics = make_api_call_with_retry(
-                        cja.getMetrics,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getMetrics({dv_id})",
-                    )
-                    if metrics is not None:
-                        metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
-                except RECOVERABLE_API_EXCEPTIONS as e:
-                    logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
-                except Exception as e:
-                    logger.debug(f"Unexpected metrics count error for {dv_id}: {e!s}", exc_info=True)
-
-                try:
-                    dimensions = make_api_call_with_retry(
-                        cja.getDimensions,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getDimensions({dv_id})",
-                    )
-                    if dimensions is not None:
-                        dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
-                except RECOVERABLE_API_EXCEPTIONS as e:
-                    logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
-                except Exception as e:
-                    logger.debug(f"Unexpected dimensions count error for {dv_id}: {e!s}", exc_info=True)
+                metrics_count = _count_component_items_for_fetch_spec_with_retry(
+                    cja,
+                    dv_id,
+                    _METRICS_COMPONENT_FETCH_SPEC,
+                    logger=logger,
+                )
+                dimensions_count = _count_component_items_for_fetch_spec_with_retry(
+                    cja,
+                    dv_id,
+                    _DIMENSIONS_COMPONENT_FETCH_SPEC,
+                    logger=logger,
+                )
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
@@ -8254,17 +8237,26 @@ def _fetch_describe_dataview(
         created = dv_metadata["created"]
         modified = dv_metadata["modified"]
 
-        def _safe_count(api_call: Callable, *args: Any, **kwargs: Any) -> int | str:
-            """Call an API method and return the item count, or 'N/A' on failure."""
-            try:
-                return _count_component_items_or_na_from_assessment(api_call(*args, **kwargs))
-            except Exception:
-                return "N/A"
-
-        n_metrics = _safe_count(cja.getMetrics, data_view_id)
-        n_dimensions = _safe_count(cja.getDimensions, data_view_id)
-        n_segments = _safe_count(cja.getFilters, dataIds=data_view_id, full=True)
-        n_calc_metrics = _safe_count(cja.getCalculatedMetrics, dataIds=data_view_id, full=True)
+        n_metrics = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _METRICS_COMPONENT_FETCH_SPEC,
+        )
+        n_dimensions = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _DIMENSIONS_COMPONENT_FETCH_SPEC,
+        )
+        n_segments = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _SEGMENTS_COMPONENT_FETCH_SPEC,
+        )
+        n_calc_metrics = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _CALCULATED_METRICS_COMPONENT_FETCH_SPEC,
+        )
 
         # Compute total only when all counts are numeric
         counts = [n_metrics, n_dimensions, n_segments, n_calc_metrics]
@@ -8413,6 +8405,29 @@ class _ComponentFetchSpec:
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
+_METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getMetrics",
+    kwargs={"inclType": "hidden", "full": True},
+)
+
+_DIMENSIONS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getDimensions",
+    kwargs={"inclType": "hidden", "full": True},
+)
+
+_SEGMENTS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getFilters",
+    data_view_arg_name="dataIds",
+    kwargs={"full": True},
+)
+
+_CALCULATED_METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getCalculatedMetrics",
+    data_view_arg_name="dataIds",
+    kwargs={"full": True},
+)
+
+
 def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> Any:
     """Invoke a component-list API call using a declarative fetch spec."""
     fetch_method = getattr(cja, fetch_spec.method_name, None)
@@ -8426,6 +8441,44 @@ def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _Component
         kwargs[fetch_spec.data_view_arg_name] = data_view_id
         return fetch_method(**kwargs)
     return fetch_method(data_view_id, **kwargs)
+
+
+def _count_component_items_for_fetch_spec(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> int | str:
+    """Return a component count for one fetch spec, falling back to 'N/A' on runtime failures."""
+    try:
+        payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
+        return _count_component_items_or_na_from_assessment(payload)
+    except Exception:
+        return "N/A"
+
+
+def _count_component_items_for_fetch_spec_with_retry(
+    cja: Any,
+    data_view_id: str,
+    fetch_spec: _ComponentFetchSpec,
+    *,
+    logger: logging.Logger,
+) -> int:
+    """Return component count via retry-aware fetches, degrading non-fatal issues to zero."""
+    component_label = fetch_spec.method_name
+    try:
+        payload = make_api_call_with_retry(
+            _fetch_component_payload,
+            cja,
+            data_view_id,
+            fetch_spec,
+            logger=logger,
+            operation_name=f"{component_label}({data_view_id})",
+        )
+        count = _count_component_items_or_na_from_assessment(payload)
+        if isinstance(count, int):
+            return count
+        logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
+    except RECOVERABLE_API_EXCEPTIONS as e:
+        logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
+    except Exception as e:
+        logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
+    return 0
 
 
 def _build_component_list_fetcher(
@@ -8576,10 +8629,7 @@ def _fetch_metrics_list(
         table_item_label="metric",
         component_json_key="metrics",
         empty_csv_header="id,name,type,description",
-        fetch_spec=_ComponentFetchSpec(
-            method_name="getMetrics",
-            kwargs={"inclType": "hidden", "full": True},
-        ),
+        fetch_spec=_METRICS_COMPONENT_FETCH_SPEC,
         display_row_builder=_build_metric_display_row,
         searchable_fields=["id", "name", "type", "description"],
         csv_columns=["id", "name", "type", "description"],
@@ -8665,10 +8715,7 @@ def _fetch_dimensions_list(
         table_item_label="dimension",
         component_json_key="dimensions",
         empty_csv_header="id,name,type,description",
-        fetch_spec=_ComponentFetchSpec(
-            method_name="getDimensions",
-            kwargs={"inclType": "hidden", "full": True},
-        ),
+        fetch_spec=_DIMENSIONS_COMPONENT_FETCH_SPEC,
         display_row_builder=_build_dimension_display_row,
         searchable_fields=["id", "name", "type", "description"],
         csv_columns=["id", "name", "type", "description"],
@@ -8776,11 +8823,7 @@ def _fetch_segments_list(
         table_item_label="segment",
         component_json_key="segments",
         empty_csv_header="id,name,owner,approved,description,tags,created,modified",
-        fetch_spec=_ComponentFetchSpec(
-            method_name="getFilters",
-            data_view_arg_name="dataIds",
-            kwargs={"full": True},
-        ),
+        fetch_spec=_SEGMENTS_COMPONENT_FETCH_SPEC,
         display_row_builder=_build_segment_display_row,
         searchable_fields=["id", "name", "owner", "description", "tags"],
         csv_columns=["id", "name", "owner", "approved", "description", "tags", "created", "modified"],
@@ -8876,11 +8919,7 @@ def _fetch_calculated_metrics_list(
         table_item_label="calculated metric",
         component_json_key="calculatedMetrics",
         empty_csv_header="id,name,owner,type,polarity,precision,approved,tags,created,modified,description",
-        fetch_spec=_ComponentFetchSpec(
-            method_name="getCalculatedMetrics",
-            data_view_arg_name="dataIds",
-            kwargs={"full": True},
-        ),
+        fetch_spec=_CALCULATED_METRICS_COMPONENT_FETCH_SPEC,
         display_row_builder=_build_calculated_metric_display_row,
         searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
         csv_columns=[
@@ -10286,15 +10325,18 @@ def _stats_error_row(data_view_id: str, error: Exception) -> dict[str, Any]:
     }
 
 
-def _coerce_stats_component_count(payload: Any) -> int:
-    """Return a safe component count for API payloads with mixed shapes."""
-    if payload is None:
-        return 0
-    if isinstance(payload, pd.DataFrame):
-        return len(payload) if not payload.empty else 0
-    if isinstance(payload, (list, tuple, set, dict)):
-        return len(payload)
-    return 0
+def _require_numeric_component_count_for_stats(
+    cja: cjapy.CJA,
+    data_view_id: str,
+    *,
+    fetch_spec: _ComponentFetchSpec,
+    component_label: str,
+) -> int:
+    """Return a strict numeric component count for stats rows or raise for invalid payloads."""
+    count = _count_component_items_for_fetch_spec(cja, data_view_id, fetch_spec)
+    if isinstance(count, int):
+        return count
+    raise ValueError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
 
 
 def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
@@ -10302,10 +10344,18 @@ def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     dv_info = cja.getDataView(data_view_id)
     dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
 
-    metrics_payload = cja.getMetrics(data_view_id)
-    dimensions_payload = cja.getDimensions(data_view_id)
-    metrics_count = _coerce_stats_component_count(metrics_payload)
-    dimensions_count = _coerce_stats_component_count(dimensions_payload)
+    metrics_count = _require_numeric_component_count_for_stats(
+        cja,
+        data_view_id,
+        fetch_spec=_METRICS_COMPONENT_FETCH_SPEC,
+        component_label="metrics",
+    )
+    dimensions_count = _require_numeric_component_count_for_stats(
+        cja,
+        data_view_id,
+        fetch_spec=_DIMENSIONS_COMPONENT_FETCH_SPEC,
+        component_label="dimensions",
+    )
 
     owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
     owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"

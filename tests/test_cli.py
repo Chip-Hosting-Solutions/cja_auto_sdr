@@ -4217,6 +4217,62 @@ class TestDescribeDataview:
         assert dv["components"]["segments"] == 2
         assert dv["components"]["calculatedMetrics"] == 1
         assert dv["components"]["total"] == 11
+        cja.getMetrics.assert_called_once_with("dv_1", inclType="hidden", full=True)
+        cja.getDimensions.assert_called_once_with("dv_1", inclType="hidden", full=True)
+        cja.getFilters.assert_called_once_with(dataIds="dv_1", full=True)
+        cja.getCalculatedMetrics.assert_called_once_with(dataIds="dv_1", full=True)
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_json_counts_hidden_metrics_and_dimensions(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """describe_dataview component counts should include hidden metrics and dimensions."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "id": "dv_1",
+            "name": "Test View",
+            "owner": {"name": "Jane"},
+            "description": "A test view",
+            "parentDataGroupId": "conn_1",
+            "created": "2025-01-01",
+            "modified": "2025-06-01",
+        }
+
+        def _get_metrics(_data_view_id, **kwargs):
+            if kwargs.get("inclType") == "hidden" and kwargs.get("full") is True:
+                return [{"id": "m_visible"}, {"id": "m_hidden"}]
+            return [{"id": "m_visible"}]
+
+        def _get_dimensions(_data_view_id, **kwargs):
+            if kwargs.get("inclType") == "hidden" and kwargs.get("full") is True:
+                return [{"id": "d_visible"}, {"id": "d_hidden"}]
+            return [{"id": "d_visible"}]
+
+        cja.getMetrics.side_effect = _get_metrics
+        cja.getDimensions.side_effect = _get_dimensions
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        components = json.loads(f.getvalue())["dataView"]["components"]
+        assert components["metrics"] == 2
+        assert components["dimensions"] == 2
+        assert components["total"] == 4
+        cja.getMetrics.assert_called_once_with("dv_1", inclType="hidden", full=True)
+        cja.getDimensions.assert_called_once_with("dv_1", inclType="hidden", full=True)
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -5204,6 +5260,7 @@ class TestListSegments:
         assert seg["owner"] == "Jane"
         assert seg["approved"] is True
         assert seg["tags"] == ["prod"]
+        cja.getFilters.assert_called_once_with(dataIds="dv_1", full=True)
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -5597,6 +5654,7 @@ class TestListCalculatedMetrics:
         assert cm["polarity"] == "negative"
         assert cm["type"] == "percent"
         assert cm["precision"] == 2
+        cja.getCalculatedMetrics.assert_called_once_with(dataIds="dv_1", full=True)
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
