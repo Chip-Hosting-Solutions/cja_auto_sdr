@@ -473,6 +473,41 @@ Requirements:
         help="List all data views with their backing connections and datasets, then exit",
     )
 
+    discovery_mx.add_argument(
+        "--describe-dataview",
+        type=str,
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="Show detailed metadata and component counts for a single data view. Accepts a data view ID (dv_...) or name. Honors --name-match.",
+    )
+
+    discovery_mx.add_argument(
+        "--list-metrics",
+        type=str,
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="List all metrics in a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+    )
+
+    discovery_mx.add_argument(
+        "--list-dimensions",
+        type=str,
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="List all dimensions in a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+    )
+
+    discovery_mx.add_argument(
+        "--list-segments",
+        type=str,
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="List all segments/filters scoped to a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+    )
+
+    discovery_mx.add_argument(
+        "--list-calculated-metrics",
+        type=str,
+        metavar="DATA_VIEW_ID_OR_NAME",
+        help="List all calculated metrics for a data view (supports --filter, --exclude, --sort, --limit). Accepts a data view ID (dv_...) or name. Honors --name-match.",
+    )
+
     parser.add_argument(
         "--sort",
         type=str,

@@ -19,6 +19,8 @@ tests/
 ├── test_derived_inventory.py        # Derived fields inventory tests
 ├── test_diff_comparison.py          # Data view diff comparison tests
 ├── test_discovery_formatters.py     # Discovery formatters and WorkerArgs tests
+├── test_discovery_normalization.py  # Discovery normalization helpers tests
+├── test_discovery_payloads.py       # Discovery payload classification tests
 ├── test_dry_run.py                  # Dry-run mode tests
 ├── test_early_exit.py               # Early exit optimization tests
 ├── test_edge_cases.py               # Edge cases and configuration tests
@@ -66,7 +68,7 @@ tests/
 ├── test_segments_coverage.py        # Segments module coverage (operators, containers)
 ├── test_small_module_coverage.py    # Small module coverage (logging, utils, calc metrics)
 ├── test_diff_inventory_output.py   # Inventory diff output across all formats
-├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots)
+├── test_cli_command_handlers.py    # CLI dispatch (--stats, --org-report, --list-snapshots, discovery inspection)
 ├── test_profile_management.py      # Interactive profile creation, import, test, show
 ├── test_snapshot_commands.py        # Snapshot creation, comparison, name resolution
 ├── test_config_and_resolution.py    # Config status, validation, stats, name resolution
@@ -87,7 +89,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,708 comprehensive tests**
+**Total: 4,881 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -97,7 +99,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 282 | Command-line interface and argument parsing |
+| `test_cli.py` | 368 | Command-line interface and argument parsing |
 | `test_profiles.py` | 48 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -118,7 +120,7 @@ tests/
 | `test_validation_cache.py` | 19 | Validation result caching |
 | `test_process_single_dataview.py` | 22 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
-| `test_name_resolution.py` | 22 | Data view name to ID resolution |
+| `test_name_resolution.py` | 24 | Data view name to ID resolution |
 | `test_shared_cache.py` | 17 | Shared validation cache |
 | `test_logging_optimization.py` | 17 | Logging performance optimizations |
 | `test_env_credentials.py` | 15 | Environment variable credentials |
@@ -126,7 +128,9 @@ tests/
 | `test_early_exit.py` | 11 | Early exit optimizations |
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
-| `test_discovery_formatters.py` | 27 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
+| `test_discovery_formatters.py` | 32 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
+| `test_discovery_normalization.py` | 8 | Discovery normalization helpers (missing values, owner extraction, tags) |
+| `test_discovery_payloads.py` | 11 | Discovery payload classification (error detection, component extraction) |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
@@ -152,10 +156,10 @@ tests/
 | `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
-| `test_cli_command_handlers.py` | 78 | CLI dispatch for --stats, --org-report, --list-snapshots, diff config unpacking |
+| `test_cli_command_handlers.py` | 131 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 81 | Config status, validation, stats, name resolution |
+| `test_config_and_resolution.py` | 82 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 24 | Generator interactive and console tests |
@@ -172,7 +176,7 @@ tests/
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
-| **Total** | **4,708** | **Collected via pytest --collect-only** |
+| **Total** | **4,881** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -576,7 +580,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,708 tests total)
+- [x] Comprehensive test coverage (4,881 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

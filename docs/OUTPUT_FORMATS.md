@@ -11,20 +11,22 @@ The tool supports multiple output formats beyond Excel, providing flexible integ
 | **JSON** | Hierarchical structured data | APIs, automation, integration with tools |
 | **HTML** | Professional web-ready report | Web viewing, sharing, presentations |
 | **Markdown** (.md) | GitHub/Confluence compatible tables | Documentation, version control, PRs |
-| **Console** | Terminal output with ASCII formatting | Quick review, diff comparison, org-wide analysis |
+| **Console** | Terminal output with ASCII formatting | Quick review, diff comparison, org-wide analysis, discovery |
 | **All** | Generate all formats simultaneously (includes console in diff/org-wide modes) | Complete documentation package |
 
 ### Format Availability by Mode
 
-| Format | SDR Generation | Diff Comparison | Org-Wide Analysis |
-|--------|----------------|-----------------|-------------------|
-| Excel | ✓ (default) | ✓ | ✓ |
-| CSV | ✓ | ✓ | ✓ |
-| JSON | ✓ | ✓ | ✓ |
-| HTML | ✓ | ✓ | ✓ |
-| Markdown | ✓ | ✓ | ✓ |
-| Console | ✗ | ✓ (default) | ✓ (default) |
-| All | ✓ | ✓ | ✓ |
+| Format | SDR Generation | Diff Comparison | Org-Wide Analysis | Discovery |
+|--------|----------------|-----------------|-------------------|-----------|
+| Excel | ✓ (default) | ✓ | ✓ | ✗ |
+| CSV | ✓ | ✓ | ✓ | ✓ |
+| JSON | ✓ | ✓ | ✓ | ✓ |
+| HTML | ✓ | ✓ | ✓ | ✗ |
+| Markdown | ✓ | ✓ | ✓ | ✗ |
+| Console/Table | ✗ | ✓ (default) | ✓ (default) | ✓ (default) |
+| All | ✓ | ✓ | ✓ | ✗ |
+
+> The Discovery column covers both discovery commands (`--list-dataviews`, `--list-connections`, `--list-datasets`) and discovery inspection commands (`--describe-dataview`, `--list-metrics`, `--list-dimensions`, `--list-segments`, `--list-calculated-metrics`). All output console (table), JSON, or CSV. They do not generate file-based formats like Excel, HTML, or Markdown.
 
 ### Format Aliases (introduced in v3.2.0)
 

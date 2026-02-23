@@ -7,7 +7,34 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.2] - 2026-02-20
+
+### Added
+- **Discovery Inspection Commands**: Five new commands for drilling into individual data view resources without generating a full SDR:
+  - `--describe-dataview <ID_OR_NAME>` — Show detailed metadata and component counts (metrics, dimensions, segments, calculated metrics)
+  - `--list-metrics <ID_OR_NAME>` — List all metrics in a data view with `--filter`/`--exclude`/`--sort`/`--limit` support
+  - `--list-dimensions <ID_OR_NAME>` — List all dimensions in a data view with `--filter`/`--exclude`/`--sort`/`--limit` support
+  - `--list-segments <ID_OR_NAME>` — List all segments/filters scoped to a data view with owner and governance fields
+  - `--list-calculated-metrics <ID_OR_NAME>` — List all calculated metrics with type, polarity, and governance fields
+- **Data View Name Resolution**: All five inspection commands accept data view names in addition to IDs (`dv_...`), matching the diff mode pattern. Names are resolved via the API with `--name-match` support (exact, insensitive, fuzzy). Ambiguous names prompt for interactive disambiguation.
+- All five commands support `--format console/json/csv`, `--output`, and `--profile` for multi-org workflows
+- Graceful degradation: `--describe-dataview` shows "N/A" for component counts when API permissions are limited
+- **Terminal-aware text wrapping**: All five discovery inspection commands now wrap long text (e.g. descriptions) at the terminal width instead of overflowing horizontally
+- **Shared discovery normalization helpers**: Extracted common owner/date/component normalization into reusable core utilities
+
+### Fixed
+- **Name resolution efficiency**: `--describe-dataview` now calls `getDataView()` (single) instead of `getDataViews()` (all) to avoid an expensive API round-trip
+- **Not-found exit code**: `--describe-dataview` returns exit code 1 with a machine-readable `error_type=not_found` on stderr when the requested resource is missing
+- **NaN/NA identity handling**: Discovery inspection commands no longer crash on `pd.NA`, `pd.NaT`, or `float('nan')` values in API payloads; these are coerced to display-safe placeholders
+- **Table wrapping edge cases**: Fixed column-width calculation when non-last columns already exceed terminal width
+- **Hidden component consistency**: Component counts now consistently exclude hidden items across all five inspection commands
+- **Ignored-option warnings**: Commands that don't support `--filter`/`--sort`/`--limit` now warn when those flags are passed instead of silently ignoring them
+
+### Changed
+- **Canonical data view names**: Inspection output now uses the API-returned data view name rather than the user-supplied input, ensuring consistent display
+- **Owner/date alias normalization**: List commands normalize variant field names (e.g. `ownerFullName` vs `owner`) to stable column headers across different API response shapes
+- **JSON output contracts**: Hardened JSON envelopes across discovery and snapshot commands to guarantee consistent key ordering and type contracts
+- **Typed error handling**: Dataview lookup errors now raise typed exceptions with structured diagnostics instead of generic strings
 
 ## [3.3.1] - 2026-02-18
 

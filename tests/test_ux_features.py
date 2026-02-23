@@ -185,8 +185,8 @@ class TestShowStatsFunction:
         mock_cja = MagicMock()
         mock_cjapy.CJA.return_value = mock_cja
         mock_cja.getDataView.return_value = {"name": "Test View", "owner": {"name": "Owner"}}
-        mock_cja.getMetrics.return_value = MagicMock(empty=False, __len__=lambda x: 10)
-        mock_cja.getDimensions.return_value = MagicMock(empty=False, __len__=lambda x: 5)
+        mock_cja.getMetrics.return_value = [{"id": f"m{i}"} for i in range(10)]
+        mock_cja.getDimensions.return_value = [{"id": f"d{i}"} for i in range(5)]
 
         # Capture stdout
         captured_output = StringIO()
@@ -208,8 +208,8 @@ class TestShowStatsFunction:
         mock_cja = MagicMock()
         mock_cjapy.CJA.return_value = mock_cja
         mock_cja.getDataView.return_value = {"name": "Test View", "owner": {"name": "Owner"}}
-        mock_cja.getMetrics.return_value = MagicMock(empty=False, __len__=lambda x: 10)
-        mock_cja.getDimensions.return_value = MagicMock(empty=False, __len__=lambda x: 5)
+        mock_cja.getMetrics.return_value = [{"id": f"m{i}"} for i in range(10)]
+        mock_cja.getDimensions.return_value = [{"id": f"d{i}"} for i in range(5)]
 
         # Capture stdout
         captured_output = StringIO()
@@ -230,8 +230,8 @@ class TestShowStatsFunction:
         mock_cja = MagicMock()
         mock_cjapy.CJA.return_value = mock_cja
         mock_cja.getDataView.return_value = {"name": "Test View", "owner": {"name": "Owner"}}
-        mock_cja.getMetrics.return_value = MagicMock(empty=False, __len__=lambda x: 10)
-        mock_cja.getDimensions.return_value = MagicMock(empty=False, __len__=lambda x: 5)
+        mock_cja.getMetrics.return_value = [{"id": f"m{i}"} for i in range(10)]
+        mock_cja.getDimensions.return_value = [{"id": f"d{i}"} for i in range(5)]
 
         # Capture stdout
         captured_output = StringIO()
@@ -344,11 +344,11 @@ class TestCombinedFeatures:
 class TestVersionUpdated:
     """Test that version is correct"""
 
-    def test_version_is_3_3_1(self):
-        """Test that version is 3.3.1"""
+    def test_version_is_3_3_2(self):
+        """Test that version is 3.3.2"""
         from cja_auto_sdr.generator import __version__
 
-        assert __version__ == "3.3.1"
+        assert __version__ == "3.3.2"
 
 
 class TestFormatAutoDetection:

@@ -1,11 +1,14 @@
 """Tests for shared discovery command formatting helpers."""
 
 import json
+import os
+from unittest.mock import patch
 
 import pytest
 
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.generator import (
+    OutputContractError,
     WorkerArgs,
     _apply_discovery_filters_and_sort,
     _exit_error,
@@ -46,6 +49,11 @@ class TestFormatAsJson:
         payload = {"a": {"b": {"c": 1}}}
         result = _format_as_json(payload)
         assert json.loads(result)["a"]["b"]["c"] == 1
+
+    def test_non_finite_values_raise_output_contract_error(self):
+        """NaN/Infinity should fail strict JSON serialization."""
+        with pytest.raises(OutputContractError, match="non-JSON-compliant"):
+            _format_as_json({"count": float("nan")}, contract_label="Snapshot output")
 
 
 # ==================== _format_as_csv ====================
@@ -145,6 +153,47 @@ class TestFormatAsTable:
         items = [{"a": "1"}]
         result = _format_as_table("H:", items, ["a"])
         assert result.startswith("\n")
+
+    def test_long_last_column_wraps_to_terminal_width(self):
+        """Last column text wraps when table would exceed terminal width."""
+        long_desc = "word " * 60  # 300 chars
+        items = [{"id": "x", "desc": long_desc.strip()}]
+        with patch("cja_auto_sdr.generator.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))):
+            result = _format_as_table("H:", items, ["id", "desc"], col_labels=["ID", "Description"])
+        data_lines = [line for line in result.split("\n") if line.strip()]
+        # Description should be split across multiple lines
+        assert len(data_lines) > 4  # header + labels + separator + multiple wrapped lines
+
+    def test_wrapping_preserves_continuation_indent(self):
+        """Continuation lines indent to align with the last column."""
+        long_desc = "word " * 40
+        items = [{"id": "abc", "desc": long_desc.strip()}]
+        with patch("cja_auto_sdr.generator.shutil.get_terminal_size", return_value=os.terminal_size((60, 24))):
+            result = _format_as_table("H:", items, ["id", "desc"], col_labels=["ID", "Desc"])
+        lines = result.split("\n")
+        # Find continuation lines (lines that start with spaces and contain "word")
+        data_start = next(i for i, line in enumerate(lines) if line.startswith("---")) + 1
+        data_lines = [line for line in lines[data_start:] if line.strip()]
+        if len(data_lines) > 1:
+            # Continuation lines should be indented to the last column position
+            first_word_pos = data_lines[0].index("word")
+            for cont_line in data_lines[1:]:
+                assert cont_line.startswith(" " * first_word_pos)
+
+    def test_no_wrapping_when_table_fits_terminal(self):
+        """Short values are not wrapped even with terminal constraint."""
+        items = [{"id": "x", "desc": "Short"}]
+        with patch("cja_auto_sdr.generator.shutil.get_terminal_size", return_value=os.terminal_size((200, 24))):
+            result = _format_as_table("H:", items, ["id", "desc"], col_labels=["ID", "Desc"])
+        data_lines = [line for line in result.split("\n") if "Short" in line]
+        assert len(data_lines) == 1  # no wrapping needed
+
+    def test_single_column_table_not_wrapped(self):
+        """Tables with a single column skip wrapping logic."""
+        items = [{"id": "a_long_value_that_exceeds_terminal"}]
+        with patch("cja_auto_sdr.generator.shutil.get_terminal_size", return_value=os.terminal_size((20, 24))):
+            result = _format_as_table("H:", items, ["id"])
+        assert "a_long_value_that_exceeds_terminal" in result
 
 
 # ==================== WorkerArgs ====================

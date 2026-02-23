@@ -390,6 +390,42 @@ class TestShowStats:
         assert result is True
         data = json.loads(capsys.readouterr().out)
         assert data["count"] == 1
+        mock_cja.getMetrics.assert_called_once_with("dv_test", inclType="hidden", full=True)
+        mock_cja.getDimensions.assert_called_once_with("dv_test", inclType="hidden", full=True)
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_json_format_counts_hidden_components(self, mock_config, mock_cjapy, capsys: pytest.CaptureFixture) -> None:
+        """show_stats should include hidden metrics/dimensions for parity with discovery commands."""
+        from cja_auto_sdr.generator import show_stats
+
+        mock_config.return_value = (True, "file", None)
+        mock_cja = MagicMock()
+        mock_cja.getDataView.return_value = {"name": "Test DV", "owner": {"name": "Alice"}, "description": ""}
+
+        def _get_metrics(_dv_id: str, **kwargs):
+            if kwargs.get("inclType") == "hidden" and kwargs.get("full") is True:
+                return pd.DataFrame({"id": ["m_visible", "m_hidden"]})
+            return pd.DataFrame({"id": ["m_visible"]})
+
+        def _get_dimensions(_dv_id: str, **kwargs):
+            if kwargs.get("inclType") == "hidden" and kwargs.get("full") is True:
+                return pd.DataFrame({"id": ["d_visible", "d_hidden"]})
+            return pd.DataFrame({"id": ["d_visible"]})
+
+        mock_cja.getMetrics.side_effect = _get_metrics
+        mock_cja.getDimensions.side_effect = _get_dimensions
+        mock_cjapy.CJA.return_value = mock_cja
+
+        result = show_stats(["dv_test"], output_format="json")
+        assert result is True
+        data = json.loads(capsys.readouterr().out)
+        assert data["stats"][0]["metrics"] == 2
+        assert data["stats"][0]["dimensions"] == 2
+        assert data["stats"][0]["total_components"] == 4
+        assert data["totals"]["metrics"] == 2
+        assert data["totals"]["dimensions"] == 2
+        assert data["totals"]["components"] == 4
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
@@ -511,12 +547,12 @@ class TestShowStats:
                 raise RuntimeError("unexpected dv lookup failure")
             return {"name": "Healthy DV", "owner": {"name": "Alice"}, "description": "ok"}
 
-        def _get_metrics(dv_id: str):
+        def _get_metrics(dv_id: str, **_kwargs):
             if failure_stage == "getMetrics" and dv_id == "dv_bad":
                 raise RuntimeError("unexpected metrics failure")
             return pd.DataFrame({"id": ["m1"]})
 
-        def _get_dimensions(dv_id: str):
+        def _get_dimensions(dv_id: str, **_kwargs):
             if failure_stage == "getDimensions" and dv_id == "dv_bad":
                 raise RuntimeError("unexpected dimensions failure")
             return pd.DataFrame({"id": ["d1"]})

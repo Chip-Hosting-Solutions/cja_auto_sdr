@@ -92,6 +92,39 @@ from cja_auto_sdr.core.constants import (
     infer_format_from_path,
     should_generate_format,
 )
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_owner_name as _extract_owner_name_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_owner_name_from_record as _extract_owner_name_from_record_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    extract_tags as _extract_tags_normalized,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    is_missing_value as _is_missing_discovery_value,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    normalize_display_text as _normalize_display_text,
+)
+from cja_auto_sdr.core.discovery_normalization import (
+    pick_first_present_text as _pick_first_present_text,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    PayloadKind as _PayloadKind,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    assess_component_payload as _assess_component_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    count_component_items_or_na as _count_component_items_or_na_from_assessment,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    has_identity_value as _has_identity_discovery_value,
+)
+from cja_auto_sdr.core.discovery_payloads import (
+    is_dataview_error_payload as _is_dataview_error_payload,
+)
 from cja_auto_sdr.core.exceptions import (
     APIError,
     CircuitBreakerOpen,
@@ -991,7 +1024,12 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
             bool(
                 getattr(args, "list_dataviews", False)
                 or getattr(args, "list_connections", False)
-                or getattr(args, "list_datasets", False),
+                or getattr(args, "list_datasets", False)
+                or getattr(args, "describe_dataview", None)
+                or getattr(args, "list_metrics", None)
+                or getattr(args, "list_dimensions", None)
+                or getattr(args, "list_segments", None)
+                or getattr(args, "list_calculated_metrics", None)
             ),
         ),
         (RunMode.CONFIG_STATUS, bool(getattr(args, "config_status", False) or getattr(args, "config_json", False))),
@@ -6811,35 +6849,18 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 dv_name = dv_info.get("name", "Unknown")
 
                 # Fetch component counts for predictions
-                metrics_count = 0
-                dimensions_count = 0
-                try:
-                    metrics = make_api_call_with_retry(
-                        cja.getMetrics,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getMetrics({dv_id})",
-                    )
-                    if metrics is not None:
-                        metrics_count = len(metrics) if hasattr(metrics, "__len__") else 0
-                except RECOVERABLE_API_EXCEPTIONS as e:
-                    logger.debug(f"Could not fetch metrics count for {dv_id}: {e!s}")
-                except Exception as e:
-                    logger.debug(f"Unexpected metrics count error for {dv_id}: {e!s}", exc_info=True)
-
-                try:
-                    dimensions = make_api_call_with_retry(
-                        cja.getDimensions,
-                        dv_id,
-                        logger=logger,
-                        operation_name=f"getDimensions({dv_id})",
-                    )
-                    if dimensions is not None:
-                        dimensions_count = len(dimensions) if hasattr(dimensions, "__len__") else 0
-                except RECOVERABLE_API_EXCEPTIONS as e:
-                    logger.debug(f"Could not fetch dimensions count for {dv_id}: {e!s}")
-                except Exception as e:
-                    logger.debug(f"Unexpected dimensions count error for {dv_id}: {e!s}", exc_info=True)
+                metrics_count = _count_component_items_for_fetch_spec_with_retry(
+                    cja,
+                    dv_id,
+                    _METRICS_COMPONENT_FETCH_SPEC,
+                    logger=logger,
+                )
+                dimensions_count = _count_component_items_for_fetch_spec_with_retry(
+                    cja,
+                    dv_id,
+                    _DIMENSIONS_COMPONENT_FETCH_SPEC,
+                    logger=logger,
+                )
 
                 total_metrics += metrics_count
                 total_dimensions += dimensions_count
@@ -7191,6 +7212,59 @@ def prompt_for_selection(options: list[tuple[str, str]], prompt_text: str) -> st
             return None
 
 
+@dataclass(frozen=True)
+class NameResolutionDiagnostics:
+    """Diagnostic metadata captured during data view name resolution."""
+
+    error_type: str | None = None
+    error_message: str | None = None
+    resolved_name_by_id: dict[str, str] = field(default_factory=dict)
+
+
+type NameResolutionResult = tuple[list[str], dict[str, list[str]]]
+type NameResolutionResultWithDiagnostics = tuple[list[str], dict[str, list[str]], NameResolutionDiagnostics]
+
+
+def _build_name_resolution_result(
+    resolved_ids: list[str],
+    name_to_ids_map: dict[str, list[str]],
+    diagnostics: NameResolutionDiagnostics,
+    *,
+    include_diagnostics: bool,
+) -> NameResolutionResult | NameResolutionResultWithDiagnostics:
+    """Return either legacy 2-tuple or extended 3-tuple name-resolution output."""
+    if include_diagnostics:
+        return resolved_ids, name_to_ids_map, diagnostics
+    return resolved_ids, name_to_ids_map
+
+
+def _coerce_name_resolution_result(
+    result: NameResolutionResult | NameResolutionResultWithDiagnostics,
+) -> NameResolutionResultWithDiagnostics:
+    """Normalize name-resolution return values into a diagnostics-bearing tuple.
+
+    This keeps CLI call sites robust when tests patch resolve_data_view_names with
+    the legacy 2-tuple return shape.
+    """
+    if len(result) == 2:
+        resolved_ids, name_to_ids_map = result
+        return resolved_ids, name_to_ids_map, NameResolutionDiagnostics()
+    resolved_ids, name_to_ids_map, diagnostics = result
+    if isinstance(diagnostics, NameResolutionDiagnostics):
+        return resolved_ids, name_to_ids_map, diagnostics
+    return resolved_ids, name_to_ids_map, NameResolutionDiagnostics()
+
+
+def _build_inspection_name_resolution_logger() -> logging.Logger:
+    """Create a muted logger for inspection resolution to keep stderr machine-safe."""
+    logger = logging.getLogger("name_resolution.inspection")
+    logger.setLevel(logging.CRITICAL + 1)
+    logger.propagate = False
+    if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+        logger.addHandler(logging.NullHandler())
+    return logger
+
+
 def resolve_data_view_names(
     identifiers: list[str],
     config_file: str = "config.json",
@@ -7198,7 +7272,8 @@ def resolve_data_view_names(
     suggest_similar: bool = True,
     profile: str | None = None,
     match_mode: str = "exact",
-) -> tuple[list[str], dict[str, list[str]]]:
+    include_diagnostics: bool = False,
+) -> NameResolutionResult | NameResolutionResultWithDiagnostics:
     """
     Resolve data view names to IDs. If an identifier is already an ID, keep it as-is.
     If it's a name, match based on ``match_mode``.
@@ -7216,12 +7291,14 @@ def resolve_data_view_names(
         match_mode: Name matching strategy: exact, insensitive, or fuzzy
 
     Returns:
-        Tuple of (resolved_ids, name_to_ids_map)
+        Tuple of (resolved_ids, name_to_ids_map), optionally with diagnostics when
+        ``include_diagnostics`` is True.
         - resolved_ids: List of all resolved data view IDs
         - name_to_ids_map: Dict mapping names to their resolved IDs (for reporting)
     """
     if logger is None:
         logger = logging.getLogger(__name__)
+    resolution_diagnostics = NameResolutionDiagnostics()
 
     match_mode = (match_mode or "exact").strip().lower()
     if match_mode not in {"exact", "insensitive", "fuzzy"}:
@@ -7229,14 +7306,25 @@ def resolve_data_view_names(
 
     resolved_ids = []
     name_to_ids_map = {}
+    unresolved_names: list[str] = []
 
     try:
         # Initialize CJA connection
         logger.info(f"Resolving data view identifiers: {identifiers}")
         success, source, credentials = configure_cjapy(profile, config_file, logger)
         if not success:
-            logger.error(f"Failed to configure credentials: {source}")
-            return [], {}
+            error_message = f"Failed to configure credentials: {source}"
+            logger.error(error_message)
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="configuration_error",
+                error_message=error_message,
+            )
+            return _build_name_resolution_result(
+                [],
+                {},
+                resolution_diagnostics,
+                include_diagnostics=include_diagnostics,
+            )
         cja = cjapy.CJA()
 
         # Get all available data views (with caching)
@@ -7250,8 +7338,18 @@ def resolve_data_view_names(
         available_dvs = get_cached_data_views(cja, cache_key, logger)
 
         if not available_dvs:
-            logger.error("No data views found or no access to any data views")
-            return [], {}
+            error_message = "No data views found or no access to any data views"
+            logger.error(error_message)
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="configuration_error",
+                error_message=error_message,
+            )
+            return _build_name_resolution_result(
+                [],
+                {},
+                resolution_diagnostics,
+                include_diagnostics=include_diagnostics,
+            )
 
         # Build a lookup map: name -> list of IDs
         name_to_id_lookup = {}
@@ -7316,6 +7414,7 @@ def resolve_data_view_names(
                         logger.info(f"Name '{identifier}' matched {len(matching_ids)} data views: {matching_ids}")
                 else:
                     logger.error(f"Data view name '{identifier}' not found in accessible data views")
+                    unresolved_names.append(identifier)
 
                     if suggest_similar:
                         similar = find_similar_names(identifier, list(name_to_id_lookup.keys()))
@@ -7335,19 +7434,77 @@ def resolve_data_view_names(
                         logger.error("  → Name matching uses fuzzy nearest-match mode")
                     logger.error("  → Run 'cja_auto_sdr --list-dataviews' to see all available names")
 
+        if not resolved_ids and unresolved_names:
+            unresolved_label = unresolved_names[0]
+            resolved_name_by_id = {
+                resolved_id: id_to_name_lookup[resolved_id]
+                for resolved_id in resolved_ids
+                if resolved_id in id_to_name_lookup
+            }
+            resolution_diagnostics = NameResolutionDiagnostics(
+                error_type="not_found",
+                error_message=(
+                    f"Could not resolve data view: '{unresolved_label}'. "
+                    "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                ),
+                resolved_name_by_id=resolved_name_by_id,
+            )
+        else:
+            resolution_diagnostics = NameResolutionDiagnostics(
+                resolved_name_by_id={
+                    resolved_id: id_to_name_lookup[resolved_id]
+                    for resolved_id in resolved_ids
+                    if resolved_id in id_to_name_lookup
+                }
+            )
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
-        return resolved_ids, name_to_ids_map
+        return _build_name_resolution_result(
+            resolved_ids,
+            name_to_ids_map,
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
 
     except FileNotFoundError:
-        logger.error(f"Configuration file '{config_file}' not found")
-        return [], {}
+        error_message = f"Configuration file '{config_file}' not found"
+        logger.error(error_message)
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="configuration_error",
+            error_message=error_message,
+        )
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
     except RECOVERABLE_API_EXCEPTIONS as e:
-        logger.error(f"Failed to resolve data view names: {e!s}")
-        return [], {}
+        error_message = f"Failed to resolve data view names: {e!s}"
+        logger.error(error_message)
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="connectivity_error",
+            error_message=error_message,
+        )
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
     except Exception as e:
-        logger.error(f"Failed to resolve data view names (unexpected): {e!s}")
+        error_message = f"Failed to resolve data view names (unexpected): {e!s}"
+        logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
-        return [], {}
+        resolution_diagnostics = NameResolutionDiagnostics(
+            error_type="connectivity_error",
+            error_message=error_message,
+        )
+        return _build_name_resolution_result(
+            [],
+            {},
+            resolution_diagnostics,
+            include_diagnostics=include_diagnostics,
+        )
 
 
 # ==================== DATASET INFO HELPER ====================
@@ -7367,24 +7524,40 @@ def _extract_dataset_info(dataset: Any) -> dict:
         Dict with 'id' and 'name' keys (values may be 'N/A' if not found)
     """
     if not isinstance(dataset, dict):
-        return {"id": str(dataset) if dataset else "N/A", "name": "N/A"}
+        # Preserve previous fallback semantics for scalar falsey values while
+        # avoiding ambiguous truthiness checks on pandas missing scalars.
+        if _is_missing_discovery_value(dataset, treat_blank_string=True, treat_null_like_strings=True):
+            return {"id": "N/A", "name": "N/A"}
+        if isinstance(dataset, (bool, int, float)) and not dataset:
+            return {"id": "N/A", "name": "N/A"}
+        return {"id": _normalize_display_text(dataset, default="N/A"), "name": "N/A"}
 
     # Try common ID field names (prefer canonical/camelCase, keep snake_case for compatibility)
-    ds_id = (
-        dataset.get("id") or dataset.get("datasetId") or dataset.get("dataSetId") or dataset.get("dataset_id") or "N/A"
+    ds_id = _pick_first_present_text(
+        (
+            dataset.get("id"),
+            dataset.get("datasetId"),
+            dataset.get("dataSetId"),
+            dataset.get("dataset_id"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
     )
 
     # Try common name field names
-    ds_name = (
-        dataset.get("name")
-        or dataset.get("datasetName")
-        or dataset.get("dataSetName")
-        or dataset.get("dataset_name")
-        or dataset.get("title")
-        or "N/A"
+    ds_name = _pick_first_present_text(
+        (
+            dataset.get("name"),
+            dataset.get("datasetName"),
+            dataset.get("dataSetName"),
+            dataset.get("dataset_name"),
+            dataset.get("title"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
     )
 
-    return {"id": str(ds_id), "name": str(ds_name)}
+    return {"id": ds_id, "name": ds_name}
 
 
 # ==================== LIST HELPERS ====================
@@ -7432,12 +7605,17 @@ def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
         print(text)
 
 
-# ==================== SHARED DISCOVERY FORMATTERS ====================
+# ==================== SHARED OUTPUT FORMATTERS ====================
 
 
-def _format_as_json(payload: dict) -> str:
-    """Format a discovery result dict as indented JSON."""
-    return json.dumps(payload, indent=2)
+def _format_as_json(payload: dict, *, contract_label: str = "Output") -> str:
+    """Format a result dict as indented JSON with strict contract checks."""
+    try:
+        return json.dumps(payload, indent=2, allow_nan=False)
+    except ValueError as exc:
+        raise OutputContractError(
+            f"{contract_label} contains non-JSON-compliant values",
+        ) from exc
 
 
 def _format_as_csv(columns: list[str], rows: list[dict]) -> str:
@@ -7472,14 +7650,36 @@ def _format_as_table(
         max(len(lbl), max((len(str(item.get(col, ""))) for item in items), default=0)) + 2
         for col, lbl in zip(columns, labels, strict=True)
     ]
+    # Constrain total width to terminal so the last column wraps instead of overflowing
+    term_width = shutil.get_terminal_size().columns
+    if sum(widths) > term_width and len(widths) > 1:
+        other_width = sum(widths[:-1])
+        if other_width < term_width:
+            widths[-1] = max(term_width - other_width, len(labels[-1]) + 2, 20)
     lines: list[str] = ["", header_line, ""]
     lines.append("".join(f"{lbl:<{w}}" for lbl, w in zip(labels, widths, strict=True)))
-    lines.append("-" * sum(widths))
-    lines.extend(
-        "".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)) for item in items
-    )
+    lines.append("-" * min(sum(widths), term_width))
+    for item in items:
+        cells = [str(item.get(col, "")) for col in columns]
+        last_text_w = widths[-1] - 2
+        if len(cells[-1]) > last_text_w > 0:
+            wrapped = textwrap.wrap(cells[-1], width=last_text_w) or [""]
+            prefix = "".join(f"{cells[i]:<{widths[i]}}" for i in range(len(columns) - 1))
+            lines.append(prefix + wrapped[0])
+            indent = " " * sum(widths[:-1])
+            lines.extend(indent + cont for cont in wrapped[1:])
+        else:
+            lines.append("".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)))
     lines.append("")
     return "\n".join(lines)
+
+
+def _format_discovery_json(payload: dict) -> str:
+    """Format discovery payloads with a discovery-specific contract label."""
+    try:
+        return _format_as_json(payload, contract_label="Discovery output")
+    except OutputContractError as exc:
+        raise DiscoveryOutputContractError(str(exc)) from exc
 
 
 def _extract_owner_name(owner_data: Any) -> str:
@@ -7490,17 +7690,35 @@ def _extract_owner_name(owner_data: Any) -> str:
     - Connections may return ``{"imsUserId": "ABC@AdobeID"}``
     - Some endpoints return ``None`` or a bare string.
     """
-    if owner_data is None:
-        return "N/A"
-    if isinstance(owner_data, str):
-        return owner_data or "N/A"
-    if isinstance(owner_data, dict):
-        for key in ("name", "login", "email", "imsUserId", "id"):
-            val = owner_data.get(key)
-            if val:
-                return str(val)
-        return "N/A"
-    return str(owner_data) or "N/A"
+    return _extract_owner_name_normalized(owner_data, default="N/A")
+
+
+def _normalize_optional_text(value: Any, *, default: str = "") -> str:
+    """Normalize optional display values, handling None/NaN and whitespace."""
+    return _normalize_display_text(
+        value,
+        default=default,
+        treat_null_like_strings=True,
+    )
+
+
+def _extract_owner_name_from_record(record: dict[str, Any]) -> str:
+    """Extract owner name from record-level owner aliases used by CJA endpoints."""
+    return _extract_owner_name_from_record_normalized(record, default="N/A")
+
+
+def _extract_timestamp_from_record(record: dict[str, Any], field: str) -> str:
+    """Extract created/modified timestamps from common CJA field aliases."""
+    aliases_by_field = {
+        "created": ("created", "createdDate", "createdAt", "created_date"),
+        "modified": ("modified", "modifiedDate", "modifiedAt", "modified_date"),
+    }
+    aliases = aliases_by_field.get(field, (field,))
+    for key in aliases:
+        value = _normalize_optional_text(record.get(key))
+        if value:
+            return value
+    return ""
 
 
 def _extract_connections_list(raw_connections: Any) -> list:
@@ -7534,7 +7752,92 @@ class DiscoveryArgumentError(ValueError):
     """Raised when discovery filter/sort arguments are invalid."""
 
 
+class OutputContractError(ValueError):
+    """Raised when machine-readable command output violates JSON contracts."""
+
+
+class DiscoveryOutputContractError(OutputContractError):
+    """Raised when machine-readable discovery output violates JSON contracts."""
+
+
+class DiscoveryNotFoundError(LookupError):
+    """Raised when a requested discovery resource is not found."""
+
+
 _NUMERIC_SORT_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
+
+
+def _is_machine_readable_output(output_format: str | None, output_file: str | None = None) -> bool:
+    """Return True when command output is intended for machine consumption."""
+    return output_format in ("json", "csv") or output_file in ("-", "stdout")
+
+
+def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout: bool) -> str:
+    """Normalize discovery output format with stdout piping semantics."""
+    if raw_format in ("json", "csv"):
+        return raw_format
+    if output_to_stdout:
+        return "json"
+    return "table"
+
+
+def _emit_discovery_error(
+    message: str,
+    *,
+    is_machine_readable: bool,
+    error_type: str | None = None,
+    additional_fields: dict[str, Any] | None = None,
+    human_to_stderr: bool = False,
+) -> None:
+    """Emit discovery/inspection errors in machine or human-readable form."""
+    if is_machine_readable:
+        payload: dict[str, Any] = {"error": message}
+        if error_type:
+            payload["error_type"] = error_type
+        if additional_fields:
+            payload.update(additional_fields)
+        print(json.dumps(payload, allow_nan=False), file=sys.stderr)
+        return
+
+    stream = sys.stderr if human_to_stderr else sys.stdout
+    print(ConsoleColors.error(f"ERROR: {message}"), file=stream)
+
+
+def _emit_output_contract_error(
+    message: str,
+    *,
+    is_machine_readable: bool,
+    human_to_stderr: bool = True,
+) -> None:
+    """Emit output-contract violations using a stable error envelope."""
+    _emit_discovery_error(
+        message,
+        is_machine_readable=is_machine_readable,
+        error_type="output_contract",
+        human_to_stderr=human_to_stderr,
+    )
+
+
+def _emit_json_output(
+    payload: dict[str, Any],
+    *,
+    output_file: str | None,
+    is_stdout: bool,
+    contract_label: str,
+    human_error_to_stderr: bool = True,
+) -> None:
+    """Serialize payload to strict JSON and emit it, exiting cleanly on contract errors."""
+    try:
+        serialized_payload = _format_as_json(payload, contract_label=contract_label)
+    except OutputContractError as exc:
+        _emit_output_contract_error(
+            str(exc),
+            is_machine_readable=_is_machine_readable_output("json", output_file),
+            human_to_stderr=human_error_to_stderr,
+        )
+        raise SystemExit(1) from exc
+
+    _emit_output(serialized_payload, output_file, is_stdout)
 
 
 def _to_numeric_sort_value(value: Any) -> float | None:
@@ -7708,7 +8011,7 @@ def _run_list_command(
         True if successful, False otherwise.
     """
     is_stdout = output_file in ("-", "stdout")
-    is_machine_readable = output_format in ("json", "csv") or is_stdout
+    is_machine_readable = _is_machine_readable_output(output_format, output_file)
 
     active_profile = resolve_active_profile(profile)
 
@@ -7732,10 +8035,11 @@ def _run_list_command(
         logger.setLevel(logging.WARNING)
         success, source, _ = configure_cjapy(profile=active_profile, config_file=config_file, logger=logger)
         if not success:
-            if is_machine_readable:
-                print(json.dumps({"error": f"Configuration error: {source}"}), file=sys.stderr)
-            else:
-                print(f"Configuration error: {source}")
+            _emit_discovery_error(
+                f"Configuration error: {source}",
+                is_machine_readable=is_machine_readable,
+                human_to_stderr=False,
+            )
             return False
         cja = cjapy.CJA()
 
@@ -7748,18 +8052,39 @@ def _run_list_command(
 
         return True
 
+    except DiscoveryNotFoundError as e:
+        _emit_discovery_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            error_type="not_found",
+            human_to_stderr=False,
+        )
+        return False
+
     except DiscoveryArgumentError as e:
-        if is_machine_readable:
-            print(json.dumps({"error": str(e), "error_type": "invalid_arguments"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: {e}"))
+        _emit_discovery_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            error_type="invalid_arguments",
+            human_to_stderr=False,
+        )
+        return False
+
+    except OutputContractError as e:
+        _emit_output_contract_error(
+            str(e),
+            is_machine_readable=is_machine_readable,
+            human_to_stderr=False,
+        )
         return False
 
     except FileNotFoundError:
-        if is_machine_readable:
-            print(json.dumps({"error": f"Configuration file '{config_file}' not found"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        _emit_discovery_error(
+            f"Configuration file '{config_file}' not found",
+            is_machine_readable=is_machine_readable,
+            human_to_stderr=False,
+        )
+        if not is_machine_readable:
             print()
             print("Generate a sample configuration file with:")
             print("  cja_auto_sdr --sample-config")
@@ -7772,10 +8097,11 @@ def _run_list_command(
         raise
 
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
-        if is_machine_readable:
-            print(json.dumps({"error": f"Failed to connect to CJA API: {e!s}"}), file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Failed to connect to CJA API: {e!s}"))
+        _emit_discovery_error(
+            f"Failed to connect to CJA API: {e!s}",
+            is_machine_readable=is_machine_readable,
+            human_to_stderr=False,
+        )
         return False
 
 
@@ -7807,8 +8133,8 @@ def _fetch_dataviews(
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 owner_name = _extract_owner_name(dv.get("owner"))
                 display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
@@ -7823,7 +8149,7 @@ def _fetch_dataviews(
         )
 
         if output_format == "json":
-            return _format_as_json({"dataViews": display_data, "count": len(display_data)})
+            return _format_discovery_json({"dataViews": display_data, "count": len(display_data)})
         if output_format == "csv":
             return _format_as_csv(["id", "name", "owner"], display_data)
         table = _format_as_table(
@@ -7887,6 +8213,934 @@ def list_dataviews(
     )
 
 
+# ==================== DESCRIBE DATA VIEW ====================
+
+
+def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
+    """Normalize getDataView payloads to one dict row when possible."""
+    if raw_dv is None:
+        return None
+    if isinstance(raw_dv, pd.DataFrame):
+        if raw_dv.empty:
+            return None
+        records = raw_dv.to_dict("records")
+        if not records:
+            return None
+        first_record = records[0]
+        return first_record if isinstance(first_record, dict) else None
+    return raw_dv if isinstance(raw_dv, dict) else None
+
+
+_DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES = frozenset({403, 404})
+_DATAVIEW_LOOKUP_STATUS_ATTRS = ("status_code", "statusCode", "status", "http_status", "httpStatus", "code")
+_DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS = (
+    "not found",
+    "not_found",
+    "resource_not_found",
+    "forbidden",
+    "no access",
+    "access denied",
+)
+_HTTP_STATUS_CODE_RE = re.compile(r"\b([1-5]\d{2})\b")
+
+
+def _coerce_http_status_code(value: Any) -> int | None:
+    """Best-effort coercion of status-like values into an HTTP status code."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if 100 <= value <= 599 else None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        if stripped.isdigit():
+            numeric_code = int(stripped)
+            return numeric_code if 100 <= numeric_code <= 599 else None
+        match = _HTTP_STATUS_CODE_RE.search(stripped)
+        if match:
+            numeric_code = int(match.group(1))
+            return numeric_code if 100 <= numeric_code <= 599 else None
+    return None
+
+
+def _iter_error_chain_nodes(error: Exception) -> list[Any]:
+    """Return error/cause/response nodes for robust status-code extraction."""
+    pending: list[Any] = [error]
+    seen: set[int] = set()
+    nodes: list[Any] = []
+    while pending:
+        node = pending.pop()
+        marker = id(node)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        nodes.append(node)
+
+        if isinstance(node, dict):
+            nested = node.get("error")
+            if nested is not None:
+                pending.append(nested)
+            continue
+
+        for attr_name in ("original_error", "__cause__", "__context__", "response"):
+            with contextlib.suppress(Exception):
+                nested = getattr(node, attr_name)
+                if nested is not None:
+                    pending.append(nested)
+    return nodes
+
+
+def _extract_http_status_codes(error: Exception) -> set[int]:
+    """Extract candidate HTTP status codes from nested error objects."""
+    status_codes: set[int] = set()
+    for node in _iter_error_chain_nodes(error):
+        if isinstance(node, dict):
+            for key in _DATAVIEW_LOOKUP_STATUS_ATTRS:
+                code = _coerce_http_status_code(node.get(key))
+                if code is not None:
+                    status_codes.add(code)
+            continue
+
+        for attr_name in _DATAVIEW_LOOKUP_STATUS_ATTRS:
+            with contextlib.suppress(Exception):
+                code = _coerce_http_status_code(getattr(node, attr_name))
+                if code is not None:
+                    status_codes.add(code)
+    return status_codes
+
+
+def _is_inaccessible_dataview_lookup_error(error: Exception) -> bool:
+    """Return True when getDataView failures should map to not_found."""
+    status_codes = _extract_http_status_codes(error)
+    if any(code in _DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES for code in status_codes):
+        return True
+
+    # Some APIError paths omit status_code but still include a stable not-found/forbidden marker.
+    if isinstance(error, APIError):
+        normalized_message = str(error).casefold()
+        return any(marker in normalized_message for marker in _DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS)
+
+    return False
+
+
+def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
+    """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
+    try:
+        raw_payload = cja.getDataView(data_view_id)
+    except Exception as e:
+        if _is_inaccessible_dataview_lookup_error(e):
+            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
+        raise
+
+    payload = _normalize_single_dataview_payload(raw_payload)
+    if payload is None or _is_dataview_error_payload(payload):
+        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
+    if not _has_identity_discovery_value(payload, ("id", "name")):
+        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
+    return payload
+
+
+def _normalize_component_records_or_raise(
+    raw_payload: Any,
+    *,
+    component_label: str,
+    data_view_id: str,
+) -> list[dict[str, Any]]:
+    """Normalize component payloads to dict rows or fail on error-shaped responses."""
+    assessment = _assess_component_payload(raw_payload)
+    if assessment.kind is _PayloadKind.ERROR:
+        raise DiscoveryNotFoundError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
+    if assessment.kind is _PayloadKind.INVALID:
+        raise DiscoveryNotFoundError(
+            f"Unexpected {component_label} payload type for data view '{data_view_id}'",
+        )
+    return assessment.rows
+
+
+def _normalize_describe_dataview_metadata(raw_dv: dict[str, Any], *, default_id: str) -> dict[str, str]:
+    """Normalize describe_dataview metadata fields for safe display/serialization."""
+    connection_id = _pick_first_present_text(
+        (
+            raw_dv.get("parentDataGroupId"),
+            raw_dv.get("connectionId"),
+            raw_dv.get("connection_id"),
+        ),
+        default="N/A",
+        treat_null_like_strings=True,
+    )
+    created = _extract_timestamp_from_record(raw_dv, "created") or "N/A"
+    modified = _extract_timestamp_from_record(raw_dv, "modified") or "N/A"
+    return {
+        "id": _normalize_optional_text(raw_dv.get("id"), default=default_id),
+        "name": _normalize_optional_text(raw_dv.get("name"), default="N/A"),
+        "owner": _extract_owner_name_from_record(raw_dv),
+        "description": _normalize_optional_text(raw_dv.get("description"), default=""),
+        "connection_id": connection_id,
+        "created": created,
+        "modified": modified,
+    }
+
+
+def _fetch_describe_dataview(
+    data_view_id: str,
+    output_format: str,
+) -> Callable:
+    """Return a fetch_and_format callback for describe_dataview."""
+
+    def _inner(cja: Any, _is_machine_readable: bool) -> str | None:
+        raw_dv = _require_accessible_dataview(cja, data_view_id)
+
+        dv_metadata = _normalize_describe_dataview_metadata(raw_dv, default_id=data_view_id)
+        dv_id = dv_metadata["id"]
+        dv_name = dv_metadata["name"]
+        owner_name = dv_metadata["owner"]
+        description = dv_metadata["description"]
+        connection_id = dv_metadata["connection_id"]
+        created = dv_metadata["created"]
+        modified = dv_metadata["modified"]
+
+        n_metrics = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _METRICS_COMPONENT_FETCH_SPEC,
+        )
+        n_dimensions = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _DIMENSIONS_COMPONENT_FETCH_SPEC,
+        )
+        n_segments = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _SEGMENTS_COMPONENT_FETCH_SPEC,
+        )
+        n_calc_metrics = _count_component_items_for_fetch_spec(
+            cja,
+            data_view_id,
+            _CALCULATED_METRICS_COMPONENT_FETCH_SPEC,
+        )
+
+        # Compute total only when all counts are numeric
+        counts = [n_metrics, n_dimensions, n_segments, n_calc_metrics]
+        numeric_counts = [c for c in counts if isinstance(c, int)]
+        total = sum(numeric_counts) if len(numeric_counts) == len(counts) else "N/A"
+
+        if output_format == "json":
+            payload = {
+                "dataView": {
+                    "id": dv_id,
+                    "name": dv_name,
+                    "owner": owner_name,
+                    "description": description,
+                    "connectionId": connection_id,
+                    "created": created,
+                    "modified": modified,
+                    "components": {
+                        "dimensions": n_dimensions,
+                        "metrics": n_metrics,
+                        "calculatedMetrics": n_calc_metrics,
+                        "segments": n_segments,
+                        "total": total,
+                    },
+                }
+            }
+            return _format_discovery_json(payload)
+
+        if output_format == "csv":
+            columns = [
+                "id",
+                "name",
+                "owner",
+                "description",
+                "connection_id",
+                "created",
+                "modified",
+                "dimensions",
+                "metrics",
+                "calculated_metrics",
+                "segments",
+                "total",
+            ]
+            row = {
+                "id": dv_id,
+                "name": dv_name,
+                "owner": owner_name,
+                "description": description,
+                "connection_id": connection_id,
+                "created": created,
+                "modified": modified,
+                "dimensions": n_dimensions,
+                "metrics": n_metrics,
+                "calculated_metrics": n_calc_metrics,
+                "segments": n_segments,
+                "total": total,
+            }
+            return _format_as_csv(columns, [row])
+
+        # Table output
+        term_width = shutil.get_terminal_size().columns
+        rule_width = term_width
+        lines: list[str] = []
+        lines.append("")
+        lines.append(f"Data View: {dv_name}")
+        lines.append("=" * rule_width)
+        lines.append(f"  ID:            {dv_id}")
+        lines.append(f"  Owner:         {owner_name}")
+        desc_text = description or "(none)"
+        desc_prefix = "  Description:   "
+        desc_avail = term_width - len(desc_prefix)
+        if desc_avail > 20 and len(desc_text) > desc_avail:
+            wrapped = textwrap.wrap(desc_text, width=desc_avail)
+            lines.append(desc_prefix + wrapped[0])
+            indent = " " * len(desc_prefix)
+            lines.extend(indent + cont for cont in wrapped[1:])
+        else:
+            lines.append(f"{desc_prefix}{desc_text}")
+        lines.append(f"  Connection:    {connection_id}")
+        lines.append(f"  Created:       {created}")
+        lines.append(f"  Modified:      {modified}")
+        lines.append("")
+        lines.append("  Components:")
+        lines.append(f"    Dimensions:          {n_dimensions}")
+        lines.append(f"    Metrics:             {n_metrics}")
+        lines.append(f"    Calculated Metrics:  {n_calc_metrics}")
+        lines.append(f"    Segments:            {n_segments}")
+        lines.append("    ─────────────────────────")
+        lines.append(f"    Total:               {total}")
+        lines.append("=" * rule_width)
+        lines.append("")
+        return "\n".join(lines)
+
+    return _inner
+
+
+def describe_dataview(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+) -> bool:
+    """Describe a single data view with component counts and exit."""
+    return _run_list_command(
+        banner_text=f"DESCRIBING DATA VIEW: {data_view_id}",
+        command_name="describe_dataview",
+        fetch_and_format=_fetch_describe_dataview(data_view_id, output_format),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+    )
+
+
+# ==================== LIST METRICS ====================
+
+
+def _resolve_dataview_name(cja: Any, data_view_id: str, *, preferred_name: str | None = None) -> str:
+    """Look up a canonical data view display name with safe fallback behavior."""
+    raw_dv = _require_accessible_dataview(cja, data_view_id)
+    normalized_name = _normalize_optional_text(raw_dv.get("name"), default="")
+    if normalized_name:
+        return normalized_name
+    normalized_preferred = _normalize_optional_text(preferred_name, default="")
+    return normalized_preferred or "Unknown"
+
+
+def _format_governance_rows_for_tabular(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert governance fields into table/csv-friendly strings."""
+    return [
+        {
+            **row,
+            "approved": _approved_display(row.get("approved")),
+            "tags": _tags_display(row.get("tags")),
+        }
+        for row in rows
+    ]
+
+
+@dataclass(frozen=True)
+class _ComponentFetchSpec:
+    """Describe how to fetch one component collection for a data view."""
+
+    method_name: str
+    data_view_arg_name: str | None = None
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+_METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getMetrics",
+    kwargs={"inclType": "hidden", "full": True},
+)
+
+_DIMENSIONS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getDimensions",
+    kwargs={"inclType": "hidden", "full": True},
+)
+
+_SEGMENTS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getFilters",
+    data_view_arg_name="dataIds",
+    kwargs={"full": True},
+)
+
+_CALCULATED_METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
+    method_name="getCalculatedMetrics",
+    data_view_arg_name="dataIds",
+    kwargs={"full": True},
+)
+
+
+def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> Any:
+    """Invoke a component-list API call using a declarative fetch spec."""
+    fetch_method = getattr(cja, fetch_spec.method_name, None)
+    if not callable(fetch_method):
+        raise DiscoveryNotFoundError(
+            f"CJA client missing expected method '{fetch_spec.method_name}' for data view '{data_view_id}'",
+        )
+
+    kwargs = dict(fetch_spec.kwargs)
+    if fetch_spec.data_view_arg_name:
+        kwargs[fetch_spec.data_view_arg_name] = data_view_id
+        return fetch_method(**kwargs)
+    return fetch_method(data_view_id, **kwargs)
+
+
+def _count_component_items_for_fetch_spec(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> int | str:
+    """Return a component count for one fetch spec, falling back to 'N/A' on runtime failures."""
+    try:
+        payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
+        return _count_component_items_or_na_from_assessment(payload)
+    except Exception:
+        return "N/A"
+
+
+def _count_component_items_for_fetch_spec_with_retry(
+    cja: Any,
+    data_view_id: str,
+    fetch_spec: _ComponentFetchSpec,
+    *,
+    logger: logging.Logger,
+) -> int:
+    """Return component count via retry-aware fetches, degrading non-fatal issues to zero."""
+    component_label = fetch_spec.method_name
+    try:
+        payload = make_api_call_with_retry(
+            _fetch_component_payload,
+            cja,
+            data_view_id,
+            fetch_spec,
+            logger=logger,
+            operation_name=f"{component_label}({data_view_id})",
+        )
+        count = _count_component_items_or_na_from_assessment(payload)
+        if isinstance(count, int):
+            return count
+        logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
+    except RECOVERABLE_API_EXCEPTIONS as e:
+        logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
+    except Exception as e:
+        logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
+    return 0
+
+
+def _build_component_list_fetcher(
+    *,
+    data_view_id: str,
+    data_view_name: str | None,
+    output_format: str,
+    filter_pattern: str | None,
+    exclude_pattern: str | None,
+    limit: int | None,
+    sort_expression: str | None,
+    component_label: str,
+    table_item_label: str,
+    component_json_key: str,
+    empty_csv_header: str,
+    fetch_spec: _ComponentFetchSpec,
+    display_row_builder: Callable[[dict[str, Any]], dict[str, Any]],
+    searchable_fields: list[str],
+    csv_columns: list[str],
+    table_columns: list[str],
+    table_labels: list[str],
+    table_row_transform: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+) -> Callable:
+    """Return a shared fetch-and-format callback for list-* inspection commands."""
+
+    def _inner(cja: Any, is_machine_readable: bool) -> str | None:
+        dv_name = _resolve_dataview_name(cja, data_view_id, preferred_name=data_view_name)
+
+        raw_components = _normalize_component_records_or_raise(
+            _fetch_component_payload(cja, data_view_id, fetch_spec),
+            component_label=component_label,
+            data_view_id=data_view_id,
+        )
+
+        if not raw_components:
+            if is_machine_readable:
+                if output_format == "json":
+                    return _format_discovery_json(
+                        {
+                            "dataViewId": data_view_id,
+                            "dataViewName": dv_name,
+                            component_json_key: [],
+                            "count": 0,
+                        }
+                    )
+                return f"{empty_csv_header}\n"
+            return f"\nNo {component_label} found for data view '{data_view_id}'.\n"
+
+        display_data = [display_row_builder(item) for item in raw_components if isinstance(item, dict)]
+        display_data = _apply_discovery_filters_and_sort(
+            display_data,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+            searchable_fields=searchable_fields,
+            default_sort_field="name",
+        )
+
+        if output_format == "json":
+            return _format_discovery_json(
+                {
+                    "dataViewId": data_view_id,
+                    "dataViewName": dv_name,
+                    component_json_key: display_data,
+                    "count": len(display_data),
+                }
+            )
+
+        tabular_data = table_row_transform(display_data) if table_row_transform else display_data
+        if output_format == "csv":
+            return _format_as_csv(csv_columns, tabular_data)
+        return _format_as_table(
+            f"Found {len(tabular_data)} {table_item_label}(s) in data view '{dv_name}':",
+            tabular_data,
+            columns=table_columns,
+            col_labels=table_labels,
+        )
+
+    return _inner
+
+
+def _normalize_component_text_fields(item: dict[str, Any], *, defaults: dict[str, str]) -> dict[str, str]:
+    """Normalize a component row's text fields with per-field defaults."""
+    return {
+        field_name: _normalize_optional_text(item.get(field_name), default=default_value)
+        for field_name, default_value in defaults.items()
+    }
+
+
+def _normalize_optional_component_int(value: Any, *, default: int = 0) -> int:
+    """Normalize optional integer-ish component values for strict JSON output."""
+    if _is_missing_discovery_value(value, treat_blank_string=True, treat_null_like_strings=True):
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return default
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return default
+        try:
+            return int(stripped)
+        except ValueError:
+            return default
+    return default
+
+
+def _build_metric_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one metrics-list row for output."""
+    return {
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "type": "N/A",
+                "description": "",
+            },
+        ),
+    }
+
+
+def _fetch_metrics_list(
+    data_view_id: str,
+    output_format: str,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_metrics."""
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="metrics",
+        table_item_label="metric",
+        component_json_key="metrics",
+        empty_csv_header="id,name,type,description",
+        fetch_spec=_METRICS_COMPONENT_FETCH_SPEC,
+        display_row_builder=_build_metric_display_row,
+        searchable_fields=["id", "name", "type", "description"],
+        csv_columns=["id", "name", "type", "description"],
+        table_columns=["id", "name", "type", "description"],
+        table_labels=["ID", "Name", "Type", "Description"],
+    )
+
+
+def list_metrics(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all metrics for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING METRICS FOR DATA VIEW: {data_view_id}",
+        command_name="list_metrics",
+        fetch_and_format=_fetch_metrics_list(
+            data_view_id,
+            output_format,
+            data_view_name=data_view_name,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
+# ==================== LIST DIMENSIONS ====================
+
+
+def _build_dimension_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one dimensions-list row for output."""
+    return {
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "type": "N/A",
+                "description": "",
+            },
+        ),
+    }
+
+
+def _fetch_dimensions_list(
+    data_view_id: str,
+    output_format: str,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_dimensions."""
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="dimensions",
+        table_item_label="dimension",
+        component_json_key="dimensions",
+        empty_csv_header="id,name,type,description",
+        fetch_spec=_DIMENSIONS_COMPONENT_FETCH_SPEC,
+        display_row_builder=_build_dimension_display_row,
+        searchable_fields=["id", "name", "type", "description"],
+        csv_columns=["id", "name", "type", "description"],
+        table_columns=["id", "name", "type", "description"],
+        table_labels=["ID", "Name", "Type", "Description"],
+    )
+
+
+def list_dimensions(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all dimensions for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING DIMENSIONS FOR DATA VIEW: {data_view_id}",
+        command_name="list_dimensions",
+        fetch_and_format=_fetch_dimensions_list(
+            data_view_id,
+            output_format,
+            data_view_name=data_view_name,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
+# ==================== LIST SEGMENTS ====================
+
+
+def _approved_display(value: Any) -> str:
+    """Convert an approved flag to a display string."""
+    if value is None:
+        return "N/A"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+def _tags_display(tags: Any) -> str:
+    """Render already-normalized tag lists for table/csv output."""
+    if not isinstance(tags, list):
+        return ""
+    return ", ".join(tag for tag in tags if isinstance(tag, str))
+
+
+def _build_segment_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one segments-list row for output."""
+    tags = _extract_tags_normalized(item.get("tags"))
+    approved_raw = item.get("approved")
+    return {
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "description": "",
+            },
+        ),
+        "owner": _extract_owner_name_from_record(item),
+        "approved": approved_raw if isinstance(approved_raw, bool) else None,
+        "tags": tags,
+        "created": _extract_timestamp_from_record(item, "created"),
+        "modified": _extract_timestamp_from_record(item, "modified"),
+    }
+
+
+def _fetch_segments_list(
+    data_view_id: str,
+    output_format: str,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_segments."""
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="segments",
+        table_item_label="segment",
+        component_json_key="segments",
+        empty_csv_header="id,name,owner,approved,description,tags,created,modified",
+        fetch_spec=_SEGMENTS_COMPONENT_FETCH_SPEC,
+        display_row_builder=_build_segment_display_row,
+        searchable_fields=["id", "name", "owner", "description", "tags"],
+        csv_columns=["id", "name", "owner", "approved", "description", "tags", "created", "modified"],
+        table_columns=["id", "name", "owner", "approved", "description"],
+        table_labels=["ID", "Name", "Owner", "Approved", "Description"],
+        table_row_transform=_format_governance_rows_for_tabular,
+    )
+
+
+def list_segments(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all segments (filters) for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING SEGMENTS FOR DATA VIEW: {data_view_id}",
+        command_name="list_segments",
+        fetch_and_format=_fetch_segments_list(
+            data_view_id,
+            output_format,
+            data_view_name=data_view_name,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
+# ==================== LIST CALCULATED METRICS ====================
+
+
+def _build_calculated_metric_display_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one calculated-metrics row for output."""
+    tags = _extract_tags_normalized(item.get("tags"))
+    approved_raw = item.get("approved")
+    return {
+        **_normalize_component_text_fields(
+            item,
+            defaults={
+                "id": "N/A",
+                "name": "N/A",
+                "description": "",
+                "type": "",
+                "polarity": "",
+            },
+        ),
+        "owner": _extract_owner_name_from_record(item),
+        "precision": _normalize_optional_component_int(item.get("precision"), default=0),
+        "approved": approved_raw if isinstance(approved_raw, bool) else None,
+        "tags": tags,
+        "created": _extract_timestamp_from_record(item, "created"),
+        "modified": _extract_timestamp_from_record(item, "modified"),
+    }
+
+
+def _fetch_calculated_metrics_list(
+    data_view_id: str,
+    output_format: str,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> Callable:
+    """Return a fetch_and_format callback for list_calculated_metrics."""
+    return _build_component_list_fetcher(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        output_format=output_format,
+        filter_pattern=filter_pattern,
+        exclude_pattern=exclude_pattern,
+        limit=limit,
+        sort_expression=sort_expression,
+        component_label="calculated metrics",
+        table_item_label="calculated metric",
+        component_json_key="calculatedMetrics",
+        empty_csv_header="id,name,owner,type,polarity,precision,approved,tags,created,modified,description",
+        fetch_spec=_CALCULATED_METRICS_COMPONENT_FETCH_SPEC,
+        display_row_builder=_build_calculated_metric_display_row,
+        searchable_fields=["id", "name", "owner", "type", "polarity", "description"],
+        csv_columns=[
+            "id",
+            "name",
+            "owner",
+            "type",
+            "polarity",
+            "precision",
+            "approved",
+            "tags",
+            "created",
+            "modified",
+            "description",
+        ],
+        table_columns=["id", "name", "owner", "type", "polarity", "approved", "description"],
+        table_labels=["ID", "Name", "Owner", "Type", "Polarity", "Approved", "Description"],
+        table_row_transform=_format_governance_rows_for_tabular,
+    )
+
+
+def list_calculated_metrics(
+    data_view_id: str,
+    config_file: str = "config.json",
+    output_format: str = "table",
+    output_file: str | None = None,
+    profile: str | None = None,
+    data_view_name: str | None = None,
+    filter_pattern: str | None = None,
+    exclude_pattern: str | None = None,
+    limit: int | None = None,
+    sort_expression: str | None = None,
+) -> bool:
+    """List all calculated metrics for a given data view."""
+    return _run_list_command(
+        banner_text=f"LISTING CALCULATED METRICS FOR DATA VIEW: {data_view_id}",
+        command_name="list_calculated_metrics",
+        fetch_and_format=_fetch_calculated_metrics_list(
+            data_view_id,
+            output_format,
+            data_view_name=data_view_name,
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+            sort_expression=sort_expression,
+        ),
+        config_file=config_file,
+        output_format=output_format,
+        output_file=output_file,
+        profile=profile,
+        validate_inputs=lambda: _validate_discovery_query_inputs(
+            filter_pattern=filter_pattern,
+            exclude_pattern=exclude_pattern,
+            limit=limit,
+        ),
+    )
+
+
 # ==================== LIST CONNECTIONS ====================
 
 
@@ -7915,7 +9169,7 @@ def _fetch_connections(
                 if not isinstance(dv, dict):
                     continue
                 pid = dv.get("parentDataGroupId")
-                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                if not _is_missing_discovery_value(pid, treat_blank_string=True, treat_null_like_strings=True):
                     conn_ids_from_dvs[pid] = conn_ids_from_dvs.get(pid, 0) + 1
 
             if conn_ids_from_dvs:
@@ -7940,7 +9194,7 @@ def _fetch_connections(
                 )
 
                 if output_format == "json":
-                    return _format_as_json(
+                    return _format_discovery_json(
                         {
                             "connections": derived,
                             "count": len(derived),
@@ -7976,7 +9230,7 @@ def _fetch_connections(
             # Genuinely no connections
             if is_machine_readable:
                 if output_format == "json":
-                    return _format_as_json({"connections": [], "count": 0})
+                    return _format_discovery_json({"connections": [], "count": 0})
                 return "connection_id,connection_name,owner,dataset_id,dataset_name\n"
             return "\nNo connections found or no access to any connections.\n"
 
@@ -7984,9 +9238,10 @@ def _fetch_connections(
         for conn in connections:
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get("id", "N/A")
-            conn_name = conn.get("name", "N/A")
-            owner_name = _extract_owner_name(conn.get("ownerFullName") or conn.get("owner"))
+            conn_id = _normalize_optional_text(conn.get("id"), default="N/A")
+            conn_name = _normalize_optional_text(conn.get("name"), default="N/A")
+            owner_full_name = _normalize_optional_text(conn.get("ownerFullName"), default="")
+            owner_name = owner_full_name or _extract_owner_name(conn.get("owner"))
 
             raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
@@ -8013,7 +9268,7 @@ def _fetch_connections(
         )
 
         if output_format == "json":
-            return _format_as_json({"connections": display_data, "count": len(display_data)})
+            return _format_discovery_json({"connections": display_data, "count": len(display_data)})
         if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset
             flat_rows: list[dict] = []
@@ -8114,8 +9369,8 @@ def _fetch_datasets(
         for conn in _extract_connections_list(raw_connections):
             if not isinstance(conn, dict):
                 continue
-            conn_id = conn.get("id", "")
-            conn_name = conn.get("name", "N/A")
+            conn_id = _normalize_optional_text(conn.get("id"), default="")
+            conn_name = _normalize_optional_text(conn.get("name"), default="N/A")
             raw_datasets = conn.get("dataSets", conn.get("datasets", []))
             if not isinstance(raw_datasets, list):
                 raw_datasets = []
@@ -8132,7 +9387,7 @@ def _fetch_datasets(
         if not available_dvs:
             if is_machine_readable:
                 if output_format == "json":
-                    return _format_as_json({"dataViews": [], "count": 0})
+                    return _format_discovery_json({"dataViews": [], "count": 0})
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
             return "\nNo data views found or no access to any data views.\n"
 
@@ -8143,7 +9398,7 @@ def _fetch_datasets(
                 if not isinstance(dv, dict):
                     continue
                 pid = dv.get("parentDataGroupId")
-                if pid is not None and not (isinstance(pid, float) and pd.isna(pid)):
+                if not _is_missing_discovery_value(pid, treat_blank_string=True, treat_null_like_strings=True):
                     _no_conn_details = True
                     break
 
@@ -8154,8 +9409,8 @@ def _fetch_datasets(
         for i, dv in enumerate(available_dvs):
             if not isinstance(dv, dict):
                 continue
-            dv_id = dv.get("id", "N/A")
-            dv_name = dv.get("name", "N/A")
+            dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+            dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
 
             if not is_machine_readable:
                 print(f"  [{i + 1}/{len(available_dvs)}] {dv_name}...", end="\r")
@@ -8163,7 +9418,7 @@ def _fetch_datasets(
             parent_conn_id = dv.get("parentDataGroupId")
             # DataFrame-backed records can carry missing values as NaN/NA.
             # Normalize to None so machine-readable output emits "N/A", not NaN.
-            if parent_conn_id is not None and pd.isna(parent_conn_id):
+            if _is_missing_discovery_value(parent_conn_id, treat_blank_string=True, treat_null_like_strings=True):
                 parent_conn_id = None
 
             conn_info = conn_map.get(parent_conn_id) if parent_conn_id else None
@@ -8203,7 +9458,7 @@ def _fetch_datasets(
             result_payload["warning"] = _CONN_PERM_WARNING.replace("\n", " ")
 
         if output_format == "json":
-            return _format_as_json(result_payload)
+            return _format_discovery_json(result_payload)
         if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset per data view
             flat_rows: list[dict] = []
@@ -8351,8 +9606,8 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 owner_name = _extract_owner_name(dv.get("owner"))
                 display_data.append({"id": dv_id, "name": dv_name, "owner": owner_name})
 
@@ -8628,8 +9883,8 @@ def interactive_wizard(config_file: str = "config.json", profile: str | None = N
         display_data = []
         for dv in available_dvs:
             if isinstance(dv, dict):
-                dv_id = dv.get("id", "N/A")
-                dv_name = dv.get("name", "N/A")
+                dv_id = _normalize_optional_text(dv.get("id"), default="N/A")
+                dv_name = _normalize_optional_text(dv.get("name"), default="N/A")
                 display_data.append({"id": dv_id, "name": dv_name})
 
         if not display_data:
@@ -9233,15 +10488,18 @@ def _stats_error_row(data_view_id: str, error: Exception) -> dict[str, Any]:
     }
 
 
-def _coerce_stats_component_count(payload: Any) -> int:
-    """Return a safe component count for API payloads with mixed shapes."""
-    if payload is None:
-        return 0
-    if isinstance(payload, pd.DataFrame):
-        return len(payload) if not payload.empty else 0
-    if isinstance(payload, (list, tuple, set, dict)):
-        return len(payload)
-    return 0
+def _require_numeric_component_count_for_stats(
+    cja: cjapy.CJA,
+    data_view_id: str,
+    *,
+    fetch_spec: _ComponentFetchSpec,
+    component_label: str,
+) -> int:
+    """Return a strict numeric component count for stats rows or raise for invalid payloads."""
+    count = _count_component_items_for_fetch_spec(cja, data_view_id, fetch_spec)
+    if isinstance(count, int):
+        return count
+    raise ValueError(f"Failed to retrieve {component_label} for data view '{data_view_id}'")
 
 
 def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
@@ -9249,10 +10507,18 @@ def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     dv_info = cja.getDataView(data_view_id)
     dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
 
-    metrics_payload = cja.getMetrics(data_view_id)
-    dimensions_payload = cja.getDimensions(data_view_id)
-    metrics_count = _coerce_stats_component_count(metrics_payload)
-    dimensions_count = _coerce_stats_component_count(dimensions_payload)
+    metrics_count = _require_numeric_component_count_for_stats(
+        cja,
+        data_view_id,
+        fetch_spec=_METRICS_COMPONENT_FETCH_SPEC,
+        component_label="metrics",
+    )
+    dimensions_count = _require_numeric_component_count_for_stats(
+        cja,
+        data_view_id,
+        fetch_spec=_DIMENSIONS_COMPONENT_FETCH_SPEC,
+        component_label="dimensions",
+    )
 
     owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
     owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
@@ -12632,6 +13898,35 @@ def handle_compare_snapshots_command(
 # ==================== MAIN FUNCTION ====================
 
 
+def _describe_dataview_ignored_options(args: argparse.Namespace) -> list[str]:
+    """Return discovery filtering options that have no effect on --describe-dataview."""
+    ignored: list[str] = []
+    if getattr(args, "org_filter", None) is not None:
+        ignored.append("--filter")
+    if getattr(args, "org_exclude", None) is not None:
+        ignored.append("--exclude")
+    if getattr(args, "discovery_sort", None) is not None:
+        ignored.append("--sort")
+    if getattr(args, "org_limit", None) is not None:
+        ignored.append("--limit")
+    return ignored
+
+
+def _warn_describe_dataview_ignored_options(args: argparse.Namespace) -> None:
+    """Warn when describe_dataview is invoked with ignored discovery options."""
+    ignored_options = _describe_dataview_ignored_options(args)
+    if not ignored_options:
+        return
+    verb = "is" if len(ignored_options) == 1 else "are"
+    option_label = "option" if len(ignored_options) == 1 else "options"
+    print(
+        ConsoleColors.warning(
+            f"Warning: {', '.join(ignored_options)} {option_label} {verb} ignored with --describe-dataview."
+        ),
+        file=sys.stderr,
+    )
+
+
 def _main_impl(run_state: dict[str, Any] | None = None):
     """Main CLI implementation."""
 
@@ -12856,11 +14151,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     }
     for attr, func in _discovery_commands.items():
         if getattr(args, attr, False):
-            list_format = "table"
-            if args.format in ("json", "csv"):
-                list_format = args.format
-            elif output_to_stdout:
-                list_format = "json"
+            list_format = _resolve_discovery_output_format(args.format, output_to_stdout=output_to_stdout)
             success = func(
                 args.config_file,
                 output_format=list_format,
@@ -12871,6 +14162,122 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 limit=getattr(args, "org_limit", None),
                 sort_expression=getattr(args, "discovery_sort", None),
             )
+            if run_state is not None:
+                run_state["output_format"] = list_format
+                run_state["details"] = {"operation_success": success, "discovery_command": attr}
+            sys.exit(0 if success else 1)
+
+    # ID-bearing discovery commands (inspection commands that take a data view ID or name)
+    _discovery_commands_id = {
+        "describe_dataview": describe_dataview,
+        "list_metrics": list_metrics,
+        "list_dimensions": list_dimensions,
+        "list_segments": list_segments,
+        "list_calculated_metrics": list_calculated_metrics,
+    }
+    for attr, func in _discovery_commands_id.items():
+        resource_id_or_name = getattr(args, attr, None)
+        if resource_id_or_name:
+            list_format = _resolve_discovery_output_format(args.format, output_to_stdout=output_to_stdout)
+            is_machine_readable_discovery = _is_machine_readable_output(list_format, getattr(args, "output", None))
+            if attr == "describe_dataview" and not is_machine_readable_discovery:
+                _warn_describe_dataview_ignored_options(args)
+            resolved_resource_name: str | None = None
+            # Resolve name → ID if needed (IDs pass through without API call)
+            if is_data_view_id(resource_id_or_name):
+                resource_id = resource_id_or_name
+            else:
+                temp_logger = _build_inspection_name_resolution_logger()
+                resolution_result = resolve_data_view_names(
+                    [resource_id_or_name],
+                    args.config_file,
+                    temp_logger,
+                    profile=getattr(args, "profile", None),
+                    match_mode=getattr(args, "name_match", "exact"),
+                    include_diagnostics=True,
+                )
+                resolved_ids, _, resolution_diagnostics = _coerce_name_resolution_result(resolution_result)
+                resolved_name_by_id = resolution_diagnostics.resolved_name_by_id
+                if not resolved_ids:
+                    resolution_error_type = resolution_diagnostics.error_type or "not_found"
+                    if resolution_error_type == "not_found":
+                        resolution_message = (
+                            f"Could not resolve data view: '{resource_id_or_name}'. "
+                            "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
+                        )
+                    else:
+                        resolution_message = (
+                            resolution_diagnostics.error_message
+                            or f"Failed to resolve data view: '{resource_id_or_name}'."
+                        )
+                    _emit_discovery_error(
+                        resolution_message,
+                        is_machine_readable=is_machine_readable_discovery,
+                        error_type=resolution_error_type,
+                        human_to_stderr=True,
+                    )
+                    sys.exit(1)
+                if len(resolved_ids) > 1:
+                    if is_machine_readable_discovery:
+                        _emit_discovery_error(
+                            (
+                                f"Name '{resource_id_or_name}' is ambiguous and matches "
+                                f"{len(resolved_ids)} data views. Specify an exact data view ID."
+                            ),
+                            is_machine_readable=True,
+                            error_type="ambiguous_name",
+                            additional_fields={
+                                "data_view_name": resource_id_or_name,
+                                "matches": resolved_ids,
+                            },
+                            human_to_stderr=True,
+                        )
+                        sys.exit(1)
+                    options = [(dv_id, f"{resource_id_or_name} ({dv_id})") for dv_id in resolved_ids]
+                    selected = prompt_for_selection(
+                        options,
+                        f"Name '{resource_id_or_name}' matches {len(resolved_ids)} data views. Please select one:",
+                    )
+                    if selected:
+                        resource_id = selected
+                        resolved_resource_name = resolved_name_by_id.get(resource_id)
+                    else:
+                        print(
+                            ConsoleColors.error(
+                                f"ERROR: Name '{resource_id_or_name}' is ambiguous — matches {len(resolved_ids)} data views:",
+                            ),
+                            file=sys.stderr,
+                        )
+                        for dv_id in resolved_ids:
+                            print(f"  • {dv_id}", file=sys.stderr)
+                        print("\nPlease specify the exact data view ID instead of the name.", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    resource_id = resolved_ids[0]
+                    resolved_resource_name = resolved_name_by_id.get(resource_id)
+
+            if attr == "describe_dataview":
+                success = func(
+                    resource_id,
+                    config_file=args.config_file,
+                    output_format=list_format,
+                    output_file=getattr(args, "output", None),
+                    profile=getattr(args, "profile", None),
+                )
+            else:
+                list_kwargs: dict[str, Any] = {
+                    "config_file": args.config_file,
+                    "output_format": list_format,
+                    "output_file": getattr(args, "output", None),
+                    "profile": getattr(args, "profile", None),
+                    "filter_pattern": getattr(args, "org_filter", None),
+                    "exclude_pattern": getattr(args, "org_exclude", None),
+                    "limit": getattr(args, "org_limit", None),
+                    "sort_expression": getattr(args, "discovery_sort", None),
+                }
+                if resolved_resource_name is not None:
+                    list_kwargs["data_view_name"] = resolved_resource_name
+                success = func(resource_id, **list_kwargs)
             if run_state is not None:
                 run_state["output_format"] = list_format
                 run_state["details"] = {"operation_success": success, "discovery_command": attr}
@@ -13110,7 +14517,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 "count": len(snapshots),
                 "snapshots": snapshots,
             }
-            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+            _emit_json_output(
+                payload,
+                output_file=getattr(args, "output", None),
+                is_stdout=output_to_stdout,
+                contract_label="Snapshot listing output",
+            )
         elif list_output_format == "csv":
             rows = [
                 {
@@ -13219,7 +14631,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 "target_data_view_ids": target_ids,
                 "retention": {"keep_last": effective_keep_last, "keep_since": effective_keep_since},
             }
-            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+            _emit_json_output(
+                payload,
+                output_file=getattr(args, "output", None),
+                is_stdout=output_to_stdout,
+                contract_label="Snapshot prune output",
+            )
         elif prune_output_format == "csv":
             rows = [{"filepath": path} for path in unique_deleted]
             _emit_output(_format_as_csv(["filepath"], rows), getattr(args, "output", None), output_to_stdout)

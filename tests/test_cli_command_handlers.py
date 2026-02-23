@@ -23,6 +23,7 @@ from cja_auto_sdr.core.exceptions import APIError, CJASDRError
 from cja_auto_sdr.generator import (
     DiffConfig,
     DiffSnapshotConfig,
+    NameResolutionDiagnostics,
     _main_impl,
     handle_diff_command,
     handle_diff_snapshot_command,
@@ -1652,6 +1653,25 @@ class TestMainImplListSnapshots:
         emitted = mock_emit.call_args[0][0]
         assert "No snapshots found" in emitted
 
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    def test_list_snapshots_json_output_contract_error_is_controlled(self, mock_sm_cls, capsys):
+        """Non-finite JSON values should fail with a structured output_contract error."""
+        mock_sm = MagicMock()
+        mock_sm.list_snapshots.return_value = [{"data_view_id": "dv_nan", "metrics_count": float("nan")}]
+        mock_sm_cls.return_value = mock_sm
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--list-snapshots", "--format", "json"])
+                _main_impl()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        payload = json.loads(captured.err)
+        assert payload["error_type"] == "output_contract"
+        assert "Snapshot listing output contains non-JSON-compliant values" in payload["error"]
+
 
 # ==================== _main_impl: --show-only / --include-all-inventory ====================
 
@@ -1845,6 +1865,30 @@ class TestMainImplPruneSnapshots:
         # Should have pruned for dv_prune only
         mock_sm.apply_retention_policy.assert_called_once()
 
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_auto_prune_retention")
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    def test_prune_json_output_contract_error_is_controlled(self, mock_sm_cls, mock_retention, capsys):
+        """Non-finite JSON values should fail with a structured output_contract error."""
+        mock_retention.return_value = (1, None)
+
+        mock_sm = MagicMock()
+        mock_sm.list_snapshots.return_value = [{"data_view_id": "dv_test", "filepath": "/snap1.json"}]
+        mock_sm.apply_retention_policy.return_value = [float("nan")]
+        mock_sm_cls.return_value = mock_sm
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--prune-snapshots", "--keep-last", "1", "--format", "json"])
+                mock_pa.return_value = args
+                _main_impl()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        payload = json.loads(captured.err)
+        assert payload["error_type"] == "output_contract"
+        assert "Snapshot prune output contains non-JSON-compliant values" in payload["error"]
+
 
 # ==================== _main_impl: --diff-labels ====================
 
@@ -1869,3 +1913,801 @@ class TestMainImplDiffLabels:
         # Labels should have been parsed as a tuple and passed through
         mock_diff.assert_called_once()
         assert mock_diff.call_args[1]["labels"] == ("Before", "After")
+
+
+# ==================== _main_impl: ID-bearing discovery inspection dispatch ====================
+
+
+class TestDiscoveryInspectionDispatch:
+    """Tests for dispatch of new ID-bearing discovery commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_sets_discovery_mode_in_run_state(self, mock_fn):
+        """ID-bearing discovery inspection commands should infer discovery mode."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+
+        assert exc_info.value.code == 0
+        assert run_state["mode"] == "discovery"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_rejects_fail_on_quality(self, mock_fn, capsys):
+        """Discovery inspection commands should reject SDR-only --fail-on-quality."""
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--fail-on-quality", "HIGH"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        assert "--fail-on-quality is only supported in SDR generation mode" in capsys.readouterr().err
+        mock_fn.assert_not_called()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_1"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_list_calculated_metrics_dispatch(self, mock_fn):
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_describe_dataview_stdout_forces_json(self, mock_fn):
+        """When output is stdout, format should default to json."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--output", "-"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+        assert run_state["output_format"] == "json"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_csv_format_preserved(self, mock_fn):
+        """Explicit csv format should be preserved for ID-bearing discovery commands."""
+        mock_fn.return_value = True
+        run_state = {}
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--format", "csv"])
+                mock_pa.return_value = args
+                _main_impl(run_state=run_state)
+        assert exc_info.value.code == 0
+        assert run_state["output_format"] == "csv"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_failure_exits_one(self, mock_fn):
+        """When the command function returns False, should exit 1."""
+        mock_fn.return_value = False
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert exc_info.value.code == 1
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_passes_filter_and_sort(self, mock_fn):
+        """Filter and sort options should be forwarded to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    [
+                        "--list-segments",
+                        "dv_1",
+                        "--filter",
+                        "active.*",
+                        "--sort",
+                        "name",
+                        "--limit",
+                        "10",
+                    ]
+                )
+                mock_pa.return_value = args
+                _main_impl()
+        call_kwargs = mock_fn.call_args
+        assert call_kwargs[1]["filter_pattern"] == "active.*"
+        assert call_kwargs[1]["sort_expression"] == "name"
+        assert call_kwargs[1]["limit"] == 10
+
+
+class TestDiscoveryInspectionNameResolution:
+    """Tests for data view name resolution in ID-bearing discovery commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_id_passthrough_skips_resolution(self, mock_fn, mock_resolve):
+        """Data view IDs (dv_...) should pass through without calling resolve_data_view_names."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_123"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_not_called()
+        assert mock_fn.call_args[0][0] == "dv_123"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_resolves_to_single_id(self, mock_fn, mock_resolve):
+        """A name that resolves to a single data view ID should be passed to the command."""
+        mock_resolve.return_value = (["dv_resolved"], {"My View": ["dv_resolved"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "My View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_resolved"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_exits_one(self, mock_fn, mock_resolve, capsys):
+        """A name with no matches should exit 1 with an error."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Nonexistent View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Could not resolve data view" in captured.err
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Nonexistent View", "--format", "json"],
+            ["--describe-dataview", "Nonexistent View", "--format", "csv"],
+            ["--describe-dataview", "Nonexistent View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_machine_readable_emits_structured_error(self, mock_fn, mock_resolve, capsys, argv):
+        """Machine-readable inspection modes should emit a structured JSON error for unresolved names."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "not_found"
+        assert "Could not resolve data view" in payload["error"]
+        assert "--list-dataviews" in payload["error"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Broken View", "--format", "json"],
+            ["--describe-dataview", "Broken View", "--format", "csv"],
+            ["--describe-dataview", "Broken View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_setup_failure_reports_configuration_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+        argv,
+    ):
+        """Setup/configuration failures should not be mislabeled as not_found."""
+
+        def _mock_resolver(_identifiers, _config_file, _logger, **_kwargs):
+            return (
+                [],
+                {},
+                NameResolutionDiagnostics(
+                    error_type="configuration_error",
+                    error_message="Failed to configure credentials: Missing credentials",
+                ),
+            )
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "configuration_error"
+        assert "Failed to configure credentials" in payload["error"]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_connectivity_failure_reports_connectivity_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+    ):
+        """Connectivity/API failures should surface as connectivity_error."""
+
+        def _mock_resolver(_identifiers, _config_file, _logger, **_kwargs):
+            return (
+                [],
+                {},
+                NameResolutionDiagnostics(
+                    error_type="connectivity_error",
+                    error_message="Failed to resolve data view names: network timeout",
+                ),
+            )
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--describe-dataview", "Timeout View", "--format", "json"])
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "connectivity_error"
+        assert "network timeout" in payload["error"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Noisy View", "--format", "json"],
+            ["--describe-dataview", "Noisy View", "--format", "csv"],
+            ["--describe-dataview", "Noisy View", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_machine_readable_resolution_logs_do_not_pollute_json_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        capsys,
+        argv,
+    ):
+        """Resolver logger output must not precede machine-readable JSON errors."""
+
+        def _mock_resolver(_identifiers, _config_file, logger, **_kwargs):
+            logger.error("resolver plain log line")
+            return (
+                [],
+                {},
+                NameResolutionDiagnostics(
+                    error_type="configuration_error",
+                    error_message="Failed to configure credentials: bad profile",
+                ),
+            )
+
+        mock_resolve.side_effect = _mock_resolver
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        stderr_output = capsys.readouterr().err
+        payload = json.loads(stderr_output)
+        assert payload["error_type"] == "configuration_error"
+        assert "resolver plain log line" not in stderr_output
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_interactive_select(self, mock_fn, mock_resolve, mock_prompt):
+        """An ambiguous name in interactive mode should call prompt_for_selection."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        mock_prompt.return_value = "dv_b"
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Shared"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_prompt.assert_called_once()
+        assert mock_fn.call_args[0][0] == "dv_b"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_non_interactive_exits_one(self, mock_fn, mock_resolve, mock_prompt, capsys):
+        """An ambiguous name in non-interactive mode should exit 1 with disambiguation list."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        mock_prompt.return_value = None  # non-interactive
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "Shared"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        captured = capsys.readouterr()
+        assert "ambiguous" in captured.err.lower()
+        assert "dv_a" in captured.err
+        assert "dv_b" in captured.err
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--describe-dataview", "Shared", "--format", "json"],
+            ["--describe-dataview", "Shared", "--format", "csv"],
+            ["--describe-dataview", "Shared", "--output", "-"],
+        ],
+    )
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.prompt_for_selection")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_ambiguous_name_machine_readable_emits_structured_error(
+        self,
+        mock_fn,
+        mock_resolve,
+        mock_prompt,
+        capsys,
+        argv,
+    ):
+        """Machine-readable inspection modes should fail with structured ambiguity details."""
+        mock_resolve.return_value = (["dv_a", "dv_b"], {"Shared": ["dv_a", "dv_b"]})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(argv)
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        mock_fn.assert_not_called()
+        mock_prompt.assert_not_called()
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error_type"] == "ambiguous_name"
+        assert payload["data_view_name"] == "Shared"
+        assert payload["matches"] == ["dv_a", "dv_b"]
+        assert "Specify an exact data view ID" in payload["error"]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_match_option_forwarded(self, mock_fn, mock_resolve):
+        """--name-match should be forwarded to resolve_data_view_names as match_mode."""
+        mock_resolve.return_value = (["dv_found"], {"View": ["dv_found"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "View", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_resolve.call_args[1]["match_mode"] == "fuzzy"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution(self, mock_fn, mock_resolve):
+        """--list-metrics should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_m1"],
+            {"Metrics View": ["dv_m1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_m1": "Metrics Canonical"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Metrics View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_m1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Metrics Canonical"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_list_dimensions_name_resolution(self, mock_fn, mock_resolve):
+        """--list-dimensions should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_d1"],
+            {"Dims View": ["dv_d1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_d1": "Dimensions Canonical"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "Dims View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_d1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Dimensions Canonical"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_list_segments_name_resolution(self, mock_fn, mock_resolve):
+        """--list-segments should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_s1"],
+            {"Segs View": ["dv_s1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_s1": "Segments Canonical"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "Segs View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_s1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Segments Canonical"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_list_calculated_metrics_name_resolution(self, mock_fn, mock_resolve):
+        """--list-calculated-metrics should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_cm1"],
+            {"Calc View": ["dv_cm1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_cm1": "Calculated Canonical"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "Calc View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_cm1"
+        assert mock_fn.call_args[1]["data_view_name"] == "Calculated Canonical"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution_legacy_tuple_omits_preferred_name(self, mock_fn, mock_resolve):
+        """Legacy resolver tuples should not inject raw query text as data_view_name."""
+        mock_resolve.return_value = (["dv_m1"], {"Prod Web": ["dv_m1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Prod Web", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_m1"
+        assert "data_view_name" not in mock_fn.call_args[1]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution_fuzzy_uses_canonical_name(self, mock_fn, mock_resolve):
+        """Fuzzy inspection name matches should use canonical names in downstream output."""
+        mock_resolve.return_value = (
+            ["dv_prod_web"],
+            {"Prod Web": ["dv_prod_web"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_prod_web": "Production Web"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Prod Web", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_prod_web"
+        assert mock_fn.call_args[1]["data_view_name"] == "Production Web"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_id_passthrough_list_metrics(self, mock_fn, mock_resolve):
+        """--list-metrics with a dv_ ID should skip resolution."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_456"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_resolve.assert_not_called()
+        assert mock_fn.call_args[0][0] == "dv_456"
+        assert "data_view_name" not in mock_fn.call_args[1]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_name_no_match_error_suggests_list_dataviews(self, mock_fn, mock_resolve, capsys):
+        """Unresolved name error should suggest running --list-dataviews."""
+        mock_resolve.return_value = ([], {})
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "No Such View"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "--list-dataviews" in captured.err
+
+
+class TestDiscoveryInspectionOutputFile:
+    """Tests for --output FILE with inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_output_file_forwarded_to_command(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to the command function."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "metrics.json")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--format", "json", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_output_file_forwarded_to_list_dimensions(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to list_dimensions."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "dims.csv")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--format", "csv", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_output_file_forwarded_to_describe_dataview(self, mock_fn, tmp_path):
+        """--output FILE should be forwarded to describe_dataview."""
+        mock_fn.return_value = True
+        out_file = str(tmp_path / "desc.json")
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--describe-dataview", "dv_1", "--format", "json", "--output", out_file])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert mock_fn.call_args[1]["output_file"] == out_file
+
+
+class TestDiscoveryInspectionExcludePattern:
+    """Tests for --exclude pattern forwarding in inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_exclude_pattern_forwarded_to_list_metrics(self, mock_fn):
+        """--exclude pattern should be forwarded as exclude_pattern kwarg."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--exclude", "internal.*"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["exclude_pattern"] == "internal.*"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_exclude_pattern_forwarded_to_list_dimensions(self, mock_fn):
+        """--exclude pattern should be forwarded to list_dimensions."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--exclude", "test.*"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["exclude_pattern"] == "test.*"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_filter_and_exclude_combined(self, mock_fn):
+        """--filter and --exclude should both be forwarded together."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    ["--list-calculated-metrics", "dv_1", "--filter", "revenue.*", "--exclude", "test.*"]
+                )
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["filter_pattern"] == "revenue.*"
+        assert mock_fn.call_args[1]["exclude_pattern"] == "test.*"
+
+
+class TestDiscoveryInspectionSortDescending:
+    """Tests for --sort with descending prefix in inspection commands."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_sort_descending_forwarded(self, mock_fn):
+        """--sort=-name should be forwarded as-is to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "dv_1", "--sort=-name"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["sort_expression"] == "-name"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_segments")
+    def test_sort_ascending_forwarded(self, mock_fn):
+        """--sort name (ascending) should be forwarded to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-segments", "dv_1", "--sort", "id"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["sort_expression"] == "id"
+
+
+class TestDiscoveryInspectionLimitDispatch:
+    """Tests for --limit forwarding through inspection dispatch."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dimensions")
+    def test_limit_forwarded_to_list_dimensions(self, mock_fn):
+        """--limit should be forwarded as integer to the command function."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-dimensions", "dv_1", "--limit", "5"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["limit"] == 5
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_calculated_metrics")
+    def test_limit_forwarded_to_list_calculated_metrics(self, mock_fn):
+        """--limit should be forwarded to list_calculated_metrics."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-calculated-metrics", "dv_1", "--limit", "20"])
+                mock_pa.return_value = args
+                _main_impl()
+        assert mock_fn.call_args[1]["limit"] == 20
+
+
+class TestDescribeDataviewIgnoresFilterSortLimit:
+    """Tests that describe_dataview ignores filter/sort/limit kwargs with a warning."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_filter_sort_limit_do_not_cause_error(self, mock_fn, capsys):
+        """--filter, --sort, --limit with --describe-dataview should not error."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    ["--describe-dataview", "dv_1", "--filter", "something", "--sort", "name", "--limit", "10"]
+                )
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert "--filter, --sort, --limit options are ignored with --describe-dataview" in capsys.readouterr().err
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.describe_dataview")
+    def test_filter_sort_limit_warning_suppressed_for_machine_readable_mode(self, mock_fn, capsys):
+        """Machine-readable describe mode should avoid warning text on stderr."""
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(
+                    [
+                        "--describe-dataview",
+                        "dv_1",
+                        "--format",
+                        "json",
+                        "--filter",
+                        "something",
+                        "--sort",
+                        "name",
+                        "--limit",
+                        "10",
+                    ]
+                )
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        mock_fn.assert_called_once()
+        assert "ignored with --describe-dataview" not in capsys.readouterr().err
+
+    def test_describe_dataview_rejects_unexpected_kwargs(self):
+        """describe_dataview() should fail fast on unsupported kwargs."""
+        from cja_auto_sdr.generator import describe_dataview
+
+        with pytest.raises(TypeError):
+            describe_dataview(
+                "dv_1",
+                output_format="json",
+                filter_pattern="anything",
+                exclude_pattern="something",
+                limit=10,
+                sort_expression="-name",
+            )

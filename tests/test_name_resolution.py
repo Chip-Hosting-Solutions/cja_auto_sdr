@@ -10,7 +10,7 @@ import pytest
 
 # Import the functions we're testing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from cja_auto_sdr.generator import _data_view_cache, is_data_view_id, resolve_data_view_names
+from cja_auto_sdr.generator import NameResolutionDiagnostics, _data_view_cache, is_data_view_id, resolve_data_view_names
 
 
 class TestDataViewIDDetection:
@@ -344,6 +344,49 @@ class TestDataViewNameResolution:
 
         assert ids == ["dv_prod123"]
         assert name_map == {"Production Analytic": ["dv_prod123"]}
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_include_diagnostics_exposes_canonical_name_map(self, mock_cjapy):
+        """Diagnostics should expose canonical names keyed by resolved data view ID."""
+        mock_cja_instance = MagicMock()
+        mock_cja_instance.getDataViews.return_value = self.mock_dataviews
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map, diagnostics = resolve_data_view_names(
+            ["production analytics"],
+            "config.json",
+            self.logger,
+            match_mode="insensitive",
+            include_diagnostics=True,
+        )
+
+        assert ids == ["dv_prod123"]
+        assert name_map == {"production analytics": ["dv_prod123"]}
+        assert isinstance(diagnostics, NameResolutionDiagnostics)
+        assert diagnostics.error_type is None
+        assert diagnostics.error_message is None
+        assert diagnostics.resolved_name_by_id == {"dv_prod123": "Production Analytics"}
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_resolve_include_diagnostics_returns_empty_name_map_for_unknown_id(self, mock_cjapy):
+        """IDs not present in accessible views should not produce canonical-name mappings."""
+        mock_cja_instance = MagicMock()
+        mock_cja_instance.getDataViews.return_value = self.mock_dataviews
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cjapy.importConfigFile.return_value = None
+
+        ids, name_map, diagnostics = resolve_data_view_names(
+            ["dv_unknown"],
+            "config.json",
+            self.logger,
+            include_diagnostics=True,
+        )
+
+        assert ids == ["dv_unknown"]
+        assert name_map == {}
+        assert isinstance(diagnostics, NameResolutionDiagnostics)
+        assert diagnostics.resolved_name_by_id == {}
 
     def test_resolve_invalid_match_mode(self):
         """Invalid match mode should raise ValueError."""
