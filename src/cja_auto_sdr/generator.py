@@ -7218,6 +7218,7 @@ class NameResolutionDiagnostics:
 
     error_type: str | None = None
     error_message: str | None = None
+    resolved_name_by_id: dict[str, str] = field(default_factory=dict)
 
 
 type NameResolutionResult = tuple[list[str], dict[str, list[str]]]
@@ -7435,12 +7436,26 @@ def resolve_data_view_names(
 
         if not resolved_ids and unresolved_names:
             unresolved_label = unresolved_names[0]
+            resolved_name_by_id = {
+                resolved_id: id_to_name_lookup[resolved_id]
+                for resolved_id in resolved_ids
+                if resolved_id in id_to_name_lookup
+            }
             resolution_diagnostics = NameResolutionDiagnostics(
                 error_type="not_found",
                 error_message=(
                     f"Could not resolve data view: '{unresolved_label}'. "
                     "Run 'cja_auto_sdr --list-dataviews' to see available names and IDs."
                 ),
+                resolved_name_by_id=resolved_name_by_id,
+            )
+        else:
+            resolution_diagnostics = NameResolutionDiagnostics(
+                resolved_name_by_id={
+                    resolved_id: id_to_name_lookup[resolved_id]
+                    for resolved_id in resolved_ids
+                    if resolved_id in id_to_name_lookup
+                }
             )
         logger.info(f"Resolved {len(identifiers)} identifier(s) to {len(resolved_ids)} data view ID(s)")
         return _build_name_resolution_result(
@@ -8423,13 +8438,13 @@ def describe_dataview(
 
 
 def _resolve_dataview_name(cja: Any, data_view_id: str, *, preferred_name: str | None = None) -> str:
-    """Look up a data view display name, preferring dispatch-resolved names when available."""
-    normalized_preferred = _normalize_optional_text(preferred_name, default="")
-    if normalized_preferred:
-        return normalized_preferred
+    """Look up a canonical data view display name with safe fallback behavior."""
     raw_dv = _require_accessible_dataview(cja, data_view_id)
     normalized_name = _normalize_optional_text(raw_dv.get("name"), default="")
-    return normalized_name or "Unknown"
+    if normalized_name:
+        return normalized_name
+    normalized_preferred = _normalize_optional_text(preferred_name, default="")
+    return normalized_preferred or "Unknown"
 
 
 def _format_governance_rows_for_tabular(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -14072,7 +14087,6 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             if is_data_view_id(resource_id_or_name):
                 resource_id = resource_id_or_name
             else:
-                resolved_resource_name = resource_id_or_name
                 temp_logger = _build_inspection_name_resolution_logger()
                 resolution_result = resolve_data_view_names(
                     [resource_id_or_name],
@@ -14083,6 +14097,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     include_diagnostics=True,
                 )
                 resolved_ids, _, resolution_diagnostics = _coerce_name_resolution_result(resolution_result)
+                resolved_name_by_id = resolution_diagnostics.resolved_name_by_id
                 if not resolved_ids:
                     resolution_error_type = resolution_diagnostics.error_type or "not_found"
                     if resolution_error_type == "not_found":
@@ -14125,6 +14140,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                     )
                     if selected:
                         resource_id = selected
+                        resolved_resource_name = resolved_name_by_id.get(resource_id)
                     else:
                         print(
                             ConsoleColors.error(
@@ -14138,6 +14154,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                         sys.exit(1)
                 else:
                     resource_id = resolved_ids[0]
+                    resolved_resource_name = resolved_name_by_id.get(resource_id)
 
             if attr == "describe_dataview":
                 success = func(

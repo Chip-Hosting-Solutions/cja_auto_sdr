@@ -4747,6 +4747,68 @@ def test_list_inspection_commands_na_identity_fields_treated_as_not_found(
     assert getattr(cja, component_method).call_count == 0
 
 
+@pytest.mark.parametrize(
+    ("command", "component_method", "component_key", "component_payload"),
+    [
+        (
+            list_metrics,
+            "getMetrics",
+            "metrics",
+            [{"id": "m1", "name": "Metric One", "type": "decimal", "description": ""}],
+        ),
+        (
+            list_dimensions,
+            "getDimensions",
+            "dimensions",
+            [{"id": "d1", "name": "Dimension One", "type": "string", "description": ""}],
+        ),
+        (
+            list_segments,
+            "getFilters",
+            "segments",
+            [{"id": "s1", "name": "Segment One"}],
+        ),
+        (
+            list_calculated_metrics,
+            "getCalculatedMetrics",
+            "calculatedMetrics",
+            [{"id": "cm1", "name": "Calc One"}],
+        ),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_use_canonical_dataview_name_over_preferred_query(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+    component_key,
+    component_payload,
+):
+    """Inspection list output should use the canonical API name, not raw query text."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+    cja.getDataView.return_value = {"id": "dv_1", "name": "Production Web"}
+    getattr(cja, component_method).return_value = component_payload
+
+    import io
+    from contextlib import redirect_stdout
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        result = command("dv_1", output_format="json", data_view_name="Prod Web")
+
+    assert result is True
+    payload = json.loads(out.getvalue())
+    assert payload["dataViewId"] == "dv_1"
+    assert payload["dataViewName"] == "Production Web"
+    assert payload["count"] == 1
+    assert len(payload[component_key]) == 1
+
+
 class TestListMetrics:
     """Tests for --list-metrics command."""
 

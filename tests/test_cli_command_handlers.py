@@ -2366,8 +2366,12 @@ class TestDiscoveryInspectionNameResolution:
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.list_metrics")
     def test_list_metrics_name_resolution(self, mock_fn, mock_resolve):
-        """--list-metrics should resolve names to IDs."""
-        mock_resolve.return_value = (["dv_m1"], {"Metrics View": ["dv_m1"]})
+        """--list-metrics should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_m1"],
+            {"Metrics View": ["dv_m1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_m1": "Metrics Canonical"}),
+        )
         mock_fn.return_value = True
         with pytest.raises(SystemExit) as exc_info:
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
@@ -2376,14 +2380,18 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_m1"
-        assert mock_fn.call_args[1]["data_view_name"] == "Metrics View"
+        assert mock_fn.call_args[1]["data_view_name"] == "Metrics Canonical"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.list_dimensions")
     def test_list_dimensions_name_resolution(self, mock_fn, mock_resolve):
-        """--list-dimensions should resolve names to IDs."""
-        mock_resolve.return_value = (["dv_d1"], {"Dims View": ["dv_d1"]})
+        """--list-dimensions should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_d1"],
+            {"Dims View": ["dv_d1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_d1": "Dimensions Canonical"}),
+        )
         mock_fn.return_value = True
         with pytest.raises(SystemExit) as exc_info:
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
@@ -2392,14 +2400,18 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_d1"
-        assert mock_fn.call_args[1]["data_view_name"] == "Dims View"
+        assert mock_fn.call_args[1]["data_view_name"] == "Dimensions Canonical"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.list_segments")
     def test_list_segments_name_resolution(self, mock_fn, mock_resolve):
-        """--list-segments should resolve names to IDs."""
-        mock_resolve.return_value = (["dv_s1"], {"Segs View": ["dv_s1"]})
+        """--list-segments should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_s1"],
+            {"Segs View": ["dv_s1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_s1": "Segments Canonical"}),
+        )
         mock_fn.return_value = True
         with pytest.raises(SystemExit) as exc_info:
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
@@ -2408,14 +2420,18 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_s1"
-        assert mock_fn.call_args[1]["data_view_name"] == "Segs View"
+        assert mock_fn.call_args[1]["data_view_name"] == "Segments Canonical"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
     @patch("cja_auto_sdr.generator.list_calculated_metrics")
     def test_list_calculated_metrics_name_resolution(self, mock_fn, mock_resolve):
-        """--list-calculated-metrics should resolve names to IDs."""
-        mock_resolve.return_value = (["dv_cm1"], {"Calc View": ["dv_cm1"]})
+        """--list-calculated-metrics should forward the canonical resolved data view name."""
+        mock_resolve.return_value = (
+            ["dv_cm1"],
+            {"Calc View": ["dv_cm1"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_cm1": "Calculated Canonical"}),
+        )
         mock_fn.return_value = True
         with pytest.raises(SystemExit) as exc_info:
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
@@ -2424,7 +2440,43 @@ class TestDiscoveryInspectionNameResolution:
                 _main_impl(run_state={})
         assert exc_info.value.code == 0
         assert mock_fn.call_args[0][0] == "dv_cm1"
-        assert mock_fn.call_args[1]["data_view_name"] == "Calc View"
+        assert mock_fn.call_args[1]["data_view_name"] == "Calculated Canonical"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution_legacy_tuple_omits_preferred_name(self, mock_fn, mock_resolve):
+        """Legacy resolver tuples should not inject raw query text as data_view_name."""
+        mock_resolve.return_value = (["dv_m1"], {"Prod Web": ["dv_m1"]})
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Prod Web", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_m1"
+        assert "data_view_name" not in mock_fn.call_args[1]
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.list_metrics")
+    def test_list_metrics_name_resolution_fuzzy_uses_canonical_name(self, mock_fn, mock_resolve):
+        """Fuzzy inspection name matches should use canonical names in downstream output."""
+        mock_resolve.return_value = (
+            ["dv_prod_web"],
+            {"Prod Web": ["dv_prod_web"]},
+            NameResolutionDiagnostics(resolved_name_by_id={"dv_prod_web": "Production Web"}),
+        )
+        mock_fn.return_value = True
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--list-metrics", "Prod Web", "--name-match", "fuzzy"])
+                mock_pa.return_value = args
+                _main_impl(run_state={})
+        assert exc_info.value.code == 0
+        assert mock_fn.call_args[0][0] == "dv_prod_web"
+        assert mock_fn.call_args[1]["data_view_name"] == "Production Web"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
