@@ -1653,6 +1653,25 @@ class TestMainImplListSnapshots:
         emitted = mock_emit.call_args[0][0]
         assert "No snapshots found" in emitted
 
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    def test_list_snapshots_json_output_contract_error_is_controlled(self, mock_sm_cls, capsys):
+        """Non-finite JSON values should fail with a structured output_contract error."""
+        mock_sm = MagicMock()
+        mock_sm.list_snapshots.return_value = [{"data_view_id": "dv_nan", "metrics_count": float("nan")}]
+        mock_sm_cls.return_value = mock_sm
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--list-snapshots", "--format", "json"])
+                _main_impl()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        payload = json.loads(captured.err)
+        assert payload["error_type"] == "output_contract"
+        assert "Snapshot listing output contains non-JSON-compliant values" in payload["error"]
+
 
 # ==================== _main_impl: --show-only / --include-all-inventory ====================
 
@@ -1845,6 +1864,30 @@ class TestMainImplPruneSnapshots:
         assert exc_info.value.code == 0
         # Should have pruned for dv_prune only
         mock_sm.apply_retention_policy.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.resolve_auto_prune_retention")
+    @patch("cja_auto_sdr.generator.SnapshotManager")
+    def test_prune_json_output_contract_error_is_controlled(self, mock_sm_cls, mock_retention, capsys):
+        """Non-finite JSON values should fail with a structured output_contract error."""
+        mock_retention.return_value = (1, None)
+
+        mock_sm = MagicMock()
+        mock_sm.list_snapshots.return_value = [{"data_view_id": "dv_test", "filepath": "/snap1.json"}]
+        mock_sm.apply_retention_policy.return_value = [float("nan")]
+        mock_sm_cls.return_value = mock_sm
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                args = parse_arguments(["--prune-snapshots", "--keep-last", "1", "--format", "json"])
+                mock_pa.return_value = args
+                _main_impl()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        payload = json.loads(captured.err)
+        assert payload["error_type"] == "output_contract"
+        assert "Snapshot prune output contains non-JSON-compliant values" in payload["error"]
 
 
 # ==================== _main_impl: --diff-labels ====================

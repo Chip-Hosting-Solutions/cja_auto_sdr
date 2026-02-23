@@ -7590,16 +7590,16 @@ def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
         print(text)
 
 
-# ==================== SHARED DISCOVERY FORMATTERS ====================
+# ==================== SHARED OUTPUT FORMATTERS ====================
 
 
-def _format_as_json(payload: dict) -> str:
-    """Format a discovery result dict as indented JSON."""
+def _format_as_json(payload: dict, *, contract_label: str = "Output") -> str:
+    """Format a result dict as indented JSON with strict contract checks."""
     try:
         return json.dumps(payload, indent=2, allow_nan=False)
     except ValueError as exc:
-        raise DiscoveryOutputContractError(
-            "Discovery output contains non-JSON-compliant values",
+        raise OutputContractError(
+            f"{contract_label} contains non-JSON-compliant values",
         ) from exc
 
 
@@ -7657,6 +7657,14 @@ def _format_as_table(
             lines.append("".join(f"{item.get(col, '')!s:<{w}}" for col, w in zip(columns, widths, strict=True)))
     lines.append("")
     return "\n".join(lines)
+
+
+def _format_discovery_json(payload: dict) -> str:
+    """Format discovery payloads with a discovery-specific contract label."""
+    try:
+        return _format_as_json(payload, contract_label="Discovery output")
+    except OutputContractError as exc:
+        raise DiscoveryOutputContractError(str(exc)) from exc
 
 
 def _extract_owner_name(owner_data: Any) -> str:
@@ -7729,7 +7737,11 @@ class DiscoveryArgumentError(ValueError):
     """Raised when discovery filter/sort arguments are invalid."""
 
 
-class DiscoveryOutputContractError(ValueError):
+class OutputContractError(ValueError):
+    """Raised when machine-readable command output violates JSON contracts."""
+
+
+class DiscoveryOutputContractError(OutputContractError):
     """Raised when machine-readable discovery output violates JSON contracts."""
 
 
@@ -7774,6 +7786,43 @@ def _emit_discovery_error(
 
     stream = sys.stderr if human_to_stderr else sys.stdout
     print(ConsoleColors.error(f"ERROR: {message}"), file=stream)
+
+
+def _emit_output_contract_error(
+    message: str,
+    *,
+    is_machine_readable: bool,
+    human_to_stderr: bool = True,
+) -> None:
+    """Emit output-contract violations using a stable error envelope."""
+    _emit_discovery_error(
+        message,
+        is_machine_readable=is_machine_readable,
+        error_type="output_contract",
+        human_to_stderr=human_to_stderr,
+    )
+
+
+def _emit_json_output(
+    payload: dict[str, Any],
+    *,
+    output_file: str | None,
+    is_stdout: bool,
+    contract_label: str,
+    human_error_to_stderr: bool = True,
+) -> None:
+    """Serialize payload to strict JSON and emit it, exiting cleanly on contract errors."""
+    try:
+        serialized_payload = _format_as_json(payload, contract_label=contract_label)
+    except OutputContractError as exc:
+        _emit_output_contract_error(
+            str(exc),
+            is_machine_readable=_is_machine_readable_output("json", output_file),
+            human_to_stderr=human_error_to_stderr,
+        )
+        raise SystemExit(1) from exc
+
+    _emit_output(serialized_payload, output_file, is_stdout)
 
 
 def _to_numeric_sort_value(value: Any) -> float | None:
@@ -8006,11 +8055,10 @@ def _run_list_command(
         )
         return False
 
-    except DiscoveryOutputContractError as e:
-        _emit_discovery_error(
+    except OutputContractError as e:
+        _emit_output_contract_error(
             str(e),
             is_machine_readable=is_machine_readable,
-            error_type="output_contract",
             human_to_stderr=False,
         )
         return False
@@ -8086,7 +8134,7 @@ def _fetch_dataviews(
         )
 
         if output_format == "json":
-            return _format_as_json({"dataViews": display_data, "count": len(display_data)})
+            return _format_discovery_json({"dataViews": display_data, "count": len(display_data)})
         if output_format == "csv":
             return _format_as_csv(["id", "name", "owner"], display_data)
         table = _format_as_table(
@@ -8282,7 +8330,7 @@ def _fetch_describe_dataview(
                     },
                 }
             }
-            return _format_as_json(payload)
+            return _format_discovery_json(payload)
 
         if output_format == "csv":
             columns = [
@@ -8516,7 +8564,7 @@ def _build_component_list_fetcher(
         if not raw_components:
             if is_machine_readable:
                 if output_format == "json":
-                    return _format_as_json(
+                    return _format_discovery_json(
                         {
                             "dataViewId": data_view_id,
                             "dataViewName": dv_name,
@@ -8539,7 +8587,7 @@ def _build_component_list_fetcher(
         )
 
         if output_format == "json":
-            return _format_as_json(
+            return _format_discovery_json(
                 {
                     "dataViewId": data_view_id,
                     "dataViewName": dv_name,
@@ -9031,7 +9079,7 @@ def _fetch_connections(
                 )
 
                 if output_format == "json":
-                    return _format_as_json(
+                    return _format_discovery_json(
                         {
                             "connections": derived,
                             "count": len(derived),
@@ -9067,7 +9115,7 @@ def _fetch_connections(
             # Genuinely no connections
             if is_machine_readable:
                 if output_format == "json":
-                    return _format_as_json({"connections": [], "count": 0})
+                    return _format_discovery_json({"connections": [], "count": 0})
                 return "connection_id,connection_name,owner,dataset_id,dataset_name\n"
             return "\nNo connections found or no access to any connections.\n"
 
@@ -9105,7 +9153,7 @@ def _fetch_connections(
         )
 
         if output_format == "json":
-            return _format_as_json({"connections": display_data, "count": len(display_data)})
+            return _format_discovery_json({"connections": display_data, "count": len(display_data)})
         if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset
             flat_rows: list[dict] = []
@@ -9224,7 +9272,7 @@ def _fetch_datasets(
         if not available_dvs:
             if is_machine_readable:
                 if output_format == "json":
-                    return _format_as_json({"dataViews": [], "count": 0})
+                    return _format_discovery_json({"dataViews": [], "count": 0})
                 return "dataview_id,dataview_name,connection_id,connection_name,dataset_id,dataset_name\n"
             return "\nNo data views found or no access to any data views.\n"
 
@@ -9295,7 +9343,7 @@ def _fetch_datasets(
             result_payload["warning"] = _CONN_PERM_WARNING.replace("\n", " ")
 
         if output_format == "json":
-            return _format_as_json(result_payload)
+            return _format_discovery_json(result_payload)
         if output_format == "csv":
             # Flatten nested datasets: one CSV row per dataset per data view
             flat_rows: list[dict] = []
@@ -14352,7 +14400,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 "count": len(snapshots),
                 "snapshots": snapshots,
             }
-            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+            _emit_json_output(
+                payload,
+                output_file=getattr(args, "output", None),
+                is_stdout=output_to_stdout,
+                contract_label="Snapshot listing output",
+            )
         elif list_output_format == "csv":
             rows = [
                 {
@@ -14461,7 +14514,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 "target_data_view_ids": target_ids,
                 "retention": {"keep_last": effective_keep_last, "keep_since": effective_keep_since},
             }
-            _emit_output(_format_as_json(payload), getattr(args, "output", None), output_to_stdout)
+            _emit_json_output(
+                payload,
+                output_file=getattr(args, "output", None),
+                is_stdout=output_to_stdout,
+                contract_label="Snapshot prune output",
+            )
         elif prune_output_format == "csv":
             rows = [{"filepath": path} for path in unique_deleted]
             _emit_output(_format_as_csv(["filepath"], rows), getattr(args, "output", None), output_to_stdout)

@@ -8,6 +8,7 @@ import pytest
 
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.generator import (
+    OutputContractError,
     WorkerArgs,
     _apply_discovery_filters_and_sort,
     _exit_error,
@@ -48,6 +49,11 @@ class TestFormatAsJson:
         payload = {"a": {"b": {"c": 1}}}
         result = _format_as_json(payload)
         assert json.loads(result)["a"]["b"]["c"] == 1
+
+    def test_non_finite_values_raise_output_contract_error(self):
+        """NaN/Infinity should fail strict JSON serialization."""
+        with pytest.raises(OutputContractError, match="non-JSON-compliant"):
+            _format_as_json({"count": float("nan")}, contract_label="Snapshot output")
 
 
 # ==================== _format_as_csv ====================
