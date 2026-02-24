@@ -575,6 +575,20 @@ class TestShowStats:
 
         assert show_stats(["dv_test"]) is False
 
+    @patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "Config error", None))
+    def test_config_failure_machine_readable_emits_stderr_json(
+        self,
+        _mock_config,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        from cja_auto_sdr.generator import show_stats
+
+        assert show_stats(["dv_test"], output_format="json") is False
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        payload = json.loads(captured.err)
+        assert payload == {"error": "Configuration error: Config error", "error_type": "configuration_error"}
+
     @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=FileNotFoundError("not found"))
     def test_file_not_found(self, _mock_config) -> None:
         """Lines 10390-10396: FileNotFoundError handler."""
@@ -583,11 +597,18 @@ class TestShowStats:
         assert show_stats(["dv_test"]) is False
 
     @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=FileNotFoundError("not found"))
-    def test_file_not_found_machine_readable(self, _mock_config) -> None:
+    def test_file_not_found_machine_readable(self, _mock_config, capsys: pytest.CaptureFixture) -> None:
         """Lines 10391-10393: FileNotFoundError with JSON output."""
         from cja_auto_sdr.generator import show_stats
 
         assert show_stats(["dv_test"], output_format="json") is False
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        payload = json.loads(captured.err)
+        assert payload == {
+            "error": "Configuration file 'config.json' not found",
+            "error_type": "configuration_error",
+        }
 
     @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
     def test_generic_exception(self, _mock_config) -> None:
@@ -597,11 +618,16 @@ class TestShowStats:
         assert show_stats(["dv_test"]) is False
 
     @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
-    def test_generic_exception_machine_readable(self, _mock_config) -> None:
+    def test_generic_exception_machine_readable(self, _mock_config, capsys: pytest.CaptureFixture) -> None:
         """Lines 10405-10407: generic exception with JSON output."""
         from cja_auto_sdr.generator import show_stats
 
         assert show_stats(["dv_test"], output_format="json") is False
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        payload = json.loads(captured.err)
+        assert payload["error"] == "Failed to get stats: boom"
+        assert payload["error_type"] == "connectivity_error"
 
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")

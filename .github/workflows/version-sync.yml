@@ -2,14 +2,6 @@ name: Version Sync
 
 on:
   pull_request:
-    paths:
-      - 'src/cja_auto_sdr/core/version.py'
-      - 'CHANGELOG.md'
-      - 'docs/QUICK_REFERENCE.md'
-      - 'docs/QUICKSTART_GUIDE.md'
-      - 'tests/test_ux_features.py'
-      - 'tests/test_output_content_validation.py'
-      - 'scripts/check_version_sync.py'
   push:
     branches: [main]
   workflow_dispatch:

@@ -2519,7 +2519,10 @@ class TestListConnectionsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
@@ -2536,7 +2539,10 @@ class TestListConnectionsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
 
 class TestListDatasetsFunction:
@@ -2758,7 +2764,10 @@ class TestListDatasetsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
@@ -2775,7 +2784,10 @@ class TestListDatasetsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
 
 class TestDiscoveryArgumentValidation:
@@ -3108,6 +3120,42 @@ class TestEmitOutputPager:
             _emit_output(long_text, None, False)
 
         mock_popen.assert_called_once_with(["more"], stdin=subprocess.PIPE)
+
+    def test_pager_supports_pager_args(self):
+        """Test that _emit_output parses PAGER values that include command arguments."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": "less -F -X"}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-F", "-X", "-R"], stdin=subprocess.PIPE)
+
+    def test_pager_malformed_env_falls_back_to_less(self):
+        """Malformed PAGER values should fall back to less -R."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": '"'}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
 
     def test_pager_fallback_on_error(self):
         """Test that _emit_output falls back to print when pager is unavailable"""
@@ -4660,7 +4708,7 @@ class TestDescribeDataview:
 
         assert result is False
         payload = json.loads(err.getvalue())
-        assert "error_type" not in payload
+        assert payload["error_type"] == "connectivity_error"
         assert "Failed to connect to CJA API" in payload["error"]
 
     @patch("cja_auto_sdr.generator.cjapy")
