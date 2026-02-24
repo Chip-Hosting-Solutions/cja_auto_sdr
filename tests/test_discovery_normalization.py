@@ -148,6 +148,7 @@ def test_extract_tags_from_mapping_falls_through_fields() -> None:
 
 def test_normalize_display_text_non_string_that_stringifies_to_null_like() -> None:
     """A non-string value whose str() repr is null-like, with treat_null_like_strings."""
+
     # is_missing_value sees an int (not missing), but str(value) == "0" (not null-like)
     # so the line-68 branch only fires when str(value).casefold() ∈ _NULL_LIKE_TEXT_VALUES.
     # Use a custom object whose repr is "null".

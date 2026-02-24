@@ -30,6 +30,7 @@ from cja_auto_sdr.org.models import (
 def _has_scipy() -> bool:
     try:
         import scipy  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -2578,6 +2579,7 @@ class TestInferClusterNameFirstWordMatch:
 # _compute_clusters  (lines 1058, 1065-1133)
 # ---------------------------------------------------------------------------
 
+
 class TestComputeClustersPrecomputed:
     """Unit tests for _compute_clusters with precomputed pairwise data.
 
@@ -2628,9 +2630,7 @@ class TestComputeClustersPrecomputed:
             (2, 3): 0.9,
         }
 
-        clusters = analyzer._compute_clusters(
-            summaries, precomputed=(summaries, pairwise)
-        )
+        clusters = analyzer._compute_clusters(summaries, precomputed=(summaries, pairwise))
 
         assert clusters is not None
         assert len(clusters) == 2
@@ -2666,9 +2666,7 @@ class TestComputeClustersPrecomputed:
             (1, 2): 0.92,
         }
 
-        clusters = analyzer._compute_clusters(
-            summaries, precomputed=(summaries, pairwise)
-        )
+        clusters = analyzer._compute_clusters(summaries, precomputed=(summaries, pairwise))
 
         assert clusters is not None
         assert len(clusters) == 1
@@ -2686,9 +2684,7 @@ class TestComputeClustersPrecomputed:
         summaries = self._make_summaries(1)
         pairwise: dict[tuple[int, int], float] = {}
 
-        result = analyzer._compute_clusters(
-            summaries, precomputed=(summaries, pairwise)
-        )
+        result = analyzer._compute_clusters(summaries, precomputed=(summaries, pairwise))
 
         assert result is None
 
@@ -2705,9 +2701,7 @@ class TestComputeClustersPrecomputed:
         # Completely dissimilar -> each in its own cluster
         pairwise = {(0, 1): 0.0}
 
-        clusters = analyzer._compute_clusters(
-            summaries, precomputed=(summaries, pairwise)
-        )
+        clusters = analyzer._compute_clusters(summaries, precomputed=(summaries, pairwise))
 
         assert clusters is not None
         assert len(clusters) == 2
