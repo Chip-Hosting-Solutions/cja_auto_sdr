@@ -3139,6 +3139,24 @@ class TestEmitOutputPager:
 
         mock_popen.assert_called_once_with(["less", "-F", "-X", "-R"], stdin=subprocess.PIPE)
 
+    def test_pager_does_not_duplicate_less_R_flag(self):
+        """If PAGER already includes -R, _emit_output should not append another one."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": "less -R -F"}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R", "-F"], stdin=subprocess.PIPE)
+
     def test_pager_malformed_env_falls_back_to_less(self):
         """Malformed PAGER values should fall back to less -R."""
         long_text = "\n".join(f"line {i}" for i in range(200))
