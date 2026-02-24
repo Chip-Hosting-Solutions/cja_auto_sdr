@@ -10626,6 +10626,7 @@ def show_stats(
                     },
                 },
                 indent=2,
+                allow_nan=False,
             )
             if is_stdout:
                 print(output_data)

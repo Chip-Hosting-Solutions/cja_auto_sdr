@@ -78,6 +78,34 @@ def test_smoke_profile_mode_dispatches_successfully() -> None:
     mock_list_profiles.assert_called_once()
 
 
+def test_smoke_discovery_mode_failure_returns_nonzero() -> None:
+    """Discovery mode should return non-zero when the handler reports failure."""
+    with patch("cja_auto_sdr.generator.list_dataviews", return_value=False):
+        exit_code = _run_main_impl(["--list-dataviews", "--format", "json"])
+
+    assert exit_code != 0
+
+
+def test_smoke_org_report_mode_failure_returns_nonzero() -> None:
+    """Org-report mode should return non-zero when the handler reports failure."""
+    with patch("cja_auto_sdr.generator.run_org_report", return_value=(False, False)):
+        exit_code = _run_main_impl(["--org-report", "--format", "json", "--quiet"])
+
+    assert exit_code != 0
+
+
+def test_smoke_sdr_mode_failure_returns_nonzero() -> None:
+    """SDR mode should return non-zero when dry-run reports failure."""
+    with (
+        patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_123"], {})),
+        patch("cja_auto_sdr.generator.setup_logging", return_value=logging.getLogger("test")),
+        patch("cja_auto_sdr.generator.run_dry_run", return_value=False),
+    ):
+        exit_code = _run_main_impl(["dv_123", "--dry-run"])
+
+    assert exit_code != 0
+
+
 def test_fast_path_version_does_not_fall_through_to_generator_main() -> None:
     """Fast-path --version should not dispatch to generator.main()."""
     from cja_auto_sdr import __main__ as entrypoint

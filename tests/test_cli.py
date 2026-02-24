@@ -3056,7 +3056,7 @@ class TestEmitOutputPager:
             _emit_output(long_text, None, False)
 
         mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
-        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode(), timeout=300)
+        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode("utf-8"), timeout=300)
 
     def test_no_pager_when_output_fits_terminal(self):
         """Test that _emit_output prints normally when output fits in terminal"""
@@ -3149,6 +3149,24 @@ class TestEmitOutputPager:
             patch("sys.stdout") as mock_stdout,
             patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
             patch.dict(os.environ, {"PAGER": '"'}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
+
+    def test_pager_empty_env_falls_back_to_less(self):
+        """Empty $PAGER should fall back to less -R."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": ""}),
             patch("shutil.which", return_value="/usr/bin/less"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
         ):
