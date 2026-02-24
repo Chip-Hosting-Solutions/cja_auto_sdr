@@ -89,7 +89,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,881 comprehensive tests**
+**Total: 4,915 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -129,8 +129,8 @@ tests/
 | `test_data_quality.py` | 10 | Data quality validation logic |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_discovery_formatters.py` | 32 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
-| `test_discovery_normalization.py` | 8 | Discovery normalization helpers (missing values, owner extraction, tags) |
-| `test_discovery_payloads.py` | 11 | Discovery payload classification (error detection, component extraction) |
+| `test_discovery_normalization.py` | 17 | Discovery normalization helpers (missing values, owner extraction, tags) |
+| `test_discovery_payloads.py` | 29 | Discovery payload classification (error detection, component extraction) |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
@@ -149,7 +149,7 @@ tests/
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
 | `test_lock_backend_edge_cases.py` | 164 | Lock backend metadata I/O, stale detection, legacy parsing |
 | `test_derived_fields_coverage.py` | 161 | Derived field complexity scoring, logic summary, predicates |
-| `test_org_analyzer_coverage.py` | 146 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
+| `test_org_analyzer_coverage.py` | 153 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
 | `test_api_coverage.py` | 94 | API cache, quality, fetch, resilience exception paths |
 | `test_diff_coverage.py` | 61 | Diff comparator, models, git integration edge cases |
 | `test_generator_coverage.py` | 143 | Generator utility functions — coercion, normalization, diff formatting |
@@ -176,7 +176,7 @@ tests/
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
-| **Total** | **4,881** | **Collected via pytest --collect-only** |
+| **Total** | **4,915** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -580,7 +580,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,881 tests total)
+- [x] Comprehensive test coverage (4,915 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests

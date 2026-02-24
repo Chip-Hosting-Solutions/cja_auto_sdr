@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Sync dependencies
-        run: uv sync --dev
+        run: uv sync --dev --extra clustering
       - name: Run tests with coverage
         run: uv run pytest tests/ -v --tb=short --cov=cja_auto_sdr --cov-report=term --cov-fail-under=95
 

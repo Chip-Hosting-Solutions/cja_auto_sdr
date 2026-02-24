@@ -29,6 +29,37 @@ def test_is_missing_value_handles_blank_and_null_like_strings() -> None:
     assert is_missing_value("value", treat_blank_string=True, treat_null_like_strings=True) is False
 
 
+def test_is_missing_value_handles_pd_isna_type_error(monkeypatch) -> None:
+    def raising_isna(_value: Any) -> bool:
+        raise TypeError("simulated isna failure")
+
+    monkeypatch.setattr("cja_auto_sdr.core.discovery_normalization.pd.isna", raising_isna)
+    assert is_missing_value(object()) is False
+
+
+def test_is_missing_value_handles_pd_isna_all_type_error(monkeypatch) -> None:
+    class FailingAllResult:
+        def all(self) -> bool:
+            raise TypeError("simulated all failure")
+
+    monkeypatch.setattr(
+        "cja_auto_sdr.core.discovery_normalization.pd.isna",
+        lambda _value: FailingAllResult(),
+    )
+    assert is_missing_value(object()) is False
+
+
+def test_is_missing_value_handles_pd_isna_non_bool_without_all(monkeypatch) -> None:
+    class NonBoolNoAllResult:
+        pass
+
+    monkeypatch.setattr(
+        "cja_auto_sdr.core.discovery_normalization.pd.isna",
+        lambda _value: NonBoolNoAllResult(),
+    )
+    assert is_missing_value(object()) is False
+
+
 def test_normalize_display_text_treats_null_like_strings_as_missing() -> None:
     assert normalize_display_text(pd.NA, default="N/A", treat_null_like_strings=True) == "N/A"
     assert normalize_display_text(" nan ", default="N/A", treat_null_like_strings=True) == "N/A"
@@ -50,6 +81,32 @@ def test_extract_owner_name_from_record_uses_alias_when_owner_missing_like() -> 
     assert extract_owner_name_from_record(record) == "Alias Owner"
 
 
+def test_extract_owner_name_mapping_with_only_missing_values_returns_default() -> None:
+    owner = {
+        "name": pd.NA,
+        "fullName": " ",
+        "email": " none ",
+        "id": "nan",
+    }
+    assert extract_owner_name(owner) == "N/A"
+
+
+def test_extract_owner_name_from_record_prefers_owner_object_when_present() -> None:
+    record = {"owner": {"name": "Primary Owner"}, "ownerFullName": "Alias Owner"}
+    assert extract_owner_name_from_record(record) == "Primary Owner"
+
+
+def test_extract_owner_name_from_record_returns_default_when_owner_and_alias_missing() -> None:
+    record = {
+        "owner": {"name": " ", "fullName": pd.NA},
+        "ownerFullName": " ",
+        "ownerName": "none",
+        "owner_name": pd.NA,
+        "owner_full_name": "",
+    }
+    assert extract_owner_name_from_record(record) == "N/A"
+
+
 def test_extract_tags_handles_mixed_and_missing_values() -> None:
     raw_tags: list[Any] = [
         {"name": "kpi"},
@@ -67,3 +124,36 @@ def test_extract_tags_handles_scalar_missing_values() -> None:
     assert extract_tags(pd.NA) == []
     assert extract_tags("nan") == []
     assert extract_tags("prod") == ["prod"]
+
+
+# ---------------------------------------------------------------------------
+# extract_tags — Mapping input (line 161)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_tags_from_single_mapping() -> None:
+    """A dict passed as tags_data → wrapped in list, name extracted."""
+    assert extract_tags({"name": "finance"}) == ["finance"]
+
+
+def test_extract_tags_from_mapping_falls_through_fields() -> None:
+    """Mapping with missing 'name' → falls through to 'label'."""
+    assert extract_tags({"name": pd.NA, "label": "accounting"}) == ["accounting"]
+
+
+# ---------------------------------------------------------------------------
+# normalize_display_text — redundant null-like guard (line 68)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_display_text_non_string_that_stringifies_to_null_like() -> None:
+    """A non-string value whose str() repr is null-like, with treat_null_like_strings."""
+    # is_missing_value sees an int (not missing), but str(value) == "0" (not null-like)
+    # so the line-68 branch only fires when str(value).casefold() ∈ _NULL_LIKE_TEXT_VALUES.
+    # Use a custom object whose repr is "null".
+    class NullStr:
+        def __str__(self) -> str:
+            return "null"
+
+    result = normalize_display_text(NullStr(), default="N/A", treat_null_like_strings=True)
+    assert result == "N/A"

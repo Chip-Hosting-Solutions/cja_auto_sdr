@@ -26,6 +26,15 @@ from cja_auto_sdr.org.models import (
     SimilarityPair,
 )
 
+
+def _has_scipy() -> bool:
+    try:
+        import scipy  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -2563,3 +2572,266 @@ class TestInferClusterNameFirstWordMatch:
         analyzer = _make_analyzer(mock_cja, logger, config=config)
         result = analyzer._infer_cluster_name(["Alpha 1", "Beta 2"])
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _compute_clusters  (lines 1058, 1065-1133)
+# ---------------------------------------------------------------------------
+
+class TestComputeClustersPrecomputed:
+    """Unit tests for _compute_clusters with precomputed pairwise data.
+
+    Requires the ``clustering`` extra (scipy).  The class is collected
+    unconditionally; individual tests skip themselves if scipy is absent.
+    """
+
+    pytestmark = pytest.mark.skipif(
+        not _has_scipy(),
+        reason="scipy not installed (install with: uv sync --extra clustering)",
+    )
+
+    @staticmethod
+    def _make_summaries(n: int, prefix: str = "DV") -> list[DataViewSummary]:
+        """Create n DataViewSummary objects with overlapping component sets."""
+        summaries = []
+        for i in range(n):
+            summaries.append(
+                DataViewSummary(
+                    data_view_id=f"dv_{i}",
+                    data_view_name=f"{prefix} {i}",
+                    metric_ids={f"m{j}" for j in range(i, i + 5)},
+                    dimension_ids={f"d{j}" for j in range(i, i + 3)},
+                    metric_count=5,
+                    dimension_count=3,
+                )
+            )
+        return summaries
+
+    def test_clusters_returned_with_precomputed_data(self, mock_cja, logger):
+        """Happy path: 4 summaries with precomputed pairwise Jaccard similarities."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            enable_clustering=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        summaries = self._make_summaries(4)
+
+        # Build precomputed pairwise: pair (0,1) and (2,3) are very similar,
+        # cross-group pairs are dissimilar.
+        pairwise = {
+            (0, 1): 0.9,
+            (0, 2): 0.1,
+            (0, 3): 0.1,
+            (1, 2): 0.1,
+            (1, 3): 0.1,
+            (2, 3): 0.9,
+        }
+
+        clusters = analyzer._compute_clusters(
+            summaries, precomputed=(summaries, pairwise)
+        )
+
+        assert clusters is not None
+        assert len(clusters) == 2
+
+        # Expected topology: two tight pairs with no cross-group similarity.
+        member_sets = {frozenset(c.data_view_ids) for c in clusters}
+        assert member_sets == {
+            frozenset({"dv_0", "dv_1"}),
+            frozenset({"dv_2", "dv_3"}),
+        }
+
+        # Pairwise similarity inside each cluster is 0.9 -> cohesion 0.9 after rounding.
+        assert {c.cohesion_score for c in clusters} == {0.9}
+
+        # Clusters are sorted by size descending
+        sizes = [c.size for c in clusters]
+        assert sizes == sorted(sizes, reverse=True)
+
+    def test_cluster_cohesion_reflects_similarity(self, mock_cja, logger):
+        """Cluster with high internal similarity should have high cohesion."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            enable_clustering=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        summaries = self._make_summaries(3)
+
+        # All three are very similar -> single cluster with high cohesion
+        pairwise = {
+            (0, 1): 0.95,
+            (0, 2): 0.90,
+            (1, 2): 0.92,
+        }
+
+        clusters = analyzer._compute_clusters(
+            summaries, precomputed=(summaries, pairwise)
+        )
+
+        assert clusters is not None
+        assert len(clusters) == 1
+        assert clusters[0].data_view_ids == ["dv_0", "dv_1", "dv_2"]
+        assert clusters[0].cohesion_score == 0.9233
+
+    def test_fewer_than_two_summaries_returns_none(self, mock_cja, logger):
+        """Clustering with <2 data views should return None."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            enable_clustering=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        summaries = self._make_summaries(1)
+        pairwise: dict[tuple[int, int], float] = {}
+
+        result = analyzer._compute_clusters(
+            summaries, precomputed=(summaries, pairwise)
+        )
+
+        assert result is None
+
+    def test_singleton_clusters_have_zero_cohesion(self, mock_cja, logger):
+        """A cluster with a single member should have cohesion 0.0."""
+        config = OrgReportConfig(
+            skip_lock=True,
+            cja_per_thread=False,
+            enable_clustering=True,
+        )
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+        summaries = self._make_summaries(2)
+
+        # Completely dissimilar -> each in its own cluster
+        pairwise = {(0, 1): 0.0}
+
+        clusters = analyzer._compute_clusters(
+            summaries, precomputed=(summaries, pairwise)
+        )
+
+        assert clusters is not None
+        assert len(clusters) == 2
+        singletons = [c for c in clusters if c.size == 1]
+        assert len(singletons) == 2
+        assert {frozenset(c.data_view_ids) for c in singletons} == {
+            frozenset({"dv_0"}),
+            frozenset({"dv_1"}),
+        }
+        for c in singletons:
+            assert c.cohesion_score == 0.0
+
+
+def test_compute_clusters_returns_none_when_scipy_unavailable(
+    mock_cja,
+    logger,
+    monkeypatch,
+    caplog,
+):
+    """Simulate scipy import failure and assert graceful fallback."""
+    config = OrgReportConfig(
+        skip_lock=True,
+        cja_per_thread=False,
+        enable_clustering=True,
+    )
+    analyzer = _make_analyzer(mock_cja, logger, config=config)
+    summaries = [
+        DataViewSummary(data_view_id="dv_0", data_view_name="DV 0", metric_count=1, dimension_count=1),
+        DataViewSummary(data_view_id="dv_1", data_view_name="DV 1", metric_count=1, dimension_count=1),
+    ]
+
+    original_import = __import__
+
+    def fake_import(name, global_ns=None, local_ns=None, fromlist=(), level=0):
+        if name.startswith("scipy"):
+            raise ImportError("simulated missing scipy")
+        return original_import(name, global_ns, local_ns, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        result = analyzer._compute_clusters(
+            summaries,
+            precomputed=(summaries, {(0, 1): 0.9}),
+        )
+
+    assert result is None
+    assert "scipy not available - skipping clustering" in caplog.text
+
+
+def test_compute_clusters_returns_none_when_linkage_raises(
+    mock_cja,
+    logger,
+    monkeypatch,
+    caplog,
+):
+    """Linkage failures should be logged and return None (no hard failure)."""
+    pytest.importorskip("scipy.cluster.hierarchy")
+    import scipy.cluster.hierarchy as hierarchy
+
+    config = OrgReportConfig(
+        skip_lock=True,
+        cja_per_thread=False,
+        enable_clustering=True,
+    )
+    analyzer = _make_analyzer(mock_cja, logger, config=config)
+    summaries = [
+        DataViewSummary(data_view_id="dv_0", data_view_name="DV 0", metric_count=1, dimension_count=1),
+        DataViewSummary(data_view_id="dv_1", data_view_name="DV 1", metric_count=1, dimension_count=1),
+    ]
+
+    def raising_linkage(*args, **kwargs):
+        raise ValueError("simulated linkage failure")
+
+    monkeypatch.setattr(hierarchy, "linkage", raising_linkage)
+
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        result = analyzer._compute_clusters(
+            summaries,
+            precomputed=(summaries, {(0, 1): 0.9}),
+        )
+
+    assert result is None
+    assert "Clustering failed: simulated linkage failure" in caplog.text
+
+
+def test_compute_clusters_uses_pairwise_computation_when_precomputed_missing(
+    mock_cja,
+    logger,
+    monkeypatch,
+):
+    """When precomputed data is absent, _compute_pairwise_jaccard is used."""
+    pytest.importorskip("scipy.cluster.hierarchy")
+
+    config = OrgReportConfig(
+        skip_lock=True,
+        cja_per_thread=False,
+        enable_clustering=True,
+    )
+    analyzer = _make_analyzer(mock_cja, logger, config=config)
+    summaries = TestComputeClustersPrecomputed._make_summaries(3)
+
+    captured: list[list[DataViewSummary]] = []
+
+    def fake_compute_pairwise(
+        input_summaries: list[DataViewSummary],
+    ) -> tuple[list[DataViewSummary], dict[tuple[int, int], float]]:
+        captured.append(input_summaries)
+        pairwise = {
+            (0, 1): 0.9,
+            (0, 2): 0.1,
+            (1, 2): 0.1,
+        }
+        return input_summaries, pairwise
+
+    monkeypatch.setattr(analyzer, "_compute_pairwise_jaccard", fake_compute_pairwise)
+
+    clusters = analyzer._compute_clusters(summaries, precomputed=None)
+
+    assert len(captured) == 1
+    assert captured[0] is summaries
+    assert clusters is not None
+    member_sets = {frozenset(c.data_view_ids) for c in clusters}
+    assert member_sets == {
+        frozenset({"dv_0", "dv_1"}),
+        frozenset({"dv_2"}),
+    }
