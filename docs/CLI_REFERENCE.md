@@ -221,6 +221,9 @@ cja_auto_sdr --list-dataviews
 | `--sample-config` | Generate sample config file and exit | False |
 
 > **Machine-readable error contract (discovery + `--stats`):** In JSON/CSV machine-readable flows (for example `--format json` or `--output -`), failures are emitted on `stderr` as JSON containing `error` and `error_type`, while successful payloads continue to use `stdout`.
+>
+> Example error envelope (`stderr`):
+> `{"error":"Configuration error: Missing credentials","error_type":"configuration_error"}`
 
 ### Discovery Inspection
 

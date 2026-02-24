@@ -589,6 +589,41 @@ class TestShowStats:
         payload = json.loads(captured.err)
         assert payload == {"error": "Configuration error: Config error", "error_type": "configuration_error"}
 
+    @pytest.mark.parametrize(
+        ("scenario", "expected_error_type", "expected_prefix"),
+        [
+            ("config_failure", "configuration_error", "Configuration error:"),
+            ("file_not_found", "configuration_error", "Configuration file 'config.json' not found"),
+            ("connectivity_failure", "connectivity_error", "Failed to get stats:"),
+        ],
+    )
+    def test_machine_readable_error_envelope_schema(
+        self,
+        capsys: pytest.CaptureFixture,
+        scenario: str,
+        expected_error_type: str,
+        expected_prefix: str,
+    ) -> None:
+        """Machine-readable stats failures should always emit error + error_type."""
+        from cja_auto_sdr.generator import show_stats
+
+        if scenario == "config_failure":
+            patcher = patch("cja_auto_sdr.generator.configure_cjapy", return_value=(False, "Config error", None))
+        elif scenario == "file_not_found":
+            patcher = patch("cja_auto_sdr.generator.configure_cjapy", side_effect=FileNotFoundError("not found"))
+        else:
+            patcher = patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("boom"))
+
+        with patcher:
+            assert show_stats(["dv_test"], output_format="json") is False
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        payload = json.loads(captured.err)
+        assert {"error", "error_type"}.issubset(payload)
+        assert payload["error_type"] == expected_error_type
+        assert payload["error"].startswith(expected_prefix)
+
     @patch("cja_auto_sdr.generator.configure_cjapy", side_effect=FileNotFoundError("not found"))
     def test_file_not_found(self, _mock_config) -> None:
         """Lines 10390-10396: FileNotFoundError handler."""

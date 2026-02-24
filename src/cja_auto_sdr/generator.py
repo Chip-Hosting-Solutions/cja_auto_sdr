@@ -7797,15 +7797,13 @@ def _emit_discovery_error(
     message: str,
     *,
     is_machine_readable: bool,
-    error_type: str | None = None,
+    error_type: str,
     additional_fields: dict[str, Any] | None = None,
     human_to_stderr: bool = False,
 ) -> None:
     """Emit discovery/inspection errors in machine or human-readable form."""
     if is_machine_readable:
-        payload: dict[str, Any] = {"error": message}
-        if error_type:
-            payload["error_type"] = error_type
+        payload: dict[str, Any] = {"error": message, "error_type": error_type}
         if additional_fields:
             payload.update(additional_fields)
         print(json.dumps(payload, allow_nan=False), file=sys.stderr)
@@ -10583,7 +10581,7 @@ def show_stats(
         True if successful, False otherwise
     """
     is_stdout = output_file in ("-", "stdout")
-    is_machine_readable = output_format in ("json", "csv") or is_stdout
+    is_machine_readable = _is_machine_readable_output(output_format, output_file)
 
     if not is_machine_readable and not quiet:
         print()
@@ -10597,16 +10595,12 @@ def show_stats(
     try:
         success, source, _ = configure_cjapy(profile, config_file)
         if not success:
-            if is_machine_readable:
-                print(
-                    json.dumps(
-                        {"error": f"Configuration error: {source}", "error_type": "configuration_error"},
-                        allow_nan=False,
-                    ),
-                    file=sys.stderr,
-                )
-            else:
-                print(ConsoleColors.error(f"ERROR: {source}"))
+            _emit_discovery_error(
+                f"Configuration error: {source}",
+                is_machine_readable=is_machine_readable,
+                error_type="configuration_error",
+                human_to_stderr=False,
+            )
             return False
         cja = cjapy.CJA()
         logger = logging.getLogger(__name__)
@@ -10691,17 +10685,12 @@ def show_stats(
         return True
 
     except FileNotFoundError:
-        if is_machine_readable:
-            error_json = json.dumps(
-                {
-                    "error": f"Configuration file '{config_file}' not found",
-                    "error_type": "configuration_error",
-                },
-                allow_nan=False,
-            )
-            print(error_json, file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        _emit_discovery_error(
+            f"Configuration file '{config_file}' not found",
+            is_machine_readable=is_machine_readable,
+            error_type="configuration_error",
+            human_to_stderr=False,
+        )
         return False
 
     except KeyboardInterrupt, SystemExit:
@@ -10711,14 +10700,12 @@ def show_stats(
         raise
 
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
-        if is_machine_readable:
-            error_json = json.dumps(
-                {"error": f"Failed to get stats: {e!s}", "error_type": "connectivity_error"},
-                allow_nan=False,
-            )
-            print(error_json, file=sys.stderr)
-        else:
-            print(ConsoleColors.error(f"ERROR: Failed to get stats: {e!s}"))
+        _emit_discovery_error(
+            f"Failed to get stats: {e!s}",
+            is_machine_readable=is_machine_readable,
+            error_type="connectivity_error",
+            human_to_stderr=False,
+        )
         return False
 
 

@@ -2833,6 +2833,46 @@ class TestDiscoveryArgumentValidation:
         assert payload == {"error": "--limit cannot be negative", "error_type": "invalid_arguments"}
         mock_configure.assert_not_called()
 
+    @pytest.mark.parametrize("list_fn", [list_dataviews, list_connections, list_datasets])
+    @pytest.mark.parametrize(
+        ("scenario", "call_kwargs", "expected_error_type"),
+        [
+            ("invalid_regex", {"filter_pattern": "[invalid"}, "invalid_arguments"),
+            ("config_failure", {}, "configuration_error"),
+            ("file_not_found", {}, "configuration_error"),
+            ("connectivity_failure", {}, "connectivity_error"),
+        ],
+    )
+    def test_machine_readable_error_envelope_schema(self, list_fn, scenario, call_kwargs, expected_error_type):
+        """Discovery machine-readable failures should always emit error + error_type."""
+        import io
+        from contextlib import redirect_stderr
+
+        with (
+            patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None),
+            patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
+            if scenario == "config_failure":
+                mock_configure.return_value = (False, "Missing credentials", None)
+            elif scenario == "file_not_found":
+                mock_configure.side_effect = FileNotFoundError("missing")
+            elif scenario == "connectivity_failure":
+                mock_configure.return_value = (True, "config", None)
+                mock_cjapy.CJA.side_effect = RuntimeError("boom")
+
+            f = io.StringIO()
+            with redirect_stderr(f):
+                result = list_fn(output_format="json", **call_kwargs)
+
+        assert result is False
+        payload = json.loads(f.getvalue())
+        assert {"error", "error_type"}.issubset(payload)
+        assert payload["error_type"] == expected_error_type
+        assert payload["error"]
+        if scenario == "invalid_regex":
+            mock_configure.assert_not_called()
+
     def test_invalid_regex_reports_local_error_in_table_mode(self):
         """Table-mode errors should still be classified as local argument issues."""
         import io
