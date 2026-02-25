@@ -256,6 +256,13 @@ Requirements:
     parser.add_argument("--exit-codes", action="store_true", help="Display exit code reference and exit")
 
     parser.add_argument(
+        "--completion",
+        choices=["bash", "zsh", "fish"],
+        metavar="SHELL",
+        help="Print shell completion activation script for SHELL (bash, zsh, fish) and exit",
+    )
+
+    parser.add_argument(
         "data_views",
         nargs="*",
         metavar="DATA_VIEW_ID_OR_NAME",

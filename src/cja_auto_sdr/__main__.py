@@ -1,8 +1,9 @@
 """Fast-path entry point for CJA Auto SDR.
 
-Lightweight flags (``--version``, ``--help``, ``--exit-codes``) are handled
-here *before* any heavyweight imports (pandas, cjapy, tqdm) so that simple
-informational queries return in under 100 ms.
+Lightweight flags (``--version``, ``--help``, ``--exit-codes``,
+``--completion``) are handled here *before* any heavyweight imports
+(pandas, cjapy, tqdm) so that simple informational queries return in
+under 100 ms.
 
 All other invocations fall through to the full ``generator.main()`` path.
 
@@ -23,9 +24,18 @@ from cja_auto_sdr.cli.option_resolution import resolve_long_option_token as _res
 _VERSION_OPTION = "--version"
 _VERSION_SHORT_OPTION = "-V"
 
+_COMPLETION_OPTION = "--completion"
 _RUN_SUMMARY_OPTION = "--run-summary-json"
 _ARGCOMPLETE_ENV_VAR = "_ARGCOMPLETE"
 _FALSEY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
+
+_SUPPORTED_SHELLS = frozenset({"bash", "zsh", "fish"})
+
+_COMPLETION_SCRIPTS: dict[str, str] = {
+    "bash": 'eval "$(register-python-argcomplete cja_auto_sdr)"',
+    "zsh": ('autoload -U bashcompinit && bashcompinit\neval "$(register-python-argcomplete cja_auto_sdr)"'),
+    "fish": "register-python-argcomplete --shell fish cja_auto_sdr | source",
+}
 
 
 class _OptionSpec(NamedTuple):
@@ -325,6 +335,55 @@ def _print_exit_codes() -> None:
     print_exit_codes(banner_width=BANNER_WIDTH)
 
 
+def _extract_completion_shell(argv: list[str]) -> str | None:
+    """Extract the shell name following ``--completion`` in *argv*.
+
+    Returns the shell name (e.g. ``"bash"``) or ``None`` if ``--completion``
+    is not present.  Raises ``SystemExit(1)`` when ``--completion`` appears
+    with no following argument or with an unsupported shell name.
+    """
+    args = argv[1:]  # skip argv[0]
+    try:
+        idx = args.index(_COMPLETION_OPTION)
+    except ValueError:
+        return None
+
+    if idx + 1 >= len(args):
+        print(
+            f"error: --completion requires a shell argument ({', '.join(sorted(_SUPPORTED_SHELLS))})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    shell = args[idx + 1].lower()
+    if shell not in _SUPPORTED_SHELLS:
+        print(
+            f"error: unsupported shell '{shell}'. Supported shells: {', '.join(sorted(_SUPPORTED_SHELLS))}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    return shell
+
+
+def _handle_completion(shell: str) -> None:
+    """Print the shell completion activation script and exit.
+
+    Exits 0 on success, 1 if argcomplete is not installed.
+    """
+    try:
+        import argcomplete as _argcomplete  # noqa: F401
+    except ImportError:
+        print(
+            "error: argcomplete is not installed. Install it with:\n  pip install argcomplete",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+    print(_COMPLETION_SCRIPTS[shell])
+    raise SystemExit(0)
+
+
 def main() -> None:
     """Entry point with fast-path for lightweight flags."""
     # Argcomplete shell completion relies on parser-side hooks in
@@ -334,6 +393,13 @@ def main() -> None:
 
         _generator_main()
         return
+
+    # --completion fast-path: detect before heavyweight imports.
+    completion_shell = _extract_completion_shell(sys.argv)
+    if completion_shell is not None:
+        _handle_completion(completion_shell)
+        # _handle_completion always raises SystemExit; this is a safety net.
+        return  # pragma: no cover
 
     flag = _is_fast_path_flag(sys.argv)
 

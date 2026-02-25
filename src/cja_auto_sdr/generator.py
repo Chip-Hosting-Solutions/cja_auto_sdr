@@ -14237,6 +14237,13 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         print_exit_codes(banner_width=BANNER_WIDTH)
         sys.exit(0)
 
+    # Handle --completion mode (safety net — normally caught by __main__ fast-path)
+    completion_shell = getattr(args, "completion", None)
+    if completion_shell is not None:
+        from cja_auto_sdr.__main__ import _handle_completion
+
+        _handle_completion(completion_shell)
+
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
         success = generate_sample_config()
