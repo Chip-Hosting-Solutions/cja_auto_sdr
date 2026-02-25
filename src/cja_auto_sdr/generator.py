@@ -10517,6 +10517,9 @@ def validate_config_only(
         except importlib.metadata.PackageNotFoundError:
             print(f"  \u2717 {pkg} (not installed)")
             all_passed = False
+        except Exception as exc:
+            print(f"  \u2717 {pkg} (metadata error: {exc})")
+            all_passed = False
 
     # Optional dependencies (info-only, never fail validation)
     _optional_deps = (
@@ -10530,6 +10533,8 @@ def validate_config_only(
             print(f"  - {pkg} {ver} (optional, {purpose})")
         except importlib.metadata.PackageNotFoundError:
             print(f"  - {pkg} not installed (optional, {purpose})")
+        except Exception as exc:
+            print(f"  - {pkg} metadata error: {exc} (optional, {purpose})")
 
     if not all_passed:
         print()

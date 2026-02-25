@@ -92,7 +92,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,068 comprehensive tests**
+**Total: 5,077 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -138,7 +138,7 @@ tests/
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 20 | main() and _main_impl() entry points, dispatch, run_state, run summary |
-| `test_quality_policy_and_run_summary.py` | 65 | Quality policy functions and run summary/status inference |
+| `test_quality_policy_and_run_summary.py` | 67 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
 | `test_api_client.py` | 25 | API client exception paths and error handling |
 | `test_config_validation.py` | 55 | Configuration validation logic |
@@ -147,7 +147,7 @@ tests/
 | `test_snapshot.py` | 72 | Diff snapshot creation and comparison |
 | `test_colors.py` | 121 | Console color formatting, themes, TTY detection |
 | `test_exceptions.py` | 64 | Custom exception classes construction and formatting |
-| `test_logging_redaction.py` | 146 | Logging, sensitive data redaction, JSON formatter |
+| `test_logging_redaction.py` | 149 | Logging, sensitive data redaction, JSON formatter |
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
@@ -163,7 +163,7 @@ tests/
 | `test_cli_command_handlers.py` | 131 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 101 | Config status, validation, stats, name resolution |
+| `test_config_and_resolution.py` | 105 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 24 | Generator interactive and console tests |
@@ -183,7 +183,7 @@ tests/
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
 | `test_completion.py` | 47 | Shell completion flag (--completion bash/zsh/fish) |
-| **Total** | **5,068** | **Collected via pytest --collect-only** |
+| **Total** | **5,077** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -587,7 +587,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,068 tests total)
+- [x] Comprehensive test coverage (5,077 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 73 tests

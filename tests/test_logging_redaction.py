@@ -729,6 +729,49 @@ class TestCollectDependencyVersions:
         versions = _collect_dependency_versions()
         assert list(versions.keys()) == list(_CORE_DEPENDENCIES)
 
+    def test_non_package_not_found_error_returns_question_mark(self):
+        """Non-PackageNotFoundError exceptions should map to '?' (not propagate)."""
+        def metadata_bomb(name: str) -> str:
+            raise ValueError(f"malformed metadata for {name}")
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=metadata_bomb):
+            versions = _collect_dependency_versions()
+        for pkg in _CORE_DEPENDENCIES:
+            assert versions[pkg] == "?", f"{pkg} should be '?' on ValueError"
+
+    def test_oserror_during_metadata_lookup_returns_question_mark(self):
+        """OSError (e.g. corrupt dist-info) should be caught and map to '?'."""
+        def corrupt_metadata(name: str) -> str:
+            raise OSError(f"cannot read metadata for {name}")
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=corrupt_metadata):
+            versions = _collect_dependency_versions()
+        for pkg in _CORE_DEPENDENCIES:
+            assert versions[pkg] == "?"
+
+    def test_mixed_exception_types_only_affect_failing_packages(self):
+        """Different exception types per package should each be caught individually."""
+        import importlib.metadata
+
+        real_version = importlib.metadata.version
+
+        def mixed_failures(name: str) -> str:
+            if name == "cjapy":
+                raise ValueError("bad metadata")
+            if name == "tqdm":
+                raise OSError("cannot read")
+            if name == "xlsxwriter":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real_version(name)
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=mixed_failures):
+            versions = _collect_dependency_versions()
+        assert versions["cjapy"] == "?"
+        assert versions["tqdm"] == "?"
+        assert versions["xlsxwriter"] == "?"
+        assert versions["pandas"] != "?"
+        assert versions["numpy"] != "?"
+
     def test_startup_log_contains_dependency_line(self, capsys):
         """setup_logging should emit a 'Dependencies:' INFO line."""
         from cja_auto_sdr.core.logging import setup_logging

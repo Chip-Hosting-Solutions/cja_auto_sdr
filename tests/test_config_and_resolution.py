@@ -506,6 +506,85 @@ class TestValidateConfigOnlyDependenciesStep:
         # Should NOT fail at step 2 — it should proceed to step 3
         assert "[3/5]" in output
 
+    def test_malformed_metadata_on_core_dep_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """Non-PackageNotFoundError on core dep should fail validation with diagnostic."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "pandas":
+                raise ValueError("malformed metadata")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "pandas" in output
+        assert "metadata error" in output
+        assert "VALIDATION FAILED" in output
+
+    def test_oserror_on_core_dep_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """OSError on core dep metadata should fail validation with diagnostic."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "numpy":
+                raise OSError("corrupt dist-info")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "numpy" in output
+        assert "metadata error" in output
+
+    def test_malformed_metadata_on_optional_dep_does_not_fail(self, capsys: pytest.CaptureFixture) -> None:
+        """Non-PackageNotFoundError on optional dep should show diagnostic but not fail."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "scipy":
+                raise ValueError("corrupt metadata")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+                validate_config_only()
+        output = capsys.readouterr().out
+        assert "scipy" in output
+        assert "metadata error" in output
+        # Should proceed past step 2 — optional deps never fail validation
+        assert "[3/5]" in output
+
+    def test_all_core_deps_metadata_errors_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """If all core deps raise non-PackageNotFoundError, validation fails with diagnostics."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        def all_broken(pkg):
+            raise RuntimeError(f"metadata backend unavailable for {pkg}")
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=all_broken):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        for pkg in ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm"):
+            assert pkg in output
+            assert "metadata error" in output
+        assert "VALIDATION FAILED" in output
+
 
 class TestValidateConfigOnlyOutputPermissionsStep:
     """Step [5/5]: output permissions check."""
