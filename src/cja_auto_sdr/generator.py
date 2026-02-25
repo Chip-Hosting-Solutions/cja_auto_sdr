@@ -10381,9 +10381,11 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
     Validate configuration and API connectivity without processing data views.
 
     Tests:
-        1. Profile, environment variables, or config file exists
-        2. Required credentials are present
-        3. CJA API connection works
+        1. Check environment (Python version, platform)
+        2. Check dependencies (core + optional, with versions)
+        3. Check credentials (profile > env > config file)
+        4. Test API connectivity
+        5. Check output permissions (writable output dir)
 
     Args:
         config_file: Path to CJA configuration file
@@ -10418,27 +10420,84 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
-                print(f"    ✓ {field_name}: {masked}")
+                print(f"    \u2713 {field_name}: {masked}")
             else:
-                print(f"    ✗ {field_name}: not set (required)")
+                print(f"    \u2717 {field_name}: not set (required)")
                 missing.append(field_name)
 
         for field_name in optional_fields:
             if creds.get(field_name):
-                print(f"    ✓ {field_name}: {creds[field_name]}")
+                print(f"    \u2713 {field_name}: {creds[field_name]}")
             else:
                 print(f"    - {field_name}: not set (optional)")
 
         print()
         if missing:
-            print(f"  ✗ Missing required fields: {', '.join(missing)}")
+            print(f"  \u2717 Missing required fields: {', '.join(missing)}")
             return False
-        print("  ✓ All required fields present")
-        print(f"  → Using: {source_name}")
+        print("  \u2713 All required fields present")
+        print(f"  \u2192 Using: {source_name}")
         return True
 
-    # Step 1: Check credentials (priority: profile > env > config file)
-    print("[1/3] Checking credentials...")
+    # Step 1: Check environment
+    print("[1/5] Checking environment...")
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+    if vi >= (3, 14):
+        print(f"  \u2713 Python {python_version} (minimum: 3.14)")
+    else:
+        print(f"  \u2717 Python {python_version} (minimum: 3.14)")
+        all_passed = False
+    platform_system = platform.system()
+    platform_release = platform.release()
+    platform_label = sys.platform
+    if platform_system == "Darwin":
+        mac_ver = platform.mac_ver()[0]
+        if mac_ver:
+            platform_label += f" (macOS {mac_ver})"
+        else:
+            platform_label += f" ({platform_system} {platform_release})"
+    elif platform_system:
+        platform_label += f" ({platform_system} {platform_release})"
+    print(f"  \u2713 Platform: {platform_label}")
+
+    # Step 2: Check dependencies
+    print()
+    print("[2/5] Checking dependencies...")
+
+    # Core dependencies (must exist)
+    _core_deps = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
+    for pkg in _core_deps:
+        try:
+            ver = importlib.metadata.version(pkg)
+            print(f"  \u2713 {pkg} {ver}")
+        except importlib.metadata.PackageNotFoundError:
+            print(f"  \u2717 {pkg} (not installed)")
+            all_passed = False
+
+    # Optional dependencies (info-only, never fail validation)
+    _optional_deps = (
+        ("scipy", "for --org-report clustering"),
+        ("argcomplete", "for shell tab-completion"),
+        ("python-dotenv", "for .env file loading"),
+    )
+    for pkg, purpose in _optional_deps:
+        try:
+            ver = importlib.metadata.version(pkg)
+            print(f"  - {pkg} {ver} (optional, {purpose})")
+        except importlib.metadata.PackageNotFoundError:
+            print(f"  - {pkg} not installed (optional, {purpose})")
+
+    if not all_passed:
+        print()
+        print("=" * BANNER_WIDTH)
+        print(ConsoleColors.error("VALIDATION FAILED - Fix issues above"))
+        print("=" * BANNER_WIDTH)
+        return False
+
+    # Step 3: Check credentials (priority: profile > env > config file)
+    print()
+    print("[3/5] Checking credentials...")
 
     # Priority 1: Profile
     if profile:
@@ -10446,33 +10505,33 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         try:
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
-                print(f"  ✓ Profile '{profile}' found")
+                print(f"  \u2713 Profile '{profile}' found")
                 if display_credentials(profile_creds, f"Profile: {profile}"):
                     active_credentials = profile_creds
                     credential_source = "profile"
                 else:
                     all_passed = False
         except ProfileNotFoundError:
-            print(f"  ✗ Profile '{profile}' not found")
+            print(f"  \u2717 Profile '{profile}' not found")
             print()
             print("  Create the profile with:")
             print(f"    cja_auto_sdr --profile-add {profile}")
             all_passed = False
         except ProfileConfigError as e:
-            print(f"  ✗ Profile '{profile}' has invalid configuration: {e}")
+            print(f"  \u2717 Profile '{profile}' has invalid configuration: {e}")
             all_passed = False
 
     # Priority 2: Environment variables (if no profile or profile failed)
     if not active_credentials and all_passed:
         env_credentials = load_credentials_from_env()
         if env_credentials:
-            print("  ✓ Environment variables detected")
+            print("  \u2713 Environment variables detected")
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
                     credential_source = "env"
             else:
-                print("  ⚠ Environment credentials incomplete, checking config file...")
+                print("  \u26a0 Environment credentials incomplete, checking config file...")
         else:
             if not profile:
                 print("  - No environment variables set")
@@ -10480,25 +10539,25 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
     # Priority 3: Config file (if no profile and no env)
     if not active_credentials and all_passed:
         print()
-        print("[2/3] Checking configuration file...")
+        print("[3/5] Checking configuration file...")
         config_path = Path(config_file)
         if config_path.exists():
             abs_path = config_path.resolve()
-            print(f"  ✓ Config file found: {abs_path}")
+            print(f"  \u2713 Config file found: {abs_path}")
             try:
                 with open(config_file) as f:
                     config = json.load(f)
-                print("  ✓ Config file is valid JSON")
+                print("  \u2713 Config file is valid JSON")
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
                     credential_source = "file"
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
-                print(f"  ✗ Invalid JSON: {e!s}")
+                print(f"  \u2717 Invalid JSON: {e!s}")
                 all_passed = False
         else:
-            print(f"  ✗ Config file not found: {config_file}")
+            print(f"  \u2717 Config file not found: {config_file}")
             print()
             print("  To create a sample config file:")
             print("    cja_auto_sdr --sample-config")
@@ -10513,7 +10572,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
             all_passed = False
     elif active_credentials and credential_source in ("profile", "env"):
         print()
-        print(f"[2/3] Skipping config file check (using {credential_source} credentials)")
+        print(f"[3/5] Skipping config file check (using {credential_source} credentials)")
 
     if not all_passed:
         print()
@@ -10522,9 +10581,9 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         print("=" * BANNER_WIDTH)
         return False
 
-    # Step 3: Test API connection
+    # Step 4: Test API connection
     print()
-    print("[3/3] Testing API connection...")
+    print("[4/5] Testing API connection...")
     try:
         # Configure cjapy with the active credentials
         if credential_source in ("profile", "env"):
@@ -10533,28 +10592,39 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
             cjapy.importConfigFile(config_file)
 
         cja = cjapy.CJA()
-        print("  ✓ CJA client initialized")
+        print("  \u2713 CJA client initialized")
 
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print("  ✓ API connection successful")
-            print(f"  ✓ Found {dv_count} accessible data view(s)")
+            print("  \u2713 API connection successful")
+            print(f"  \u2713 Found {dv_count} accessible data view(s)")
         else:
-            print("  ⚠ API returned empty response - connection may be unstable")
+            print("  \u26a0 API returned empty response - connection may be unstable")
 
     except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
     except RECOVERABLE_API_EXCEPTIONS as e:
-        print(f"  ✗ API connection failed: {e!s}")
+        print(f"  \u2717 API connection failed: {e!s}")
         all_passed = False
     except Exception as e:
-        print(f"  ✗ API connection failed (unexpected): {e!s}")
+        print(f"  \u2717 API connection failed (unexpected): {e!s}")
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
+
+    # Step 5: Check output permissions
+    if all_passed:
+        print()
+        print("[5/5] Checking output permissions...")
+        output_dir = "."
+        if os.access(output_dir, os.W_OK):
+            print(f"  \u2713 Output directory writable: {output_dir}")
+        else:
+            print(f"  \u2717 Output directory not writable: {output_dir}")
+            all_passed = False
 
     # Summary
     print()
