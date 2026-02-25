@@ -103,7 +103,7 @@ tests/
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 384 | Command-line interface and argument parsing |
-| `test_profiles.py` | 48 | Multi-organization profile support |
+| `test_profiles.py` | 71 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 48 | Segments inventory feature |
@@ -147,7 +147,7 @@ tests/
 | `test_snapshot.py` | 72 | Diff snapshot creation and comparison |
 | `test_colors.py` | 121 | Console color formatting, themes, TTY detection |
 | `test_exceptions.py` | 64 | Custom exception classes construction and formatting |
-| `test_logging_redaction.py` | 136 | Logging, sensitive data redaction, JSON formatter |
+| `test_logging_redaction.py` | 143 | Logging, sensitive data redaction, JSON formatter |
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
@@ -163,7 +163,7 @@ tests/
 | `test_cli_command_handlers.py` | 131 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
 | `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
-| `test_config_and_resolution.py` | 86 | Config status, validation, stats, name resolution |
+| `test_config_and_resolution.py` | 98 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
 | `test_generator_interactive_and_console.py` | 24 | Generator interactive and console tests |
@@ -590,7 +590,7 @@ Check for drift (CI-friendly):
 - [x] Comprehensive test coverage (5,031 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
-- [x] Profile management tests (test_profiles.py) - 48 tests
+- [x] Profile management tests (test_profiles.py) - 71 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 17 tests
