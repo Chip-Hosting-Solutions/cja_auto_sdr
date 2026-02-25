@@ -181,6 +181,20 @@ class TestMainImplRunState:
         assert run_state["mode"] == "exit_codes"
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.__main__._handle_completion")
+    def test_run_state_mode_set_for_completion(self, mock_handle_completion):
+        run_state = {"mode": "unknown", "details": {}}
+        mock_handle_completion.side_effect = SystemExit(0)
+
+        with pytest.raises(SystemExit):
+            with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                mock_pa.return_value = parse_arguments(["--completion", "bash"])
+                _main_impl(run_state=run_state)
+
+        assert run_state["mode"] == "completion"
+        mock_handle_completion.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.list_profiles")
     def test_run_state_mode_set_for_profile_management(self, mock_list):
         mock_list.return_value = True

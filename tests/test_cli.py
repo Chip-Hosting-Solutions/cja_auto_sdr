@@ -3891,6 +3891,31 @@ class TestRunSummaryOutput:
         assert "EXIT CODE REFERENCE" not in result.stdout
         assert "EXIT CODE REFERENCE" in result.stderr
 
+    def test_run_summary_completion_mode_classification(self, tmp_path):
+        """Completion runs should emit run summary mode=completion."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_completion.json"
+        fake_argcomplete = type(sys)("argcomplete")
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["cja_auto_sdr", "--completion", "bash", "--run-summary-json", str(summary_file)],
+            ),
+            patch.dict("sys.modules", {"argcomplete": fake_argcomplete}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "completion"
+        assert payload["exit_code"] == 0
+        assert payload["status"] == "success"
+
     def test_run_summary_stdout_subprocess_version_is_order_independent(self):
         """E2E: --version should still emit run summary JSON regardless of flag order."""
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -4246,6 +4271,8 @@ class TestRunModeInference:
     @pytest.mark.parametrize(
         ("argv", "expected_mode"),
         [
+            (["cja_auto_sdr", "--exit-codes", "--completion", "bash"], "exit_codes"),
+            (["cja_auto_sdr", "--completion", "bash", "--sample-config"], "completion"),
             (["cja_auto_sdr", "--list-dataviews", "--org-report"], "discovery"),
             (["cja_auto_sdr", "--describe-dataview", "dv_1"], "discovery"),
             (["cja_auto_sdr", "--list-metrics", "dv_1"], "discovery"),

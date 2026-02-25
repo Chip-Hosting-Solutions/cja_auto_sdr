@@ -481,6 +481,7 @@ class RunMode(Enum):
     """CLI run modes used by dispatch and run summary classification."""
 
     EXIT_CODES = "exit_codes"
+    COMPLETION = "completion"
     SAMPLE_CONFIG = "sample_config"
     PROFILE_MANAGEMENT = "profile_management"
     GIT_INIT = "git_init"
@@ -1009,6 +1010,7 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
     """Infer run mode using the same precedence as command dispatch in _main_impl."""
     mode_checks: tuple[tuple[RunMode, bool], ...] = (
         (RunMode.EXIT_CODES, getattr(args, "exit_codes", False)),
+        (RunMode.COMPLETION, bool(getattr(args, "completion", None))),
         (RunMode.SAMPLE_CONFIG, getattr(args, "sample_config", False)),
         (
             RunMode.PROFILE_MANAGEMENT,

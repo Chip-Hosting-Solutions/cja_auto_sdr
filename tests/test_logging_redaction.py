@@ -19,6 +19,7 @@ from cja_auto_sdr.core.logging import (
     ContextLoggerAdapter,
     JSONFormatter,
     SensitiveDataFilter,
+    _cached_startup_dependency_versions,
     _collect_dependency_versions,
     _infer_run_mode,
     _is_reserved_or_private_record_key,
@@ -764,3 +765,58 @@ class TestCollectDependencyVersions:
         dep_field = dep_entries[0].get("dependency_versions")
         assert isinstance(dep_field, dict)
         assert set(dep_field.keys()) == set(_CORE_DEPENDENCIES)
+
+    def test_startup_logging_skips_dependency_lookup_when_info_disabled(self):
+        """setup_logging should avoid dependency lookup work when INFO logs are disabled."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        try:
+            with patch(
+                "cja_auto_sdr.core.logging._collect_dependency_versions",
+                side_effect=AssertionError("dependency lookup should not run"),
+            ):
+                setup_logging("test_dv", batch_mode=False, log_level="WARNING")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+    def test_startup_logging_reuses_cached_dependency_lookup_across_invocations(self):
+        """Repeated setup_logging(INFO) calls should reuse cached startup dependency versions."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        call_count = {"count": 0}
+
+        def _fake_collect() -> dict[str, str]:
+            call_count["count"] += 1
+            return {pkg: f"v{index}" for index, pkg in enumerate(_CORE_DEPENDENCIES)}
+
+        try:
+            with patch("cja_auto_sdr.core.logging._collect_dependency_versions", side_effect=_fake_collect):
+                setup_logging("test_dv_1", batch_mode=False, log_level="INFO")
+                setup_logging("test_dv_2", batch_mode=False, log_level="INFO")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+        assert call_count["count"] == 1
+
+    def test_startup_logging_dependency_lookup_failure_falls_back_to_unknown(self, capsys):
+        """Unexpected startup dependency lookup errors should not break logging setup."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        try:
+            with patch(
+                "cja_auto_sdr.core.logging._startup_dependency_versions_for_logging",
+                side_effect=RuntimeError("metadata backend unavailable"),
+            ):
+                setup_logging("test_dv", batch_mode=False, log_level="INFO")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+        captured = capsys.readouterr().out
+        dep_lines = [line for line in captured.splitlines() if "Dependencies:" in line]
+        assert len(dep_lines) == 1
+        dep_line = dep_lines[0]
+        for pkg in _CORE_DEPENDENCIES:
+            assert f"{pkg}=?" in dep_line
