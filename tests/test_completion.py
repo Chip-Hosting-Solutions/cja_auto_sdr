@@ -4,8 +4,8 @@ Covers:
 - Fast-path detection in __main__.py for each supported shell
 - Correct activation script output on stdout for bash, zsh, fish
 - Missing argcomplete triggers stderr message and exit 1
-- Invalid shell name triggers stderr error and exit 1
-- --completion with no shell argument triggers stderr error and exit 1
+- _extract_completion_shell helper errors for invalid/missing shell tokens
+- Fast-path defers malformed or mixed completion argv to generator/argparse flow
 - Safety-net dispatch from generator._main_impl()
 """
 
@@ -97,25 +97,26 @@ class TestHandleCompletion:
     """Unit tests for _handle_completion()."""
 
     @pytest.mark.parametrize(
-        ("shell", "expected_fragment"),
+        ("shell", "argv0", "expected_command", "expected_fragment"),
         [
-            ("bash", 'eval "$(register-python-argcomplete cja_auto_sdr)"'),
-            ("zsh", "autoload -U bashcompinit && bashcompinit"),
-            ("zsh", 'eval "$(register-python-argcomplete cja_auto_sdr)"'),
-            ("fish", "register-python-argcomplete --shell fish cja_auto_sdr | source"),
+            ("bash", "cja_auto_sdr", "cja_auto_sdr", 'eval "$(register-python-argcomplete cja_auto_sdr)"'),
+            ("bash", "cja-auto-sdr", "cja-auto-sdr", "register-python-argcomplete cja-auto-sdr"),
+            ("zsh", "/usr/local/bin/cja-auto-sdr", "cja-auto-sdr", "autoload -U bashcompinit && bashcompinit"),
+            ("fish", "__main__.py", "cja_auto_sdr", "register-python-argcomplete --shell fish cja_auto_sdr | source"),
         ],
     )
-    def test_prints_activation_script_to_stdout(self, shell, expected_fragment, capsys):
+    def test_prints_activation_script_to_stdout(self, shell, argv0, expected_command, expected_fragment, capsys):
         """Each shell produces the correct activation snippet on stdout."""
         from cja_auto_sdr.__main__ import _handle_completion
 
         with patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}):
             with pytest.raises(SystemExit) as exc_info:
-                _handle_completion(shell)
+                _handle_completion(shell, argv0=argv0)
 
         assert int(exc_info.value.code) == 0
         stdout = capsys.readouterr().out
         assert expected_fragment in stdout
+        assert expected_command in stdout
 
     def test_missing_argcomplete_prints_install_instructions(self, capsys):
         """When argcomplete is missing, print install instructions to stderr and exit 1."""
@@ -131,17 +132,28 @@ class TestHandleCompletion:
         assert "argcomplete is not installed" in captured.err
         assert "pip install argcomplete" in captured.err
 
+    def test_invalid_shell_prints_error_and_exits_1(self, capsys):
+        from cja_auto_sdr.__main__ import _handle_completion
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_completion("powershell", argv0="cja_auto_sdr")
+
+        assert int(exc_info.value.code) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "unsupported shell 'powershell'" in captured.err
+
     def test_stdout_contains_no_stderr_content(self, capsys):
         """Verify script goes to stdout and nothing leaks to stderr on success."""
         from cja_auto_sdr.__main__ import _handle_completion
 
         with patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}):
             with pytest.raises(SystemExit):
-                _handle_completion("bash")
+                _handle_completion("bash", argv0="cja-auto-sdr")
 
         captured = capsys.readouterr()
         assert captured.err == ""
-        assert "register-python-argcomplete" in captured.out
+        assert "register-python-argcomplete cja-auto-sdr" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +180,22 @@ class TestCompletionFastPath:
         assert int(exc_info.value.code) == 0
         mock_generator_main.assert_not_called()
 
-    def test_fast_path_bash_output(self, capsys):
-        """--completion bash prints the bash activation script."""
-        from cja_auto_sdr.__main__ import _COMPLETION_SCRIPTS
+    @pytest.mark.parametrize(
+        ("argv0", "expected_command"),
+        [
+            ("cja_auto_sdr", "cja_auto_sdr"),
+            ("cja-auto-sdr", "cja-auto-sdr"),
+            ("/usr/local/bin/cja-auto-sdr", "cja-auto-sdr"),
+            ("__main__.py", "cja_auto_sdr"),
+            ("", "cja_auto_sdr"),
+        ],
+    )
+    def test_fast_path_bash_output_uses_invoked_command(self, argv0, expected_command, capsys):
+        """Completion script should target the invoked command entrypoint."""
+        from cja_auto_sdr.__main__ import _render_completion_script
 
         with (
-            patch.object(sys, "argv", ["cja_auto_sdr", "--completion", "bash"]),
+            patch.object(sys, "argv", [argv0, "--completion", "bash"]),
             patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}),
         ):
             with pytest.raises(SystemExit) as exc_info:
@@ -183,7 +205,7 @@ class TestCompletionFastPath:
 
         assert int(exc_info.value.code) == 0
         stdout = capsys.readouterr().out.strip()
-        assert stdout == _COMPLETION_SCRIPTS["bash"]
+        assert stdout == _render_completion_script("bash", expected_command)
 
     def test_fast_path_zsh_output(self, capsys):
         """--completion zsh prints the zsh activation script."""
@@ -219,29 +241,59 @@ class TestCompletionFastPath:
         stdout = capsys.readouterr().out.strip()
         assert stdout == _COMPLETION_SCRIPTS["fish"]
 
-    def test_fast_path_missing_shell_exits_1(self, capsys):
-        """--completion with no shell arg should exit 1 with error on stderr."""
+    def test_fast_path_missing_shell_falls_through_to_generator(self):
+        """Invalid standalone completion requests must defer to argparse path."""
         from cja_auto_sdr import __main__ as entrypoint
 
-        with patch.object(sys, "argv", ["cja_auto_sdr", "--completion"]):
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--completion"]),
+            patch("cja_auto_sdr.generator.main") as mock_generator_main,
+        ):
+            entrypoint.main()
+
+        mock_generator_main.assert_called_once()
+
+    def test_fast_path_invalid_shell_falls_through_to_generator(self):
+        """Unsupported completion shells must defer to argparse path."""
+        from cja_auto_sdr import __main__ as entrypoint
+
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--completion", "ksh"]),
+            patch("cja_auto_sdr.generator.main") as mock_generator_main,
+        ):
+            entrypoint.main()
+
+        mock_generator_main.assert_called_once()
+
+    def test_fast_path_mixed_completion_with_missing_option_value_falls_through_to_generator(self):
+        """Mixed malformed argv must not bypass argparse validation."""
+        from cja_auto_sdr import __main__ as entrypoint
+
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--profile", "--completion", "bash"]),
+            patch("cja_auto_sdr.generator.main") as mock_generator_main,
+        ):
+            entrypoint.main()
+
+        mock_generator_main.assert_called_once()
+
+    def test_fast_path_version_precedence_over_invalid_completion_shell(self, capsys):
+        """Version action precedence must win over malformed completion tokens."""
+        from cja_auto_sdr import __main__ as entrypoint
+        from cja_auto_sdr.core.version import __version__
+
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--version", "--completion", "ksh"]),
+            patch("cja_auto_sdr.generator.main") as mock_generator_main,
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 entrypoint.main()
 
-        assert int(exc_info.value.code) == 1
-        stderr = capsys.readouterr().err
-        assert "--completion requires a shell argument" in stderr
-
-    def test_fast_path_invalid_shell_exits_1(self, capsys):
-        """--completion with invalid shell name should exit 1 with error on stderr."""
-        from cja_auto_sdr import __main__ as entrypoint
-
-        with patch.object(sys, "argv", ["cja_auto_sdr", "--completion", "ksh"]):
-            with pytest.raises(SystemExit) as exc_info:
-                entrypoint.main()
-
-        assert int(exc_info.value.code) == 1
-        stderr = capsys.readouterr().err
-        assert "unsupported shell 'ksh'" in stderr
+        assert int(exc_info.value.code) == 0
+        mock_generator_main.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.out.strip() == f"cja_auto_sdr {__version__}"
+        assert "unsupported shell" not in captured.err
 
     @pytest.mark.parametrize(
         "argv_tail",
@@ -352,6 +404,21 @@ class TestCompletionScriptContent:
 
         assert set(_COMPLETION_SCRIPTS.keys()) == _SUPPORTED_SHELLS
 
+    @pytest.mark.parametrize(
+        ("shell", "argv0", "expected_command"),
+        [
+            ("bash", "cja-auto-sdr", "cja-auto-sdr"),
+            ("zsh", "/tmp/cja-auto-sdr", "cja-auto-sdr"),
+            ("fish", "__main__.py", "cja_auto_sdr"),
+        ],
+    )
+    def test_render_completion_script_uses_resolved_command_name(self, shell, argv0, expected_command):
+        from cja_auto_sdr.__main__ import _render_completion_script
+
+        script = _render_completion_script(shell, argv0)
+        assert expected_command in script
+        assert "register-python-argcomplete" in script
+
 
 # ---------------------------------------------------------------------------
 # Safety-net: generator._main_impl handles --completion
@@ -376,3 +443,18 @@ class TestCompletionSafetyNet:
         assert int(exc_info.value.code) == 0
         stdout = capsys.readouterr().out
         assert "register-python-argcomplete" in stdout
+
+    def test_generator_safety_net_uses_invoked_command_name(self, capsys):
+        """Safety-net path should still register completion for the invoked entrypoint."""
+        from cja_auto_sdr.generator import _main_impl
+
+        with (
+            patch.object(sys, "argv", ["cja-auto-sdr", "--completion", "bash", "dv_test"]),
+            patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _main_impl()
+
+        assert int(exc_info.value.code) == 0
+        stdout = capsys.readouterr().out
+        assert "register-python-argcomplete cja-auto-sdr" in stdout

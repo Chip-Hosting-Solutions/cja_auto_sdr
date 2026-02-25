@@ -14297,7 +14297,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     if completion_shell is not None:
         from cja_auto_sdr.__main__ import _handle_completion
 
-        _handle_completion(completion_shell)
+        _handle_completion(completion_shell, sys.argv[0] if sys.argv else None)
 
     # Handle --sample-config mode (no data view required)
     if args.sample_config:
