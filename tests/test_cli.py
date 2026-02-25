@@ -2853,6 +2853,8 @@ class TestDiscoveryArgumentValidation:
             patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
         ):
+            # Configure mocks per scenario so each parametrized path can assert
+            # the same machine-readable envelope contract.
             if scenario == "config_failure":
                 mock_configure.return_value = (False, "Missing credentials", None)
             elif scenario == "file_not_found":
