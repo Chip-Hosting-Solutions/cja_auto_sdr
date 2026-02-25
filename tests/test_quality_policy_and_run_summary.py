@@ -448,6 +448,7 @@ class TestCollectEnvironmentInfo:
 
     def test_non_package_not_found_error_returns_unknown(self):
         """Non-PackageNotFoundError metadata exceptions should map to 'unknown', not crash."""
+
         def metadata_bomb(pkg):
             raise ValueError(f"malformed metadata for {pkg}")
 

@@ -731,6 +731,7 @@ class TestCollectDependencyVersions:
 
     def test_non_package_not_found_error_returns_question_mark(self):
         """Non-PackageNotFoundError exceptions should map to '?' (not propagate)."""
+
         def metadata_bomb(name: str) -> str:
             raise ValueError(f"malformed metadata for {name}")
 
@@ -741,6 +742,7 @@ class TestCollectDependencyVersions:
 
     def test_oserror_during_metadata_lookup_returns_question_mark(self):
         """OSError (e.g. corrupt dist-info) should be caught and map to '?'."""
+
         def corrupt_metadata(name: str) -> str:
             raise OSError(f"cannot read metadata for {name}")
 
