@@ -384,6 +384,16 @@ def _handle_completion(shell: str) -> None:
     raise SystemExit(0)
 
 
+def _completion_fast_path_allowed(argv: list[str]) -> bool:
+    """Return True when completion can be handled directly in __main__.
+
+    When run-summary is requested, completion must flow through
+    ``generator.main()`` so summary emission remains contract-consistent.
+    """
+    args = argv[1:] if len(argv) > 1 else []
+    return not _has_run_summary_contract_flag(args)
+
+
 def main() -> None:
     """Entry point with fast-path for lightweight flags."""
     # Argcomplete shell completion relies on parser-side hooks in
@@ -394,12 +404,14 @@ def main() -> None:
         _generator_main()
         return
 
-    # --completion fast-path: detect before heavyweight imports.
-    completion_shell = _extract_completion_shell(sys.argv)
-    if completion_shell is not None:
-        _handle_completion(completion_shell)
-        # _handle_completion always raises SystemExit; this is a safety net.
-        return  # pragma: no cover
+    # --completion fast-path: detect before heavyweight imports, except when
+    # run-summary is requested (must route through generator.main()).
+    if _completion_fast_path_allowed(sys.argv):
+        completion_shell = _extract_completion_shell(sys.argv)
+        if completion_shell is not None:
+            _handle_completion(completion_shell)
+            # _handle_completion always raises SystemExit; this is a safety net.
+            return  # pragma: no cover
 
     flag = _is_fast_path_flag(sys.argv)
 

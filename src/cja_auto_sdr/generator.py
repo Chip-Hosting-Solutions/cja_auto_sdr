@@ -1504,18 +1504,13 @@ def _read_profile_org_id(profile_path: Path) -> str | None:
             pass
 
     # Override: .env (takes precedence, matching load_profile_credentials)
-    env_file = profile_path / ".env"
-    if env_file.exists():
-        try:
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("ORG_ID="):
-                        value = line.partition("=")[2].strip().strip('"').strip("'")
-                        if value:
-                            org_id = value
-        except OSError:
-            pass
+    env_credentials = load_profile_dotenv(profile_path)
+    if env_credentials:
+        env_org_id = env_credentials.get("org_id")
+        if isinstance(env_org_id, str):
+            normalized_org_id = env_org_id.strip()
+            if normalized_org_id:
+                org_id = normalized_org_id
 
     return org_id
 
@@ -10380,6 +10375,43 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
 # ==================== VALIDATE CONFIG ====================
 
 
+def _resolve_output_dir_path(output_dir: str | Path) -> Path:
+    """Resolve output directory for permission checks without requiring it to exist."""
+    output_path = Path(output_dir).expanduser()
+    try:
+        return output_path.resolve(strict=False)
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+    except OSError, RuntimeError, ValueError:
+        return Path(os.path.abspath(str(output_path)))
+
+
+def _check_output_dir_access(output_dir: str | Path) -> tuple[bool, Path, str, Path | None]:
+    """Check whether an output directory is writable now or creatable later.
+
+    Returns:
+        Tuple: (is_accessible, resolved_output_dir, reason, parent_dir)
+    """
+    resolved_dir = _resolve_output_dir_path(output_dir)
+
+    if resolved_dir.exists():
+        if not resolved_dir.is_dir():
+            return False, resolved_dir, "not_directory", None
+        if os.access(resolved_dir, os.W_OK | os.X_OK):
+            return True, resolved_dir, "writable", None
+        return False, resolved_dir, "not_writable", None
+
+    for candidate in resolved_dir.parents:
+        if not candidate.exists():
+            continue
+        if not candidate.is_dir():
+            return False, resolved_dir, "parent_not_directory", candidate
+        if os.access(candidate, os.W_OK | os.X_OK):
+            return True, resolved_dir, "creatable", candidate
+        return False, resolved_dir, "parent_not_writable", candidate
+
+    return False, resolved_dir, "no_existing_parent", None
+
+
 def validate_config_only(
     config_file: str = "config.json",
     profile: str | None = None,
@@ -10628,11 +10660,25 @@ def validate_config_only(
     if all_passed:
         print()
         print("[5/5] Checking output permissions...")
-        resolved_dir = os.path.abspath(output_dir)
-        if os.access(resolved_dir, os.W_OK):
+        output_access_ok, resolved_dir, access_reason, parent_dir = _check_output_dir_access(output_dir)
+        if output_access_ok and access_reason == "creatable" and parent_dir is not None:
+            print(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})")
+        elif output_access_ok:
             print(f"  \u2713 Output directory writable: {resolved_dir}")
         else:
-            print(f"  \u2717 Output directory not writable: {resolved_dir}")
+            if access_reason == "not_directory":
+                print(f"  \u2717 Output path is not a directory: {resolved_dir}")
+            elif access_reason == "parent_not_directory" and parent_dir is not None:
+                print(
+                    "  \u2717 Cannot create output directory: "
+                    f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                )
+            elif access_reason == "parent_not_writable" and parent_dir is not None:
+                print(f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})")
+            elif access_reason == "no_existing_parent":
+                print(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}")
+            else:
+                print(f"  \u2717 Output directory not writable: {resolved_dir}")
             all_passed = False
 
     # Summary
@@ -15559,20 +15605,22 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         sys.exit(1)
 
     # Proactive output directory write check - fail fast before API calls
-    output_dir = Path(args.output_dir)
-    if output_dir.exists():
-        # Directory exists - check write permissions
-        if not os.access(output_dir, os.W_OK):
-            print(ConsoleColors.error(f"ERROR: Cannot write to output directory: {output_dir}"), file=sys.stderr)
-            print("Check permissions and try again.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        # Directory doesn't exist - check we can create it by checking parent
-        parent_dir = output_dir.parent
-        if parent_dir.exists() and not os.access(parent_dir, os.W_OK):
-            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {output_dir}"), file=sys.stderr)
+    output_access_ok, resolved_output_dir, access_reason, parent_dir = _check_output_dir_access(args.output_dir)
+    if not output_access_ok:
+        if access_reason == "not_directory":
+            print(ConsoleColors.error(f"ERROR: Output path is not a directory: {resolved_output_dir}"), file=sys.stderr)
+        elif access_reason == "parent_not_directory" and parent_dir is not None:
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {resolved_output_dir}"), file=sys.stderr)
+            print(f"Path component is not a directory: {parent_dir}", file=sys.stderr)
+        elif access_reason == "parent_not_writable" and parent_dir is not None:
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {resolved_output_dir}"), file=sys.stderr)
             print(f"Parent directory {parent_dir} is not writable.", file=sys.stderr)
-            sys.exit(1)
+        else:
+            print(
+                ConsoleColors.error(f"ERROR: Cannot write to output directory: {resolved_output_dir}"), file=sys.stderr
+            )
+            print("Check permissions and try again.", file=sys.stderr)
+        sys.exit(1)
 
     # Process data views - start timing here for accurate processing-only runtime
     processing_start_time = time.time()

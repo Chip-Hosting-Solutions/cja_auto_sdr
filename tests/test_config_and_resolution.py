@@ -564,6 +564,47 @@ class TestValidateConfigOnlyOutputPermissionsStep:
         assert str(tmp_path) in output
         assert "Output directory writable" in output
 
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_missing_dir_uses_parent_writability(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should pass when output_dir does not exist but parent is writable."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        new_output_dir = tmp_path / "nested" / "new-output"
+        result = validate_config_only(profile="myprofile", output_dir=str(new_output_dir))
+        assert result is True
+        output = capsys.readouterr().out
+        assert "Output directory creatable" in output
+        assert str(new_output_dir.resolve()) in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_existing_file_fails(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should fail when output_dir points to a file path."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        output_file = tmp_path / "not-a-directory.txt"
+        output_file.write_text("x", encoding="utf-8")
+        result = validate_config_only(profile="myprofile", output_dir=str(output_file))
+        assert result is False
+        output = capsys.readouterr().out
+        assert "Output path is not a directory" in output
+        assert "VALIDATION FAILED" in output
+
     @patch("cja_auto_sdr.generator.cjapy")
     def test_output_permissions_skipped_when_api_fails(
         self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture

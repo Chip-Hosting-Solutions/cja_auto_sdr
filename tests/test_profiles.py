@@ -589,6 +589,16 @@ class TestReadProfileOrgId:
         (tmp_path / ".env").write_text("ORG_ID=DEF456@AdobeOrg\n")
         assert _read_profile_org_id(tmp_path) == "DEF456@AdobeOrg"
 
+    def test_org_id_from_dotenv_lowercase_key(self, tmp_path):
+        """Lowercase .env org_id key should be parsed like profile credential loading."""
+        (tmp_path / ".env").write_text("org_id=lower@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "lower@AdobeOrg"
+
+    def test_org_id_from_dotenv_with_key_whitespace(self, tmp_path):
+        """Whitespace around .env keys should be normalized like profile credential loading."""
+        (tmp_path / ".env").write_text("  org_id = spaced@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "spaced@AdobeOrg"
+
     def test_dotenv_overrides_config_json(self, tmp_path):
         """.env ORG_ID takes precedence over config.json, matching load_profile_credentials"""
         (tmp_path / "config.json").write_text('{"org_id": "FROM_JSON@AdobeOrg"}')

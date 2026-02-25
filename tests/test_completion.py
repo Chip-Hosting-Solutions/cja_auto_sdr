@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import sys
 from unittest.mock import patch
 
@@ -241,6 +242,36 @@ class TestCompletionFastPath:
         assert int(exc_info.value.code) == 1
         stderr = capsys.readouterr().err
         assert "unsupported shell 'ksh'" in stderr
+
+    @pytest.mark.parametrize(
+        "argv_tail",
+        [
+            ["--completion", "bash", "--run-summary-json", "stdout"],
+            ["--run-summary-json", "stdout", "--completion", "bash"],
+        ],
+    )
+    def test_completion_with_run_summary_routes_through_generator_contract(self, argv_tail, capsys):
+        """Run-summary contract must bypass completion fast-path and emit JSON summary."""
+        from cja_auto_sdr import __main__ as entrypoint
+
+        argv = ["cja_auto_sdr", *argv_tail]
+        fake_argcomplete = type(sys)("argcomplete")
+        fake_argcomplete.autocomplete = lambda *_args, **_kwargs: None
+        with (
+            patch.object(sys, "argv", argv),
+            patch.dict("sys.modules", {"argcomplete": fake_argcomplete}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                entrypoint.main()
+
+        assert int(exc_info.value.code) == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["summary_version"] == "1.0"
+        assert payload["exit_code"] == 0
+        assert payload["command"]["argv"] == argv
+        assert "register-python-argcomplete" in captured.err
+        assert "register-python-argcomplete" not in captured.out
 
 
 # ---------------------------------------------------------------------------
