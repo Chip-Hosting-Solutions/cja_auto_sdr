@@ -1097,7 +1097,7 @@ def _collect_environment_info() -> dict[str, Any]:
     for pkg in _ENVIRONMENT_DEPENDENCIES:
         try:
             deps[pkg] = importlib.metadata.version(pkg)
-        except importlib.metadata.PackageNotFoundError, ValueError:
+        except importlib.metadata.PackageNotFoundError:
             deps[pkg] = "unknown"
 
     return {
