@@ -96,6 +96,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--show-timings` | Display performance timing breakdown after processing | False |
 | `--config-json` | Output `--config-status` as machine-readable JSON (for scripting and CI/CD) | False |
 | `--yes, -y` | Skip confirmation prompts (e.g., for large batch operations) | False |
+| `--completion {bash,zsh,fish}` | Generate shell completion activation script for the specified shell and exit. Prints install instructions if argcomplete is not installed | - |
 
 ### Processing
 
@@ -162,7 +163,7 @@ Manage credentials for multiple Adobe Organizations. Profiles are stored in `~/.
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--profile NAME`, `-p NAME` | Use named profile from `~/.cja/orgs/<NAME>/` | `$CJA_PROFILE` |
-| `--profile-list` | List all available profiles | - |
+| `--profile-list` | List all available profiles with their org_id | - |
 | `--profile-add NAME` | Create a new profile interactively | - |
 | `--profile-show NAME` | Show profile configuration (secrets masked) | - |
 | `--profile-test NAME` | Test profile credentials and API connectivity | - |
@@ -209,7 +210,7 @@ cja_auto_sdr --list-dataviews
 |--------|-------------|---------|
 | `--dry-run` | Validate config without generating reports | False |
 | `--validate-only` | Alias for --dry-run | False |
-| `--validate-config` | Validate config and API connectivity (no data view required) | False |
+| `--validate-config` | Validate config and API connectivity (no data view required). Runs 5 steps: environment check, dependency check, credentials check, API connectivity test, and output permissions check | False |
 | `--list-dataviews` | List accessible data views and exit. Supports `--format json/csv` and `--output -` for machine-readable output | False |
 | `--list-connections` | List all accessible connections with their datasets. Falls back to connection IDs derived from data views if the service account lacks product-admin privileges. Supports `--format json/csv` and `--output` | False |
 | `--list-datasets` | List all data views with their backing connections and dataset details. Shows connection names when available, IDs when not. Supports `--format json/csv` and `--output` | False |
@@ -1163,6 +1164,14 @@ Throughput: 9.7 data views per minute
 ## Shell Tab-Completion
 
 Enable tab-completion for all CLI options using the `argcomplete` package.
+
+**Quick setup (v3.3.4+):**
+
+```bash
+cja_auto_sdr --completion bash >> ~/.bashrc
+cja_auto_sdr --completion zsh >> ~/.zshrc
+cja_auto_sdr --completion fish > ~/.config/fish/completions/cja_auto_sdr.fish
+```
 
 ### Installation
 
