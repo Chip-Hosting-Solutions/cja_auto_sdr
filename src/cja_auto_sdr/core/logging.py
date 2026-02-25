@@ -2,6 +2,7 @@
 
 import atexit
 import contextlib
+import importlib.metadata
 import json
 import logging
 import os
@@ -411,6 +412,23 @@ def flush_logging_handlers(logger: logging.Logger | logging.LoggerAdapter | None
             handler.flush()
 
 
+_CORE_DEPENDENCIES = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
+
+
+def _collect_dependency_versions() -> dict[str, str]:
+    """Return a mapping of core dependency names to their installed versions.
+
+    Falls back to ``"?"`` for any package that cannot be found.
+    """
+    versions: dict[str, str] = {}
+    for pkg in _CORE_DEPENDENCIES:
+        try:
+            versions[pkg] = importlib.metadata.version(pkg)
+        except importlib.metadata.PackageNotFoundError:
+            versions[pkg] = "?"
+    return versions
+
+
 def _infer_run_mode(data_view_id: str | None, batch_mode: bool) -> str:
     """Infer the run mode from setup_logging parameters."""
     if batch_mode:
@@ -527,6 +545,9 @@ def setup_logging(
         f"Python {sys.version.split()[0]} on {sys.platform}",
         extra={"python_version": sys.version.split()[0], "platform": sys.platform},
     )
+    dep_versions = _collect_dependency_versions()
+    dep_summary = ", ".join(f"{pkg}={ver}" for pkg, ver in dep_versions.items())
+    logger.info(f"Dependencies: {dep_summary}", extra={"dependency_versions": dep_versions})
     logger.info(f"Log level: {log_level.upper()}", extra={"log_level": log_level.upper()})
     logger.info(f"Run mode: {_infer_run_mode(data_view_id, batch_mode)}")
 
