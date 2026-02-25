@@ -7,6 +7,18 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.4] - 2026-02-25
+
+### Added
+- **Shell completion setup**: New `--completion bash/zsh/fish` flag prints activation scripts for shell tab-completion. Fast-path — no heavyweight imports needed. Prints install instructions if argcomplete is not installed.
+- **Run summary environment metadata**: `--run-summary-json` output now includes an `environment` block with Python version, platform, and dependency versions (cjapy, pandas, numpy, xlsxwriter, tqdm) for CI/CD diagnostics
+- **Startup dependency versions**: Startup diagnostics now log core dependency versions at INFO level (e.g. `Dependencies: cjapy=0.2.4, pandas=2.3.3, ...`) alongside the existing Python/platform line
+- **Profile list org_id display**: `--profile-list` now reads and displays the `org_id` from each profile's configuration, making it easy to distinguish profiles for multi-org users. Follows `.env` overrides `config.json` precedence.
+- **Enhanced config validation**: `--validate-config` expanded from 3-step to 5-step process — now checks Python version compatibility, core/optional dependency versions, output directory write permissions in addition to credentials and API connectivity
+
+### Changed
+- **Narrowed exception handling (batch 2)**: 13 broad `except Exception` catches in generator.py replaced with specific exception types (`OSError`, `KeyError`, `TypeError`, `ValueError`). 15 remaining intentional boundaries annotated with `# Intentional:` comments documenting why they remain broad.
+
 ## [3.3.3] - 2026-02-23
 
 ### Fixed
