@@ -422,7 +422,7 @@ class TestCollectEnvironmentInfo:
 
     def test_graceful_fallback_on_missing_package(self):
         with patch(
-            "cja_auto_sdr.generator.importlib.metadata.version",
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
             side_effect=importlib.metadata.PackageNotFoundError("not found"),
         ):
             info = _collect_environment_info()
@@ -438,7 +438,7 @@ class TestCollectEnvironmentInfo:
             return real_version(pkg)
 
         with patch(
-            "cja_auto_sdr.generator.importlib.metadata.version",
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
             side_effect=selective_fail,
         ):
             info = _collect_environment_info()

@@ -1085,20 +1085,17 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     }
 
 
-_ENVIRONMENT_DEPENDENCIES = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
-
-
 def _collect_environment_info() -> dict[str, Any]:
-    """Collect runtime environment info for the run summary payload."""
+    """Collect runtime environment info for the run summary payload.
+
+    Reuses :func:`core.logging._collect_dependency_versions` as the single
+    source of truth for dependency names and version lookup, remapping the
+    ``"?"`` fallback to ``"unknown"`` for the JSON contract.
+    """
     vi = sys.version_info
     python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
 
-    deps: dict[str, str] = {}
-    for pkg in _ENVIRONMENT_DEPENDENCIES:
-        try:
-            deps[pkg] = importlib.metadata.version(pkg)
-        except importlib.metadata.PackageNotFoundError:
-            deps[pkg] = "unknown"
+    deps = {pkg: (v if v != "?" else "unknown") for pkg, v in _collect_dependency_versions().items()}
 
     return {
         "python_version": python_version,
@@ -1248,7 +1245,14 @@ from cja_auto_sdr.api.tuning import APIWorkerTuner
 
 # ==================== LOGGING SETUP ====================
 # ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, flush_logging_handlers, setup_logging, with_log_context
+from cja_auto_sdr.core.logging import (
+    _CORE_DEPENDENCIES,
+    JSONFormatter,
+    _collect_dependency_versions,
+    flush_logging_handlers,
+    setup_logging,
+    with_log_context,
+)
 
 # ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
 from cja_auto_sdr.core.perf import PerformanceTracker
@@ -10376,7 +10380,11 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
 # ==================== VALIDATE CONFIG ====================
 
 
-def validate_config_only(config_file: str = "config.json", profile: str | None = None) -> bool:
+def validate_config_only(
+    config_file: str = "config.json",
+    profile: str | None = None,
+    output_dir: str = ".",
+) -> bool:
     """
     Validate configuration and API connectivity without processing data views.
 
@@ -10390,6 +10398,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
     Args:
         config_file: Path to CJA configuration file
         profile: Optional profile name to use for credentials
+        output_dir: Directory to check for write permissions
 
     Returns:
         True if configuration is valid and API is reachable
@@ -10619,11 +10628,11 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
     if all_passed:
         print()
         print("[5/5] Checking output permissions...")
-        output_dir = "."
-        if os.access(output_dir, os.W_OK):
-            print(f"  \u2713 Output directory writable: {output_dir}")
+        resolved_dir = os.path.abspath(output_dir)
+        if os.access(resolved_dir, os.W_OK):
+            print(f"  \u2713 Output directory writable: {resolved_dir}")
         else:
-            print(f"  \u2717 Output directory not writable: {output_dir}")
+            print(f"  \u2717 Output directory not writable: {resolved_dir}")
             all_passed = False
 
     # Summary
@@ -14477,7 +14486,11 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --validate-config mode (no data view required)
     if args.validate_config:
-        success = validate_config_only(args.config_file, profile=getattr(args, "profile", None))
+        success = validate_config_only(
+            args.config_file,
+            profile=getattr(args, "profile", None),
+            output_dir=getattr(args, "output_dir", "."),
+        )
         if run_state is not None:
             run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)

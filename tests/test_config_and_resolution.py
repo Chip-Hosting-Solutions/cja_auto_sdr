@@ -546,6 +546,24 @@ class TestValidateConfigOnlyOutputPermissionsStep:
         assert "Output directory not writable" in output
         assert "VALIDATION FAILED" in output
 
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_uses_output_dir_param(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should check the output_dir passed as argument, not hard-coded '.'."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile", output_dir=str(tmp_path))
+        output = capsys.readouterr().out
+        assert str(tmp_path) in output
+        assert "Output directory writable" in output
+
     @patch("cja_auto_sdr.generator.cjapy")
     def test_output_permissions_skipped_when_api_fails(
         self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture
