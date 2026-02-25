@@ -423,7 +423,7 @@ class TestCollectEnvironmentInfo:
     def test_graceful_fallback_on_missing_package(self):
         with patch(
             "cja_auto_sdr.generator.importlib.metadata.version",
-            side_effect=Exception("not found"),
+            side_effect=importlib.metadata.PackageNotFoundError("not found"),
         ):
             info = _collect_environment_info()
             for ver in info["dependencies"].values():
@@ -434,7 +434,7 @@ class TestCollectEnvironmentInfo:
 
         def selective_fail(pkg):
             if pkg == "numpy":
-                raise Exception("not found")
+                raise importlib.metadata.PackageNotFoundError("not found")
             return real_version(pkg)
 
         with patch(
