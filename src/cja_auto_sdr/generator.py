@@ -3,10 +3,12 @@ import contextlib
 import csv
 import hashlib
 import html
+import importlib.metadata
 import io
 import json
 import logging
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -1080,6 +1082,29 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "calculated_metrics_high_complexity": result.calculated_metrics_high_complexity,
         "derived_fields_count": result.derived_fields_count,
         "derived_fields_high_complexity": result.derived_fields_high_complexity,
+    }
+
+
+_ENVIRONMENT_DEPENDENCIES = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
+
+
+def _collect_environment_info() -> dict[str, Any]:
+    """Collect runtime environment info for the run summary payload."""
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+
+    deps: dict[str, str] = {}
+    for pkg in _ENVIRONMENT_DEPENDENCIES:
+        try:
+            deps[pkg] = importlib.metadata.version(pkg)
+        except Exception:
+            deps[pkg] = "unknown"
+
+    return {
+        "python_version": python_version,
+        "platform": sys.platform,
+        "platform_version": platform.platform(),
+        "dependencies": deps,
     }
 
 
@@ -15976,6 +16001,7 @@ def main():
             summary_payload = {
                 "summary_version": "1.0",
                 "tool_version": __version__,
+                "environment": _collect_environment_info(),
                 "started_at": summary_start,
                 "ended_at": datetime.now(UTC).isoformat(),
                 "duration_seconds": round(time.time() - summary_start_perf, 3),

@@ -92,7 +92,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 4,947 comprehensive tests**
+**Total: 4,962 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -138,7 +138,7 @@ tests/
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 19 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 19 | main() and _main_impl() entry points, dispatch, run_state, run summary |
-| `test_quality_policy_and_run_summary.py` | 57 | Quality policy functions and run summary/status inference |
+| `test_quality_policy_and_run_summary.py` | 65 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
 | `test_api_client.py` | 25 | API client exception paths and error handling |
 | `test_config_validation.py` | 55 | Configuration validation logic |
@@ -182,7 +182,7 @@ tests/
 | `test_update_test_counts.py` | 2 | Test count validation tests |
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
-| **Total** | **4,947** | **Collected via pytest --collect-only** |
+| **Total** | **4,962** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -586,7 +586,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (4,947 tests total)
+- [x] Comprehensive test coverage (4,962 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 48 tests
