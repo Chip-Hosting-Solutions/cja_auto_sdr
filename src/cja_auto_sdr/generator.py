@@ -2092,7 +2092,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
         return True
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except Exception as e:
         logger.error("=" * BANNER_WIDTH)
@@ -6568,7 +6568,7 @@ class BatchProcessor:
                                         f.cancel()
                                     break
 
-                        except (KeyboardInterrupt, SystemExit):
+                        except KeyboardInterrupt, SystemExit:
                             # Allow graceful shutdown on Ctrl+C
                             self.logger.warning(f"[{self.batch_id}] Interrupted - cancelling remaining tasks...")
                             for f in future_to_dv:
@@ -6793,7 +6793,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         else:
             print("  ⚠ API connection returned None - may be unstable")
             available_dvs = []
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Dry-run cancelled."))
         raise
@@ -6876,7 +6876,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 print(f"  ✗ {dv_id}: Not found or no access")
                 invalid_count += 1
                 all_passed = False
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt, SystemExit:
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
@@ -8100,7 +8100,7 @@ def _run_list_command(
             print("  cja_auto_sdr --sample-config")
         return False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -9743,7 +9743,7 @@ def interactive_select_dataviews(config_file: str = "config.json", profile: str 
         print("  cja_auto_sdr --sample-config")
         return []
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Operation cancelled."))
         return []
@@ -10459,7 +10459,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         else:
             print("  ⚠ API returned empty response - connection may be unstable")
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
@@ -10693,7 +10693,7 @@ def show_stats(
         )
         return False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not is_machine_readable:
             print()
             print(ConsoleColors.warning("Operation cancelled."))
@@ -12876,7 +12876,7 @@ def run_org_report(
         _status_print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
         return False, False
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         if not quiet:
             _status_print()
             _status_print(ConsoleColors.warning("Operation cancelled."))
@@ -12977,7 +12977,7 @@ def handle_snapshot_command(
 
         return True
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         # Let signals propagate before broad catch.
         raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
@@ -13287,7 +13287,7 @@ def handle_diff_command(
         append_github_step_summary(build_diff_step_summary(diff_result), logger)
         return True, diff_result.summary.has_changes, exit_code_override
 
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare data views: {e!s}"), file=sys.stderr)
@@ -13672,7 +13672,7 @@ def handle_diff_snapshot_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare against snapshot: {e!s}"), file=sys.stderr)
@@ -13904,7 +13904,7 @@ def handle_compare_snapshots_command(
     except ValueError as e:
         print(ConsoleColors.error(f"ERROR: Invalid snapshot file: {e!s}"), file=sys.stderr)
         return False, False, None
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except (CJASDRError, OSError) as e:
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
