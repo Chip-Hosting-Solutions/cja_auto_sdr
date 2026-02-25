@@ -1471,6 +1471,48 @@ def resolve_active_profile(cli_profile: str | None = None) -> str | None:
     return os.environ.get("CJA_PROFILE")
 
 
+def _read_profile_org_id(profile_path: Path) -> str | None:
+    """Read org_id from a profile directory (best-effort, no validation).
+
+    Checks config.json first, then falls back to .env.
+
+    Args:
+        profile_path: Path to the profile directory
+
+    Returns:
+        The org_id string, or None if not found or unreadable
+    """
+    # Try config.json first
+    config_file = profile_path / "config.json"
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                org_id = data.get("org_id")
+                if org_id and isinstance(org_id, str):
+                    return org_id.strip()
+        # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+        except OSError, json.JSONDecodeError, ValueError:
+            pass
+
+    # Fall back to .env
+    env_file = profile_path / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("ORG_ID="):
+                        value = line.partition("=")[2].strip().strip('"').strip("'")
+                        if value:
+                            return value
+        except OSError:
+            pass
+
+    return None
+
+
 def list_profiles(output_format: str = "table") -> bool:
     """List all profiles with status indicators.
 
@@ -1514,7 +1556,17 @@ def list_profiles(output_format: str = "table") -> bool:
             if has_env:
                 config_source.append(".env")
 
-            profiles.append({"name": profile_name, "active": is_active, "sources": config_source, "path": str(item)})
+            org_id = _read_profile_org_id(item)
+
+            profiles.append(
+                {
+                    "name": profile_name,
+                    "active": is_active,
+                    "sources": config_source,
+                    "path": str(item),
+                    "org_id": org_id,
+                }
+            )
 
     if output_format == "json":
         print(json.dumps({"profiles": profiles, "count": len(profiles), "active": active_profile}, indent=2))
@@ -1531,13 +1583,18 @@ def list_profiles(output_format: str = "table") -> bool:
             print("To create a profile, run:")
             print("  cja_auto_sdr --profile-add <profile-name>")
         else:
-            print(f"{'Profile':<25} {'Sources':<20} {'Status'}")
-            print("-" * 60)
+            # Column widths: marker(2) + name(23) + org_id(32) + sources(20) + status
+            max_org_width = 30
+            print(f"  {'Profile':<23} {'Org ID':<{max_org_width}}  {'Sources':<20} {'Status'}")
+            print("  " + "-" * 60)
             for p in profiles:
                 status = "[active]" if p["active"] else ""
                 sources = ", ".join(p["sources"])
-                marker = "●" if p["active"] else " "
-                print(f"{marker} {p['name']:<23} {sources:<20} {status}")
+                marker = "\u25cf" if p["active"] else " "
+                org_display = p["org_id"] or "\u2014"
+                if len(org_display) > max_org_width:
+                    org_display = org_display[: max_org_width - 1] + "\u2026"
+                print(f"{marker} {p['name']:<23} {org_display:<{max_org_width}}  {sources:<20} {status}")
 
             print()
             print(f"Total: {len(profiles)} profile(s)")
