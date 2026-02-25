@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -953,7 +954,7 @@ def write_quality_report_output(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(issues, f, indent=2, ensure_ascii=False)
     else:
-        issues_df.to_csv(output_path, index=False)
+        issues_df.to_csv(output_path, index=False, encoding="utf-8")
 
     return str(output_path)
 
@@ -4832,7 +4833,7 @@ def write_diff_csv_output(
                 },
             )
 
-        pd.DataFrame(summary_rows).to_csv(os.path.join(csv_dir, "summary.csv"), index=False)
+        pd.DataFrame(summary_rows).to_csv(os.path.join(csv_dir, "summary.csv"), index=False, encoding="utf-8")
         logger.info("  Created: summary.csv")
 
         # Metadata CSV
@@ -4856,7 +4857,7 @@ def write_diff_csv_output(
                 summary.total_changes,
             ],
         }
-        pd.DataFrame(metadata_data).to_csv(os.path.join(csv_dir, "metadata.csv"), index=False)
+        pd.DataFrame(metadata_data).to_csv(os.path.join(csv_dir, "metadata.csv"), index=False, encoding="utf-8")
         logger.info("  Created: metadata.csv")
 
         # Helper function to write diff CSV
@@ -4874,7 +4875,7 @@ def write_diff_csv_output(
                 for diff in diffs
             ]
 
-            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
+            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False, encoding="utf-8")
             logger.info(f"  Created: {filename}")
 
         write_diff_csv(diff_result.metric_diffs, "metrics_diff.csv")
@@ -4898,7 +4899,7 @@ def write_diff_csv_output(
                 for diff in diffs
             ]
 
-            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False)
+            pd.DataFrame(rows).to_csv(os.path.join(csv_dir, filename), index=False, encoding="utf-8")
             logger.info(f"  Created: {filename}")
 
         # Write inventory diff CSVs if present
@@ -7575,7 +7576,7 @@ def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
         parent = os.path.dirname(output_file)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(data)
     else:
         text = data.rstrip("\n")
@@ -7588,14 +7589,25 @@ def _emit_output(data: str, output_file: str | None, is_stdout: bool) -> None:
             except OSError:
                 term_height = 0
             if term_height and line_count > term_height:
-                pager = os.environ.get("PAGER", "less")
-                if shutil.which(pager):
+                pager_raw = os.environ.get("PAGER", "less")
+                try:
+                    pager_cmd = shlex.split(pager_raw)
+                except ValueError:
+                    pager_cmd = []
+                if not pager_cmd:
+                    pager_cmd = ["less"]
+
+                pager_exec = pager_cmd[0]
+                if shutil.which(pager_exec):
+                    launch_cmd = [*pager_cmd]
+                    if os.path.basename(pager_exec) == "less" and "-R" not in launch_cmd[1:]:
+                        launch_cmd.append("-R")
                     try:
                         proc = subprocess.Popen(
-                            [pager, "-R"] if pager == "less" else [pager],
+                            launch_cmd,
                             stdin=subprocess.PIPE,
                         )
-                        proc.communicate(text.encode(), timeout=300)
+                        proc.communicate(text.encode("utf-8"), timeout=300)
                         return
                     except subprocess.TimeoutExpired:
                         proc.kill()
@@ -7785,15 +7797,13 @@ def _emit_discovery_error(
     message: str,
     *,
     is_machine_readable: bool,
-    error_type: str | None = None,
+    error_type: str,
     additional_fields: dict[str, Any] | None = None,
     human_to_stderr: bool = False,
 ) -> None:
     """Emit discovery/inspection errors in machine or human-readable form."""
     if is_machine_readable:
-        payload: dict[str, Any] = {"error": message}
-        if error_type:
-            payload["error_type"] = error_type
+        payload: dict[str, Any] = {"error": message, "error_type": error_type}
         if additional_fields:
             payload.update(additional_fields)
         print(json.dumps(payload, allow_nan=False), file=sys.stderr)
@@ -7917,18 +7927,16 @@ def _apply_discovery_filters_and_sort(
     filter_re = _compile_discovery_pattern(filter_pattern, option_name="--filter")
     exclude_re = _compile_discovery_pattern(exclude_pattern, option_name="--exclude")
 
-    if filter_re:
-        filtered_rows = [
-            row
-            for row in filtered_rows
-            if filter_re.search(" ".join(_to_searchable_text(row.get(field, "")) for field in fields))
+    # Compute per-row searchable blobs once when filter/exclude is requested.
+    if filter_re or exclude_re:
+        searchable_rows = [
+            (row, " ".join(_to_searchable_text(row.get(field, "")) for field in fields)) for row in filtered_rows
         ]
-    if exclude_re:
-        filtered_rows = [
-            row
-            for row in filtered_rows
-            if not exclude_re.search(" ".join(_to_searchable_text(row.get(field, "")) for field in fields))
-        ]
+        if filter_re:
+            searchable_rows = [(row, blob) for row, blob in searchable_rows if filter_re.search(blob)]
+        if exclude_re:
+            searchable_rows = [(row, blob) for row, blob in searchable_rows if not exclude_re.search(blob)]
+        filtered_rows = [row for row, _ in searchable_rows]
 
     sort_field = default_sort_field
     reverse = False
@@ -8038,6 +8046,7 @@ def _run_list_command(
             _emit_discovery_error(
                 f"Configuration error: {source}",
                 is_machine_readable=is_machine_readable,
+                error_type="configuration_error",
                 human_to_stderr=False,
             )
             return False
@@ -8082,6 +8091,7 @@ def _run_list_command(
         _emit_discovery_error(
             f"Configuration file '{config_file}' not found",
             is_machine_readable=is_machine_readable,
+            error_type="configuration_error",
             human_to_stderr=False,
         )
         if not is_machine_readable:
@@ -8100,6 +8110,7 @@ def _run_list_command(
         _emit_discovery_error(
             f"Failed to connect to CJA API: {e!s}",
             is_machine_readable=is_machine_readable,
+            error_type="connectivity_error",
             human_to_stderr=False,
         )
         return False
@@ -10078,7 +10089,7 @@ def generate_sample_config(output_path: str = "config.sample.json") -> bool:
     print()
 
     try:
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(sample_config, f, indent=2)
 
         print(f"✓ Sample configuration file created: {output_path}")
@@ -10570,7 +10581,7 @@ def show_stats(
         True if successful, False otherwise
     """
     is_stdout = output_file in ("-", "stdout")
-    is_machine_readable = output_format in ("json", "csv") or is_stdout
+    is_machine_readable = _is_machine_readable_output(output_format, output_file)
 
     if not is_machine_readable and not quiet:
         print()
@@ -10584,7 +10595,12 @@ def show_stats(
     try:
         success, source, _ = configure_cjapy(profile, config_file)
         if not success:
-            print(ConsoleColors.error(f"ERROR: {source}"))
+            _emit_discovery_error(
+                f"Configuration error: {source}",
+                is_machine_readable=is_machine_readable,
+                error_type="configuration_error",
+                human_to_stderr=False,
+            )
             return False
         cja = cjapy.CJA()
         logger = logging.getLogger(__name__)
@@ -10604,11 +10620,12 @@ def show_stats(
                     },
                 },
                 indent=2,
+                allow_nan=False,
             )
             if is_stdout:
                 print(output_data)
             elif output_file:
-                with open(output_file, "w") as f:
+                with open(output_file, "w", encoding="utf-8") as f:
                     f.write(output_data)
             else:
                 print(output_data)
@@ -10624,7 +10641,7 @@ def show_stats(
             if is_stdout:
                 print(output_data)
             elif output_file:
-                with open(output_file, "w") as f:
+                with open(output_file, "w", encoding="utf-8") as f:
                     f.write(output_data)
             else:
                 print(output_data)
@@ -10668,11 +10685,12 @@ def show_stats(
         return True
 
     except FileNotFoundError:
-        if is_machine_readable:
-            error_json = json.dumps({"error": f"Configuration file '{config_file}' not found"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
-        else:
-            print(ConsoleColors.error(f"ERROR: Configuration file '{config_file}' not found"))
+        _emit_discovery_error(
+            f"Configuration file '{config_file}' not found",
+            is_machine_readable=is_machine_readable,
+            error_type="configuration_error",
+            human_to_stderr=False,
+        )
         return False
 
     except KeyboardInterrupt, SystemExit:
@@ -10682,11 +10700,12 @@ def show_stats(
         raise
 
     except RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS as e:
-        if is_machine_readable:
-            error_json = json.dumps({"error": f"Failed to get stats: {e!s}"})
-            print(error_json, file=sys.stderr if is_stdout else sys.stdout)
-        else:
-            print(ConsoleColors.error(f"ERROR: Failed to get stats: {e!s}"))
+        _emit_discovery_error(
+            f"Failed to get stats: {e!s}",
+            is_machine_readable=is_machine_readable,
+            error_type="connectivity_error",
+            human_to_stderr=False,
+        )
         return False
 
 
@@ -12492,7 +12511,7 @@ def write_org_report_csv(
     ]
     summary_df = pd.DataFrame(summary_data)
     summary_path = csv_dir / "org_report_summary.csv"
-    summary_df.to_csv(summary_path, index=False)
+    summary_df.to_csv(summary_path, index=False, encoding="utf-8")
 
     # 2. Data Views CSV
     dv_data = [
@@ -12510,7 +12529,7 @@ def write_org_report_csv(
     ]
     dv_df = pd.DataFrame(dv_data)
     dv_path = csv_dir / "org_report_data_views.csv"
-    dv_df.to_csv(dv_path, index=False)
+    dv_df.to_csv(dv_path, index=False, encoding="utf-8")
 
     # 3. Components CSV
     comp_data = []
@@ -12543,7 +12562,7 @@ def write_org_report_csv(
     comp_df = pd.DataFrame(comp_data)
     comp_df = comp_df.sort_values(["Distribution Bucket", "Data View Count"], ascending=[True, False])
     comp_path = csv_dir / "org_report_components.csv"
-    comp_df.to_csv(comp_path, index=False)
+    comp_df.to_csv(comp_path, index=False, encoding="utf-8")
 
     # 4. Distribution CSV
     dist = result.distribution
@@ -12575,7 +12594,7 @@ def write_org_report_csv(
     ]
     dist_df = pd.DataFrame(dist_data)
     dist_path = csv_dir / "org_report_distribution.csv"
-    dist_df.to_csv(dist_path, index=False)
+    dist_df.to_csv(dist_path, index=False, encoding="utf-8")
 
     # 5. Similarity CSV (if computed)
     if result.similarity_pairs:
@@ -12596,7 +12615,7 @@ def write_org_report_csv(
         ]
         sim_df = pd.DataFrame(sim_data)
         sim_path = csv_dir / "org_report_similarity.csv"
-        sim_df.to_csv(sim_path, index=False)
+        sim_df.to_csv(sim_path, index=False, encoding="utf-8")
 
     # 6. Recommendations CSV (if any)
     if result.recommendations:
@@ -12606,7 +12625,7 @@ def write_org_report_csv(
         ]
         rec_df = pd.DataFrame(rec_data)
         rec_path = csv_dir / "org_report_recommendations.csv"
-        rec_df.to_csv(rec_path, index=False)
+        rec_df.to_csv(rec_path, index=False, encoding="utf-8")
 
     logger.info(f"CSV reports written to {csv_dir}")
     return str(csv_dir)
@@ -12635,7 +12654,9 @@ def _validate_org_report_output_request(
 
     if output_to_stdout and output_format not in {"json", "console"}:
         status_print(
-            ConsoleColors.error("ERROR: --output stdout is only supported for --format json in org-report mode."),
+            ConsoleColors.error(
+                "ERROR: --output stdout is only supported for --format json or --format console in org-report mode."
+            ),
         )
         return False
 

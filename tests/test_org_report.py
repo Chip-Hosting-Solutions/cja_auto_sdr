@@ -2767,7 +2767,7 @@ class TestOrgReportOutputHandling:
 
             assert success is False
             captured = capsys.readouterr()
-            assert "only supported for --format json" in captured.out
+            assert "only supported for --format json or --format console" in captured.out
             mock_configure.assert_not_called()
             mock_analyzer.assert_not_called()
 
@@ -2795,7 +2795,7 @@ class TestOrgReportOutputHandling:
 
             assert success is False
             captured = capsys.readouterr()
-            assert "only supported for --format json" in captured.out
+            assert "only supported for --format json or --format console" in captured.out
             mock_configure.assert_not_called()
             mock_analyzer.assert_not_called()
 
@@ -2823,7 +2823,7 @@ class TestOrgReportOutputHandling:
 
             assert success is False
             captured = capsys.readouterr()
-            assert "only supported for --format json" in captured.out
+            assert "only supported for --format json or --format console" in captured.out
             mock_configure.assert_not_called()
             mock_analyzer.assert_not_called()
 
@@ -2851,7 +2851,7 @@ class TestOrgReportOutputHandling:
 
             assert success is False
             captured = capsys.readouterr()
-            assert "only supported for --format json" in captured.out
+            assert "only supported for --format json or --format console" in captured.out
             mock_configure.assert_not_called()
             mock_analyzer.assert_not_called()
 

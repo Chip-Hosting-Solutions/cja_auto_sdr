@@ -7,6 +7,23 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.3] - 2026-02-23
+
+### Fixed
+- **Pager hardening**: `$PAGER` values containing arguments (e.g. `less -F -X`) are now parsed correctly via `shlex.split`; malformed values fall back to `less -R` instead of crashing
+- **Machine-readable error envelopes**: All discovery and `--stats` error paths now include a stable `error_type` field (`configuration_error`, `connectivity_error`) in JSON error output for programmatic consumers
+- **Org-report stdout validation message**: Error message now correctly states that `--output stdout` supports both `--format json` and `--format console`, matching actual validation behavior
+- **stderr/stdout contract**: `show_stats` machine-readable errors now consistently route to stderr (previously some paths wrote to stdout)
+
+### Changed
+- **Explicit UTF-8 encoding**: All command output file writes (`open()`, `to_csv()`, `Popen.communicate()`) now specify `encoding="utf-8"` to remove locale-dependent behavior
+- **Discovery filter efficiency**: Filter/exclude operations in `_apply_discovery_filters_and_sort` now compute searchable text blobs once instead of separately per filter pass
+- **CI release gates**: Version-sync check (`check_version_sync.py`) now runs as part of the main test workflow; version-sync workflow path filters removed so it runs on all PRs
+
+### Added
+- **Generator mock contract tests**: New `test_generator_mock_contract.py` freezes key symbols relied on by test mocks, catching silent breakage during future modularization
+- **CLI smoke tests**: New `test_cli_smoke_modes.py` validates top-level dispatch for SDR, diff, discovery, org-report, and profile modes plus fast-path `--version`/`--exit-codes` regression protection
+
 ## [3.3.2] - 2026-02-20
 
 ### Added

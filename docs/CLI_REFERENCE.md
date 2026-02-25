@@ -220,6 +220,11 @@ cja_auto_sdr --list-dataviews
 | `-i, --interactive` | Launch interactive mode for guided SDR generation. Walks through: data view selection, output format, and inventory options. Ideal for new users | False |
 | `--sample-config` | Generate sample config file and exit | False |
 
+> **Machine-readable error contract (discovery + `--stats`):** In JSON/CSV machine-readable flows (for example `--format json` or `--output -`), failures are emitted on `stderr` as JSON containing `error` and `error_type`, while successful payloads continue to use `stdout`.
+>
+> Example error envelope (`stderr`):
+> `{"error":"Configuration error: Missing credentials","error_type":"configuration_error"}`
+
 ### Discovery Inspection
 
 Drill into individual data view resources. These commands let you inspect a single data view's metadata, metrics, dimensions, segments, and calculated metrics without generating a full SDR report.

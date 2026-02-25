@@ -2519,7 +2519,10 @@ class TestListConnectionsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
@@ -2536,7 +2539,10 @@ class TestListConnectionsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
 
 class TestListDatasetsFunction:
@@ -2758,7 +2764,10 @@ class TestListDatasetsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
@@ -2775,7 +2784,10 @@ class TestListDatasetsFunction:
 
         assert result is False
         error = json.loads(f.getvalue())
-        assert error == {"error": "Configuration error: Missing credentials"}
+        assert error == {
+            "error": "Configuration error: Missing credentials",
+            "error_type": "configuration_error",
+        }
 
 
 class TestDiscoveryArgumentValidation:
@@ -2820,6 +2832,48 @@ class TestDiscoveryArgumentValidation:
         payload = json.loads(f.getvalue())
         assert payload == {"error": "--limit cannot be negative", "error_type": "invalid_arguments"}
         mock_configure.assert_not_called()
+
+    @pytest.mark.parametrize("list_fn", [list_dataviews, list_connections, list_datasets])
+    @pytest.mark.parametrize(
+        ("scenario", "call_kwargs", "expected_error_type"),
+        [
+            ("invalid_regex", {"filter_pattern": "[invalid"}, "invalid_arguments"),
+            ("config_failure", {}, "configuration_error"),
+            ("file_not_found", {}, "configuration_error"),
+            ("connectivity_failure", {}, "connectivity_error"),
+        ],
+    )
+    def test_machine_readable_error_envelope_schema(self, list_fn, scenario, call_kwargs, expected_error_type):
+        """Discovery machine-readable failures should always emit error + error_type."""
+        import io
+        from contextlib import redirect_stderr
+
+        with (
+            patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None),
+            patch("cja_auto_sdr.generator.configure_cjapy") as mock_configure,
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+        ):
+            # Configure mocks per scenario so each parametrized path can assert
+            # the same machine-readable envelope contract.
+            if scenario == "config_failure":
+                mock_configure.return_value = (False, "Missing credentials", None)
+            elif scenario == "file_not_found":
+                mock_configure.side_effect = FileNotFoundError("missing")
+            elif scenario == "connectivity_failure":
+                mock_configure.return_value = (True, "config", None)
+                mock_cjapy.CJA.side_effect = RuntimeError("boom")
+
+            f = io.StringIO()
+            with redirect_stderr(f):
+                result = list_fn(output_format="json", **call_kwargs)
+
+        assert result is False
+        payload = json.loads(f.getvalue())
+        assert {"error", "error_type"}.issubset(payload)
+        assert payload["error_type"] == expected_error_type
+        assert payload["error"]
+        if scenario == "invalid_regex":
+            mock_configure.assert_not_called()
 
     def test_invalid_regex_reports_local_error_in_table_mode(self):
         """Table-mode errors should still be classified as local argument issues."""
@@ -3044,7 +3098,7 @@ class TestEmitOutputPager:
             _emit_output(long_text, None, False)
 
         mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
-        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode(), timeout=300)
+        mock_proc.communicate.assert_called_once_with(long_text.rstrip("\n").encode("utf-8"), timeout=300)
 
     def test_no_pager_when_output_fits_terminal(self):
         """Test that _emit_output prints normally when output fits in terminal"""
@@ -3108,6 +3162,78 @@ class TestEmitOutputPager:
             _emit_output(long_text, None, False)
 
         mock_popen.assert_called_once_with(["more"], stdin=subprocess.PIPE)
+
+    def test_pager_supports_pager_args(self):
+        """Test that _emit_output parses PAGER values that include command arguments."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": "less -F -X"}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-F", "-X", "-R"], stdin=subprocess.PIPE)
+
+    def test_pager_does_not_duplicate_less_R_flag(self):
+        """If PAGER already includes -R, _emit_output should not append another one."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": "less -R -F"}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R", "-F"], stdin=subprocess.PIPE)
+
+    def test_pager_malformed_env_falls_back_to_less(self):
+        """Malformed PAGER values should fall back to less -R."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": '"'}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
+
+    def test_pager_empty_env_falls_back_to_less(self):
+        """Empty $PAGER should fall back to less -R."""
+        long_text = "\n".join(f"line {i}" for i in range(200))
+        mock_proc = MagicMock()
+        mock_proc.communicate = MagicMock()
+
+        with (
+            patch("sys.stdout") as mock_stdout,
+            patch("os.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch.dict(os.environ, {"PAGER": ""}),
+            patch("shutil.which", return_value="/usr/bin/less"),
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
+        ):
+            mock_stdout.isatty.return_value = True
+            _emit_output(long_text, None, False)
+
+        mock_popen.assert_called_once_with(["less", "-R"], stdin=subprocess.PIPE)
 
     def test_pager_fallback_on_error(self):
         """Test that _emit_output falls back to print when pager is unavailable"""
@@ -4660,7 +4786,7 @@ class TestDescribeDataview:
 
         assert result is False
         payload = json.loads(err.getvalue())
-        assert "error_type" not in payload
+        assert payload["error_type"] == "connectivity_error"
         assert "Failed to connect to CJA API" in payload["error"]
 
     @patch("cja_auto_sdr.generator.cjapy")
