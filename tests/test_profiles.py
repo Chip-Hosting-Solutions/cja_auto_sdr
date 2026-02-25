@@ -589,11 +589,11 @@ class TestReadProfileOrgId:
         (tmp_path / ".env").write_text("ORG_ID=DEF456@AdobeOrg\n")
         assert _read_profile_org_id(tmp_path) == "DEF456@AdobeOrg"
 
-    def test_config_json_preferred_over_dotenv(self, tmp_path):
-        """config.json org_id takes precedence over .env ORG_ID"""
+    def test_dotenv_overrides_config_json(self, tmp_path):
+        """.env ORG_ID takes precedence over config.json, matching load_profile_credentials"""
         (tmp_path / "config.json").write_text('{"org_id": "FROM_JSON@AdobeOrg"}')
         (tmp_path / ".env").write_text("ORG_ID=FROM_ENV@AdobeOrg\n")
-        assert _read_profile_org_id(tmp_path) == "FROM_JSON@AdobeOrg"
+        assert _read_profile_org_id(tmp_path) == "FROM_ENV@AdobeOrg"
 
     def test_falls_back_to_env_when_json_missing_org_id(self, tmp_path):
         """Falls back to .env when config.json exists but has no org_id key"""

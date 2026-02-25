@@ -1474,7 +1474,9 @@ def resolve_active_profile(cli_profile: str | None = None) -> str | None:
 def _read_profile_org_id(profile_path: Path) -> str | None:
     """Read org_id from a profile directory (best-effort, no validation).
 
-    Checks config.json first, then falls back to .env.
+    Matches ``load_profile_credentials`` precedence: .env values override
+    config.json values.  We read config.json first as a base, then let .env
+    override if present.
 
     Args:
         profile_path: Path to the profile directory
@@ -1482,21 +1484,22 @@ def _read_profile_org_id(profile_path: Path) -> str | None:
     Returns:
         The org_id string, or None if not found or unreadable
     """
-    # Try config.json first
+    org_id: str | None = None
+
     config_file = profile_path / "config.json"
     if config_file.exists():
         try:
             with open(config_file) as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                org_id = data.get("org_id")
-                if org_id and isinstance(org_id, str):
-                    return org_id.strip()
+                val = data.get("org_id")
+                if val and isinstance(val, str) and val.strip():
+                    org_id = val.strip()
         # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
         except OSError, json.JSONDecodeError, ValueError:
             pass
 
-    # Fall back to .env
+    # Override: .env (takes precedence, matching load_profile_credentials)
     env_file = profile_path / ".env"
     if env_file.exists():
         try:
@@ -1506,11 +1509,11 @@ def _read_profile_org_id(profile_path: Path) -> str | None:
                     if line.startswith("ORG_ID="):
                         value = line.partition("=")[2].strip().strip('"').strip("'")
                         if value:
-                            return value
+                            org_id = value
         except OSError:
             pass
 
-    return None
+    return org_id
 
 
 def list_profiles(output_format: str = "table") -> bool:
