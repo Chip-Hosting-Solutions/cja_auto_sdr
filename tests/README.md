@@ -92,7 +92,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,080 comprehensive tests**
+**Total: 5,083 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -182,8 +182,8 @@ tests/
 | `test_update_test_counts.py` | 2 | Test count validation tests |
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
-| `test_completion.py` | 47 | Shell completion flag (--completion bash/zsh/fish) |
-| **Total** | **5,080** | **Collected via pytest --collect-only** |
+| `test_completion.py` | 50 | Shell completion flag (--completion bash/zsh/fish) |
+| **Total** | **5,083** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -587,7 +587,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,080 tests total)
+- [x] Comprehensive test coverage (5,083 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests

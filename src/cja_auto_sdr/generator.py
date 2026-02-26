@@ -1008,9 +1008,10 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
 
 def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
     """Infer run mode using the same precedence as command dispatch in _main_impl."""
+    completion_shell = _completion_shell_from_args(args)
     mode_checks: tuple[tuple[RunMode, bool], ...] = (
         (RunMode.EXIT_CODES, getattr(args, "exit_codes", False)),
-        (RunMode.COMPLETION, bool(getattr(args, "completion", None))),
+        (RunMode.COMPLETION, completion_shell is not None),
         (RunMode.SAMPLE_CONFIG, getattr(args, "sample_config", False)),
         (
             RunMode.PROFILE_MANAGEMENT,
@@ -1057,6 +1058,30 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
         if is_active:
             return mode
     return RunMode.SDR
+
+
+def _completion_shell_from_args(args: argparse.Namespace) -> str | None:
+    """Return normalized completion shell from parsed args, if present."""
+    raw_completion = getattr(args, "completion", None)
+    if not isinstance(raw_completion, str):
+        return None
+    normalized = raw_completion.strip().lower()
+    return normalized or None
+
+
+def _handle_completion_prevalidation(
+    completion_shell: str,
+    run_state: dict[str, Any] | None = None,
+) -> NoReturn:
+    """Handle completion mode before unrelated global validation paths."""
+    from cja_auto_sdr.__main__ import _handle_completion
+
+    try:
+        _handle_completion(completion_shell, sys.argv[0] if sys.argv else None)
+    except SystemExit as exc:
+        if run_state is not None:
+            run_state["details"] = {"operation_success": _normalize_exit_code(exc.code) == 0}
+        raise
 
 
 def _infer_run_mode(args: argparse.Namespace) -> str:
@@ -14189,6 +14214,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
         run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
 
+    # Completion must short-circuit before unrelated option parsing/validation
+    # so mixed argv (for run-summary and fast-path fallbacks) remains robust.
+    completion_shell = _completion_shell_from_args(args)
+    if completion_shell is not None:
+        _handle_completion_prevalidation(completion_shell, run_state=run_state)
+
     run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
     quality_policy_path = getattr(args, "quality_policy", None)
     applied_quality_policy: dict[str, Any] = {}
@@ -14307,13 +14338,6 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
         print_exit_codes(banner_width=BANNER_WIDTH)
         sys.exit(0)
-
-    # Handle --completion mode (safety net — normally caught by __main__ fast-path)
-    completion_shell = getattr(args, "completion", None)
-    if completion_shell is not None:
-        from cja_auto_sdr.__main__ import _handle_completion
-
-        _handle_completion(completion_shell, sys.argv[0] if sys.argv else None)
 
     # Handle --sample-config mode (no data view required)
     if args.sample_config:

@@ -325,6 +325,28 @@ class TestCompletionFastPath:
         assert "register-python-argcomplete" in captured.err
         assert "register-python-argcomplete" not in captured.out
 
+    def test_completion_with_run_summary_ignores_unrelated_workers_validation(self, capsys):
+        """Completion should still succeed when mixed with invalid non-completion options."""
+        from cja_auto_sdr import __main__ as entrypoint
+
+        argv = ["cja_auto_sdr", "--completion", "bash", "--workers", "0", "--run-summary-json", "stdout"]
+        fake_argcomplete = type(sys)("argcomplete")
+        fake_argcomplete.autocomplete = lambda *_args, **_kwargs: None
+        with (
+            patch.object(sys, "argv", argv),
+            patch.dict("sys.modules", {"argcomplete": fake_argcomplete}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                entrypoint.main()
+
+        assert int(exc_info.value.code) == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["mode"] == "completion"
+        assert payload["exit_code"] == 0
+        assert "--workers must be at least 1" not in captured.err
+        assert "register-python-argcomplete" in captured.err
+
 
 # ---------------------------------------------------------------------------
 # Argparse integration (parser recognizes --completion)
@@ -458,3 +480,39 @@ class TestCompletionSafetyNet:
         assert int(exc_info.value.code) == 0
         stdout = capsys.readouterr().out
         assert "register-python-argcomplete cja-auto-sdr" in stdout
+
+    def test_generator_safety_net_bypasses_workers_validation(self, capsys):
+        """Completion should run before unrelated global validation in _main_impl."""
+        from cja_auto_sdr.generator import _main_impl
+
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--completion", "bash", "--workers", "0"]),
+            patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _main_impl()
+
+        assert int(exc_info.value.code) == 0
+        captured = capsys.readouterr()
+        assert "--workers must be at least 1" not in captured.err
+        assert "register-python-argcomplete" in captured.out
+
+    def test_generator_safety_net_bypasses_quality_policy_loading(self, capsys):
+        """Completion should not attempt to load quality-policy files."""
+        from cja_auto_sdr.generator import _main_impl
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["cja_auto_sdr", "--completion", "bash", "--quality-policy", "/tmp/does-not-exist-policy.json"],
+            ),
+            patch.dict("sys.modules", {"argcomplete": type(sys)("argcomplete")}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _main_impl()
+
+        assert int(exc_info.value.code) == 0
+        captured = capsys.readouterr()
+        assert "Failed to load --quality-policy" not in captured.err
+        assert "register-python-argcomplete" in captured.out
