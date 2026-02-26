@@ -1,0 +1,225 @@
+"""Tests verifying narrowed exception boundaries in generator.py.
+
+After narrowing 8 broad ``except Exception`` handlers (v3.3.5), these tests
+ensure that:
+  - Exception types *inside* each handler's tuple are still caught gracefully.
+  - Exception types *outside* the tuple now propagate as expected.
+
+Boundaries tested:
+  Group A (fallback after RECOVERABLE_API_EXCEPTIONS -> (RuntimeError, AttributeError)):
+    - process_inventory_summary
+    - validate_config_only
+
+  Group B (sole handler -> RECOVERABLE_API_EXCEPTIONS):
+    - test_profile
+    - validate_data_view
+    - _require_accessible_dataview
+"""
+
+import logging
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from cja_auto_sdr import generator
+from cja_auto_sdr.generator import (
+    _require_accessible_dataview,
+    validate_data_view,
+)
+from cja_auto_sdr.generator import test_profile as run_test_profile
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_logger() -> logging.Logger:
+    """Return a quiet logger for test use."""
+    logger = logging.getLogger("test_exception_narrowing")
+    logger.setLevel(logging.CRITICAL)
+    return logger
+
+
+# ===========================================================================
+# Group B: test_profile  (now catches RECOVERABLE_API_EXCEPTIONS)
+# ===========================================================================
+
+
+class TestTestProfileExceptionNarrowing:
+    """Verify test_profile catches RECOVERABLE_API_EXCEPTIONS and propagates others."""
+
+    def _run_with_side_effect(self, exc, tmp_path, capsys):
+        """Helper: invoke test_profile with cjapy.importConfigFile raising *exc*."""
+        profile_dir = tmp_path / "orgs" / "narrowing"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "config.json").write_text('{"client_id":"x","secret":"s","org_id":"o@AdobeOrg"}')
+
+        with (
+            patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+        ):
+            mock_cjapy.importConfigFile.side_effect = exc
+            mock_validator.validate_all.return_value = []
+            return run_test_profile("narrowing")
+
+    def test_os_error_caught(self, tmp_path, capsys):
+        """OSError (in RECOVERABLE_API_EXCEPTIONS) is caught -> returns False."""
+        result = self._run_with_side_effect(OSError("network down"), tmp_path, capsys)
+        assert result is False
+        assert "FAILED" in capsys.readouterr().err
+
+    def test_value_error_caught(self, tmp_path, capsys):
+        """ValueError (in RECOVERABLE_API_EXCEPTIONS) is caught -> returns False."""
+        result = self._run_with_side_effect(ValueError("bad token"), tmp_path, capsys)
+        assert result is False
+
+    def test_runtime_error_propagates(self, tmp_path, capsys):
+        """RuntimeError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates."""
+        with pytest.raises(RuntimeError, match="should escape"):
+            self._run_with_side_effect(RuntimeError("should escape"), tmp_path, capsys)
+
+    def test_system_error_propagates(self, tmp_path, capsys):
+        """SystemError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates."""
+        with pytest.raises(SystemError, match="should escape"):
+            self._run_with_side_effect(SystemError("should escape"), tmp_path, capsys)
+
+
+# ===========================================================================
+# Group B: validate_data_view  (now catches RECOVERABLE_API_EXCEPTIONS)
+# ===========================================================================
+
+
+class TestValidateDataViewExceptionNarrowing:
+    """Verify validate_data_view catches RECOVERABLE_API_EXCEPTIONS and propagates others."""
+
+    def test_type_error_caught(self):
+        """TypeError (in RECOVERABLE_API_EXCEPTIONS) is caught -> returns False."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = TypeError("bad payload")
+        assert validate_data_view(mock_cja, "dv_test", _make_logger()) is False
+
+    def test_key_error_caught(self):
+        """KeyError (in RECOVERABLE_API_EXCEPTIONS) is caught -> returns False."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = KeyError("missing key")
+        assert validate_data_view(mock_cja, "dv_test", _make_logger()) is False
+
+    def test_runtime_error_propagates(self):
+        """RuntimeError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = RuntimeError("should escape")
+        with pytest.raises(RuntimeError, match="should escape"):
+            validate_data_view(mock_cja, "dv_test", _make_logger())
+
+    def test_system_error_propagates(self):
+        """SystemError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = SystemError("should escape")
+        with pytest.raises(SystemError, match="should escape"):
+            validate_data_view(mock_cja, "dv_test", _make_logger())
+
+
+# ===========================================================================
+# Group B: _require_accessible_dataview  (now catches RECOVERABLE_API_EXCEPTIONS)
+# ===========================================================================
+
+
+class TestRequireAccessibleDataviewExceptionNarrowing:
+    """Verify _require_accessible_dataview catches RECOVERABLE_API_EXCEPTIONS and re-raises."""
+
+    def test_os_error_reraises(self):
+        """OSError (in RECOVERABLE_API_EXCEPTIONS) is caught and re-raised."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = OSError("connection reset")
+        # The handler re-raises if _is_inaccessible_dataview_lookup_error returns False
+        with pytest.raises(OSError, match="connection reset"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
+    def test_value_error_reraises(self):
+        """ValueError (in RECOVERABLE_API_EXCEPTIONS) is caught and re-raised."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = ValueError("bad id")
+        with pytest.raises(ValueError, match="bad id"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
+    def test_runtime_error_propagates(self):
+        """RuntimeError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates uncaught."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.side_effect = RuntimeError("should escape")
+        with pytest.raises(RuntimeError, match="should escape"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
+
+# ===========================================================================
+# Group A: process_inventory_summary  (fallback -> (RuntimeError, AttributeError))
+# ===========================================================================
+
+
+class TestProcessInventorySummaryExceptionNarrowing:
+    """Verify process_inventory_summary fallback catches (RuntimeError, AttributeError)."""
+
+    def _run_with_side_effect(self, exc):
+        """Mock CJA init + dataviews.get_single raising *exc*."""
+        mock_cja = MagicMock()
+        mock_cja.dataviews.get_single.side_effect = exc
+
+        with (
+            patch("cja_auto_sdr.generator.initialize_cja", return_value=mock_cja),
+            patch("cja_auto_sdr.generator.setup_logging", return_value=_make_logger()),
+            patch("cja_auto_sdr.generator.with_log_context", return_value=_make_logger()),
+        ):
+            return generator.process_inventory_summary(
+                data_view_id="dv_test",
+                config_file="config.json",
+            )
+
+    def test_runtime_error_caught(self):
+        """RuntimeError (in fallback tuple) is caught -> returns error dict."""
+        result = self._run_with_side_effect(RuntimeError("cjapy internal"))
+        assert "error" in result
+
+    def test_attribute_error_caught(self):
+        """AttributeError (in fallback tuple) is caught -> returns error dict."""
+        result = self._run_with_side_effect(AttributeError("no attribute"))
+        # AttributeError is in BOTH tuples — first handler catches it
+        assert "error" in result
+
+    def test_system_error_propagates(self):
+        """SystemError is NOT in either handler -> propagates."""
+        with pytest.raises(SystemError, match="should escape"):
+            self._run_with_side_effect(SystemError("should escape"))
+
+
+# ===========================================================================
+# Group A: validate_config_only  (fallback -> (RuntimeError, AttributeError))
+# ===========================================================================
+
+
+class TestValidateConfigOnlyExceptionNarrowing:
+    """Verify validate_config_only fallback catches (RuntimeError, AttributeError)."""
+
+    def _run_with_cja_side_effect(self, exc):
+        """Mock configure_cjapy success then cjapy.CJA() raising *exc*."""
+        with (
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config.json", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator._check_output_dir_access", return_value=(True, ".", None, None)),
+        ):
+            mock_cjapy.CJA.side_effect = exc
+            return generator.validate_config_only(config_file="config.json")
+
+    def test_runtime_error_caught(self):
+        """RuntimeError (in fallback tuple) is caught -> returns False."""
+        result = self._run_with_cja_side_effect(RuntimeError("cjapy init failed"))
+        assert result is False
+
+    def test_attribute_error_caught(self):
+        """AttributeError (in fallback tuple) is caught -> returns False."""
+        result = self._run_with_cja_side_effect(AttributeError("missing method"))
+        # AttributeError is in BOTH RECOVERABLE_API and fallback; first handler catches
+        assert result is False
+
+    def test_system_error_propagates(self):
+        """SystemError is NOT in either handler -> propagates."""
+        with pytest.raises(SystemError, match="should escape"):
+            self._run_with_cja_side_effect(SystemError("should escape"))

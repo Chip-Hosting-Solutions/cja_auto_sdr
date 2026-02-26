@@ -267,9 +267,9 @@ class TestDataViewNameResolution:
 
     @patch("cja_auto_sdr.generator.cjapy")
     def test_resolve_with_unexpected_exception(self, mock_cjapy):
-        """Plain Exception from cjapy bootstrap should return controlled failure."""
+        """RuntimeError from cjapy bootstrap should return controlled failure."""
         mock_cja_instance = MagicMock()
-        mock_cja_instance.getDataViews.side_effect = Exception("unexpected auth failure")
+        mock_cja_instance.getDataViews.side_effect = RuntimeError("unexpected auth failure")
         mock_cjapy.CJA.return_value = mock_cja_instance
         mock_cjapy.importConfigFile.return_value = None
 

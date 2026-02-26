@@ -137,9 +137,9 @@ def test_show_stats_continues_after_unexpected_runtime_error(capsys: pytest.Capt
     assert ok_row["name"] == "Name dv_ok"
 
 
-def test_validate_data_view_unexpected_runtime_error_returns_false() -> None:
+def test_validate_data_view_recoverable_api_error_returns_false() -> None:
     mock_cja = MagicMock()
-    mock_cja.getDataView.side_effect = RuntimeError("unexpected validation runtime failure")
+    mock_cja.getDataView.side_effect = ValueError("unexpected validation failure")
 
     result = generator.validate_data_view(mock_cja, "dv_contract", logging.getLogger(__name__))
 

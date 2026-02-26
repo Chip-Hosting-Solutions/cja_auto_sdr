@@ -271,7 +271,7 @@ class TestValidateConfigOnly:
     def test_api_connection_unexpected_exception(
         self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
-        """Plain Exception from cjapy.CJA()/getDataViews() should return False, not traceback."""
+        """RuntimeError from cjapy.CJA()/getDataViews() should return False, not traceback."""
         from cja_auto_sdr.generator import validate_config_only
 
         config = tmp_path / "config.json"
@@ -279,7 +279,7 @@ class TestValidateConfigOnly:
             json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
         )
         mock_cja = MagicMock()
-        mock_cja.getDataViews.side_effect = Exception("unexpected auth bootstrap failure")
+        mock_cja.getDataViews.side_effect = RuntimeError("unexpected auth bootstrap failure")
         mock_cjapy.CJA.return_value = mock_cja
         with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
             result = validate_config_only(config_file=str(config))

@@ -576,7 +576,7 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
         ):
-            mock_cjapy.importConfigFile.side_effect = Exception("Connection refused")
+            mock_cjapy.importConfigFile.side_effect = OSError("Connection refused")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("api-fail")
 
@@ -620,7 +620,7 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
         ):
             mock_cjapy.importConfigFile.return_value = None
-            mock_cjapy.CJA.side_effect = Exception("Auth failed: invalid credentials")
+            mock_cjapy.CJA.side_effect = OSError("Auth failed: invalid credentials")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("cja-fail")
 

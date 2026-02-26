@@ -2080,7 +2080,7 @@ def test_profile(profile_name: str) -> bool:
         finally:
             os.unlink(temp_config.name)
 
-    except Exception as e:  # Intentional: wraps cjapy API calls that may raise anything
+    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
         print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
         print(ConsoleColors.error(f"   Error: {e}"), file=sys.stderr)
         print()
@@ -2238,7 +2238,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
     except KeyboardInterrupt, SystemExit:
         raise
-    except Exception as e:  # Intentional: wraps cjapy API validation calls
+    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
@@ -5383,7 +5383,7 @@ def process_inventory_summary(
     except RECOVERABLE_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view (unexpected): {e}"), file=sys.stderr)
         logger.debug("Unexpected error fetching data view", exc_info=True)
         return {"error": str(e)}
@@ -6979,9 +6979,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         print("DRY-RUN FAILED - Cannot connect to CJA API")
         print("=" * BANNER_WIDTH)
         return False
-    except Exception as e:
-        # Defensive fallback: dry-run should surface a controlled failure, even
-        # when dependency/runtime exceptions fall outside expected API types.
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         logger.debug("Unexpected dry-run API connection failure", exc_info=True)
         print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
         all_passed = False
@@ -7058,7 +7056,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
-        except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+        except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
             logger.debug(f"Unexpected dry-run validation error for {dv_id}: {e!s}", exc_info=True)
             print(f"  ✗ {dv_id}: Error - {_dry_run_error_text(e)}")
             invalid_count += 1
@@ -7666,7 +7664,7 @@ def resolve_data_view_names(
             resolution_diagnostics,
             include_diagnostics=include_diagnostics,
         )
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         error_message = f"Failed to resolve data view names (unexpected): {e!s}"
         logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
@@ -8515,7 +8513,7 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
     try:
         raw_payload = cja.getDataView(data_view_id)
-    except Exception as e:  # Intentional: wraps cjapy.getDataView() which may raise anything
+    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
         if _is_inaccessible_dataview_lookup_error(e):
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
         raise
@@ -8826,7 +8824,7 @@ def _count_component_items_for_fetch_spec_with_retry(
         logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
     except RECOVERABLE_API_EXCEPTIONS as e:
         logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
     return 0
 
@@ -10747,7 +10745,7 @@ def validate_config_only(
     except RECOVERABLE_API_EXCEPTIONS as e:
         print(f"  \u2717 API connection failed: {e!s}")
         all_passed = False
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         print(f"  \u2717 API connection failed (unexpected): {e!s}")
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
