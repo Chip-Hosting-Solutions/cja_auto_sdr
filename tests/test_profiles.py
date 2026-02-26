@@ -222,6 +222,12 @@ CLIENT_ID='test_client_id'
         assert result["org_id"] == "test@AdobeOrg"
         assert result["client_id"] == "test_client_id"
 
+    def test_malformed_non_utf8_env_returns_none(self, tmp_path):
+        """Malformed/non-UTF8 .env should be treated as unreadable."""
+        (tmp_path / ".env").write_bytes(b"\xff\xfe\x00invalid")
+        result = load_profile_dotenv(tmp_path)
+        assert result is None
+
 
 class TestLoadProfileCredentials:
     """Test loading and merging profile credentials"""
@@ -656,6 +662,12 @@ class TestReadProfileOrgId:
         finally:
             env_file.chmod(0o644)
 
+    def test_malformed_dotenv_falls_back_to_config_json(self, tmp_path):
+        """Malformed .env should not crash and should preserve JSON fallback."""
+        (tmp_path / "config.json").write_text('{"org_id": "SAFE@AdobeOrg"}')
+        (tmp_path / ".env").write_bytes(b"\xff\xfe\x00ORG_ID=bad")
+        assert _read_profile_org_id(tmp_path) == "SAFE@AdobeOrg"
+
     def test_strips_whitespace_from_org_id(self, tmp_path):
         """Whitespace is stripped from org_id values"""
         (tmp_path / "config.json").write_text('{"org_id": "  ABC@AdobeOrg  "}')
@@ -789,3 +801,26 @@ class TestListProfilesOrgId:
             captured = capsys.readouterr()
             data = json.loads(captured.out)
             assert data["profiles"][0]["org_id"] == "ENV_ORG@AdobeOrg"
+
+    def test_listing_continues_when_org_id_read_fails_for_one_profile(self, tmp_path, capsys):
+        """A single unreadable/malformed profile should not abort --profile-list."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        good = profiles_dir / "good"
+        good.mkdir()
+        (good / "config.json").write_text('{"org_id": "GOOD@AdobeOrg"}')
+
+        bad = profiles_dir / "bad"
+        bad.mkdir()
+        (bad / ".env").write_bytes(b"\xff\xfe\x00malformed")
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            result = list_profiles(output_format="json")
+            assert result is True
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        by_name = {profile["name"]: profile for profile in data["profiles"]}
+        assert by_name["good"]["org_id"] == "GOOD@AdobeOrg"
+        assert by_name["bad"]["org_id"] is None

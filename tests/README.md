@@ -92,7 +92,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,077 comprehensive tests**
+**Total: 5,080 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -103,7 +103,7 @@ tests/
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 399 | Command-line interface and argument parsing |
-| `test_profiles.py` | 73 | Multi-organization profile support |
+| `test_profiles.py` | 76 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 48 | Segments inventory feature |
@@ -183,7 +183,7 @@ tests/
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
 | `test_completion.py` | 47 | Shell completion flag (--completion bash/zsh/fish) |
-| **Total** | **5,077** | **Collected via pytest --collect-only** |
+| **Total** | **5,080** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -587,10 +587,10 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,077 tests total)
+- [x] Comprehensive test coverage (5,080 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
-- [x] Profile management tests (test_profiles.py) - 73 tests
+- [x] Profile management tests (test_profiles.py) - 76 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 17 tests

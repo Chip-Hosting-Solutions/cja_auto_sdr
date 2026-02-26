@@ -1369,7 +1369,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
         profile_path: Path to profile directory
 
     Returns:
-        Dictionary with credentials if .env exists and is valid, None otherwise
+        Dictionary with credentials if .env exists and is valid, None otherwise.
+        Malformed/unreadable files are treated as missing.
     """
     env_file = profile_path / ".env"
     if not env_file.exists():
@@ -1377,7 +1378,9 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
 
     credentials = {}
     try:
-        with open(env_file) as f:
+        # Profiles are written by this tool as UTF-8; decode failures are handled
+        # as unreadable input so one bad file does not break profile operations.
+        with open(env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -1392,7 +1395,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
                         # Use CREDENTIAL_FIELDS for allowed fields (single source of truth)
                         if config_key in CREDENTIAL_FIELDS["all"]:
                             credentials[config_key] = value
-    except OSError:
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+    except OSError, UnicodeDecodeError:
         return None
 
     return credentials or None
@@ -1560,7 +1564,12 @@ def list_profiles(output_format: str = "table") -> bool:
             if has_env:
                 config_source.append(".env")
 
-            org_id = _read_profile_org_id(item)
+            try:
+                org_id = _read_profile_org_id(item)
+            except Exception:
+                # Best-effort metadata enrichment only; listing must remain
+                # available even if an individual profile cannot be read.
+                org_id = None
 
             profiles.append(
                 {
