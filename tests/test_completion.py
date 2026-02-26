@@ -4,7 +4,6 @@ Covers:
 - Fast-path detection in __main__.py for each supported shell
 - Correct activation script output on stdout for bash, zsh, fish
 - Missing argcomplete triggers stderr message and exit 1
-- _extract_completion_shell helper errors for invalid/missing shell tokens
 - Fast-path defers malformed or mixed completion argv to generator/argparse flow
 - Safety-net dispatch from generator._main_impl()
 """
@@ -30,62 +29,6 @@ def _run_entrypoint_main(argv: list[str]):
         with pytest.raises(SystemExit) as exc_info:
             entrypoint.main()
     return exc_info
-
-
-# ---------------------------------------------------------------------------
-# _extract_completion_shell unit tests
-# ---------------------------------------------------------------------------
-
-
-class TestExtractCompletionShell:
-    """Unit tests for _extract_completion_shell()."""
-
-    def test_returns_none_when_no_completion_flag(self):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        assert _extract_completion_shell(["prog", "--version"]) is None
-
-    def test_returns_none_for_empty_args(self):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        assert _extract_completion_shell(["prog"]) is None
-
-    @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
-    def test_extracts_valid_shell(self, shell):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        result = _extract_completion_shell(["prog", "--completion", shell])
-        assert result == shell
-
-    def test_shell_name_is_case_insensitive(self):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        assert _extract_completion_shell(["prog", "--completion", "BASH"]) == "bash"
-        assert _extract_completion_shell(["prog", "--completion", "Zsh"]) == "zsh"
-        assert _extract_completion_shell(["prog", "--completion", "FISH"]) == "fish"
-
-    def test_missing_shell_argument_exits_1(self, capsys):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        with pytest.raises(SystemExit) as exc_info:
-            _extract_completion_shell(["prog", "--completion"])
-
-        assert int(exc_info.value.code) == 1
-        stderr = capsys.readouterr().err
-        assert "--completion requires a shell argument" in stderr
-
-    def test_invalid_shell_exits_1(self, capsys):
-        from cja_auto_sdr.__main__ import _extract_completion_shell
-
-        with pytest.raises(SystemExit) as exc_info:
-            _extract_completion_shell(["prog", "--completion", "powershell"])
-
-        assert int(exc_info.value.code) == 1
-        stderr = capsys.readouterr().err
-        assert "unsupported shell 'powershell'" in stderr
-        assert "bash" in stderr
-        assert "zsh" in stderr
-        assert "fish" in stderr
 
 
 # ---------------------------------------------------------------------------
@@ -435,9 +378,9 @@ class TestCompletionScriptContent:
         ],
     )
     def test_render_completion_script_uses_resolved_command_name(self, shell, argv0, expected_command):
-        from cja_auto_sdr.__main__ import _render_completion_script
+        from cja_auto_sdr.__main__ import _render_completion_script, _resolve_completion_command_name
 
-        script = _render_completion_script(shell, argv0)
+        script = _render_completion_script(shell, _resolve_completion_command_name(argv0))
         assert expected_command in script
         assert "register-python-argcomplete" in script
 
@@ -516,3 +459,21 @@ class TestCompletionSafetyNet:
         captured = capsys.readouterr()
         assert "Failed to load --quality-policy" not in captured.err
         assert "register-python-argcomplete" in captured.out
+
+    def test_generator_safety_net_exit_codes_precedes_completion(self):
+        """Mixed --exit-codes/--completion should dispatch exit-codes branch first."""
+        from cja_auto_sdr.generator import _main_impl
+
+        run_state: dict[str, object] = {}
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes", "--completion", "bash"]),
+            patch("cja_auto_sdr.core.exit_codes.print_exit_codes") as mock_print_exit_codes,
+            patch("cja_auto_sdr.generator._handle_completion_prevalidation") as mock_completion_prevalidation,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _main_impl(run_state=run_state)
+
+        assert int(exc_info.value.code) == 0
+        assert run_state["mode"] == "exit_codes"
+        mock_print_exit_codes.assert_called_once()
+        mock_completion_prevalidation.assert_not_called()

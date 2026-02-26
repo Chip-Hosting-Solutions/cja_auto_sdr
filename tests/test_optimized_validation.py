@@ -16,6 +16,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import DataQualityChecker
 
+_PERF_REGRESSION_FACTOR = 1.5
+_PERF_ABSOLUTE_OVERHEAD_SECONDS = 0.001
+
 
 class TestOptimizedValidation:
     """Test optimized data quality validation methods"""
@@ -377,10 +380,15 @@ class TestOptimizedValidationPerformance:
         print("    - Multiple simultaneous validations in batch mode")
         print("  Target improvement: 30-50% for production workloads")
 
-        # Test that optimized version doesn't introduce major regressions
-        # Allow reasonable margin for test environment variance and logging overhead
-        assert optimized_time <= original_time * 1.5, (
-            f"Optimized ({optimized_time:.4f}s) should not be significantly slower than original ({original_time:.4f}s)"
+        # Guard against significant regressions while tolerating timer jitter on
+        # sub-millisecond local/CI runs.
+        max_allowed = max(
+            original_time * _PERF_REGRESSION_FACTOR,
+            original_time + _PERF_ABSOLUTE_OVERHEAD_SECONDS,
+        )
+        assert optimized_time <= max_allowed, (
+            f"Optimized ({optimized_time:.4f}s) should not be significantly slower than "
+            f"original ({original_time:.4f}s); allowed <= {max_allowed:.4f}s"
         )
 
     def test_optimized_scales_better(self):
@@ -447,12 +455,17 @@ class TestOptimizedValidationPerformance:
         print("    - Reduced logging verbosity")
         print("    - Primary benefit: Single-pass validation improves code maintainability")
 
-        # Check that optimized doesn't regress significantly
-        # Allow reasonable margin for test variance and logging overhead
+        # Check that optimized doesn't regress significantly while tolerating
+        # tiny absolute timing noise on very fast environments.
         for i in range(len(sizes)):
-            assert times_optimized[i] <= times_original[i] * 1.5, (
+            max_allowed = max(
+                times_original[i] * _PERF_REGRESSION_FACTOR,
+                times_original[i] + _PERF_ABSOLUTE_OVERHEAD_SECONDS,
+            )
+            assert times_optimized[i] <= max_allowed, (
                 f"Optimized should not be significantly slower for size {sizes[i]} "
-                f"(Original={times_original[i]:.4f}s, Optimized={times_optimized[i]:.4f}s)"
+                f"(Original={times_original[i]:.4f}s, Optimized={times_optimized[i]:.4f}s, "
+                f"allowed<={max_allowed:.4f}s)"
             )
 
 

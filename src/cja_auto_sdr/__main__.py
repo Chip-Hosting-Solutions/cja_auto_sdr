@@ -352,12 +352,12 @@ def _resolve_completion_command_name(argv0: str | None) -> str:
 
 
 def _render_completion_script(shell: str, command_name: str) -> str:
-    """Render shell completion script for *shell* and *command_name*."""
+    """Render shell completion script for *shell* and resolved *command_name*."""
     template = _COMPLETION_SCRIPT_TEMPLATES.get(shell)
     if template is None:
         raise ValueError(f"Unsupported shell: {shell}")
 
-    quoted_command = shlex.quote(_resolve_completion_command_name(command_name))
+    quoted_command = shlex.quote(command_name)
     return template.format(command=quoted_command)
 
 
@@ -378,37 +378,6 @@ def _print_exit_codes() -> None:
     from cja_auto_sdr.core.exit_codes import print_exit_codes
 
     print_exit_codes(banner_width=BANNER_WIDTH)
-
-
-def _extract_completion_shell(argv: list[str]) -> str | None:
-    """Extract the shell name following ``--completion`` in *argv*.
-
-    Returns the shell name (e.g. ``"bash"``) or ``None`` if ``--completion``
-    is not present.  Raises ``SystemExit(1)`` when ``--completion`` appears
-    with no following argument or with an unsupported shell name.
-    """
-    args = argv[1:]  # skip argv[0]
-    try:
-        idx = args.index(_COMPLETION_OPTION)
-    except ValueError:
-        return None
-
-    if idx + 1 >= len(args):
-        print(
-            f"error: --completion requires a shell argument ({', '.join(sorted(_SUPPORTED_SHELLS))})",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-
-    shell = args[idx + 1].lower()
-    if shell not in _SUPPORTED_SHELLS:
-        print(
-            f"error: unsupported shell '{shell}'. Supported shells: {', '.join(sorted(_SUPPORTED_SHELLS))}",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-
-    return shell
 
 
 def _handle_completion(shell: str, argv0: str | None = None) -> None:

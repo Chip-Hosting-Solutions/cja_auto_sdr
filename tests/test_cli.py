@@ -3916,6 +3916,39 @@ class TestRunSummaryOutput:
         assert payload["exit_code"] == 0
         assert payload["status"] == "success"
 
+    def test_run_summary_exit_codes_precedes_completion_mode_classification(self, tmp_path):
+        """Mixed --exit-codes/--completion should preserve exit-codes summary mode."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_exit_codes_precedes_completion.json"
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cja_auto_sdr",
+                    "--exit-codes",
+                    "--completion",
+                    "bash",
+                    "--run-summary-json",
+                    str(summary_file),
+                ],
+            ),
+            patch("cja_auto_sdr.core.exit_codes.print_exit_codes") as mock_print_exit_codes,
+            patch("cja_auto_sdr.generator._handle_completion_prevalidation") as mock_completion_prevalidation,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "exit_codes"
+        assert payload["exit_code"] == 0
+        assert payload["status"] == "success"
+        mock_print_exit_codes.assert_called_once()
+        mock_completion_prevalidation.assert_not_called()
+
     def test_run_summary_stdout_subprocess_version_is_order_independent(self):
         """E2E: --version should still emit run summary JSON regardless of flag order."""
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
