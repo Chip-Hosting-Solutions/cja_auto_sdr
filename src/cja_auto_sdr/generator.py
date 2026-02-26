@@ -1677,7 +1677,7 @@ def add_profile_interactive(profile_name: str) -> bool:
     # Validate profile name
     is_valid, error_msg = validate_profile_name(profile_name)
     if not is_valid:
-        print(f"Error: {error_msg}")
+        print(ConsoleColors.error(f"Error: {error_msg}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -1694,7 +1694,7 @@ def add_profile_interactive(profile_name: str) -> bool:
     try:
         profile_path.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        print(f"Error creating profile directory: {e}")
+        print(ConsoleColors.error(f"Error creating profile directory: {e}"), file=sys.stderr)
         return False
 
     print()
@@ -1709,12 +1709,12 @@ def add_profile_interactive(profile_name: str) -> bool:
     try:
         org_id = input("Organization ID (ends with @AdobeOrg): ").strip()
         if not org_id:
-            print("Error: Organization ID is required")
+            print(ConsoleColors.error("Error: Organization ID is required"), file=sys.stderr)
             return False
 
         client_id = input("Client ID: ").strip()
         if not client_id:
-            print("Error: Client ID is required")
+            print(ConsoleColors.error("Error: Client ID is required"), file=sys.stderr)
             return False
 
         # Use getpass for secret (never fall back to echoing input)
@@ -1723,16 +1723,16 @@ def add_profile_interactive(profile_name: str) -> bool:
         try:
             secret = getpass.getpass("Client Secret: ").strip()
         except getpass.GetPassWarning:
-            print("Error: Cannot securely read secret (no TTY available). Use --profile import instead.")
+            print(ConsoleColors.error("Error: Cannot securely read secret (no TTY available). Use --profile-import instead."), file=sys.stderr)
             return False
 
         if not secret:
-            print("Error: Client Secret is required")
+            print(ConsoleColors.error("Error: Client Secret is required"), file=sys.stderr)
             return False
 
         scopes = input("OAuth Scopes (from Developer Console): ").strip()
         if not scopes:
-            print("Error: OAuth Scopes are required")
+            print(ConsoleColors.error("Error: OAuth Scopes are required"), file=sys.stderr)
             return False
 
     except KeyboardInterrupt, EOFError:
@@ -1748,7 +1748,7 @@ def add_profile_interactive(profile_name: str) -> bool:
         with open(fd, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
     except OSError as e:
-        print(f"Error writing config file: {e}")
+        print(ConsoleColors.error(f"Error writing config file: {e}"), file=sys.stderr)
         return False
 
     print()
@@ -1862,7 +1862,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     """Import a profile from JSON/.env without interactive prompts."""
     is_valid_name, error_msg = validate_profile_name(profile_name)
     if not is_valid_name:
-        print(f"Error: {error_msg}")
+        print(ConsoleColors.error(f"Error: {error_msg}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -1875,7 +1875,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     try:
         credentials = load_profile_import_source(source_file)
     except (OSError, json.JSONDecodeError, ValueError) as e:
-        print(f"Error loading profile import source '{source_file}': {e}")
+        print(ConsoleColors.error(f"Error loading profile import source '{source_file}': {e}"), file=sys.stderr)
         return False
 
     validation_logger = logging.getLogger("profile_import")
@@ -1887,7 +1887,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
         source=f"profile import ({source_file})",
     )
     if not is_usable:
-        print("Error: Imported credentials failed validation:")
+        print(ConsoleColors.error("Error: Imported credentials failed validation:"), file=sys.stderr)
         for issue in issues:
             print(f"  - {issue}")
         return False
@@ -1904,7 +1904,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
             json.dump(config_payload, f, indent=2)
             f.write("\n")
     except OSError as e:
-        print(f"Error writing profile config: {e}")
+        print(ConsoleColors.error(f"Error writing profile config: {e}"), file=sys.stderr)
         return False
 
     if profile_exists and (profile_path / ".env").exists():
@@ -1957,10 +1957,10 @@ def show_profile(profile_name: str) -> bool:
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
-        print(f"Error: {e}")
+        print(ConsoleColors.error(f"Error: {e}"), file=sys.stderr)
         return False
     except ProfileConfigError as e:
-        print(f"Error: {e}")
+        print(ConsoleColors.error(f"Error: {e}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -2022,10 +2022,10 @@ def test_profile(profile_name: str) -> bool:
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
-        print(f"FAILED: {e}")
+        print(ConsoleColors.error(f"ERROR: {e}"), file=sys.stderr)
         return False
     except ProfileConfigError as e:
-        print(f"FAILED: {e}")
+        print(ConsoleColors.error(f"ERROR: {e}"), file=sys.stderr)
         return False
 
     print("1. Profile found and loaded")
@@ -2076,10 +2076,10 @@ def test_profile(profile_name: str) -> bool:
             os.unlink(temp_config.name)
 
     except Exception as e:  # Intentional: wraps cjapy API calls that may raise anything
-        print("   API connection: FAILED")
-        print(f"   Error: {e}")
+        print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
+        print(ConsoleColors.error(f"   Error: {e}"), file=sys.stderr)
         print()
-        print("Profile test: FAILED")
+        print(ConsoleColors.error("Profile test: FAILED"), file=sys.stderr)
         print()
         print("Common issues:")
         print("  - Invalid client_id or secret")
