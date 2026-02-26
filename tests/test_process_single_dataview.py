@@ -99,7 +99,6 @@ class TestProcessSingleDataviewSuccess:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -110,7 +109,6 @@ class TestProcessSingleDataviewSuccess:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -126,7 +124,6 @@ class TestProcessSingleDataviewSuccess:
 
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         # Setup fetcher
         mock_fetcher = Mock()
@@ -160,7 +157,6 @@ class TestProcessSingleDataviewSuccess:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -171,7 +167,6 @@ class TestProcessSingleDataviewSuccess:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -186,7 +181,6 @@ class TestProcessSingleDataviewSuccess:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -237,21 +231,24 @@ class TestProcessSingleDataviewFailures:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     def test_data_view_validation_failure(
         self,
-        mock_validate_dv,
+        mock_fetcher_class,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
         temp_output_dir,
     ):
-        """Test handling of data view validation failure"""
+        """Test handling of data view validation failure (empty lookup_data)"""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = False
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), {})
+        mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
             data_view_id="dv_invalid",
@@ -264,12 +261,40 @@ class TestProcessSingleDataviewFailures:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_data_view_validation_failure_none_lookup(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """Test handling of data view validation failure (None lookup_data)"""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), None)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_invalid",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "validation failed" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     def test_empty_data_fetched(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -282,7 +307,6 @@ class TestProcessSingleDataviewFailures:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), sample_dataview_info)
@@ -299,7 +323,6 @@ class TestProcessSingleDataviewFailures:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("pandas.ExcelWriter")
@@ -308,7 +331,6 @@ class TestProcessSingleDataviewFailures:
         mock_excel_writer,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -323,7 +345,6 @@ class TestProcessSingleDataviewFailures:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -353,7 +374,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_csv_output")
@@ -362,7 +382,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_write_csv,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -376,7 +395,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -403,7 +421,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
@@ -412,7 +429,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_write_json,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -426,7 +442,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -453,7 +468,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_html_output")
@@ -462,7 +476,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_write_html,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -476,7 +489,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -503,7 +515,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_markdown_output")
@@ -512,7 +523,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_write_md,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -526,7 +536,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -557,7 +566,6 @@ class TestProcessSingleDataviewCaching:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.ValidationCache")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
@@ -570,7 +578,6 @@ class TestProcessSingleDataviewCaching:
         mock_dq_checker_class,
         mock_cache_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -584,7 +591,6 @@ class TestProcessSingleDataviewCaching:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -618,7 +624,6 @@ class TestProcessSingleDataviewCaching:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.ValidationCache")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
@@ -631,7 +636,6 @@ class TestProcessSingleDataviewCaching:
         mock_dq_checker_class,
         mock_cache_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -645,7 +649,6 @@ class TestProcessSingleDataviewCaching:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -737,7 +740,6 @@ class TestProcessSingleDataviewFilenaming:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -748,7 +750,6 @@ class TestProcessSingleDataviewFilenaming:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -761,7 +762,6 @@ class TestProcessSingleDataviewFilenaming:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         # Data view with special characters in name
         special_name_info = {
@@ -803,7 +803,6 @@ class TestProcessSingleDataviewMaxIssues:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -814,7 +813,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -828,7 +826,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -857,14 +854,12 @@ class TestProcessSingleDataviewMaxIssues:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_respects_max_issues(
         self,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -878,7 +873,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -932,7 +926,6 @@ class TestProcessSingleDataviewMaxIssues:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
@@ -941,7 +934,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_write_json,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -955,7 +947,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -989,14 +980,12 @@ class TestProcessSingleDataviewMaxIssues:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_fails_when_validation_runtime_errors(
         self,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1010,7 +999,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
@@ -1037,14 +1025,12 @@ class TestProcessSingleDataviewMaxIssues:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_fails_when_validation_errors(
         self,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1058,7 +1044,6 @@ class TestProcessSingleDataviewMaxIssues:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)

@@ -5622,18 +5622,6 @@ def process_single_dataview(
 
         logger.info("✓ CJA connection established successfully")
 
-        # Validate data view
-        if not validate_data_view(cja, data_view_id, logger):
-            return ProcessingResult(
-                data_view_id=data_view_id,
-                data_view_name="Unknown",
-                success=False,
-                duration=time.time() - start_time,
-                error_message="Data view validation failed",
-            )
-
-        logger.info("✓ Data view validation complete - proceeding with data fetch")
-
         # Fetch data with parallel optimization
         logger.info("=" * BANNER_WIDTH)
         logger.info("Starting optimized data fetch operations")
@@ -5660,6 +5648,18 @@ def process_single_dataview(
             )
 
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
+
+        # Validate fetched data view (replaces separate validate_data_view call)
+        if lookup_data is None or (isinstance(lookup_data, dict) and not lookup_data):
+            logger.error("Data view validation failed — empty payload from API")
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name="Unknown",
+                success=False,
+                duration=time.time() - start_time,
+                error_message="Data view validation failed",
+            )
+        logger.info("✓ Data view validated and fetched successfully")
 
         # Log tuner statistics if tuning was enabled
         tuner_stats = fetcher.get_tuner_statistics()

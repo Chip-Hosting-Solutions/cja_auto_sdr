@@ -159,7 +159,6 @@ def e2e_dataview_info():
 def _setup_api_mocks(
     mock_setup_logging,
     mock_init_cja,
-    mock_validate_dv,
     mock_fetcher_class,
     metrics_df,
     dimensions_df,
@@ -173,7 +172,6 @@ def _setup_api_mocks(
 
     mock_cja = Mock()
     mock_init_cja.return_value = mock_cja
-    mock_validate_dv.return_value = True
 
     mock_fetcher = Mock()
     mock_fetcher.fetch_all_data.return_value = (
@@ -191,7 +189,6 @@ def _setup_api_mocks(
 _api_boundary_patches = [
     patch("cja_auto_sdr.generator.setup_logging"),
     patch("cja_auto_sdr.generator.initialize_cja"),
-    patch("cja_auto_sdr.generator.validate_data_view"),
     patch("cja_auto_sdr.generator.ParallelAPIFetcher"),
 ]
 
@@ -236,7 +233,6 @@ class TestEndToEndPipeline:
     def test_excel_output_produces_valid_workbook(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -248,7 +244,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -294,7 +289,6 @@ class TestEndToEndPipeline:
     def test_csv_output_produces_parseable_files(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -306,7 +300,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -355,7 +348,6 @@ class TestEndToEndPipeline:
     def test_json_output_has_correct_structure_and_data(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -367,7 +359,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -423,7 +414,6 @@ class TestEndToEndPipeline:
     def test_html_output_is_well_formed_and_contains_data(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -435,7 +425,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -478,7 +467,6 @@ class TestEndToEndPipeline:
     def test_markdown_output_contains_tables_and_data(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -490,7 +478,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -527,7 +514,6 @@ class TestEndToEndPipeline:
     def test_all_formats_generates_every_format(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -539,7 +525,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -573,7 +558,6 @@ class TestEndToEndPipeline:
     def test_data_quality_issues_detected_in_output(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -586,7 +570,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -617,7 +600,6 @@ class TestEndToEndPipeline:
     def test_skip_validation_produces_output_without_dq(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -629,7 +611,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -656,7 +637,6 @@ class TestEndToEndPipeline:
     def test_quality_report_only_returns_issues_without_files(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -668,7 +648,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -697,7 +676,6 @@ class TestEndToEndPipeline:
     def test_cja_init_failure_returns_failed_result(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -728,7 +706,6 @@ class TestEndToEndPipeline:
     def test_dataview_validation_failure(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -741,7 +718,12 @@ class TestEndToEndPipeline:
         logger.handlers = []
         mock_setup_logging.return_value = logger
         mock_init_cja.return_value = Mock()
-        mock_validate_dv.return_value = False  # Simulate invalid DV
+
+        # Simulate invalid DV by returning empty lookup_data
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), {})
+        mock_fetcher.get_tuner_statistics.return_value = None
+        mock_fetcher_class.return_value = mock_fetcher
 
         result = process_single_dataview(
             data_view_id=DV_ID,
@@ -759,7 +741,6 @@ class TestEndToEndPipeline:
     def test_empty_dataview_returns_failure(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -772,7 +753,6 @@ class TestEndToEndPipeline:
         logger.handlers = []
         mock_setup_logging.return_value = logger
         mock_init_cja.return_value = Mock()
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.return_value = (
@@ -799,7 +779,6 @@ class TestEndToEndPipeline:
     def test_metrics_only_excludes_dimensions_from_excel(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -811,7 +790,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -836,7 +814,6 @@ class TestEndToEndPipeline:
     def test_dimensions_only_excludes_metrics_from_excel(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -848,7 +825,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -875,7 +851,6 @@ class TestEndToEndPipeline:
     def test_max_issues_limits_reported_count(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -887,7 +862,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,
@@ -929,7 +903,6 @@ class TestEndToEndPipeline:
     def test_special_characters_handled_in_all_formats(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         e2e_config_file,
@@ -942,7 +915,6 @@ class TestEndToEndPipeline:
         _setup_api_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             e2e_metrics_df,
             e2e_dimensions_df,

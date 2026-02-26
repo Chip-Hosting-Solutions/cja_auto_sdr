@@ -1946,7 +1946,6 @@ class TestMainImplSingleModeResults:
 class TestProcessSingleDataviewExceptions:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1957,7 +1956,6 @@ class TestProcessSingleDataviewExceptions:
         mock_apply_fmt,
         mock_dq_cls,
         mock_fetcher_cls,
-        mock_validate,
         mock_init_cja,
         mock_setup_log,
         tmp_path,
@@ -1970,7 +1968,6 @@ class TestProcessSingleDataviewExceptions:
 
         mock_cja = MagicMock()
         mock_init_cja.return_value = mock_cja
-        mock_validate.return_value = True
 
         metrics_df = pd.DataFrame({"id": ["m1"], "name": ["Met 1"], "type": ["std"]})
         dims_df = pd.DataFrame({"id": ["d1"], "name": ["Dim 1"], "type": ["str"]})
