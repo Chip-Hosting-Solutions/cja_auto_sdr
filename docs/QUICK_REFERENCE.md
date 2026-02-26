@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.3.3.
+Single-page command cheat sheet for CJA SDR Generator v3.3.4.
 
 ## Four Main Modes
 
@@ -284,7 +284,7 @@ cja_auto_sdr --org-report --include-metadata
 cja_auto_sdr --profile-add client-a
 cja_auto_sdr --profile-add client-b
 
-# List all profiles
+# List all profiles (shows org_id from each profile config)
 cja_auto_sdr --profile-list
 
 # Use a specific profile
@@ -500,11 +500,16 @@ export GITHUB_STEP_SUMMARY=/path/to/summary.md
 # Generate sample config file
 cja_auto_sdr --sample-config
 
-# Validate configuration and API connection
+# Validate configuration and API connection (5-step: environment,
+# dependencies, credentials, API connectivity, output permissions)
 cja_auto_sdr --validate-config
 
 # Test specific data views without generating
 cja_auto_sdr dv_12345 --dry-run
+
+# Enable shell tab-completion
+cja_auto_sdr --completion bash >> ~/.bashrc
+cja_auto_sdr --completion zsh >> ~/.zshrc
 ```
 
 See [CONFIGURATION.md](CONFIGURATION.md) for detailed setup of `config.json` and environment variables.

@@ -353,6 +353,399 @@ class TestValidateConfigOnly:
 
 
 # ---------------------------------------------------------------------------
+# 2b. validate_config_only — new steps (environment, dependencies, output)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateConfigOnlyEnvironmentStep:
+    """Step [1/5]: environment check (Python version, platform)."""
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_environment_step_shows_python_version(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        assert "[1/5] Checking environment..." in output
+        assert "Python" in output
+        assert "(minimum: 3.14)" in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_environment_step_shows_platform(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        assert "Platform:" in output
+
+    def test_python_version_too_low_fails(self, capsys: pytest.CaptureFixture) -> None:
+        """Python version below 3.14 should fail validation."""
+        import sys as _sys
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        # sys.version_info is a named tuple that supports >= comparison with
+        # a plain tuple. We create a subclass of tuple with attribute access.
+        class FakeVersionInfo(tuple):
+            __slots__ = ()
+            major = 3
+            minor = 12
+            micro = 0
+
+        fake_version_info = FakeVersionInfo((3, 12, 0))
+
+        with patch("cja_auto_sdr.generator.sys") as mock_sys:
+            mock_sys.version_info = fake_version_info
+            mock_sys.platform = _sys.platform
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "Python 3.12.0" in output
+        assert "VALIDATION FAILED" in output
+
+
+class TestValidateConfigOnlyDependenciesStep:
+    """Step [2/5]: dependency check (core + optional)."""
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_dependencies_step_shows_core_deps(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        assert "[2/5] Checking dependencies..." in output
+        # Core deps should all show with checkmark
+        for pkg in ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm"):
+            assert pkg in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_dependencies_step_shows_optional_deps(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        # Optional deps show with dash, regardless of installed status
+        assert "optional" in output
+        assert "--org-report clustering" in output or "org-report" in output
+        assert "shell tab-completion" in output
+        assert ".env file loading" in output
+
+    def test_missing_core_dependency_fails(self, capsys: pytest.CaptureFixture) -> None:
+        """Missing core dependency should fail validation."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "pandas":
+                raise importlib.metadata.PackageNotFoundError(pkg)
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "pandas (not installed)" in output
+        assert "VALIDATION FAILED" in output
+
+    def test_missing_optional_dependency_does_not_fail(self, capsys: pytest.CaptureFixture) -> None:
+        """Missing optional dependency should NOT fail validation."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg in ("scipy", "argcomplete", "python-dotenv"):
+                raise importlib.metadata.PackageNotFoundError(pkg)
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+                validate_config_only()
+        # Fails for credentials, not for optional deps
+        output = capsys.readouterr().out
+        assert "scipy not installed (optional" in output
+        assert "argcomplete not installed (optional" in output
+        assert "python-dotenv not installed (optional" in output
+        # Should NOT fail at step 2 — it should proceed to step 3
+        assert "[3/5]" in output
+
+    def test_malformed_metadata_on_core_dep_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """Non-PackageNotFoundError on core dep should fail validation with diagnostic."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "pandas":
+                raise ValueError("malformed metadata")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "pandas" in output
+        assert "metadata error" in output
+        assert "VALIDATION FAILED" in output
+
+    def test_oserror_on_core_dep_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """OSError on core dep metadata should fail validation with diagnostic."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "numpy":
+                raise OSError("corrupt dist-info")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        assert "numpy" in output
+        assert "metadata error" in output
+
+    def test_malformed_metadata_on_optional_dep_does_not_fail(self, capsys: pytest.CaptureFixture) -> None:
+        """Non-PackageNotFoundError on optional dep should show diagnostic but not fail."""
+        import importlib.metadata
+
+        from cja_auto_sdr.generator import validate_config_only
+
+        original_version = importlib.metadata.version
+
+        def mock_version(pkg):
+            if pkg == "scipy":
+                raise ValueError("corrupt metadata")
+            return original_version(pkg)
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=mock_version):
+            with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+                validate_config_only()
+        output = capsys.readouterr().out
+        assert "scipy" in output
+        assert "metadata error" in output
+        # Should proceed past step 2 — optional deps never fail validation
+        assert "[3/5]" in output
+
+    def test_all_core_deps_metadata_errors_fails_validation(self, capsys: pytest.CaptureFixture) -> None:
+        """If all core deps raise non-PackageNotFoundError, validation fails with diagnostics."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        def all_broken(pkg):
+            raise RuntimeError(f"metadata backend unavailable for {pkg}")
+
+        with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=all_broken):
+            result = validate_config_only()
+        assert result is False
+        output = capsys.readouterr().out
+        for pkg in ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm"):
+            assert pkg in output
+            assert "metadata error" in output
+        assert "VALIDATION FAILED" in output
+
+
+class TestValidateConfigOnlyOutputPermissionsStep:
+    """Step [5/5]: output permissions check."""
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_shown_on_success(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        assert "[5/5] Checking output permissions..." in output
+        assert "Output directory writable" in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_not_writable_fails(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.os.access", return_value=False):
+            result = validate_config_only(profile="myprofile")
+        assert result is False
+        output = capsys.readouterr().out
+        assert "Output directory not writable" in output
+        assert "VALIDATION FAILED" in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_uses_output_dir_param(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should check the output_dir passed as argument, not hard-coded '.'."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile", output_dir=str(tmp_path))
+        output = capsys.readouterr().out
+        assert str(tmp_path) in output
+        assert "Output directory writable" in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_missing_dir_uses_parent_writability(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should pass when output_dir does not exist but parent is writable."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        new_output_dir = tmp_path / "nested" / "new-output"
+        result = validate_config_only(profile="myprofile", output_dir=str(new_output_dir))
+        assert result is True
+        output = capsys.readouterr().out
+        assert "Output directory creatable" in output
+        assert str(new_output_dir.resolve()) in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_output_permissions_existing_file_fails(
+        self, mock_load, mock_cjapy, _mock_config_env, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should fail when output_dir points to a file path."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        output_file = tmp_path / "not-a-directory.txt"
+        output_file.write_text("x", encoding="utf-8")
+        result = validate_config_only(profile="myprofile", output_dir=str(output_file))
+        assert result is False
+        output = capsys.readouterr().out
+        assert "Output path is not a directory" in output
+        assert "VALIDATION FAILED" in output
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_output_permissions_skipped_when_api_fails(
+        self, mock_cjapy, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Step 5 should not run when step 4 (API) fails."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        config = tmp_path / "config.json"
+        config.write_text(
+            json.dumps({"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}),
+        )
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.side_effect = APIError("connection refused")
+        mock_cjapy.CJA.return_value = mock_cja
+        with patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=None):
+            result = validate_config_only(config_file=str(config))
+        assert result is False
+        output = capsys.readouterr().out
+        assert "[5/5]" not in output
+
+
+class TestValidateConfigOnlyStepNumbering:
+    """Verify the 5-step numbering is correct across the full flow."""
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_all_five_steps_appear(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        result = validate_config_only(profile="myprofile")
+        assert result is True
+        output = capsys.readouterr().out
+        assert "[1/5]" in output
+        assert "[2/5]" in output
+        assert "[3/5]" in output
+        assert "[4/5]" in output
+        assert "[5/5]" in output
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_no_old_step_numbers(self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture) -> None:
+        """Old step numbering [X/3] should no longer appear."""
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+        validate_config_only(profile="myprofile")
+        output = capsys.readouterr().out
+        assert "/3]" not in output
+
+
+# ---------------------------------------------------------------------------
 # 3. show_stats — lines 10226-10410
 # ---------------------------------------------------------------------------
 

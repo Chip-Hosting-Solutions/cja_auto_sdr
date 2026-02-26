@@ -9,7 +9,33 @@ Shell completion allows you to:
 - See available choices for options (e.g., `--format ` + `TAB` shows all formats)
 - Reduce typos and speed up your workflow
 
-## Quick Setup
+## Quick Setup (Recommended)
+
+The easiest way to enable completions is with the built-in `--completion` flag:
+
+### Bash
+
+```bash
+cja_auto_sdr --completion bash >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Zsh
+
+```bash
+cja_auto_sdr --completion zsh >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Fish
+
+```bash
+cja_auto_sdr --completion fish > ~/.config/fish/completions/cja_auto_sdr.fish
+```
+
+> **Note:** If `argcomplete` is not installed, this command will print install instructions.
+
+## Manual Setup (Alternative)
 
 ### Bash
 

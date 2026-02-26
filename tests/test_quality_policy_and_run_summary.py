@@ -7,7 +7,9 @@ _coerce_run_mode.
 """
 
 import argparse
+import importlib.metadata
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -15,6 +17,7 @@ from cja_auto_sdr.generator import (
     ProcessingResult,
     RunMode,
     _coerce_run_mode,
+    _collect_environment_info,
     _infer_run_status,
     _normalize_exit_code,
     aggregate_quality_issues,
@@ -376,3 +379,103 @@ class TestCoerceRunMode:
 
     def test_int_input(self):
         assert _coerce_run_mode(42) is None
+
+
+# ==================== _collect_environment_info ====================
+
+
+class TestCollectEnvironmentInfo:
+    def test_returns_expected_keys(self):
+        info = _collect_environment_info()
+        assert "python_version" in info
+        assert "platform" in info
+        assert "platform_version" in info
+        assert "dependencies" in info
+
+    def test_python_version_format(self):
+        import sys
+
+        info = _collect_environment_info()
+        vi = sys.version_info
+        assert info["python_version"] == f"{vi.major}.{vi.minor}.{vi.micro}"
+
+    def test_platform_matches_sys(self):
+        import sys
+
+        info = _collect_environment_info()
+        assert info["platform"] == sys.platform
+
+    def test_platform_version_is_string(self):
+        info = _collect_environment_info()
+        assert isinstance(info["platform_version"], str)
+        assert len(info["platform_version"]) > 0
+
+    def test_dependencies_contains_core_packages(self):
+        info = _collect_environment_info()
+        expected = {"cjapy", "pandas", "numpy", "xlsxwriter", "tqdm"}
+        assert set(info["dependencies"].keys()) == expected
+
+    def test_dependency_versions_are_strings(self):
+        info = _collect_environment_info()
+        for pkg, ver in info["dependencies"].items():
+            assert isinstance(ver, str), f"{pkg} version is not a string"
+
+    def test_graceful_fallback_on_missing_package(self):
+        with patch(
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
+            side_effect=importlib.metadata.PackageNotFoundError("not found"),
+        ):
+            info = _collect_environment_info()
+            for ver in info["dependencies"].values():
+                assert ver == "unknown"
+
+    def test_partial_failure_returns_unknown_for_failing_only(self):
+        real_version = importlib.metadata.version
+
+        def selective_fail(pkg):
+            if pkg == "numpy":
+                raise importlib.metadata.PackageNotFoundError("not found")
+            return real_version(pkg)
+
+        with patch(
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
+            side_effect=selective_fail,
+        ):
+            info = _collect_environment_info()
+            assert info["dependencies"]["numpy"] == "unknown"
+            # Other packages should still have real versions
+            assert info["dependencies"]["pandas"] != "unknown"
+
+    def test_non_package_not_found_error_returns_unknown(self):
+        """Non-PackageNotFoundError metadata exceptions should map to 'unknown', not crash."""
+
+        def metadata_bomb(pkg):
+            raise ValueError(f"malformed metadata for {pkg}")
+
+        with patch(
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
+            side_effect=metadata_bomb,
+        ):
+            info = _collect_environment_info()
+            for ver in info["dependencies"].values():
+                assert ver == "unknown"
+            # Rest of the payload should still be intact
+            assert "python_version" in info
+            assert "platform" in info
+
+    def test_oserror_during_metadata_does_not_crash_environment_info(self):
+        """OSError from corrupt dist-info should not prevent environment collection."""
+        real_version = importlib.metadata.version
+
+        def corrupt_one(pkg):
+            if pkg == "pandas":
+                raise OSError("cannot read dist-info")
+            return real_version(pkg)
+
+        with patch(
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
+            side_effect=corrupt_one,
+        ):
+            info = _collect_environment_info()
+            assert info["dependencies"]["pandas"] == "unknown"
+            assert info["dependencies"]["numpy"] != "unknown"

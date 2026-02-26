@@ -3,10 +3,12 @@ import contextlib
 import csv
 import hashlib
 import html
+import importlib.metadata
 import io
 import json
 import logging
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -479,6 +481,7 @@ class RunMode(Enum):
     """CLI run modes used by dispatch and run summary classification."""
 
     EXIT_CODES = "exit_codes"
+    COMPLETION = "completion"
     SAMPLE_CONFIG = "sample_config"
     PROFILE_MANAGEMENT = "profile_management"
     GIT_INIT = "git_init"
@@ -1005,8 +1008,10 @@ def _infer_run_status(exit_code: int, run_state: dict[str, Any]) -> str:
 
 def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
     """Infer run mode using the same precedence as command dispatch in _main_impl."""
+    completion_shell = _completion_shell_from_args(args)
     mode_checks: tuple[tuple[RunMode, bool], ...] = (
         (RunMode.EXIT_CODES, getattr(args, "exit_codes", False)),
+        (RunMode.COMPLETION, completion_shell is not None),
         (RunMode.SAMPLE_CONFIG, getattr(args, "sample_config", False)),
         (
             RunMode.PROFILE_MANAGEMENT,
@@ -1055,6 +1060,30 @@ def _infer_run_mode_enum(args: argparse.Namespace) -> RunMode:
     return RunMode.SDR
 
 
+def _completion_shell_from_args(args: argparse.Namespace) -> str | None:
+    """Return normalized completion shell from parsed args, if present."""
+    raw_completion = getattr(args, "completion", None)
+    if not isinstance(raw_completion, str):
+        return None
+    normalized = raw_completion.strip().lower()
+    return normalized or None
+
+
+def _handle_completion_prevalidation(
+    completion_shell: str,
+    run_state: dict[str, Any] | None = None,
+) -> NoReturn:
+    """Handle completion mode before unrelated global validation paths."""
+    from cja_auto_sdr.__main__ import _handle_completion
+
+    try:
+        _handle_completion(completion_shell, sys.argv[0] if sys.argv else None)
+    except SystemExit as exc:
+        if run_state is not None:
+            run_state["details"] = {"operation_success": _normalize_exit_code(exc.code) == 0}
+        raise
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Compatibility wrapper that returns the run mode as a string value."""
     return _infer_run_mode_enum(args).value
@@ -1080,6 +1109,26 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "calculated_metrics_high_complexity": result.calculated_metrics_high_complexity,
         "derived_fields_count": result.derived_fields_count,
         "derived_fields_high_complexity": result.derived_fields_high_complexity,
+    }
+
+
+def _collect_environment_info() -> dict[str, Any]:
+    """Collect runtime environment info for the run summary payload.
+
+    Reuses :func:`core.logging._collect_dependency_versions` as the single
+    source of truth for dependency names and version lookup, remapping the
+    ``"?"`` fallback to ``"unknown"`` for the JSON contract.
+    """
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+
+    deps = {pkg: (v if v != "?" else "unknown") for pkg, v in _collect_dependency_versions().items()}
+
+    return {
+        "python_version": python_version,
+        "platform": sys.platform,
+        "platform_version": platform.platform(),
+        "dependencies": deps,
     }
 
 
@@ -1223,7 +1272,14 @@ from cja_auto_sdr.api.tuning import APIWorkerTuner
 
 # ==================== LOGGING SETUP ====================
 # ==================== LOGGING (moved to core/logging.py) ====================
-from cja_auto_sdr.core.logging import JSONFormatter, flush_logging_handlers, setup_logging, with_log_context
+from cja_auto_sdr.core.logging import (
+    _CORE_DEPENDENCIES,
+    JSONFormatter,
+    _collect_dependency_versions,
+    flush_logging_handlers,
+    setup_logging,
+    with_log_context,
+)
 
 # ==================== PERFORMANCE TRACKING (moved to core/perf.py) ====================
 from cja_auto_sdr.core.perf import PerformanceTracker
@@ -1338,7 +1394,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
         profile_path: Path to profile directory
 
     Returns:
-        Dictionary with credentials if .env exists and is valid, None otherwise
+        Dictionary with credentials if .env exists and is valid, None otherwise.
+        Malformed/unreadable files are treated as missing.
     """
     env_file = profile_path / ".env"
     if not env_file.exists():
@@ -1346,7 +1403,9 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
 
     credentials = {}
     try:
-        with open(env_file) as f:
+        # Profiles are written by this tool as UTF-8; decode failures are handled
+        # as unreadable input so one bad file does not break profile operations.
+        with open(env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -1361,7 +1420,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
                         # Use CREDENTIAL_FIELDS for allowed fields (single source of truth)
                         if config_key in CREDENTIAL_FIELDS["all"]:
                             credentials[config_key] = value
-    except OSError:
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+    except OSError, UnicodeDecodeError:
         return None
 
     return credentials or None
@@ -1446,6 +1506,46 @@ def resolve_active_profile(cli_profile: str | None = None) -> str | None:
     return os.environ.get("CJA_PROFILE")
 
 
+def _read_profile_org_id(profile_path: Path) -> str | None:
+    """Read org_id from a profile directory (best-effort, no validation).
+
+    Matches ``load_profile_credentials`` precedence: .env values override
+    config.json values.  We read config.json first as a base, then let .env
+    override if present.
+
+    Args:
+        profile_path: Path to the profile directory
+
+    Returns:
+        The org_id string, or None if not found or unreadable
+    """
+    org_id: str | None = None
+
+    config_file = profile_path / "config.json"
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                val = data.get("org_id")
+                if val and isinstance(val, str) and val.strip():
+                    org_id = val.strip()
+        # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+        except OSError, json.JSONDecodeError, ValueError:
+            pass
+
+    # Override: .env (takes precedence, matching load_profile_credentials)
+    env_credentials = load_profile_dotenv(profile_path)
+    if env_credentials:
+        env_org_id = env_credentials.get("org_id")
+        if isinstance(env_org_id, str):
+            normalized_org_id = env_org_id.strip()
+            if normalized_org_id:
+                org_id = normalized_org_id
+
+    return org_id
+
+
 def list_profiles(output_format: str = "table") -> bool:
     """List all profiles with status indicators.
 
@@ -1489,7 +1589,22 @@ def list_profiles(output_format: str = "table") -> bool:
             if has_env:
                 config_source.append(".env")
 
-            profiles.append({"name": profile_name, "active": is_active, "sources": config_source, "path": str(item)})
+            try:
+                org_id = _read_profile_org_id(item)
+            except Exception:
+                # Best-effort metadata enrichment only; listing must remain
+                # available even if an individual profile cannot be read.
+                org_id = None
+
+            profiles.append(
+                {
+                    "name": profile_name,
+                    "active": is_active,
+                    "sources": config_source,
+                    "path": str(item),
+                    "org_id": org_id,
+                }
+            )
 
     if output_format == "json":
         print(json.dumps({"profiles": profiles, "count": len(profiles), "active": active_profile}, indent=2))
@@ -1506,13 +1621,18 @@ def list_profiles(output_format: str = "table") -> bool:
             print("To create a profile, run:")
             print("  cja_auto_sdr --profile-add <profile-name>")
         else:
-            print(f"{'Profile':<25} {'Sources':<20} {'Status'}")
-            print("-" * 60)
+            # Column widths: marker(2) + name(23) + org_id(32) + sources(20) + status
+            max_org_width = 30
+            print(f"  {'Profile':<23} {'Org ID':<{max_org_width}}  {'Sources':<20} {'Status'}")
+            print("  " + "-" * 60)
             for p in profiles:
                 status = "[active]" if p["active"] else ""
                 sources = ", ".join(p["sources"])
-                marker = "●" if p["active"] else " "
-                print(f"{marker} {p['name']:<23} {sources:<20} {status}")
+                marker = "\u25cf" if p["active"] else " "
+                org_display = p["org_id"] or "\u2014"
+                if len(org_display) > max_org_width:
+                    org_display = org_display[: max_org_width - 1] + "\u2026"
+                print(f"{marker} {p['name']:<23} {org_display:<{max_org_width}}  {sources:<20} {status}")
 
             print()
             print(f"Total: {len(profiles)} profile(s)")
@@ -1936,7 +2056,7 @@ def test_profile(profile_name: str) -> bool:
         finally:
             os.unlink(temp_config.name)
 
-    except Exception as e:
+    except Exception as e:  # Intentional: wraps cjapy API calls that may raise anything
         print("   API connection: FAILED")
         print(f"   Error: {e}")
         print()
@@ -2094,7 +2214,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
     except KeyboardInterrupt, SystemExit:
         raise
-    except Exception as e:
+    except Exception as e:  # Intentional: wraps cjapy API validation calls
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
@@ -2516,7 +2636,7 @@ def write_excel_output(
         logger.error(f"OS error creating Excel file: {e}")
         logger.error("Check disk space and path validity")
         raise
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating Excel file", error=e))
         raise
 
@@ -2563,7 +2683,7 @@ def write_csv_output(
         logger.error(f"OS error creating CSV files: {e}")
         logger.error("Check disk space and path validity")
         raise
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating CSV files", error=e))
         raise
 
@@ -2662,7 +2782,7 @@ def write_json_output(
         logger.error(f"JSON serialization error: {e}")
         logger.error("Data contains non-serializable values")
         raise
-    except Exception as e:
+    except (KeyError, AttributeError) as e:
         logger.error(_format_error_msg("creating JSON file", error=e))
         raise
 
@@ -2928,7 +3048,7 @@ def write_html_output(
         logger.error(f"OS error creating HTML file: {e}")
         logger.error("Check disk space and path validity")
         raise
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating HTML file", error=e))
         raise
 
@@ -3080,7 +3200,7 @@ def write_markdown_output(
         logger.error(f"OS error creating Markdown file: {e}")
         logger.error("Check disk space and path validity")
         raise
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating Markdown file", error=e))
         raise
 
@@ -3961,7 +4081,7 @@ def write_diff_json_output(
         logger.info(f"Diff JSON file created: {json_file}")
         return json_file
 
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating diff JSON file", error=e))
         raise
 
@@ -4138,7 +4258,7 @@ def write_diff_markdown_output(
         logger.info(f"Diff Markdown file created: {markdown_file}")
         return markdown_file
 
-    except Exception as e:
+    except (OSError, KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating diff Markdown file", error=e))
         raise
 
@@ -4535,7 +4655,7 @@ def write_diff_html_output(
         logger.info(f"Diff HTML file created: {html_file}")
         return html_file
 
-    except Exception as e:
+    except (OSError, KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating diff HTML file", error=e))
         raise
 
@@ -4746,7 +4866,7 @@ def write_diff_excel_output(
         logger.info(f"Diff Excel file created: {excel_file}")
         return excel_file
 
-    except Exception as e:
+    except (OSError, KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating diff Excel file", error=e))
         raise
 
@@ -4911,7 +5031,7 @@ def write_diff_csv_output(
         logger.info(f"Diff CSV files created in: {csv_dir}")
         return csv_dir
 
-    except Exception as e:
+    except (OSError, KeyError, TypeError, ValueError) as e:
         logger.error(_format_error_msg("creating diff CSV files", error=e))
         raise
 
@@ -5242,7 +5362,7 @@ def process_inventory_summary(
     except RECOVERABLE_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
-    except Exception as e:
+    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view (unexpected): {e}"), file=sys.stderr)
         logger.debug("Unexpected error fetching data view", exc_info=True)
         return {"error": str(e)}
@@ -6230,8 +6350,8 @@ def process_single_dataview(
                 duration=time.time() - start_time,
                 error_message=f"Permission denied: {e!s}",
             )
-        except Exception as e:
-            logger.critical(f"Failed to generate Excel file: {e!s}")
+        except (OSError, KeyError, TypeError, ValueError) as e:
+            logger.critical(f"Failed to generate output file: {e!s}")
             logger.exception("Full exception details:")
             logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")
@@ -6249,7 +6369,7 @@ def process_single_dataview(
                 error_message=str(e),
             )
 
-    except Exception as e:
+    except Exception as e:  # Intentional: top-level processing boundary for API + runtime errors
         logger.critical(f"Unexpected error processing data view {data_view_id}: {e!s}")
         logger.exception("Full exception details:")
         logger.info("=" * BANNER_WIDTH)
@@ -6574,7 +6694,7 @@ class BatchProcessor:
                             for f in future_to_dv:
                                 f.cancel()
                             raise
-                        except Exception as e:
+                        except Exception as e:  # Intentional: batch worker resilience boundary
                             is_expected = isinstance(e, RECOVERABLE_BATCH_WORKER_EXCEPTIONS)
                             prefix = "EXCEPTION" if is_expected else "UNEXPECTED EXCEPTION"
                             self.logger.error(f"[{self.batch_id}] ✗ {dv_id}: {prefix} - {e!s}")
@@ -6884,7 +7004,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
-        except Exception as e:
+        except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
             logger.debug(f"Unexpected dry-run validation error for {dv_id}: {e!s}", exc_info=True)
             print(f"  ✗ {dv_id}: Error - {_dry_run_error_text(e)}")
             invalid_count += 1
@@ -7492,7 +7612,7 @@ def resolve_data_view_names(
             resolution_diagnostics,
             include_diagnostics=include_diagnostics,
         )
-    except Exception as e:
+    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
         error_message = f"Failed to resolve data view names (unexpected): {e!s}"
         logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
@@ -8339,7 +8459,7 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
     try:
         raw_payload = cja.getDataView(data_view_id)
-    except Exception as e:
+    except Exception as e:  # Intentional: wraps cjapy.getDataView() which may raise anything
         if _is_inaccessible_dataview_lookup_error(e):
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
         raise
@@ -8622,7 +8742,7 @@ def _count_component_items_for_fetch_spec(cja: Any, data_view_id: str, fetch_spe
     try:
         payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
         return _count_component_items_or_na_from_assessment(payload)
-    except Exception:
+    except Exception:  # Intentional: wraps cjapy API; best-effort count
         return "N/A"
 
 
@@ -8650,7 +8770,7 @@ def _count_component_items_for_fetch_spec_with_retry(
         logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
     except RECOVERABLE_API_EXCEPTIONS as e:
         logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
-    except Exception as e:
+    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
         logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
     return 0
 
@@ -10124,7 +10244,7 @@ def _read_config_status_file(config_file: str, logger: logging.Logger) -> tuple[
         return None, f"{config_file} is not valid JSON"
     except (UnicodeDecodeError, ConfigurationError, OSError) as e:
         return None, f"Cannot read {config_file}: {e}"
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         logger.debug("Unexpected error reading config file in --config-status", exc_info=True)
         return None, f"Cannot read {config_file}: {e}"
 
@@ -10291,18 +10411,62 @@ def show_config_status(config_file: str = "config.json", profile: str | None = N
 # ==================== VALIDATE CONFIG ====================
 
 
-def validate_config_only(config_file: str = "config.json", profile: str | None = None) -> bool:
+def _resolve_output_dir_path(output_dir: str | Path) -> Path:
+    """Resolve output directory for permission checks without requiring it to exist."""
+    output_path = Path(output_dir).expanduser()
+    try:
+        return output_path.resolve(strict=False)
+    # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
+    except OSError, RuntimeError, ValueError:
+        return Path(os.path.abspath(str(output_path)))
+
+
+def _check_output_dir_access(output_dir: str | Path) -> tuple[bool, Path, str, Path | None]:
+    """Check whether an output directory is writable now or creatable later.
+
+    Returns:
+        Tuple: (is_accessible, resolved_output_dir, reason, parent_dir)
+    """
+    resolved_dir = _resolve_output_dir_path(output_dir)
+
+    if resolved_dir.exists():
+        if not resolved_dir.is_dir():
+            return False, resolved_dir, "not_directory", None
+        if os.access(resolved_dir, os.W_OK | os.X_OK):
+            return True, resolved_dir, "writable", None
+        return False, resolved_dir, "not_writable", None
+
+    for candidate in resolved_dir.parents:
+        if not candidate.exists():
+            continue
+        if not candidate.is_dir():
+            return False, resolved_dir, "parent_not_directory", candidate
+        if os.access(candidate, os.W_OK | os.X_OK):
+            return True, resolved_dir, "creatable", candidate
+        return False, resolved_dir, "parent_not_writable", candidate
+
+    return False, resolved_dir, "no_existing_parent", None
+
+
+def validate_config_only(
+    config_file: str = "config.json",
+    profile: str | None = None,
+    output_dir: str = ".",
+) -> bool:
     """
     Validate configuration and API connectivity without processing data views.
 
     Tests:
-        1. Profile, environment variables, or config file exists
-        2. Required credentials are present
-        3. CJA API connection works
+        1. Check environment (Python version, platform)
+        2. Check dependencies (core + optional, with versions)
+        3. Check credentials (profile > env > config file)
+        4. Test API connectivity
+        5. Check output permissions (writable output dir)
 
     Args:
         config_file: Path to CJA configuration file
         profile: Optional profile name to use for credentials
+        output_dir: Directory to check for write permissions
 
     Returns:
         True if configuration is valid and API is reachable
@@ -10333,27 +10497,89 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
-                print(f"    ✓ {field_name}: {masked}")
+                print(f"    \u2713 {field_name}: {masked}")
             else:
-                print(f"    ✗ {field_name}: not set (required)")
+                print(f"    \u2717 {field_name}: not set (required)")
                 missing.append(field_name)
 
         for field_name in optional_fields:
             if creds.get(field_name):
-                print(f"    ✓ {field_name}: {creds[field_name]}")
+                print(f"    \u2713 {field_name}: {creds[field_name]}")
             else:
                 print(f"    - {field_name}: not set (optional)")
 
         print()
         if missing:
-            print(f"  ✗ Missing required fields: {', '.join(missing)}")
+            print(f"  \u2717 Missing required fields: {', '.join(missing)}")
             return False
-        print("  ✓ All required fields present")
-        print(f"  → Using: {source_name}")
+        print("  \u2713 All required fields present")
+        print(f"  \u2192 Using: {source_name}")
         return True
 
-    # Step 1: Check credentials (priority: profile > env > config file)
-    print("[1/3] Checking credentials...")
+    # Step 1: Check environment
+    print("[1/5] Checking environment...")
+    vi = sys.version_info
+    python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
+    if vi >= (3, 14):
+        print(f"  \u2713 Python {python_version} (minimum: 3.14)")
+    else:
+        print(f"  \u2717 Python {python_version} (minimum: 3.14)")
+        all_passed = False
+    platform_system = platform.system()
+    platform_release = platform.release()
+    platform_label = sys.platform
+    if platform_system == "Darwin":
+        mac_ver = platform.mac_ver()[0]
+        if mac_ver:
+            platform_label += f" (macOS {mac_ver})"
+        else:
+            platform_label += f" ({platform_system} {platform_release})"
+    elif platform_system:
+        platform_label += f" ({platform_system} {platform_release})"
+    print(f"  \u2713 Platform: {platform_label}")
+
+    # Step 2: Check dependencies
+    print()
+    print("[2/5] Checking dependencies...")
+
+    # Core dependencies (must exist)
+    _core_deps = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
+    for pkg in _core_deps:
+        try:
+            ver = importlib.metadata.version(pkg)
+            print(f"  \u2713 {pkg} {ver}")
+        except importlib.metadata.PackageNotFoundError:
+            print(f"  \u2717 {pkg} (not installed)")
+            all_passed = False
+        except Exception as exc:
+            print(f"  \u2717 {pkg} (metadata error: {exc})")
+            all_passed = False
+
+    # Optional dependencies (info-only, never fail validation)
+    _optional_deps = (
+        ("scipy", "for --org-report clustering"),
+        ("argcomplete", "for shell tab-completion"),
+        ("python-dotenv", "for .env file loading"),
+    )
+    for pkg, purpose in _optional_deps:
+        try:
+            ver = importlib.metadata.version(pkg)
+            print(f"  - {pkg} {ver} (optional, {purpose})")
+        except importlib.metadata.PackageNotFoundError:
+            print(f"  - {pkg} not installed (optional, {purpose})")
+        except Exception as exc:
+            print(f"  - {pkg} metadata error: {exc} (optional, {purpose})")
+
+    if not all_passed:
+        print()
+        print("=" * BANNER_WIDTH)
+        print(ConsoleColors.error("VALIDATION FAILED - Fix issues above"))
+        print("=" * BANNER_WIDTH)
+        return False
+
+    # Step 3: Check credentials (priority: profile > env > config file)
+    print()
+    print("[3/5] Checking credentials...")
 
     # Priority 1: Profile
     if profile:
@@ -10361,33 +10587,33 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         try:
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
-                print(f"  ✓ Profile '{profile}' found")
+                print(f"  \u2713 Profile '{profile}' found")
                 if display_credentials(profile_creds, f"Profile: {profile}"):
                     active_credentials = profile_creds
                     credential_source = "profile"
                 else:
                     all_passed = False
         except ProfileNotFoundError:
-            print(f"  ✗ Profile '{profile}' not found")
+            print(f"  \u2717 Profile '{profile}' not found")
             print()
             print("  Create the profile with:")
             print(f"    cja_auto_sdr --profile-add {profile}")
             all_passed = False
         except ProfileConfigError as e:
-            print(f"  ✗ Profile '{profile}' has invalid configuration: {e}")
+            print(f"  \u2717 Profile '{profile}' has invalid configuration: {e}")
             all_passed = False
 
     # Priority 2: Environment variables (if no profile or profile failed)
     if not active_credentials and all_passed:
         env_credentials = load_credentials_from_env()
         if env_credentials:
-            print("  ✓ Environment variables detected")
+            print("  \u2713 Environment variables detected")
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
                     credential_source = "env"
             else:
-                print("  ⚠ Environment credentials incomplete, checking config file...")
+                print("  \u26a0 Environment credentials incomplete, checking config file...")
         else:
             if not profile:
                 print("  - No environment variables set")
@@ -10395,25 +10621,25 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
     # Priority 3: Config file (if no profile and no env)
     if not active_credentials and all_passed:
         print()
-        print("[2/3] Checking configuration file...")
+        print("[3/5] Checking configuration file...")
         config_path = Path(config_file)
         if config_path.exists():
             abs_path = config_path.resolve()
-            print(f"  ✓ Config file found: {abs_path}")
+            print(f"  \u2713 Config file found: {abs_path}")
             try:
                 with open(config_file) as f:
                     config = json.load(f)
-                print("  ✓ Config file is valid JSON")
+                print("  \u2713 Config file is valid JSON")
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
                     credential_source = "file"
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
-                print(f"  ✗ Invalid JSON: {e!s}")
+                print(f"  \u2717 Invalid JSON: {e!s}")
                 all_passed = False
         else:
-            print(f"  ✗ Config file not found: {config_file}")
+            print(f"  \u2717 Config file not found: {config_file}")
             print()
             print("  To create a sample config file:")
             print("    cja_auto_sdr --sample-config")
@@ -10428,7 +10654,7 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
             all_passed = False
     elif active_credentials and credential_source in ("profile", "env"):
         print()
-        print(f"[2/3] Skipping config file check (using {credential_source} credentials)")
+        print(f"[3/5] Skipping config file check (using {credential_source} credentials)")
 
     if not all_passed:
         print()
@@ -10437,9 +10663,9 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
         print("=" * BANNER_WIDTH)
         return False
 
-    # Step 3: Test API connection
+    # Step 4: Test API connection
     print()
-    print("[3/3] Testing API connection...")
+    print("[4/5] Testing API connection...")
     try:
         # Configure cjapy with the active credentials
         if credential_source in ("profile", "env"):
@@ -10448,28 +10674,53 @@ def validate_config_only(config_file: str = "config.json", profile: str | None =
             cjapy.importConfigFile(config_file)
 
         cja = cjapy.CJA()
-        print("  ✓ CJA client initialized")
+        print("  \u2713 CJA client initialized")
 
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print("  ✓ API connection successful")
-            print(f"  ✓ Found {dv_count} accessible data view(s)")
+            print("  \u2713 API connection successful")
+            print(f"  \u2713 Found {dv_count} accessible data view(s)")
         else:
-            print("  ⚠ API returned empty response - connection may be unstable")
+            print("  \u26a0 API returned empty response - connection may be unstable")
 
     except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
     except RECOVERABLE_API_EXCEPTIONS as e:
-        print(f"  ✗ API connection failed: {e!s}")
+        print(f"  \u2717 API connection failed: {e!s}")
         all_passed = False
-    except Exception as e:
-        print(f"  ✗ API connection failed (unexpected): {e!s}")
+    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+        print(f"  \u2717 API connection failed (unexpected): {e!s}")
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
+
+    # Step 5: Check output permissions
+    if all_passed:
+        print()
+        print("[5/5] Checking output permissions...")
+        output_access_ok, resolved_dir, access_reason, parent_dir = _check_output_dir_access(output_dir)
+        if output_access_ok and access_reason == "creatable" and parent_dir is not None:
+            print(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})")
+        elif output_access_ok:
+            print(f"  \u2713 Output directory writable: {resolved_dir}")
+        else:
+            if access_reason == "not_directory":
+                print(f"  \u2717 Output path is not a directory: {resolved_dir}")
+            elif access_reason == "parent_not_directory" and parent_dir is not None:
+                print(
+                    "  \u2717 Cannot create output directory: "
+                    f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                )
+            elif access_reason == "parent_not_writable" and parent_dir is not None:
+                print(f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})")
+            elif access_reason == "no_existing_parent":
+                print(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}")
+            else:
+                print(f"  \u2717 Output directory not writable: {resolved_dir}")
+            all_passed = False
 
     # Summary
     print()
@@ -13910,7 +14161,7 @@ def handle_compare_snapshots_command(
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots: {e!s}"), file=sys.stderr)
         logger.debug("Snapshot comparison failed", exc_info=True)
         return False, False, None
-    except Exception as e:
+    except Exception as e:  # Intentional: tiered command boundary (see RECOVERABLE_COMMAND_HANDLER_EXCEPTIONS)
         print(ConsoleColors.error(f"ERROR: Failed to compare snapshots (unexpected): {e!s}"), file=sys.stderr)
         logger.debug("Unexpected snapshot comparison error", exc_info=True)
         return False, False, None
@@ -13962,6 +14213,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         run_state["output_dir"] = getattr(args, "output_dir", ".")
         run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
         run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+
+    # Completion must short-circuit before unrelated option parsing/validation
+    # so mixed argv (for run-summary and fast-path fallbacks) remains robust.
+    completion_shell = _completion_shell_from_args(args)
+    if completion_shell is not None:
+        _handle_completion_prevalidation(completion_shell, run_state=run_state)
 
     run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
     quality_policy_path = getattr(args, "quality_policy", None)
@@ -14315,7 +14572,11 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --validate-config mode (no data view required)
     if args.validate_config:
-        success = validate_config_only(args.config_file, profile=getattr(args, "profile", None))
+        success = validate_config_only(
+            args.config_file,
+            profile=getattr(args, "profile", None),
+            output_dir=getattr(args, "output_dir", "."),
+        )
         if run_state is not None:
             run_state["details"] = {"operation_success": success}
         sys.exit(0 if success else 1)
@@ -15384,20 +15645,22 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         sys.exit(1)
 
     # Proactive output directory write check - fail fast before API calls
-    output_dir = Path(args.output_dir)
-    if output_dir.exists():
-        # Directory exists - check write permissions
-        if not os.access(output_dir, os.W_OK):
-            print(ConsoleColors.error(f"ERROR: Cannot write to output directory: {output_dir}"), file=sys.stderr)
-            print("Check permissions and try again.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        # Directory doesn't exist - check we can create it by checking parent
-        parent_dir = output_dir.parent
-        if parent_dir.exists() and not os.access(parent_dir, os.W_OK):
-            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {output_dir}"), file=sys.stderr)
+    output_access_ok, resolved_output_dir, access_reason, parent_dir = _check_output_dir_access(args.output_dir)
+    if not output_access_ok:
+        if access_reason == "not_directory":
+            print(ConsoleColors.error(f"ERROR: Output path is not a directory: {resolved_output_dir}"), file=sys.stderr)
+        elif access_reason == "parent_not_directory" and parent_dir is not None:
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {resolved_output_dir}"), file=sys.stderr)
+            print(f"Path component is not a directory: {parent_dir}", file=sys.stderr)
+        elif access_reason == "parent_not_writable" and parent_dir is not None:
+            print(ConsoleColors.error(f"ERROR: Cannot create output directory: {resolved_output_dir}"), file=sys.stderr)
             print(f"Parent directory {parent_dir} is not writable.", file=sys.stderr)
-            sys.exit(1)
+        else:
+            print(
+                ConsoleColors.error(f"ERROR: Cannot write to output directory: {resolved_output_dir}"), file=sys.stderr
+            )
+            print("Check permissions and try again.", file=sys.stderr)
+        sys.exit(1)
 
     # Process data views - start timing here for accurate processing-only runtime
     processing_start_time = time.time()
@@ -15964,7 +16227,7 @@ def main():
     except SystemExit as exc:
         exit_code = _normalize_exit_code(exc.code)
         raise
-    except Exception:
+    except Exception:  # Intentional: last-resort handler in main()
         exit_code = 1
         raise
     finally:
@@ -15976,6 +16239,7 @@ def main():
             summary_payload = {
                 "summary_version": "1.0",
                 "tool_version": __version__,
+                "environment": _collect_environment_info(),
                 "started_at": summary_start,
                 "ended_at": datetime.now(UTC).isoformat(),
                 "duration_seconds": round(time.time() - summary_start_perf, 3),
@@ -16004,7 +16268,7 @@ def main():
             output_dir = run_state.get("output_dir") or "."
             try:
                 write_run_summary_output(summary_payload, run_summary_output, output_dir=output_dir)
-            except Exception as e:
+            except Exception as e:  # Intentional: finally-block guard; must not mask original exception
                 print(
                     ConsoleColors.warning(f"Warning: Failed to write run summary to '{run_summary_output}': {e!s}"),
                     file=sys.stderr,

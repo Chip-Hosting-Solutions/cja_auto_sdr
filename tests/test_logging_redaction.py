@@ -9,15 +9,18 @@ import json
 import logging
 import os
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.core.logging import (
+    _CORE_DEPENDENCIES,
     ContextLoggerAdapter,
     JSONFormatter,
     SensitiveDataFilter,
+    _cached_startup_dependency_versions,
+    _collect_dependency_versions,
     _infer_run_mode,
     _is_reserved_or_private_record_key,
     _is_sensitive_field,
@@ -672,3 +675,193 @@ class TestFlushLoggingHandlers:
         finally:
             logger.removeHandler(bad_handler)
             logger.propagate = True
+
+
+# ---------------------------------------------------------------------------
+# _collect_dependency_versions
+# ---------------------------------------------------------------------------
+class TestCollectDependencyVersions:
+    """Tests for the dependency version collection helper."""
+
+    def test_returns_all_core_dependencies(self):
+        """Result dict has an entry for every package in _CORE_DEPENDENCIES."""
+        versions = _collect_dependency_versions()
+        assert set(versions.keys()) == set(_CORE_DEPENDENCIES)
+
+    def test_installed_packages_return_version_strings(self):
+        """Packages that are installed should return non-empty version strings (not '?')."""
+        versions = _collect_dependency_versions()
+        # pandas and numpy are always installed in our test environment
+        for pkg in ("pandas", "numpy"):
+            assert versions[pkg] != "?", f"{pkg} should be installed"
+            assert versions[pkg], f"{pkg} version should not be empty"
+
+    def test_missing_package_returns_question_mark(self):
+        """A package that is not installed should map to '?'."""
+        import importlib.metadata
+
+        with patch(
+            "cja_auto_sdr.core.logging.importlib.metadata.version",
+            side_effect=importlib.metadata.PackageNotFoundError("no-such-pkg"),
+        ):
+            versions = _collect_dependency_versions()
+        for pkg in _CORE_DEPENDENCIES:
+            assert versions[pkg] == "?"
+
+    def test_partial_failure_only_affects_missing(self):
+        """If one package is missing, others should still report real versions."""
+        import importlib.metadata
+
+        real_version = importlib.metadata.version
+
+        def selective_fail(name: str) -> str:
+            if name == "xlsxwriter":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real_version(name)
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=selective_fail):
+            versions = _collect_dependency_versions()
+        assert versions["xlsxwriter"] == "?"
+        assert versions["pandas"] != "?"
+
+    def test_preserves_dependency_order(self):
+        """Keys should match the order of _CORE_DEPENDENCIES."""
+        versions = _collect_dependency_versions()
+        assert list(versions.keys()) == list(_CORE_DEPENDENCIES)
+
+    def test_non_package_not_found_error_returns_question_mark(self):
+        """Non-PackageNotFoundError exceptions should map to '?' (not propagate)."""
+
+        def metadata_bomb(name: str) -> str:
+            raise ValueError(f"malformed metadata for {name}")
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=metadata_bomb):
+            versions = _collect_dependency_versions()
+        for pkg in _CORE_DEPENDENCIES:
+            assert versions[pkg] == "?", f"{pkg} should be '?' on ValueError"
+
+    def test_oserror_during_metadata_lookup_returns_question_mark(self):
+        """OSError (e.g. corrupt dist-info) should be caught and map to '?'."""
+
+        def corrupt_metadata(name: str) -> str:
+            raise OSError(f"cannot read metadata for {name}")
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=corrupt_metadata):
+            versions = _collect_dependency_versions()
+        for pkg in _CORE_DEPENDENCIES:
+            assert versions[pkg] == "?"
+
+    def test_mixed_exception_types_only_affect_failing_packages(self):
+        """Different exception types per package should each be caught individually."""
+        import importlib.metadata
+
+        real_version = importlib.metadata.version
+
+        def mixed_failures(name: str) -> str:
+            if name == "cjapy":
+                raise ValueError("bad metadata")
+            if name == "tqdm":
+                raise OSError("cannot read")
+            if name == "xlsxwriter":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real_version(name)
+
+        with patch("cja_auto_sdr.core.logging.importlib.metadata.version", side_effect=mixed_failures):
+            versions = _collect_dependency_versions()
+        assert versions["cjapy"] == "?"
+        assert versions["tqdm"] == "?"
+        assert versions["xlsxwriter"] == "?"
+        assert versions["pandas"] != "?"
+        assert versions["numpy"] != "?"
+
+    def test_startup_log_contains_dependency_line(self, capsys):
+        """setup_logging should emit a 'Dependencies:' INFO line."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        setup_logging("test_dv", batch_mode=False, log_level="INFO")
+        captured = capsys.readouterr().out
+
+        dep_lines = [line for line in captured.splitlines() if "Dependencies:" in line]
+        assert len(dep_lines) == 1
+        msg = dep_lines[0]
+        # Should mention every core dependency
+        for pkg in _CORE_DEPENDENCIES:
+            assert f"{pkg}=" in msg
+
+    def test_startup_log_json_includes_dependency_versions(self, capsys):
+        """JSON log format should include dependency_versions as a structured field."""
+        import json as _json
+
+        from cja_auto_sdr.core.logging import setup_logging
+
+        setup_logging("test_dv", batch_mode=False, log_level="INFO", log_format="json")
+        captured = capsys.readouterr().out
+
+        dep_entries = []
+        for line in captured.splitlines():
+            try:
+                entry = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if "Dependencies:" in entry.get("message", ""):
+                dep_entries.append(entry)
+
+        assert len(dep_entries) == 1
+        dep_field = dep_entries[0].get("dependency_versions")
+        assert isinstance(dep_field, dict)
+        assert set(dep_field.keys()) == set(_CORE_DEPENDENCIES)
+
+    def test_startup_logging_skips_dependency_lookup_when_info_disabled(self):
+        """setup_logging should avoid dependency lookup work when INFO logs are disabled."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        try:
+            with patch(
+                "cja_auto_sdr.core.logging._collect_dependency_versions",
+                side_effect=AssertionError("dependency lookup should not run"),
+            ):
+                setup_logging("test_dv", batch_mode=False, log_level="WARNING")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+    def test_startup_logging_reuses_cached_dependency_lookup_across_invocations(self):
+        """Repeated setup_logging(INFO) calls should reuse cached startup dependency versions."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        call_count = {"count": 0}
+
+        def _fake_collect() -> dict[str, str]:
+            call_count["count"] += 1
+            return {pkg: f"v{index}" for index, pkg in enumerate(_CORE_DEPENDENCIES)}
+
+        try:
+            with patch("cja_auto_sdr.core.logging._collect_dependency_versions", side_effect=_fake_collect):
+                setup_logging("test_dv_1", batch_mode=False, log_level="INFO")
+                setup_logging("test_dv_2", batch_mode=False, log_level="INFO")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+        assert call_count["count"] == 1
+
+    def test_startup_logging_dependency_lookup_failure_falls_back_to_unknown(self, capsys):
+        """Unexpected startup dependency lookup errors should not break logging setup."""
+        from cja_auto_sdr.core.logging import setup_logging
+
+        _cached_startup_dependency_versions.cache_clear()
+        try:
+            with patch(
+                "cja_auto_sdr.core.logging._startup_dependency_versions_for_logging",
+                side_effect=RuntimeError("metadata backend unavailable"),
+            ):
+                setup_logging("test_dv", batch_mode=False, log_level="INFO")
+        finally:
+            _cached_startup_dependency_versions.cache_clear()
+
+        captured = capsys.readouterr().out
+        dep_lines = [line for line in captured.splitlines() if "Dependencies:" in line]
+        assert len(dep_lines) == 1
+        dep_line = dep_lines[0]
+        for pkg in _CORE_DEPENDENCIES:
+            assert f"{pkg}=?" in dep_line

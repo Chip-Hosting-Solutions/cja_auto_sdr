@@ -14,6 +14,7 @@ from cja_auto_sdr.generator import (
     ProfileConfigError,
     ProfileError,
     ProfileNotFoundError,
+    _read_profile_org_id,
     get_cja_home,
     get_profile_path,
     get_profiles_dir,
@@ -220,6 +221,12 @@ CLIENT_ID='test_client_id'
         result = load_profile_dotenv(tmp_path)
         assert result["org_id"] == "test@AdobeOrg"
         assert result["client_id"] == "test_client_id"
+
+    def test_malformed_non_utf8_env_returns_none(self, tmp_path):
+        """Malformed/non-UTF8 .env should be treated as unreadable."""
+        (tmp_path / ".env").write_bytes(b"\xff\xfe\x00invalid")
+        result = load_profile_dotenv(tmp_path)
+        assert result is None
 
 
 class TestLoadProfileCredentials:
@@ -573,3 +580,247 @@ class TestProfileExceptions:
         """Test ProfileConfigError is a ProfileError"""
         error = ProfileConfigError("Invalid config", profile_name="bad")
         assert isinstance(error, ProfileError)
+
+
+class TestReadProfileOrgId:
+    """Test _read_profile_org_id() helper — reads org_id from config.json or .env."""
+
+    def test_org_id_from_config_json(self, tmp_path):
+        """org_id is read from config.json when present"""
+        (tmp_path / "config.json").write_text('{"org_id": "ABC123@AdobeOrg"}')
+        assert _read_profile_org_id(tmp_path) == "ABC123@AdobeOrg"
+
+    def test_org_id_from_dotenv(self, tmp_path):
+        """org_id is read from .env when config.json has no org_id"""
+        (tmp_path / ".env").write_text("ORG_ID=DEF456@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "DEF456@AdobeOrg"
+
+    def test_org_id_from_dotenv_lowercase_key(self, tmp_path):
+        """Lowercase .env org_id key should be parsed like profile credential loading."""
+        (tmp_path / ".env").write_text("org_id=lower@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "lower@AdobeOrg"
+
+    def test_org_id_from_dotenv_with_key_whitespace(self, tmp_path):
+        """Whitespace around .env keys should be normalized like profile credential loading."""
+        (tmp_path / ".env").write_text("  org_id = spaced@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "spaced@AdobeOrg"
+
+    def test_dotenv_overrides_config_json(self, tmp_path):
+        """.env ORG_ID takes precedence over config.json, matching load_profile_credentials"""
+        (tmp_path / "config.json").write_text('{"org_id": "FROM_JSON@AdobeOrg"}')
+        (tmp_path / ".env").write_text("ORG_ID=FROM_ENV@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "FROM_ENV@AdobeOrg"
+
+    def test_falls_back_to_env_when_json_missing_org_id(self, tmp_path):
+        """Falls back to .env when config.json exists but has no org_id key"""
+        (tmp_path / "config.json").write_text('{"client_id": "x"}')
+        (tmp_path / ".env").write_text("ORG_ID=FALLBACK@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "FALLBACK@AdobeOrg"
+
+    def test_returns_none_when_no_org_id_anywhere(self, tmp_path):
+        """Returns None when neither config.json nor .env has org_id"""
+        (tmp_path / "config.json").write_text('{"client_id": "x"}')
+        (tmp_path / ".env").write_text("CLIENT_ID=y\n")
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_returns_none_for_empty_directory(self, tmp_path):
+        """Returns None when profile directory has no config files"""
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_handles_corrupt_config_json(self, tmp_path):
+        """Returns None gracefully when config.json is corrupt"""
+        (tmp_path / "config.json").write_text("{not valid json!!!")
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_handles_corrupt_json_falls_back_to_env(self, tmp_path):
+        """Falls back to .env when config.json is corrupt"""
+        (tmp_path / "config.json").write_text("{bad json")
+        (tmp_path / ".env").write_text("ORG_ID=RESCUE@AdobeOrg\n")
+        assert _read_profile_org_id(tmp_path) == "RESCUE@AdobeOrg"
+
+    def test_handles_unreadable_config_json(self, tmp_path):
+        """Returns None gracefully when config.json is unreadable"""
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"org_id": "test@AdobeOrg"}')
+        config_file.chmod(0o000)
+        try:
+            # Should not raise — falls back gracefully
+            result = _read_profile_org_id(tmp_path)
+            # May be None (unreadable) — the key point is no exception
+            assert result is None or isinstance(result, str)
+        finally:
+            config_file.chmod(0o644)
+
+    def test_handles_unreadable_env_file(self, tmp_path):
+        """Returns None gracefully when .env is unreadable"""
+        env_file = tmp_path / ".env"
+        env_file.write_text("ORG_ID=test@AdobeOrg\n")
+        env_file.chmod(0o000)
+        try:
+            result = _read_profile_org_id(tmp_path)
+            assert result is None or isinstance(result, str)
+        finally:
+            env_file.chmod(0o644)
+
+    def test_malformed_dotenv_falls_back_to_config_json(self, tmp_path):
+        """Malformed .env should not crash and should preserve JSON fallback."""
+        (tmp_path / "config.json").write_text('{"org_id": "SAFE@AdobeOrg"}')
+        (tmp_path / ".env").write_bytes(b"\xff\xfe\x00ORG_ID=bad")
+        assert _read_profile_org_id(tmp_path) == "SAFE@AdobeOrg"
+
+    def test_strips_whitespace_from_org_id(self, tmp_path):
+        """Whitespace is stripped from org_id values"""
+        (tmp_path / "config.json").write_text('{"org_id": "  ABC@AdobeOrg  "}')
+        assert _read_profile_org_id(tmp_path) == "ABC@AdobeOrg"
+
+    def test_env_strips_quotes(self, tmp_path):
+        """Quotes are stripped from .env ORG_ID values"""
+        (tmp_path / ".env").write_text('ORG_ID="QUOTED@AdobeOrg"\n')
+        assert _read_profile_org_id(tmp_path) == "QUOTED@AdobeOrg"
+
+    def test_ignores_non_string_org_id(self, tmp_path):
+        """Returns None when org_id is not a string (e.g. integer)"""
+        (tmp_path / "config.json").write_text('{"org_id": 12345}')
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_ignores_empty_org_id(self, tmp_path):
+        """Returns None when org_id is an empty string"""
+        (tmp_path / "config.json").write_text('{"org_id": ""}')
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_ignores_empty_env_org_id(self, tmp_path):
+        """Returns None when .env ORG_ID has empty value"""
+        (tmp_path / ".env").write_text("ORG_ID=\n")
+        assert _read_profile_org_id(tmp_path) is None
+
+    def test_json_array_not_dict(self, tmp_path):
+        """Returns None when config.json is a JSON array instead of object"""
+        (tmp_path / "config.json").write_text('[{"org_id": "test@AdobeOrg"}]')
+        assert _read_profile_org_id(tmp_path) is None
+
+
+class TestListProfilesOrgId:
+    """Test that list_profiles() includes org_id in output."""
+
+    def test_table_shows_org_id_column(self, tmp_path, capsys):
+        """Table output includes Org ID column header and org_id values"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "client-a"
+        profile.mkdir()
+        (profile / "config.json").write_text('{"org_id": "ABC123@AdobeOrg"}')
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="table")
+            captured = capsys.readouterr()
+            assert "Org ID" in captured.out
+            assert "ABC123@AdobeOrg" in captured.out
+
+    def test_table_shows_dash_for_missing_org_id(self, tmp_path, capsys):
+        """Table output shows em-dash for profiles without org_id"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "no-org"
+        profile.mkdir()
+        (profile / "config.json").write_text('{"client_id": "x"}')
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="table")
+            captured = capsys.readouterr()
+            assert "\u2014" in captured.out  # em-dash
+
+    def test_json_includes_org_id(self, tmp_path, capsys):
+        """JSON output includes org_id field with string value"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "client-a"
+        profile.mkdir()
+        (profile / "config.json").write_text('{"org_id": "ABC123@AdobeOrg"}')
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="json")
+            captured = capsys.readouterr()
+            data = json.loads(captured.out)
+            assert data["profiles"][0]["org_id"] == "ABC123@AdobeOrg"
+
+    def test_json_null_for_missing_org_id(self, tmp_path, capsys):
+        """JSON output uses null (None) for profiles without org_id"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "no-org"
+        profile.mkdir()
+        (profile / "config.json").write_text('{"client_id": "x"}')
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="json")
+            captured = capsys.readouterr()
+            data = json.loads(captured.out)
+            assert data["profiles"][0]["org_id"] is None
+
+    def test_table_truncates_long_org_id(self, tmp_path, capsys):
+        """Table output truncates excessively long org_id values"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "long-org"
+        profile.mkdir()
+        long_org = "A" * 60 + "@AdobeOrg"
+        (profile / "config.json").write_text(json.dumps({"org_id": long_org}))
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="table")
+            captured = capsys.readouterr()
+            # Should contain ellipsis, not the full org_id
+            assert "\u2026" in captured.out
+            assert long_org not in captured.out
+
+    def test_json_preserves_full_long_org_id(self, tmp_path, capsys):
+        """JSON output preserves full org_id even when long"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "long-org"
+        profile.mkdir()
+        long_org = "A" * 60 + "@AdobeOrg"
+        (profile / "config.json").write_text(json.dumps({"org_id": long_org}))
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="json")
+            captured = capsys.readouterr()
+            data = json.loads(captured.out)
+            assert data["profiles"][0]["org_id"] == long_org
+
+    def test_org_id_from_env_in_listing(self, tmp_path, capsys):
+        """org_id sourced from .env appears in JSON listing"""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        profile = profiles_dir / "env-only"
+        profile.mkdir()
+        (profile / ".env").write_text("ORG_ID=ENV_ORG@AdobeOrg\n")
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            list_profiles(output_format="json")
+            captured = capsys.readouterr()
+            data = json.loads(captured.out)
+            assert data["profiles"][0]["org_id"] == "ENV_ORG@AdobeOrg"
+
+    def test_listing_continues_when_org_id_read_fails_for_one_profile(self, tmp_path, capsys):
+        """A single unreadable/malformed profile should not abort --profile-list."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        good = profiles_dir / "good"
+        good.mkdir()
+        (good / "config.json").write_text('{"org_id": "GOOD@AdobeOrg"}')
+
+        bad = profiles_dir / "bad"
+        bad.mkdir()
+        (bad / ".env").write_bytes(b"\xff\xfe\x00malformed")
+
+        with patch("cja_auto_sdr.generator.get_profiles_dir", return_value=profiles_dir):
+            result = list_profiles(output_format="json")
+            assert result is True
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        by_name = {profile["name"]: profile for profile in data["profiles"]}
+        assert by_name["good"]["org_id"] == "GOOD@AdobeOrg"
+        assert by_name["bad"]["org_id"] is None

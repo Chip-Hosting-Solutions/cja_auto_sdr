@@ -1,8 +1,9 @@
 """Fast-path entry point for CJA Auto SDR.
 
-Lightweight flags (``--version``, ``--help``, ``--exit-codes``) are handled
-here *before* any heavyweight imports (pandas, cjapy, tqdm) so that simple
-informational queries return in under 100 ms.
+Lightweight flags (``--version``, ``--help``, ``--exit-codes``,
+``--completion``) are handled here *before* any heavyweight imports
+(pandas, cjapy, tqdm) so that simple informational queries return in
+under 100 ms.
 
 All other invocations fall through to the full ``generator.main()`` path.
 
@@ -12,6 +13,7 @@ Used by both ``python -m cja_auto_sdr`` and the console-script entry points.
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import types
 from collections.abc import Mapping
@@ -23,9 +25,19 @@ from cja_auto_sdr.cli.option_resolution import resolve_long_option_token as _res
 _VERSION_OPTION = "--version"
 _VERSION_SHORT_OPTION = "-V"
 
+_COMPLETION_OPTION = "--completion"
 _RUN_SUMMARY_OPTION = "--run-summary-json"
 _ARGCOMPLETE_ENV_VAR = "_ARGCOMPLETE"
 _FALSEY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
+_DEFAULT_COMPLETION_COMMAND = "cja_auto_sdr"
+
+_SUPPORTED_SHELLS = frozenset({"bash", "zsh", "fish"})
+
+_COMPLETION_SCRIPT_TEMPLATES: dict[str, str] = {
+    "bash": 'eval "$(register-python-argcomplete {command})"',
+    "zsh": ('autoload -U bashcompinit && bashcompinit\neval "$(register-python-argcomplete {command})"'),
+    "fish": "register-python-argcomplete --shell fish {command} | source",
+}
 
 
 class _OptionSpec(NamedTuple):
@@ -56,6 +68,13 @@ class _ArgparseProbeResult(NamedTuple):
 
     status: int
     output: str | None
+
+
+class _ArgparseProbeParseResult(NamedTuple):
+    """Result of probing argparse parse success/termination."""
+
+    namespace: object | None
+    termination: _ArgparseProbeResult | None
 
 
 def _is_argcomplete_completion_active(environ: Mapping[str, str] | None = None) -> bool:
@@ -219,6 +238,11 @@ def _probe_argparse_termination(args: list[str], argv0: str | None = None) -> _A
     This uses the real parser as the source of truth for precedence and
     validation (help/version actions, missing values, and mutex conflicts).
     """
+    return _probe_argparse_parse(args, argv0).termination
+
+
+def _probe_argparse_parse(args: list[str], argv0: str | None = None) -> _ArgparseProbeParseResult:
+    """Probe argparse parse result for *args* without emitting output."""
     from cja_auto_sdr.cli.parser import parse_arguments
 
     parser = parse_arguments(return_parser=True, enable_autocomplete=False)
@@ -238,11 +262,14 @@ def _probe_argparse_termination(args: list[str], argv0: str | None = None) -> _A
     parser._print_message = types.MethodType(_capture_output, parser)
 
     try:
-        parser.parse_args(args)
+        namespace = parser.parse_args(args)
     except _ArgparseProbeExit as probe_exit:
         rendered_output = probe_exit.message or "".join(captured_output) or None
-        return _ArgparseProbeResult(status=probe_exit.status, output=rendered_output)
-    return None
+        return _ArgparseProbeParseResult(
+            namespace=None,
+            termination=_ArgparseProbeResult(status=probe_exit.status, output=rendered_output),
+        )
+    return _ArgparseProbeParseResult(namespace=namespace, termination=None)
 
 
 def _is_fast_path_flag(argv: list[str]) -> str | None:
@@ -312,6 +339,34 @@ def _resolve_program_name(
     return program_name or "cja_auto_sdr"
 
 
+def _resolve_completion_command_name(argv0: str | None) -> str:
+    """Return the command name used in shell completion registration."""
+    if not argv0:
+        return _DEFAULT_COMPLETION_COMMAND
+
+    command_name = os.path.basename(argv0).strip()
+    if not command_name or command_name == "__main__.py":
+        return _DEFAULT_COMPLETION_COMMAND
+
+    return command_name
+
+
+def _render_completion_script(shell: str, command_name: str) -> str:
+    """Render shell completion script for *shell* and *command_name*."""
+    template = _COMPLETION_SCRIPT_TEMPLATES.get(shell)
+    if template is None:
+        raise ValueError(f"Unsupported shell: {shell}")
+
+    quoted_command = shlex.quote(_resolve_completion_command_name(command_name))
+    return template.format(command=quoted_command)
+
+
+# Backward-compatible default snippets for tests and static validation.
+_COMPLETION_SCRIPTS: dict[str, str] = {
+    shell: _render_completion_script(shell, _DEFAULT_COMPLETION_COMMAND) for shell in _SUPPORTED_SHELLS
+}
+
+
 def _print_version(program_name: str = "cja_auto_sdr") -> None:
     from cja_auto_sdr.core.version import __version__
 
@@ -325,6 +380,104 @@ def _print_exit_codes() -> None:
     print_exit_codes(banner_width=BANNER_WIDTH)
 
 
+def _extract_completion_shell(argv: list[str]) -> str | None:
+    """Extract the shell name following ``--completion`` in *argv*.
+
+    Returns the shell name (e.g. ``"bash"``) or ``None`` if ``--completion``
+    is not present.  Raises ``SystemExit(1)`` when ``--completion`` appears
+    with no following argument or with an unsupported shell name.
+    """
+    args = argv[1:]  # skip argv[0]
+    try:
+        idx = args.index(_COMPLETION_OPTION)
+    except ValueError:
+        return None
+
+    if idx + 1 >= len(args):
+        print(
+            f"error: --completion requires a shell argument ({', '.join(sorted(_SUPPORTED_SHELLS))})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    shell = args[idx + 1].lower()
+    if shell not in _SUPPORTED_SHELLS:
+        print(
+            f"error: unsupported shell '{shell}'. Supported shells: {', '.join(sorted(_SUPPORTED_SHELLS))}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    return shell
+
+
+def _handle_completion(shell: str, argv0: str | None = None) -> None:
+    """Print the shell completion activation script and exit.
+
+    Exits 0 on success, 1 if argcomplete is not installed.
+    """
+    if shell not in _SUPPORTED_SHELLS:
+        print(
+            f"error: unsupported shell '{shell}'. Supported shells: {', '.join(sorted(_SUPPORTED_SHELLS))}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    try:
+        import argcomplete as _argcomplete  # noqa: F401
+    except ImportError:
+        print(
+            "error: argcomplete is not installed. Install it with:\n  pip install argcomplete",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+    command_name = _resolve_completion_command_name(argv0)
+    print(_render_completion_script(shell, command_name))
+    raise SystemExit(0)
+
+
+def _completion_fast_path_shell(argv: list[str]) -> str | None:
+    """Return completion shell for standalone, parse-valid fast-path requests.
+
+    Any mixed flags, parse errors, or argparse action precedence cases fall
+    through to ``generator.main()`` to preserve parser behavior.
+    """
+    args = argv[1:] if len(argv) > 1 else []
+    if not args:
+        return None
+
+    # Preserve run-summary contract: summary emission must route through
+    # generator.main() regardless of option ordering.
+    if _has_run_summary_contract_flag(args):
+        return None
+
+    scan = _scan_option_tokens(args)
+    if scan.has_parse_error:
+        return None
+
+    if _COMPLETION_OPTION not in scan.options:
+        return None
+
+    # Completion fast-path is intentionally strict: only standalone completion
+    # requests are intercepted; mixed option combinations defer to argparse.
+    if any(option != _COMPLETION_OPTION for option in scan.options):
+        return None
+
+    probe = _probe_argparse_parse(args, argv[0] if argv else None)
+    if probe.termination is not None or probe.namespace is None:
+        return None
+
+    completion_shell = getattr(probe.namespace, "completion", None)
+    if completion_shell is None:
+        return None
+
+    if getattr(probe.namespace, "data_views", []):
+        return None
+
+    return str(completion_shell).lower()
+
+
 def main() -> None:
     """Entry point with fast-path for lightweight flags."""
     # Argcomplete shell completion relies on parser-side hooks in
@@ -334,6 +487,14 @@ def main() -> None:
 
         _generator_main()
         return
+
+    # --completion fast-path: only standalone, parser-valid completion requests
+    # are handled here. Mixed/invalid argv must defer to full argparse flow.
+    completion_shell = _completion_fast_path_shell(sys.argv)
+    if completion_shell is not None:
+        _handle_completion(completion_shell, sys.argv[0] if sys.argv else None)
+        # _handle_completion always raises SystemExit; this is a safety net.
+        return  # pragma: no cover
 
     flag = _is_fast_path_flag(sys.argv)
 

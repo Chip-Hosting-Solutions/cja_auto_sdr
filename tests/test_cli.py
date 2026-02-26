@@ -754,6 +754,24 @@ class TestFastPathEntryPoint:
         assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json"]) is False
         assert _has_run_summary_flag(["--profile-import", "client-a", "--run-summary-json", "--version"]) is False
 
+    @pytest.mark.parametrize(
+        ("argv", "expected_shell"),
+        [
+            (["prog", "--completion", "bash"], "bash"),
+            (["prog", "--completion=zsh"], "zsh"),
+            (["prog", "--completion"], None),
+            (["prog", "--completion", "ksh"], None),
+            (["prog", "--profile", "--completion", "bash"], None),
+            (["prog", "--version", "--completion", "ksh"], None),
+            (["prog", "--completion", "bash", "dv_test"], None),
+            (["prog", "--completion", "bash", "--run-summary-json", "stdout"], None),
+        ],
+    )
+    def test_completion_fast_path_shell_only_allows_parse_valid_standalone_requests(self, argv, expected_shell):
+        from cja_auto_sdr.__main__ import _completion_fast_path_shell
+
+        assert _completion_fast_path_shell(argv) == expected_shell
+
     def test_fast_path_version_output(self, capsys):
         from cja_auto_sdr.__main__ import _print_version
         from cja_auto_sdr.core.version import __version__
@@ -777,6 +795,22 @@ class TestFastPathEntryPoint:
             == "python3 -m cja_auto_sdr"
         )
         assert _resolve_program_name("") == "cja_auto_sdr"
+
+    def test_resolve_completion_command_name(self):
+        from cja_auto_sdr.__main__ import _resolve_completion_command_name
+
+        assert _resolve_completion_command_name("cja_auto_sdr") == "cja_auto_sdr"
+        assert _resolve_completion_command_name("cja-auto-sdr") == "cja-auto-sdr"
+        assert _resolve_completion_command_name("/usr/local/bin/cja-auto-sdr") == "cja-auto-sdr"
+        assert _resolve_completion_command_name("__main__.py") == "cja_auto_sdr"
+        assert _resolve_completion_command_name("") == "cja_auto_sdr"
+        assert _resolve_completion_command_name(None) == "cja_auto_sdr"
+
+    def test_render_completion_script_quotes_command_names(self):
+        from cja_auto_sdr.__main__ import _render_completion_script
+
+        script = _render_completion_script("bash", "cja auto sdr")
+        assert "register-python-argcomplete 'cja auto sdr'" in script
 
     def test_fast_path_version_output_uses_program_name(self, capsys):
         from cja_auto_sdr.__main__ import _print_version
@@ -981,6 +1015,31 @@ class TestFastPathEntryPoint:
 
         assert result.returncode == 2
         assert stderr_substring in result.stderr
+
+    def test_fast_path_malformed_completion_with_missing_option_value_preserves_argparse_error_exit(self):
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--profile", "--completion", "bash"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 2
+        assert "expected one argument" in result.stderr
+
+    def test_fast_path_version_with_invalid_completion_shell_preserves_version_precedence(self):
+        from cja_auto_sdr.core.version import __version__
+
+        result = subprocess.run(
+            ["uv", "run", "cja_auto_sdr", "--version", "--completion", "ksh"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+
+        assert result.returncode == 0
+        assert result.stdout.strip() == f"cja_auto_sdr {__version__}"
+        assert "unsupported shell" not in result.stderr
 
     def test_fast_path_help_before_version_preserves_help_precedence(self):
         import subprocess
@@ -3832,6 +3891,31 @@ class TestRunSummaryOutput:
         assert "EXIT CODE REFERENCE" not in result.stdout
         assert "EXIT CODE REFERENCE" in result.stderr
 
+    def test_run_summary_completion_mode_classification(self, tmp_path):
+        """Completion runs should emit run summary mode=completion."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_completion.json"
+        fake_argcomplete = type(sys)("argcomplete")
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["cja_auto_sdr", "--completion", "bash", "--run-summary-json", str(summary_file)],
+            ),
+            patch.dict("sys.modules", {"argcomplete": fake_argcomplete}),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 0
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "completion"
+        assert payload["exit_code"] == 0
+        assert payload["status"] == "success"
+
     def test_run_summary_stdout_subprocess_version_is_order_independent(self):
         """E2E: --version should still emit run summary JSON regardless of flag order."""
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -4187,6 +4271,8 @@ class TestRunModeInference:
     @pytest.mark.parametrize(
         ("argv", "expected_mode"),
         [
+            (["cja_auto_sdr", "--exit-codes", "--completion", "bash"], "exit_codes"),
+            (["cja_auto_sdr", "--completion", "bash", "--sample-config"], "completion"),
             (["cja_auto_sdr", "--list-dataviews", "--org-report"], "discovery"),
             (["cja_auto_sdr", "--describe-dataview", "dv_1"], "discovery"),
             (["cja_auto_sdr", "--list-metrics", "dv_1"], "discovery"),

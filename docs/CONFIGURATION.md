@@ -343,7 +343,7 @@ There are two commands for checking your configuration:
 | Command | API Call | Best For |
 |---------|----------|----------|
 | `--config-status` | No | Quick troubleshooting—shows configuration source, fields, and masked credentials |
-| `--validate-config` | Yes | Full validation—tests API connectivity and authentication |
+| `--validate-config` | Yes | Full validation—runs 5 checks: environment, dependencies, credentials, API connectivity, and output permissions |
 
 ```bash
 # Quick check: Show configuration status without API call (fast)
@@ -359,9 +359,20 @@ cja_auto_sdr --config-file /path/to/config.json --validate-config
 cja_auto_sdr --dry-run
 ```
 
+**`--validate-config` runs 5 steps:**
+
+```text
+[1/5] Checking environment... Python 3.14.2, darwin
+[2/5] Checking dependencies... core: cjapy, pandas, numpy, xlsxwriter, tqdm; optional: scipy, argcomplete, python-dotenv
+[3/5] Checking credentials... profile "default" loaded
+[4/5] Testing API connectivity... authenticated as user@example.com
+[5/5] Checking output permissions... output directory writable
+✔ All checks passed
+```
+
 **When to use each:**
 - Use `--config-status` first for quick troubleshooting (no network required)
-- Use `--validate-config` to verify API connectivity and authentication
+- Use `--validate-config` for full validation—checks environment, dependencies, credentials, API connectivity, and output permissions
 
 ---
 
@@ -910,10 +921,11 @@ cja_auto_sdr --list-dataviews --log-level DEBUG
 
 ### Startup Diagnostics
 
-At launch, the tool logs a diagnostic line containing the tool version, Python version, platform, active log level, and inferred run mode (batch, single, or discovery). This appears automatically at `INFO` level and is useful for troubleshooting environment issues in CI/CD logs or support requests:
+At launch, the tool logs diagnostic lines containing the tool version, Python version, platform, active log level, inferred run mode (batch, single, or discovery), and dependency versions. These appear automatically at `INFO` level and are useful for troubleshooting environment issues in CI/CD logs or support requests:
 
 ```text
-CJA SDR Generator v3.3.3 | Python 3.14.2 | darwin | log_level=INFO | mode=single
+CJA SDR Generator v3.3.4 | Python 3.14.2 | darwin | log_level=INFO | mode=single
+Dependencies: cjapy=0.2.4.post3, pandas=2.3.3, numpy=2.2.1, xlsxwriter=3.2.9, tqdm=4.67.0
 ```
 
 ### Structured JSON Logging
