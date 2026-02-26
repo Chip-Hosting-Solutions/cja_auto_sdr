@@ -10562,8 +10562,7 @@ def validate_config_only(
     print("[2/5] Checking dependencies...")
 
     # Core dependencies (must exist)
-    _core_deps = ("cjapy", "pandas", "numpy", "xlsxwriter", "tqdm")
-    for pkg in _core_deps:
+    for pkg in _CORE_DEPENDENCIES:
         try:
             ver = importlib.metadata.version(pkg)
             print(f"  \u2713 {pkg} {ver}")

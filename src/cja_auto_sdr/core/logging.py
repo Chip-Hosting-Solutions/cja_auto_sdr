@@ -425,7 +425,7 @@ def _collect_dependency_versions() -> dict[str, str]:
     for pkg in _CORE_DEPENDENCIES:
         try:
             versions[pkg] = importlib.metadata.version(pkg)
-        except Exception:  # PackageNotFoundError, corrupt metadata, OSError, etc.
+        except Exception:  # Intentional: metadata backends can raise heterogeneous parse/IO errors.
             versions[pkg] = "?"
     return versions
 
