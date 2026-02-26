@@ -1084,6 +1084,25 @@ def _handle_completion_prevalidation(
         raise
 
 
+def _dispatch_prevalidation_mode(
+    args: argparse.Namespace,
+    inferred_mode: RunMode,
+    run_state: dict[str, Any] | None = None,
+) -> None:
+    """Dispatch pre-validation command modes using inferred run-mode precedence.
+
+    Completion must short-circuit before unrelated global validation, but only
+    when completion is the selected mode for this argv.
+    """
+    if inferred_mode != RunMode.COMPLETION:
+        return
+
+    completion_shell = _completion_shell_from_args(args)
+    if completion_shell is None:
+        _exit_error("Internal error: completion mode inferred without a completion shell value")
+    _handle_completion_prevalidation(completion_shell, run_state=run_state)
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Compatibility wrapper that returns the run mode as a string value."""
     return _infer_run_mode_enum(args).value
@@ -14214,11 +14233,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
         run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
 
-    # Completion must short-circuit before unrelated option parsing/validation
-    # so mixed argv (for run-summary and fast-path fallbacks) remains robust.
-    completion_shell = _completion_shell_from_args(args)
-    if completion_shell is not None:
-        _handle_completion_prevalidation(completion_shell, run_state=run_state)
+    # Dispatch early command modes before unrelated validation. Use inferred
+    # mode so dispatch precedence cannot diverge from run-mode classification.
+    _dispatch_prevalidation_mode(args, inferred_mode, run_state=run_state)
 
     run_summary_to_stdout = getattr(args, "run_summary_json", None) in ("-", "stdout")
     quality_policy_path = getattr(args, "quality_policy", None)

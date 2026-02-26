@@ -516,3 +516,21 @@ class TestCompletionSafetyNet:
         captured = capsys.readouterr()
         assert "Failed to load --quality-policy" not in captured.err
         assert "register-python-argcomplete" in captured.out
+
+    def test_generator_safety_net_exit_codes_precedes_completion(self):
+        """Mixed --exit-codes/--completion should dispatch exit-codes branch first."""
+        from cja_auto_sdr.generator import _main_impl
+
+        run_state: dict[str, object] = {}
+        with (
+            patch.object(sys, "argv", ["cja_auto_sdr", "--exit-codes", "--completion", "bash"]),
+            patch("cja_auto_sdr.core.exit_codes.print_exit_codes") as mock_print_exit_codes,
+            patch("cja_auto_sdr.generator._handle_completion_prevalidation") as mock_completion_prevalidation,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _main_impl(run_state=run_state)
+
+        assert int(exc_info.value.code) == 0
+        assert run_state["mode"] == "exit_codes"
+        mock_print_exit_codes.assert_called_once()
+        mock_completion_prevalidation.assert_not_called()
