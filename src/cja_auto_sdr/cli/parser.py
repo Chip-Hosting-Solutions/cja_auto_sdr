@@ -81,7 +81,7 @@ def parse_arguments(
         _bootstrap_dotenv(logging.getLogger(__name__))
 
     parser = argparse.ArgumentParser(
-        description="CJA SDR Generator - Generate System Design Records for CJA Data Views",
+        description="CJA SDR Generator - Generate Solution Design Reference for CJA Data Views",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -239,6 +239,7 @@ Exit Codes:
   0 - Success (diff: no differences found)
   1 - Error occurred
   2 - Policy threshold exceeded (diff changes, quality gate, or governance threshold)
+  3 - Diff warning threshold exceeded (--warn-threshold)
 
 Requirements:
   Python 3.14 or higher required. Verify with: python3 --version

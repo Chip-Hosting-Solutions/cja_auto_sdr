@@ -1934,8 +1934,8 @@ class TestAdditionalValidation:
             with pytest.raises(SystemExit) as exc_info:
                 _main_impl()
         assert exc_info.value.code == 1
-        out = capsys.readouterr().out
-        assert "Console format is only supported for diff comparison" in out
+        err = capsys.readouterr().err
+        assert "Console format is only supported for diff comparison" in err
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_123"], {}))

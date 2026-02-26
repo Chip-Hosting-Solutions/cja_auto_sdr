@@ -7929,6 +7929,8 @@ def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout
         return raw_format
     if output_to_stdout:
         return "json"
+    if raw_format is not None and raw_format not in ("console", "table"):
+        logging.getLogger(__name__).warning("--format %s is not supported for this command; using table", raw_format)
     return "table"
 
 
@@ -10745,9 +10747,16 @@ def validate_config_only(
     print("=" * BANNER_WIDTH)
     if all_passed:
         print(ConsoleColors.success("VALIDATION PASSED - Configuration is valid!"))
+        print("=" * BANNER_WIDTH)
+        print()
+        print("Next steps — run with a data view to generate SDR reports:")
+        print("  cja_auto_sdr <DATA_VIEW_ID>")
+        print()
+        print("Or list available data views:")
+        print("  cja_auto_sdr --list-dataviews")
     else:
         print(ConsoleColors.error("VALIDATION FAILED - Check errors above"))
-    print("=" * BANNER_WIDTH)
+        print("=" * BANNER_WIDTH)
 
     return all_passed
 
@@ -14366,6 +14375,8 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --profile-list mode (no data view required)
     if getattr(args, "profile_list", False):
+        if args.format not in (None, "json", "console", "table", "excel"):
+            logging.getLogger(__name__).warning("--format %s is not supported for --profile-list; using table", args.format)
         list_format = "json" if args.format == "json" else "table"
         success = list_profiles(output_format=list_format)
         if run_state is not None:
@@ -15640,19 +15651,19 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Validate format - console is only supported for diff comparison
     if sdr_format == "console" and not quality_report_only:
-        print(ConsoleColors.error("Error: Console format is only supported for diff comparison."))
-        print()
-        print("For SDR generation, use one of these formats:")
-        print("  --format excel     Excel workbook with multiple sheets (default)")
-        print("  --format csv       CSV files (one per data type)")
-        print("  --format json      JSON file with all data")
-        print("  --format html      HTML report")
-        print("  --format markdown  Markdown document")
-        print("  --format all       Generate all formats")
-        print()
-        print("For diff comparison, console is the default:")
-        print("  cja_auto_sdr --diff dv_A dv_B              # Console output")
-        print("  cja_auto_sdr --diff dv_A dv_B --format json  # JSON output")
+        print(ConsoleColors.error("Error: Console format is only supported for diff comparison."), file=sys.stderr)
+        print(file=sys.stderr)
+        print("For SDR generation, use one of these formats:", file=sys.stderr)
+        print("  --format excel     Excel workbook with multiple sheets (default)", file=sys.stderr)
+        print("  --format csv       CSV files (one per data type)", file=sys.stderr)
+        print("  --format json      JSON file with all data", file=sys.stderr)
+        print("  --format html      HTML report", file=sys.stderr)
+        print("  --format markdown  Markdown document", file=sys.stderr)
+        print("  --format all       Generate all formats", file=sys.stderr)
+        print(file=sys.stderr)
+        print("For diff comparison, console is the default:", file=sys.stderr)
+        print("  cja_auto_sdr --diff dv_A dv_B              # Console output", file=sys.stderr)
+        print("  cja_auto_sdr --diff dv_A dv_B --format json  # JSON output", file=sys.stderr)
         sys.exit(1)
 
     # Check for conflicting component filter options
