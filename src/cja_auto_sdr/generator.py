@@ -1723,7 +1723,12 @@ def add_profile_interactive(profile_name: str) -> bool:
         try:
             secret = getpass.getpass("Client Secret: ").strip()
         except getpass.GetPassWarning:
-            print(ConsoleColors.error("Error: Cannot securely read secret (no TTY available). Use --profile-import instead."), file=sys.stderr)
+            print(
+                ConsoleColors.error(
+                    "Error: Cannot securely read secret (no TTY available). Use --profile-import instead."
+                ),
+                file=sys.stderr,
+            )
             return False
 
         if not secret:
@@ -2547,19 +2552,16 @@ def apply_excel_formatting(
             column_width_caps = {}
             default_cap = 100
 
-        # Set column widths with appropriate caps
+        # Set column widths with appropriate caps (vectorized)
         for idx, col in enumerate(df.columns):
-            series = df[col]
             col_lower = col.lower()
             max_cap = column_width_caps.get(col_lower, default_cap)
-            max_len = min(
-                max(
-                    max(len(str(val).split("\n")[0]) for val in series) if len(series) > 0 else 0,
-                    len(str(series.name)),
-                )
-                + 2,
-                max_cap,
-            )
+            series = df[col]
+            if len(series) > 0:
+                content_max = int(series.astype(str).str.split("\n").str[0].str.len().max())
+            else:
+                content_max = 0
+            max_len = min(max(content_max, len(str(series.name))) + 2, max_cap)
             worksheet.set_column(idx, idx, max_len)
 
         # Apply row formatting (offset by summary rows)
@@ -5795,9 +5797,17 @@ def process_single_dataview(
                 ),
             )
 
-        # Derived field inventory (if enabled)
+        # Optional inventory builds (parallelized when 2+ are enabled)
         derived_inventory_df = pd.DataFrame()
         derived_inventory_obj = None  # Store inventory object for JSON output
+        calculated_metrics_df = pd.DataFrame()
+        calculated_inventory_obj = None  # Store inventory object for JSON output
+        segments_inventory_df = pd.DataFrame()
+        segments_inventory_obj = None  # Store inventory object for JSON output
+
+        # Collect enabled inventory tasks — closures defined conditionally
+        _inventory_tasks: list[tuple[str, Callable, Callable, str]] = []
+
         if include_derived_inventory:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building derived field inventory")
@@ -5823,19 +5833,10 @@ def process_single_dataview(
                 logger.warning(f"Could not import derived field inventory: {error}")
                 logger.info("Skipping derived field inventory - module not available")
 
-            derived_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="derived field inventory",
-                summary_mode=False,
-                build_inventory=_build_derived_inventory,
-                on_import_error=_handle_derived_import_error,
+            _inventory_tasks.append(
+                ("derived", _build_derived_inventory, _handle_derived_import_error, "derived field inventory")
             )
-            if derived_inventory_payload is not None:
-                derived_inventory_obj, derived_inventory_df = derived_inventory_payload
 
-        # Calculated metrics inventory (if enabled)
-        calculated_metrics_df = pd.DataFrame()
-        calculated_inventory_obj = None  # Store inventory object for JSON output
         if include_calculated_metrics:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building calculated metrics inventory")
@@ -5858,19 +5859,15 @@ def process_single_dataview(
                 logger.warning(f"Could not import calculated metrics inventory: {error}")
                 logger.info("Skipping calculated metrics inventory - module not available")
 
-            calculated_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="calculated metrics inventory",
-                summary_mode=False,
-                build_inventory=_build_calculated_inventory,
-                on_import_error=_handle_calculated_import_error,
+            _inventory_tasks.append(
+                (
+                    "calculated",
+                    _build_calculated_inventory,
+                    _handle_calculated_import_error,
+                    "calculated metrics inventory",
+                )
             )
-            if calculated_inventory_payload is not None:
-                calculated_inventory_obj, calculated_metrics_df = calculated_inventory_payload
 
-        # Segments inventory (if enabled)
-        segments_inventory_df = pd.DataFrame()
-        segments_inventory_obj = None  # Store inventory object for JSON output
         if include_segments_inventory:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building segments inventory")
@@ -5893,15 +5890,53 @@ def process_single_dataview(
                 logger.warning(f"Could not import segments inventory: {error}")
                 logger.info("Skipping segments inventory - module not available")
 
-            segments_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="segments inventory",
-                summary_mode=False,
-                build_inventory=_build_segments_inventory,
-                on_import_error=_handle_segments_import_error,
+            _inventory_tasks.append(
+                ("segments", _build_segments_inventory, _handle_segments_import_error, "segments inventory")
             )
-            if segments_inventory_payload is not None:
-                segments_inventory_obj, segments_inventory_df = segments_inventory_payload
+
+        def _assign_inventory_result(key: str, payload: Any) -> None:
+            """Assign inventory result to the correct outer variables."""
+            nonlocal derived_inventory_obj, derived_inventory_df
+            nonlocal calculated_inventory_obj, calculated_metrics_df
+            nonlocal segments_inventory_obj, segments_inventory_df
+            if payload is None:
+                return
+            if key == "derived":
+                derived_inventory_obj, derived_inventory_df = payload
+            elif key == "calculated":
+                calculated_inventory_obj, calculated_metrics_df = payload
+            elif key == "segments":
+                segments_inventory_obj, segments_inventory_df = payload
+
+        if len(_inventory_tasks) >= 2:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=len(_inventory_tasks)) as executor:
+                futures = {}
+                for key, build_fn, err_fn, label in _inventory_tasks:
+                    future = executor.submit(
+                        _run_optional_inventory_step,
+                        logger=logger,
+                        inventory_label=label,
+                        summary_mode=False,
+                        build_inventory=build_fn,
+                        on_import_error=err_fn,
+                    )
+                    futures[future] = key
+                for future in as_completed(futures):
+                    key = futures[future]
+                    _assign_inventory_result(key, future.result())
+        else:
+            # Single inventory or none — run sequentially (no thread overhead)
+            for key, build_fn, err_fn, label in _inventory_tasks:
+                payload = _run_optional_inventory_step(
+                    logger=logger,
+                    inventory_label=label,
+                    summary_mode=False,
+                    build_inventory=build_fn,
+                    on_import_error=err_fn,
+                )
+                _assign_inventory_result(key, payload)
 
         # Data processing
         logger.info("=" * BANNER_WIDTH)
@@ -14376,7 +14411,9 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     # Handle --profile-list mode (no data view required)
     if getattr(args, "profile_list", False):
         if args.format not in (None, "json", "console", "table", "excel"):
-            logging.getLogger(__name__).warning("--format %s is not supported for --profile-list; using table", args.format)
+            logging.getLogger(__name__).warning(
+                "--format %s is not supported for --profile-list; using table", args.format
+            )
         list_format = "json" if args.format == "json" else "table"
         success = list_profiles(output_format=list_format)
         if run_state is not None:

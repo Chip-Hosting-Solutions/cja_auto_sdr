@@ -7,6 +7,7 @@ import logging
 import multiprocessing
 import threading
 import time
+from collections import OrderedDict
 from typing import Any
 
 import pandas as pd
@@ -43,10 +44,8 @@ class ValidationCache:
         self.logger = logger or logging.getLogger(__name__)
 
         # Cache storage: key -> (issues_list, timestamp)
-        self._cache: dict[str, tuple[list[dict], float]] = {}
-
-        # LRU tracking: key -> last_access_time
-        self._access_times: dict[str, float] = {}
+        # OrderedDict tracks insertion/access order for O(1) LRU eviction
+        self._cache: OrderedDict[str, tuple[list[dict], float]] = OrderedDict()
 
         # Thread safety
         self._lock = threading.Lock()
@@ -135,12 +134,11 @@ class ValidationCache:
                 if debug_enabled:
                     self.logger.debug(f"Cache EXPIRED: {item_type} (age: {age:.1f}s)")
                 del self._cache[cache_key]
-                del self._access_times[cache_key]
                 self._misses += 1
                 return None, cache_key
 
-            # Cache hit - update access time
-            self._access_times[cache_key] = time.time()
+            # Cache hit - move to end for LRU tracking
+            self._cache.move_to_end(cache_key)
             self._hits += 1
             if debug_enabled:
                 self.logger.debug(f"Cache HIT: {item_type} ({len(cached_issues)} issues)")
@@ -179,7 +177,6 @@ class ValidationCache:
             # Store issues with timestamp
             # Deep copy to prevent external mutation
             self._cache[cache_key] = ([issue.copy() for issue in issues], time.time())
-            self._access_times[cache_key] = time.time()
 
             if debug_enabled:
                 self.logger.debug(f"Cache STORE: {item_type} ({len(issues)} issues)")
@@ -190,15 +187,11 @@ class ValidationCache:
         Args:
             debug_enabled: Whether debug logging is enabled (avoids repeated checks)
         """
-        if not self._access_times:
+        if not self._cache:
             return
 
-        # Find least recently used key
-        lru_key = min(self._access_times.items(), key=lambda x: x[1])[0]
-
-        # Remove from cache
+        lru_key = next(iter(self._cache))
         del self._cache[lru_key]
-        del self._access_times[lru_key]
         self._evictions += 1
 
         if debug_enabled:
@@ -229,7 +222,6 @@ class ValidationCache:
         """Clear all cache entries (useful for testing)"""
         with self._lock:
             self._cache.clear()
-            self._access_times.clear()
             self.logger.debug("Cache cleared")
 
     def log_statistics(self):
@@ -438,14 +430,8 @@ class SharedValidationCache:
         if not self._access_times:
             return
 
-        # Find least recently used key
-        access_times_dict = dict(self._access_times)
-        if not access_times_dict:  # pragma: no cover — unreachable; guarded by line 438
-            return
+        lru_key = min(self._access_times.items(), key=lambda x: x[1])[0]
 
-        lru_key = min(access_times_dict.items(), key=lambda x: x[1])[0]
-
-        # Remove from cache
         if lru_key in self._cache:
             del self._cache[lru_key]
         if lru_key in self._access_times:
