@@ -549,6 +549,56 @@ class TestNormalizeSingleDataviewPayload:
 # ---------------------------------------------------------------------------
 
 
+class TestResolveCommandOutputFormat:
+    """Test _resolve_command_output_format stdout and fallback policies."""
+
+    def test_stdout_defaults_to_stdout_fallback_when_missing(self) -> None:
+        from cja_auto_sdr.generator import _resolve_command_output_format
+
+        result = _resolve_command_output_format(
+            None,
+            supported_formats={"json": "json", "csv": "csv", "table": "table"},
+            fallback_format="table",
+            output_to_stdout=True,
+            stdout_fallback_format="json",
+            stdout_allowed_formats=("json", "csv"),
+            warning_scope="test command",
+        )
+        assert result == "json"
+
+    def test_stdout_preserves_explicit_allowed_format(self) -> None:
+        from cja_auto_sdr.generator import _resolve_command_output_format
+
+        result = _resolve_command_output_format(
+            "csv",
+            supported_formats={"json": "json", "csv": "csv", "table": "table"},
+            fallback_format="table",
+            output_to_stdout=True,
+            stdout_fallback_format="json",
+            stdout_allowed_formats=("json", "csv"),
+            warning_scope="test command",
+        )
+        assert result == "csv"
+
+    def test_stdout_disallowed_supported_format_warns_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
+        from cja_auto_sdr.generator import _resolve_command_output_format
+
+        with caplog.at_level(logging.WARNING, logger="cja_auto_sdr.generator"):
+            result = _resolve_command_output_format(
+                "table",
+                supported_formats={"json": "json", "csv": "csv", "table": "table"},
+                fallback_format="table",
+                output_to_stdout=True,
+                stdout_fallback_format="json",
+                stdout_allowed_formats=("json", "csv"),
+                warning_scope="test command",
+            )
+
+        assert result == "json"
+        assert "with --output stdout" in caplog.text
+        assert "using json" in caplog.text
+
+
 class TestResolveDiscoveryOutputFormat:
     """Test _resolve_discovery_output_format unsupported format warning path."""
 
@@ -567,12 +617,26 @@ class TestResolveDiscoveryOutputFormat:
 
         assert _resolve_discovery_output_format(None, output_to_stdout=True) == "json"
 
+    def test_stdout_preserves_explicit_csv(self) -> None:
+        from cja_auto_sdr.generator import _resolve_discovery_output_format
+
+        assert _resolve_discovery_output_format("csv", output_to_stdout=True) == "csv"
+
     def test_unsupported_format_warns_and_defaults_to_table(self) -> None:
         """Unsupported format like 'excel' triggers a warning and falls back to 'table'."""
         from cja_auto_sdr.generator import _resolve_discovery_output_format
 
         result = _resolve_discovery_output_format("excel", output_to_stdout=False)
         assert result == "table"
+
+    def test_stdout_unsupported_format_warns_and_defaults_to_json(self, caplog: pytest.LogCaptureFixture) -> None:
+        from cja_auto_sdr.generator import _resolve_discovery_output_format
+
+        with caplog.at_level(logging.WARNING, logger="cja_auto_sdr.generator"):
+            result = _resolve_discovery_output_format("excel", output_to_stdout=True)
+
+        assert result == "json"
+        assert "using json" in caplog.text
 
     def test_console_alias_maps_to_table(self) -> None:
         """Console alias should normalize to table for discovery commands."""

@@ -19,7 +19,7 @@ import textwrap
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -530,6 +530,9 @@ def _resolve_command_output_format(
     fallback_format: str,
     warning_scope: str,
     logger: logging.Logger | None = None,
+    output_to_stdout: bool = False,
+    stdout_fallback_format: str | None = None,
+    stdout_allowed_formats: Collection[str] | None = None,
 ) -> str:
     """Resolve requested output format to a supported command format.
 
@@ -539,22 +542,43 @@ def _resolve_command_output_format(
         fallback_format: Canonical fallback format when input is missing/unsupported.
         warning_scope: Human-readable command scope for warning messages.
         logger: Optional logger for warning emissions.
+        output_to_stdout: Whether command output is being piped to stdout.
+        stdout_fallback_format: Fallback format override for stdout paths.
+        stdout_allowed_formats: Canonical formats allowed for stdout output.
     """
+    active_logger = logger or logging.getLogger(__name__)
+    allowed_stdout_formats = tuple(dict.fromkeys(stdout_allowed_formats or ()))
+
+    effective_fallback = fallback_format
+    if output_to_stdout and stdout_fallback_format is not None:
+        effective_fallback = stdout_fallback_format
+    if output_to_stdout and allowed_stdout_formats and effective_fallback not in allowed_stdout_formats:
+        effective_fallback = allowed_stdout_formats[0]
+
     normalized_format = _normalize_output_format(raw_format)
     if normalized_format is None:
-        return fallback_format
+        return effective_fallback
 
     resolved_format = supported_formats.get(normalized_format)
-    if resolved_format is not None:
-        return resolved_format
+    if resolved_format is None:
+        active_logger.warning(
+            "--format %s is not supported for %s; using %s",
+            raw_format,
+            warning_scope,
+            effective_fallback,
+        )
+        return effective_fallback
 
-    (logger or logging.getLogger(__name__)).warning(
-        "--format %s is not supported for %s; using %s",
-        raw_format,
-        warning_scope,
-        fallback_format,
-    )
-    return fallback_format
+    if output_to_stdout and allowed_stdout_formats and resolved_format not in allowed_stdout_formats:
+        active_logger.warning(
+            "--format %s is not supported for %s with --output stdout; using %s",
+            raw_format,
+            warning_scope,
+            effective_fallback,
+        )
+        return effective_fallback
+
+    return resolved_format
 
 
 def _print_error_list_to_stderr(
@@ -8027,12 +8051,13 @@ def _is_machine_readable_output(output_format: str | None, output_file: str | No
 
 def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout: bool) -> str:
     """Normalize discovery output format with stdout piping semantics."""
-    if output_to_stdout:
-        return "json"
     return _resolve_command_output_format(
         raw_format,
         supported_formats={"json": "json", "csv": "csv", "console": "table", "table": "table"},
         fallback_format="table",
+        output_to_stdout=output_to_stdout,
+        stdout_fallback_format="json",
+        stdout_allowed_formats={"json", "csv"},
         warning_scope="this command",
     )
 

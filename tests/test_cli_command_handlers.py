@@ -1278,18 +1278,41 @@ class TestMainImplDiscoveryFormatRouting:
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.list_dataviews")
     @patch("cja_auto_sdr.generator.configure_cjapy")
-    def test_discovery_csv_format_preserved(self, _mock_conf, mock_list_dv):
-        """Explicit csv format should be preserved for discovery commands."""
+    def test_discovery_stdout_preserves_explicit_csv(self, _mock_conf, mock_list_dv):
+        """Explicit csv format should be preserved for stdout discovery commands."""
         mock_list_dv.return_value = True
         run_state = {"mode": "unknown", "details": {}}
 
         with pytest.raises(SystemExit) as exc_info:
             with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
-                mock_pa.return_value = parse_arguments(["--list-dataviews", "--format", "csv"])
+                mock_pa.return_value = parse_arguments(["--list-dataviews", "--format", "csv", "--output", "-"])
                 _main_impl(run_state=run_state)
 
         assert exc_info.value.code == 0
         assert run_state["output_format"] == "csv"
+        assert mock_list_dv.call_args.kwargs["output_format"] == "csv"
+        assert mock_list_dv.call_args.kwargs["output_file"] == "-"
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_dataviews")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    def test_discovery_stdout_unsupported_format_warns_and_defaults_to_json(
+        self, _mock_conf, mock_list_dv, caplog: pytest.LogCaptureFixture
+    ):
+        """Unsupported stdout format should warn and fall back to json."""
+        mock_list_dv.return_value = True
+        run_state = {"mode": "unknown", "details": {}}
+
+        with caplog.at_level(logging.WARNING, logger="cja_auto_sdr.generator"):
+            with pytest.raises(SystemExit) as exc_info:
+                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                    mock_pa.return_value = parse_arguments(["--list-dataviews", "--format", "excel", "--output", "-"])
+                    _main_impl(run_state=run_state)
+
+        assert exc_info.value.code == 0
+        assert run_state["output_format"] == "json"
+        assert mock_list_dv.call_args.kwargs["output_format"] == "json"
+        assert "using json" in caplog.text
 
 
 # ==================== _main_impl: --config-status / --validate-config ====================
