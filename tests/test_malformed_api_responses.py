@@ -174,6 +174,42 @@ class TestAPIReturnsWrongTypes:
         assert "validation failed" in result.error_message.lower()
         assert result.data_view_name == "Unknown"
 
+    @_apply
+    def test_dataview_info_is_error_placeholder_dict(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
+    ):
+        """Non-empty error placeholders are rejected by dataview validation."""
+        _setup_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_fetcher_class,
+            pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
+            pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
+            {
+                "id": "dv_test",
+                "name": "Unknown",
+                "lookup_failed": True,
+                "lookup_failure_reason": "exception",
+                "error": "getDataView failed",
+            },
+        )
+
+        result = process_single_dataview(
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
+        )
+        assert result.success is False
+        assert "validation failed" in result.error_message.lower()
+        assert result.data_view_name == "Unknown"
+
 
 # ===================================================================
 # Tests for DataFrames with unexpected schemas

@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.core.config import APITuningConfig
+from cja_auto_sdr.core.exceptions import CircuitBreakerOpen
 from cja_auto_sdr.generator import ParallelAPIFetcher, PerformanceTracker
 
 
@@ -299,6 +300,8 @@ class TestParallelAPIFetcherFetchAllData:
         # When dataview info fetch fails, it returns a fallback dict with Unknown name
         assert dataview["name"] == "Unknown"
         assert dataview["id"] == "dv_test_12345"
+        assert dataview["lookup_failed"] is True
+        assert dataview["lookup_failure_reason"] == "none_payload"
 
 
 class TestParallelAPIFetcherFetchMetrics:
@@ -444,6 +447,8 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "none_payload"
         mock_logger.error.assert_called()
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
@@ -456,6 +461,48 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "empty_mapping"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_legacy_unknown_placeholder(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Legacy fallback payload shape should be normalized into explicit failure payload."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "name": "Unknown"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "legacy_unknown_placeholder"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_circuit_breaker_open(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Circuit breaker opens should return explicit failure payload."""
+        mock_api_call.side_effect = CircuitBreakerOpen("breaker open", time_until_retry=10)
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "circuit_breaker_open"
+        assert result["circuit_breaker_open"] is True
+        assert "error" in result
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_exception(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
@@ -467,6 +514,8 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "exception"
         assert "error" in result
 
 
@@ -530,6 +579,8 @@ class TestParallelAPIFetcherErrorHandling:
         assert dimensions.empty
         # On failure, dataview returns fallback dict with error
         assert dataview["name"] == "Unknown"
+        assert dataview["lookup_failed"] is True
+        assert dataview["lookup_failure_reason"] == "exception"
         assert "error" in dataview
 
 

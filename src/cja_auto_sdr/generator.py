@@ -120,13 +120,10 @@ from cja_auto_sdr.core.discovery_payloads import (
     assess_component_payload as _assess_component_payload,
 )
 from cja_auto_sdr.core.discovery_payloads import (
+    assess_dataview_lookup_payload as _assess_dataview_lookup_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
     count_component_items_or_na as _count_component_items_or_na_from_assessment,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    has_identity_value as _has_identity_discovery_value,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    is_dataview_error_payload as _is_dataview_error_payload,
 )
 from cja_auto_sdr.core.exceptions import (
     APIError,
@@ -5651,9 +5648,21 @@ def process_single_dataview(
 
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
-        # Validate fetched data view (replaces separate validate_data_view call)
-        if lookup_data is None or (isinstance(lookup_data, dict) and not lookup_data):
-            logger.error("Data view validation failed — empty payload from API")
+        # Validate fetched data view lookup metadata (defensive gate before processing).
+        lookup_assessment = _assess_dataview_lookup_payload(
+            lookup_data,
+            expected_data_view_id=data_view_id,
+        )
+        if not lookup_assessment.is_valid:
+            logger.error(
+                "Data view validation failed — invalid lookup payload (%s)",
+                lookup_assessment.reason,
+            )
+            logger.debug(
+                "Lookup payload rejected: kind=%s raw_type=%s",
+                lookup_assessment.kind.value,
+                lookup_assessment.raw_type,
+            )
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name="Unknown",
@@ -5661,6 +5670,7 @@ def process_single_dataview(
                 duration=time.time() - start_time,
                 error_message="Data view validation failed",
             )
+        lookup_data = lookup_assessment.payload if lookup_assessment.payload is not None else {}
         logger.info("✓ Data view validated and fetched successfully")
 
         # Log tuner statistics if tuning was enabled
@@ -8518,10 +8528,11 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
         raise
 
-    payload = _normalize_single_dataview_payload(raw_payload)
-    if payload is None or _is_dataview_error_payload(payload):
+    assessment = _assess_dataview_lookup_payload(raw_payload, expected_data_view_id=data_view_id)
+    if not assessment.is_valid:
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
-    if not _has_identity_discovery_value(payload, ("id", "name")):
+    payload = assessment.payload
+    if payload is None:
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     return payload
 

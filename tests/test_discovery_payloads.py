@@ -5,6 +5,7 @@ import pandas as pd
 from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind,
     assess_component_payload,
+    assess_dataview_lookup_payload,
     coerce_component_rows_or_none,
     count_component_items_or_na,
     extract_component_sequence,
@@ -93,6 +94,47 @@ def test_dataview_payload_with_na_identity_values_is_treated_as_error() -> None:
 def test_dataview_payload_with_na_id_and_present_name_is_not_error() -> None:
     payload = {"statusCode": 200, "message": "ok", "id": pd.NA, "name": "Test View"}
     assert is_dataview_error_payload(payload) is False
+
+
+def test_assess_dataview_lookup_payload_accepts_valid_payload() -> None:
+    payload = {"id": "dv_1", "name": "Valid View", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_rejects_explicit_lookup_failed_marker() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": True,
+        "lookup_failure_reason": "exception",
+        "error": "network timeout",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+
+
+def test_assess_dataview_lookup_payload_rejects_circuit_breaker_marker() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "circuit_breaker_open": "true"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:circuit_breaker_open"
+
+
+def test_assess_dataview_lookup_payload_rejects_legacy_unknown_placeholder() -> None:
+    payload = {"id": "dv_1", "name": "Unknown"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "legacy_unknown_placeholder"
+
+
+def test_assess_dataview_lookup_payload_rejects_id_mismatch() -> None:
+    payload = {"id": "dv_other", "name": "Valid View"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "id_mismatch"
 
 
 # ---------------------------------------------------------------------------
