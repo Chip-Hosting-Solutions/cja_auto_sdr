@@ -137,6 +137,28 @@ def test_assess_dataview_lookup_payload_rejects_id_mismatch() -> None:
     assert assessment.reason == "id_mismatch"
 
 
+def test_assess_dataview_lookup_payload_handles_non_stringifiable_name_value() -> None:
+    class _ExplodingName:
+        def __str__(self) -> str:  # pragma: no cover - explicit failure path
+            raise RuntimeError("boom")
+
+    payload = {"id": "dv_1", "name": _ExplodingName()}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_rejects_invalid_id_type() -> None:
+    class _ExplodingId:
+        def __str__(self) -> str:  # pragma: no cover - explicit failure path
+            raise RuntimeError("boom")
+
+    payload = {"id": _ExplodingId(), "name": "Valid View"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "invalid_id_type"
+
+
 # ---------------------------------------------------------------------------
 # looks_like_error_payload — empty dict (line 56)
 # ---------------------------------------------------------------------------

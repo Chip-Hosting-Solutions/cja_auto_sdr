@@ -101,7 +101,7 @@ def _is_truthy_marker(value: Any) -> bool:
         return normalized not in {"false", "0", "no", "off"}
     try:
         return bool(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
 
 
@@ -127,13 +127,28 @@ def _normalize_dataview_lookup_payload(raw_payload: Any) -> tuple[dict[str, Any]
     return None, raw_type, "unsupported_payload_type"
 
 
+def _coerce_lookup_scalar_text(value: Any) -> str | None:
+    """Safely coerce primitive lookup scalar values to text."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8", errors="ignore")
+        except UnicodeDecodeError, AttributeError, TypeError, ValueError:
+            return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
 def _is_legacy_unknown_lookup_placeholder(payload: Mapping[str, Any], *, expected_data_view_id: str | None) -> bool:
     if expected_data_view_id is None:
         return False
     payload_id = payload.get("id")
     if is_missing_value(payload_id, treat_blank_string=True, treat_null_like_strings=True):
         return False
-    if str(payload_id).strip() != expected_data_view_id:
+    payload_id_text = _coerce_lookup_scalar_text(payload_id)
+    if payload_id_text is None or payload_id_text.strip() != expected_data_view_id:
         return False
     normalized_keys = normalized_payload_keys(payload)
     if not normalized_keys.issubset({"id", "name"}):
@@ -141,7 +156,10 @@ def _is_legacy_unknown_lookup_placeholder(payload: Mapping[str, Any], *, expecte
     name_value = payload.get("name")
     if is_missing_value(name_value, treat_blank_string=True, treat_null_like_strings=True):
         return False
-    return str(name_value).strip().casefold() == "unknown"
+    name_text = _coerce_lookup_scalar_text(name_value)
+    if name_text is None:
+        return False
+    return name_text.strip().casefold() == "unknown"
 
 
 def assess_dataview_lookup_payload(
@@ -152,7 +170,11 @@ def assess_dataview_lookup_payload(
     """Classify getDataView payloads into DATA/EMPTY/ERROR/INVALID."""
     payload, raw_type, normalize_reason = _normalize_dataview_lookup_payload(raw_payload)
     if payload is None:
-        kind = PayloadKind.EMPTY if normalize_reason in {"none_payload", "empty_dataframe", "empty_dataframe_records"} else PayloadKind.INVALID
+        kind = (
+            PayloadKind.EMPTY
+            if normalize_reason in {"none_payload", "empty_dataframe", "empty_dataframe_records"}
+            else PayloadKind.INVALID
+        )
         return DataViewLookupAssessment(kind=kind, payload=None, reason=normalize_reason, raw_type=raw_type)
 
     if not payload:
@@ -207,7 +229,15 @@ def assess_dataview_lookup_payload(
         treat_blank_string=True,
         treat_null_like_strings=True,
     ):
-        normalized_id = str(payload_id).strip()
+        payload_id_text = _coerce_lookup_scalar_text(payload_id)
+        if payload_id_text is None:
+            return DataViewLookupAssessment(
+                kind=PayloadKind.ERROR,
+                payload=payload,
+                reason="invalid_id_type",
+                raw_type=raw_type,
+            )
+        normalized_id = payload_id_text.strip()
         if normalized_id and normalized_id != expected_data_view_id:
             return DataViewLookupAssessment(
                 kind=PayloadKind.ERROR,
