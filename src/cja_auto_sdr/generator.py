@@ -557,7 +557,9 @@ def _resolve_command_output_format(
     return fallback_format
 
 
-def _print_error_list_to_stderr(header: str, details: list[Any], *, fallback_detail: str = "Unknown validation error") -> None:
+def _print_error_list_to_stderr(
+    header: str, details: list[Any], *, fallback_detail: str = "Unknown validation error"
+) -> None:
     """Emit an error header and detail lines to stderr using one consistent stream."""
     print(ConsoleColors.error(header), file=sys.stderr)
 
