@@ -19,7 +19,7 @@ import textwrap
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -512,6 +512,65 @@ def _exit_error(msg: str) -> NoReturn:
     """Print a coloured error message to stderr and exit with code 1."""
     print(ConsoleColors.error(f"ERROR: {msg}"), file=sys.stderr)
     sys.exit(1)
+
+
+def _normalize_output_format(raw_format: Any) -> str | None:
+    """Normalize CLI output format values defensively."""
+    if raw_format is None:
+        return None
+
+    normalized = str(raw_format).strip().lower()
+    return normalized or None
+
+
+def _resolve_command_output_format(
+    raw_format: Any,
+    *,
+    supported_formats: Mapping[str, str],
+    fallback_format: str,
+    warning_scope: str,
+    logger: logging.Logger | None = None,
+) -> str:
+    """Resolve requested output format to a supported command format.
+
+    Args:
+        raw_format: User-provided format token from CLI args.
+        supported_formats: Mapping of accepted aliases to canonical format names.
+        fallback_format: Canonical fallback format when input is missing/unsupported.
+        warning_scope: Human-readable command scope for warning messages.
+        logger: Optional logger for warning emissions.
+    """
+    normalized_format = _normalize_output_format(raw_format)
+    if normalized_format is None:
+        return fallback_format
+
+    resolved_format = supported_formats.get(normalized_format)
+    if resolved_format is not None:
+        return resolved_format
+
+    (logger or logging.getLogger(__name__)).warning(
+        "--format %s is not supported for %s; using %s",
+        raw_format,
+        warning_scope,
+        fallback_format,
+    )
+    return fallback_format
+
+
+def _print_error_list_to_stderr(header: str, details: list[Any], *, fallback_detail: str = "Unknown validation error") -> None:
+    """Emit an error header and detail lines to stderr using one consistent stream."""
+    print(ConsoleColors.error(header), file=sys.stderr)
+
+    emitted_detail = False
+    for detail in details:
+        detail_text = str(detail).strip()
+        if not detail_text:
+            continue
+        print(f"  - {detail_text}", file=sys.stderr)
+        emitted_detail = True
+
+    if not emitted_detail:
+        print(f"  - {fallback_detail}", file=sys.stderr)
 
 
 def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
@@ -1889,9 +1948,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
         source=f"profile import ({source_file})",
     )
     if not is_usable:
-        print(ConsoleColors.error("Error: Imported credentials failed validation:"), file=sys.stderr)
-        for issue in issues:
-            print(f"  - {issue}")
+        _print_error_list_to_stderr("Error: Imported credentials failed validation:", issues)
         return False
 
     config_payload = {
@@ -7968,13 +8025,14 @@ def _is_machine_readable_output(output_format: str | None, output_file: str | No
 
 def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout: bool) -> str:
     """Normalize discovery output format with stdout piping semantics."""
-    if raw_format in ("json", "csv"):
-        return raw_format
     if output_to_stdout:
         return "json"
-    if raw_format is not None and raw_format not in ("console", "table"):
-        logging.getLogger(__name__).warning("--format %s is not supported for this command; using table", raw_format)
-    return "table"
+    return _resolve_command_output_format(
+        raw_format,
+        supported_formats={"json": "json", "csv": "csv", "console": "table", "table": "table"},
+        fallback_format="table",
+        warning_scope="this command",
+    )
 
 
 def _emit_discovery_error(
@@ -14419,11 +14477,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --profile-list mode (no data view required)
     if getattr(args, "profile_list", False):
-        if args.format not in (None, "json", "console", "table", "excel"):
-            logging.getLogger(__name__).warning(
-                "--format %s is not supported for --profile-list; using table", args.format
-            )
-        list_format = "json" if args.format == "json" else "table"
+        list_format = _resolve_command_output_format(
+            args.format,
+            supported_formats={"json": "json", "console": "table", "table": "table"},
+            fallback_format="table",
+            warning_scope="--profile-list",
+        )
         success = list_profiles(output_format=list_format)
         if run_state is not None:
             run_state["details"] = {"operation_success": success}

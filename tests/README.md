@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,214 comprehensive tests**
+**Total: 5,218 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -139,7 +139,7 @@ tests/
 | `test_discovery_component_consistency.py` | 7 | Discovery component retrieval consistency |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
-| `test_main_entry_points.py` | 20 | main() and _main_impl() entry points, dispatch, run_state, run summary |
+| `test_main_entry_points.py` | 21 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_quality_policy_and_run_summary.py` | 67 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
 | `test_api_client.py` | 25 | API client exception paths and error handling |
@@ -163,7 +163,7 @@ tests/
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
 | `test_cli_command_handlers.py` | 131 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
-| `test_profile_management.py` | 45 | Interactive profile creation, import, test, show |
+| `test_profile_management.py` | 46 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
 | `test_config_and_resolution.py` | 105 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
@@ -186,8 +186,8 @@ tests/
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 17 | Exception narrowing boundary tests |
-| `test_coverage_hardening.py` | 101 | Coverage hardening tests |
-| **Total** | **5,214** | **Collected via pytest --collect-only** |
+| `test_coverage_hardening.py` | 103 | Coverage hardening tests |
+| **Total** | **5,218** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,214 tests total)
+- [x] Comprehensive test coverage (5,218 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests

@@ -465,6 +465,28 @@ class TestImportProfileNonInteractiveExtended:
         captured = capsys.readouterr()
         assert "failed validation" in captured.err
 
+    def test_validation_failure_details_stay_on_stderr(self, tmp_path, capsys):
+        """Validation issue detail lines should stay on stderr with the error header."""
+        source = tmp_path / "credentials.json"
+        source.write_text(json.dumps(VALID_CREDENTIALS))
+
+        profile_dir = tmp_path / "orgs" / "bad-creds"
+        expected_issues = ["org_id: invalid format", "client_id: too short"]
+
+        with (
+            patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
+            patch("cja_auto_sdr.generator.validate_credentials", return_value=(False, expected_issues)),
+        ):
+            result = import_profile_non_interactive("bad-creds", source)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "Imported credentials failed validation" in captured.err
+        assert "org_id: invalid format" in captured.err
+        assert "client_id: too short" in captured.err
+        assert "org_id: invalid format" not in captured.out
+        assert "client_id: too short" not in captured.out
+
     def test_success_message_includes_source_and_location(self, tmp_path, capsys):
         """Successful import prints source path and profile location."""
         source = tmp_path / "credentials.json"

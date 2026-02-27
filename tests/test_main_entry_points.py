@@ -5,6 +5,7 @@ handle exit codes, track run_state, and emit run summary JSON.
 """
 
 import json
+import logging
 import os
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -137,6 +138,23 @@ class TestMainImplProfileManagement:
 
         assert exc_info.value.code == 0
         mock_list.assert_called_once()
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.list_profiles")
+    def test_profile_list_excel_warns_and_falls_back_to_table(self, mock_list, caplog):
+        """Unsupported --profile-list formats should warn and route to table output."""
+        mock_list.return_value = True
+
+        with caplog.at_level(logging.WARNING, logger="cja_auto_sdr.generator"):
+            with pytest.raises(SystemExit) as exc_info:
+                with patch("cja_auto_sdr.generator.parse_arguments") as mock_pa:
+                    mock_pa.return_value = parse_arguments(["--profile-list", "--format", "excel"])
+                    _main_impl()
+
+        assert exc_info.value.code == 0
+        mock_list.assert_called_once_with(output_format="table")
+        assert "--profile-list" in caplog.text
+        assert "using table" in caplog.text
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
     @patch("cja_auto_sdr.generator.test_profile")

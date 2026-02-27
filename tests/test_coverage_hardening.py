@@ -574,6 +574,18 @@ class TestResolveDiscoveryOutputFormat:
         result = _resolve_discovery_output_format("excel", output_to_stdout=False)
         assert result == "table"
 
+    def test_console_alias_maps_to_table(self) -> None:
+        """Console alias should normalize to table for discovery commands."""
+        from cja_auto_sdr.generator import _resolve_discovery_output_format
+
+        assert _resolve_discovery_output_format("console", output_to_stdout=False) == "table"
+
+    def test_format_tokens_are_normalized_defensively(self) -> None:
+        """Mixed-case and surrounding whitespace should still resolve correctly."""
+        from cja_auto_sdr.generator import _resolve_discovery_output_format
+
+        assert _resolve_discovery_output_format(" JSON ", output_to_stdout=False) == "json"
+
 
 # ---------------------------------------------------------------------------
 # Tier 2a — _approved_display and _tags_display (lines 9117-9128)
