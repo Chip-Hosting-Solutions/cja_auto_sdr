@@ -7,6 +7,26 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.5] - 2026-02-26
+
+### Fixed
+- **Profile error routing**: 19 bare `print()` error calls in profile management now route through `ConsoleColors.error()` to stderr with color styling
+- **CLI help text**: Parser description corrected from "System Design Records" to "Solution Design Reference"; exit code 3 added to epilog
+- **Format fallback warnings**: Discovery and profile-list commands now warn when an unsupported format falls back to console output
+- **Console format error routing**: Console format error messages now go to stderr instead of stdout
+- **Validate-config next-step hint**: `--validate-config` now suggests next steps on success
+
+### Changed
+- **Exception narrowing (batch 3)**: 9 broad `except Exception` catches narrowed — 6 to `(RuntimeError, AttributeError)` and 3 to `RECOVERABLE_API_EXCEPTIONS`
+- **Redundant API call eliminated**: Removed `validate_data_view()` call from `process_single_dataview`; validation now occurs post-fetch, saving one API round-trip per data view
+- **Parallel inventory builds**: Inventory construction in `process_single_dataview` now uses `ThreadPoolExecutor` for concurrent builds
+- **O(1) LRU eviction**: `ValidationCache` refactored from dict + access-times to `OrderedDict` with O(1) eviction
+- **Vectorized column widths**: Excel column-width calculation uses pandas vectorized string operations instead of Python loops
+
+### Added
+- **Exception narrowing tests**: New `test_exception_narrowing.py` with 17 tests verifying narrowed boundaries catch expected types and propagate unexpected ones
+- **Coverage hardening tests**: New `test_coverage_hardening.py` with 101 tests covering previously-missed branches (output-dir access, lazy forwarding, logging init, discovery helpers, short-option clusters, config validation)
+
 ## [3.3.4] - 2026-02-25
 
 ### Added
