@@ -32,6 +32,7 @@ from cja_auto_sdr.generator import test_profile as run_test_profile
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_logger() -> logging.Logger:
     """Return a quiet logger for test use."""
     logger = logging.getLogger("test_exception_narrowing")
@@ -199,9 +200,12 @@ class TestValidateConfigOnlyExceptionNarrowing:
     """Verify validate_config_only fallback catches (RuntimeError, AttributeError)."""
 
     def _run_with_cja_side_effect(self, exc):
-        """Mock configure_cjapy success then cjapy.CJA() raising *exc*."""
+        """Mock credential resolution + cjapy.CJA() raising *exc*."""
+        fake_creds = {"org_id": "X@AdobeOrg", "client_id": "cid", "secret": "sec"}
         with (
-            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config.json", {})),
+            patch("cja_auto_sdr.generator.load_credentials_from_env", return_value=fake_creds),
+            patch("cja_auto_sdr.generator.validate_env_credentials", return_value=True),
+            patch("cja_auto_sdr.generator._config_from_env"),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator._check_output_dir_access", return_value=(True, ".", None, None)),
         ):

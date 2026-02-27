@@ -123,7 +123,7 @@ tests/
 | `test_retry.py` | 25 | Retry with exponential backoff |
 | `test_batch_processor.py` | 26 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 19 | Validation result caching |
-| `test_process_single_dataview.py` | 22 | End-to-end single data view processing |
+| `test_process_single_dataview.py` | 23 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 24 | Data view name to ID resolution |
 | `test_shared_cache.py` | 17 | Shared validation cache |

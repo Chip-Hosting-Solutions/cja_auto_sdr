@@ -229,7 +229,7 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -272,7 +272,7 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -314,7 +314,7 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _mock_logger, mock_fetcher, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -370,7 +370,7 @@ class TestProcessSingleDataviewSharedCache:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -424,7 +424,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -472,7 +472,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -522,7 +522,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -570,7 +570,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -621,7 +621,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -672,7 +672,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -720,7 +720,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -768,7 +768,7 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -825,7 +825,7 @@ class TestProcessSingleDataviewMetadataWithInventory:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -883,7 +883,7 @@ class TestProcessSingleDataviewMetadataWithInventory:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1013,7 +1013,7 @@ class TestProcessSingleDataviewJSONFormatException:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             # Use a DataFrame whose .map() will raise
@@ -1141,7 +1141,7 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1182,7 +1182,7 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1238,7 +1238,7 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),  # not used for non-excel
             sample_metrics_df,
@@ -1301,7 +1301,7 @@ class TestProcessSingleDataviewExcelPlaceholders:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1362,7 +1362,7 @@ class TestProcessSingleDataviewExcelPlaceholders:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1413,7 +1413,7 @@ class TestProcessSingleDataviewTimingsAndSummary:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1468,7 +1468,7 @@ class TestProcessSingleDataviewFileWriteErrors:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -1510,7 +1510,7 @@ class TestProcessSingleDataviewFileWriteErrors:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -2143,7 +2143,7 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
             sample_metrics_df,
@@ -2190,7 +2190,7 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),
             sample_metrics_df,
@@ -2238,7 +2238,7 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-                mock_fetcher_class,
+            mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),
             sample_metrics_df,
