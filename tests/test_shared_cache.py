@@ -65,6 +65,14 @@ def sample_dimensions_df():
 class TestSharedValidationCacheBasics:
     """Test basic shared cache functionality"""
 
+    def test_invalid_cache_configuration_raises(self):
+        """Invalid size/TTL should fail fast during initialization."""
+        with pytest.raises(ValueError, match="max_size must be >= 1"):
+            SharedValidationCache(max_size=0, ttl_seconds=3600)
+
+        with pytest.raises(ValueError, match="ttl_seconds must be > 0"):
+            SharedValidationCache(max_size=10, ttl_seconds=0)
+
     def test_cache_miss_on_first_call(self, sample_metrics_df):
         """First lookup should be cache miss"""
         cache = SharedValidationCache(max_size=100, ttl_seconds=3600)
@@ -250,6 +258,66 @@ class TestSharedValidationCacheEviction:
         assert result2 is None
 
         cache.shutdown()
+
+    def test_overwrite_refreshes_recency_before_eviction(self):
+        """Overwriting an entry should refresh recency so it is not evicted next."""
+        cache = SharedValidationCache(max_size=2, ttl_seconds=3600)
+
+        try:
+            df1 = pd.DataFrame({"id": ["a"]})
+            df2 = pd.DataFrame({"id": ["b"]})
+            df3 = pd.DataFrame({"id": ["c"]})
+
+            _, key1 = cache.get(df1, "Metrics", ["id"], ["id"])
+            cache.put(df1, "Metrics", ["id"], ["id"], [{"v": 1}], key1)
+
+            _, key2 = cache.get(df2, "Metrics", ["id"], ["id"])
+            cache.put(df2, "Metrics", ["id"], ["id"], [{"v": 2}], key2)
+
+            # Overwrite df1 to refresh its recency.
+            cache.put(df1, "Metrics", ["id"], ["id"], [{"v": 10}], key1)
+
+            _, key3 = cache.get(df3, "Metrics", ["id"], ["id"])
+            cache.put(df3, "Metrics", ["id"], ["id"], [{"v": 3}], key3)
+
+            result1, _ = cache.get(df1, "Metrics", ["id"], ["id"])
+            result2, _ = cache.get(df2, "Metrics", ["id"], ["id"])
+            result3, _ = cache.get(df3, "Metrics", ["id"], ["id"])
+
+            assert result1 is not None
+            assert result1[0]["v"] == 10
+            assert result2 is None
+            assert result3 is not None
+        finally:
+            cache.shutdown()
+
+    def test_put_recovers_when_access_times_missing(self):
+        """Defensive path: put() should restore LRU metadata before eviction."""
+        cache = SharedValidationCache(max_size=1, ttl_seconds=3600)
+
+        try:
+            df1 = pd.DataFrame({"id": ["stale"]})
+            df2 = pd.DataFrame({"id": ["fresh"]})
+
+            _, key1 = cache.get(df1, "Metrics", ["id"], ["id"])
+            cache.put(df1, "Metrics", ["id"], ["id"], [{"v": "old"}], key1)
+
+            # Simulate metadata drift/corruption where access tracking is lost.
+            cache._access_times.clear()
+
+            _, key2 = cache.get(df2, "Metrics", ["id"], ["id"])
+            cache.put(df2, "Metrics", ["id"], ["id"], [{"v": "new"}], key2)
+
+            result1, _ = cache.get(df1, "Metrics", ["id"], ["id"])
+            result2, _ = cache.get(df2, "Metrics", ["id"], ["id"])
+            stats = cache.get_statistics()
+
+            assert result1 is None
+            assert result2 is not None
+            assert stats["size"] == 1
+            assert stats["evictions"] >= 1
+        finally:
+            cache.shutdown()
 
 
 class TestSharedValidationCacheTTL:

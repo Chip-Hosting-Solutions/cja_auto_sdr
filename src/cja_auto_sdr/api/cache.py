@@ -39,6 +39,11 @@ class ValidationCache:
             ttl_seconds: Time-to-live for cache entries in seconds, >= 1 (default: 3600 = 1 hour)
             logger: Logger instance for cache statistics (default: module logger)
         """
+        if max_size < 1:
+            raise ValueError(f"max_size must be >= 1, got {max_size}")
+        if ttl_seconds <= 0:
+            raise ValueError(f"ttl_seconds must be > 0, got {ttl_seconds}")
+
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
         self.logger = logger or logging.getLogger(__name__)
@@ -170,16 +175,35 @@ class ValidationCache:
         debug_enabled = self.logger.isEnabledFor(logging.DEBUG)
 
         with self._lock:
-            # Evict oldest entry if cache is full
-            if len(self._cache) >= self.max_size and cache_key not in self._cache:
-                self._evict_lru(debug_enabled)
+            now = time.time()
+
+            # Overwrites are treated as fresh writes for LRU ordering.
+            if cache_key in self._cache:
+                self._cache.move_to_end(cache_key)
+            else:
+                # Prefer reclaiming expired entries before evicting live data.
+                self._prune_expired_entries(now, debug_enabled)
+                while len(self._cache) >= self.max_size:
+                    self._evict_lru(debug_enabled)
 
             # Store issues with timestamp
             # Deep copy to prevent external mutation
-            self._cache[cache_key] = ([issue.copy() for issue in issues], time.time())
+            self._cache[cache_key] = ([issue.copy() for issue in issues], now)
+            self._cache.move_to_end(cache_key)
 
             if debug_enabled:
                 self.logger.debug(f"Cache STORE: {item_type} ({len(issues)} issues)")
+
+    def _prune_expired_entries(self, now: float, debug_enabled: bool = False) -> int:
+        """Remove expired entries before capacity-based eviction (must be called within lock)."""
+        expired_keys = [key for key, (_issues, timestamp) in self._cache.items() if now - timestamp > self.ttl_seconds]
+        for key in expired_keys:
+            del self._cache[key]
+
+        if expired_keys and debug_enabled:
+            self.logger.debug(f"Cache PRUNE: removed {len(expired_keys)} expired entries")
+
+        return len(expired_keys)
 
     def _evict_lru(self, debug_enabled: bool = False):
         """Evict least recently used cache entry.
@@ -293,6 +317,11 @@ class SharedValidationCache:
             ttl_seconds: Time-to-live for cache entries in seconds (default: 3600)
             logger: Logger instance for cache statistics (default: module logger)
         """
+        if max_size < 1:
+            raise ValueError(f"max_size must be >= 1, got {max_size}")
+        if ttl_seconds <= 0:
+            raise ValueError(f"ttl_seconds must be > 0, got {ttl_seconds}")
+
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
         self.logger = logger or logging.getLogger(__name__)
@@ -391,6 +420,31 @@ class SharedValidationCache:
             # Return copy to prevent mutation
             return [issue.copy() for issue in cached_issues], cache_key
 
+    def _reconcile_access_times(self, now: float) -> None:
+        """Keep _access_times and _cache in sync (must be called within lock)."""
+        cache_keys = set(self._cache.keys())
+        access_keys = set(self._access_times.keys())
+
+        # Remove stale access-time records for entries no longer in cache.
+        for stale_key in access_keys - cache_keys:
+            del self._access_times[stale_key]
+
+        # Backfill missing access-time records so eviction always has a candidate.
+        for missing_key in cache_keys - access_keys:
+            self._access_times[missing_key] = now
+
+    def _prune_expired_entries(self, now: float) -> int:
+        """Drop expired entries from shared cache before capacity-based eviction."""
+        expired_keys = [key for key, (_issues, timestamp) in self._cache.items() if now - timestamp > self.ttl_seconds]
+
+        for key in expired_keys:
+            if key in self._cache:
+                del self._cache[key]
+            if key in self._access_times:
+                del self._access_times[key]
+
+        return len(expired_keys)
+
     def put(
         self,
         df: pd.DataFrame,
@@ -417,23 +471,37 @@ class SharedValidationCache:
             cache_key = self._generate_cache_key(df, item_type, required_fields, critical_fields)
 
         with self._lock:
-            # Evict oldest entry if cache is full
-            if len(self._cache) >= self.max_size and cache_key not in self._cache:
-                self._evict_lru()
+            now = time.time()
+
+            # Overwrites are treated as fresh writes for LRU ordering.
+            if cache_key in self._cache:
+                self._access_times[cache_key] = now
+            else:
+                self._prune_expired_entries(now)
+                self._reconcile_access_times(now)
+                while len(self._cache) >= self.max_size:
+                    self._evict_lru()
 
             # Store issues with timestamp (deep copy for safety)
-            self._cache[cache_key] = ([issue.copy() for issue in issues], time.time())
-            self._access_times[cache_key] = time.time()
+            self._cache[cache_key] = ([issue.copy() for issue in issues], now)
+            self._access_times[cache_key] = now
 
     def _evict_lru(self) -> None:
         """Evict least recently used cache entry (must be called within lock)."""
-        if not self._access_times:
+        if not self._cache:
+            self._access_times.clear()
             return
 
-        lru_key = min(self._access_times.items(), key=lambda x: x[1])[0]
+        now = time.time()
+        self._reconcile_access_times(now)
 
-        if lru_key in self._cache:
-            del self._cache[lru_key]
+        access_times = dict(self._access_times)
+        if access_times:
+            lru_key = min(access_times, key=access_times.get)
+        else:
+            lru_key = next(iter(self._cache))
+
+        del self._cache[lru_key]
         if lru_key in self._access_times:
             del self._access_times[lru_key]
 

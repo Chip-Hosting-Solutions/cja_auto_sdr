@@ -158,6 +158,32 @@ class TestValidationCache:
         assert result2 is None
         assert result3 is not None
 
+    def test_lru_overwrite_refreshes_recency(self):
+        """Overwriting an existing key should refresh it to MRU for later eviction decisions."""
+        cache = ValidationCache(max_size=2, ttl_seconds=3600)
+
+        df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+        df2 = pd.DataFrame({"id": [2], "name": ["b"], "type": ["y"]})
+        df3 = pd.DataFrame({"id": [3], "name": ["c"], "type": ["z"]})
+
+        cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+        cache.put(df2, "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+
+        # Overwrite df1; this write should refresh recency to MRU.
+        cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1-updated"}])
+
+        # Adding df3 should evict df2, not the recently updated df1.
+        cache.put(df3, "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+
+        result1, _ = cache.get(df1, "Metrics", ["id", "name", "type"], [])
+        result2, _ = cache.get(df2, "Metrics", ["id", "name", "type"], [])
+        result3, _ = cache.get(df3, "Metrics", ["id", "name", "type"], [])
+
+        assert result1 is not None
+        assert result1[0]["issue"] == "1-updated"
+        assert result2 is None
+        assert result3 is not None
+
     def test_thread_safety(self, sample_metrics_df):
         """Cache should be thread-safe"""
         logger = logging.getLogger("test")
@@ -552,3 +578,11 @@ class TestValidationCache:
         assert result is not None
         assert len(result) == 1
         assert result[0]["severity"] == "HIGH"
+
+    def test_invalid_cache_configuration_raises(self):
+        """Invalid size/TTL should fail fast during initialization."""
+        with pytest.raises(ValueError, match="max_size must be >= 1"):
+            ValidationCache(max_size=0, ttl_seconds=3600)
+
+        with pytest.raises(ValueError, match="ttl_seconds must be > 0"):
+            ValidationCache(max_size=10, ttl_seconds=0)
