@@ -96,10 +96,23 @@ def test_dataview_payload_with_na_id_and_present_name_is_not_error() -> None:
     assert is_dataview_error_payload(payload) is False
 
 
+def test_dataview_payload_with_identity_and_error_field_is_not_error() -> None:
+    payload = {"id": "dv_1", "name": "Test View", "error": "non-fatal detail"}
+    assert is_dataview_error_payload(payload) is False
+
+
 def test_assess_dataview_lookup_payload_accepts_valid_payload() -> None:
     payload = {"id": "dv_1", "name": "Valid View", "owner": {"name": "Owner"}}
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
     assert assessment.kind is PayloadKind.DATA
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_accepts_valid_payload_with_error_field() -> None:
+    payload = {"id": "dv_1", "name": "Valid View", "error": "temporary warning"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
     assert assessment.is_valid is True
 
 
@@ -121,6 +134,13 @@ def test_assess_dataview_lookup_payload_rejects_circuit_breaker_marker() -> None
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
     assert assessment.kind is PayloadKind.ERROR
     assert assessment.reason == "failure_flag:circuit_breaker_open"
+
+
+def test_assess_dataview_lookup_payload_rejects_lookup_failure_reason_detail() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "lookup_failure_reason": "exception"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_detail:lookup_failure_reason"
 
 
 def test_assess_dataview_lookup_payload_rejects_legacy_unknown_placeholder() -> None:

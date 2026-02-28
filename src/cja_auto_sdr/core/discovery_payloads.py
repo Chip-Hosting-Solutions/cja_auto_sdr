@@ -16,7 +16,10 @@ STATUS_KEYS = frozenset({"statuscode", "status_code", "status"})
 ERROR_TEXT_KEYS = frozenset({"message", "detail", "title"})
 COMPONENT_SEQUENCE_KEYS = ("content", "items", "results", "data", "rows")
 LOOKUP_FAILURE_FLAG_KEYS = frozenset({"lookup_failed", "circuit_breaker_open"})
-LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"error", "lookup_failure_reason"})
+LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
+# Dataview payloads may include non-fatal diagnostic text under `error` while
+# still returning a valid object with identity fields.
+DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
 
 
 class PayloadKind(Enum):
@@ -67,26 +70,39 @@ def has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...
     return False
 
 
-def _schema_indicates_error(keys: set[str], *, has_identity: bool) -> bool:
+def _schema_indicates_error(
+    keys: set[str],
+    *,
+    has_identity: bool,
+    explicit_error_keys: frozenset[str] = EXPLICIT_ERROR_KEYS,
+) -> bool:
     if not keys:
         return True
-    if keys & EXPLICIT_ERROR_KEYS:
+    if keys & explicit_error_keys:
         return True
     if has_identity:
         return False
     return bool(keys & STATUS_KEYS) and bool(keys & ERROR_TEXT_KEYS)
 
-
-def looks_like_error_payload(payload: Mapping[str, Any], *, identity_keys: tuple[str, ...] = ("id", "name")) -> bool:
+def looks_like_error_payload(
+    payload: Mapping[str, Any],
+    *,
+    identity_keys: tuple[str, ...] = ("id", "name"),
+    explicit_error_keys: frozenset[str] = EXPLICIT_ERROR_KEYS,
+) -> bool:
     """Return True when object keys match an API-error-like shape."""
     keys = normalized_payload_keys(payload)
     has_identity = has_identity_value(payload, identity_keys)
-    return _schema_indicates_error(keys, has_identity=has_identity)
+    return _schema_indicates_error(keys, has_identity=has_identity, explicit_error_keys=explicit_error_keys)
 
 
 def is_dataview_error_payload(payload: Mapping[str, Any]) -> bool:
     """Return True when getDataView payload appears to be an API error object."""
-    return looks_like_error_payload(payload, identity_keys=("id", "name"))
+    return looks_like_error_payload(
+        payload,
+        identity_keys=("id", "name"),
+        explicit_error_keys=DATAVIEW_EXPLICIT_ERROR_KEYS,
+    )
 
 
 def _is_truthy_marker(value: Any) -> bool:

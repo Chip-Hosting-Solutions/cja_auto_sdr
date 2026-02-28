@@ -592,11 +592,11 @@ def _print_error_list_to_stderr(
         detail_text = str(detail).strip()
         if not detail_text:
             continue
-        print(f"  - {detail_text}", file=sys.stderr)
+        print(ConsoleColors.error(f"  - {detail_text}"), file=sys.stderr)
         emitted_detail = True
 
     if not emitted_detail:
-        print(f"  - {fallback_detail}", file=sys.stderr)
+        print(ConsoleColors.error(f"  - {fallback_detail}"), file=sys.stderr)
 
 
 def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
@@ -5898,7 +5898,9 @@ def process_single_dataview(
         segments_inventory_df = pd.DataFrame()
         segments_inventory_obj = None  # Store inventory object for JSON output
 
-        # Collect enabled inventory tasks — closures defined conditionally
+        # Collect enabled inventory tasks — closures defined conditionally.
+        # The shared logger is intentional; stdlib logging is thread-safe, but
+        # emitted lines may interleave when inventories run concurrently.
         _inventory_tasks: list[tuple[str, Callable, Callable, str]] = []
 
         if include_derived_inventory:
@@ -5988,7 +5990,11 @@ def process_single_dataview(
             )
 
         def _assign_inventory_result(key: str, payload: Any) -> None:
-            """Assign inventory result to the correct outer variables."""
+            """Assign inventory result to the correct outer variables.
+
+            This mutates outer state from the coordinator thread only.
+            Worker threads only build payloads.
+            """
             nonlocal derived_inventory_obj, derived_inventory_df
             nonlocal calculated_inventory_obj, calculated_metrics_df
             nonlocal segments_inventory_obj, segments_inventory_df
@@ -6016,6 +6022,7 @@ def process_single_dataview(
                         on_import_error=err_fn,
                     )
                     futures[future] = key
+                # Keep assignment on the main thread in completion order.
                 for future in as_completed(futures):
                     key = futures[future]
                     _assign_inventory_result(key, future.result())
@@ -10876,13 +10883,13 @@ def validate_config_only(
     print("=" * BANNER_WIDTH)
     if all_passed:
         print(ConsoleColors.success("VALIDATION PASSED - Configuration is valid!"))
-        print("=" * BANNER_WIDTH)
         print()
         print("Next steps — run with a data view to generate SDR reports:")
         print("  cja_auto_sdr <DATA_VIEW_ID>")
         print()
         print("Or list available data views:")
         print("  cja_auto_sdr --list-dataviews")
+        print("=" * BANNER_WIDTH)
     else:
         print(ConsoleColors.error("VALIDATION FAILED - Check errors above"))
         print("=" * BANNER_WIDTH)
