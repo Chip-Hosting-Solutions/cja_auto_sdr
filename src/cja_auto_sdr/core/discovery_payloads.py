@@ -84,6 +84,7 @@ def _schema_indicates_error(
         return False
     return bool(keys & STATUS_KEYS) and bool(keys & ERROR_TEXT_KEYS)
 
+
 def looks_like_error_payload(
     payload: Mapping[str, Any],
     *,
