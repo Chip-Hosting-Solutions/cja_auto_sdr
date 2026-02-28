@@ -22,6 +22,8 @@ Targets uncovered line ranges:
 import argparse
 import json
 import logging
+import threading
+import time
 from itertools import count
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
@@ -791,6 +793,91 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert result.segments_count == 0
         assert _mock_call_contains(mock_logger.error, "Error during segments inventory: segments transport fail")
         assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_parallel_inventory_serializes_shared_cja_calls(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Calculated/segments inventory builders should not call the shared CJA client concurrently."""
+        _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        calc_inv = _make_mock_inventory_obj(total_calculated_metrics=5)
+        seg_inv = _make_mock_inventory_obj(total_segments=7)
+
+        state_lock = threading.Lock()
+        active_calls = 0
+        max_active_calls = 0
+        first_call_claimed = False
+        release_first_call = threading.Event()
+
+        def _probe_build(return_inventory):
+            nonlocal active_calls, max_active_calls, first_call_claimed
+
+            with state_lock:
+                active_calls += 1
+                max_active_calls = max(max_active_calls, active_calls)
+                is_first = not first_call_claimed
+                if is_first:
+                    first_call_claimed = True
+
+            try:
+                if is_first:
+                    # Without serialization, the second builder enters and releases this wait.
+                    # With serialization, this times out because the second call is blocked.
+                    release_first_call.wait(timeout=0.30)
+                else:
+                    release_first_call.set()
+                time.sleep(0.05)
+                return return_inventory
+            finally:
+                with state_lock:
+                    active_calls -= 1
+
+        with (
+            patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder") as mock_calc_cls,
+            patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder") as mock_seg_cls,
+        ):
+            mock_calc_cls.return_value.build.side_effect = lambda *_args, **_kwargs: _probe_build(calc_inv)
+            mock_seg_cls.return_value.build.side_effect = lambda *_args, **_kwargs: _probe_build(seg_inv)
+
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_calculated_metrics=True,
+                include_segments_inventory=True,
+                skip_validation=True,
+            )
+
+        assert result.success is True
+        assert result.calculated_metrics_count == 5
+        assert result.segments_count == 7
+        assert max_active_calls == 1
 
 
 # ============================================================================

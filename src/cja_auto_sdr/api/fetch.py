@@ -114,7 +114,7 @@ class ParallelAPIFetcher:
                         results[task_name] = future.result()
                         pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
                         self.logger.info(f"\u2713 {task_name.capitalize()} fetch completed")
-                    except Exception as e:
+                    except Exception as e:  # Intentional: per-task boundary for heterogeneous worker failures
                         errors[task_name] = str(e)
                         pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
                         self.logger.error(f"\u2717 {task_name.capitalize()} fetch failed: {e}")
@@ -197,7 +197,7 @@ class ParallelAPIFetcher:
         except AttributeError as e:
             self.logger.error(f"API method error - getMetrics may not be available: {e!s}")
             return pd.DataFrame()
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for metrics fetch
             self.logger.error(f"Failed to fetch metrics: {e!s}")
             return pd.DataFrame()
 
@@ -228,7 +228,7 @@ class ParallelAPIFetcher:
         except AttributeError as e:
             self.logger.error(f"API method error - getDimensions may not be available: {e!s}")
             return pd.DataFrame()
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for dimensions fetch
             self.logger.error(f"Failed to fetch dimensions: {e!s}")
             return pd.DataFrame()
 
@@ -266,7 +266,7 @@ class ParallelAPIFetcher:
                 error_message=e.message,
                 circuit_breaker_open=True,
             )
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve resilient lookup-failure payload contract
             self.logger.error(f"Failed to fetch data view information: {e!s}")
             return self._build_lookup_failure_payload(
                 data_view_id,

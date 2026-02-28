@@ -177,10 +177,7 @@ class ValidationCache:
         with self._lock:
             now = time.time()
 
-            # Overwrites are treated as fresh writes for LRU ordering.
-            if cache_key in self._cache:
-                self._cache.move_to_end(cache_key)
-            else:
+            if cache_key not in self._cache:
                 # Prefer reclaiming expired entries before evicting live data.
                 self._prune_expired_entries(now, debug_enabled)
                 while len(self._cache) >= self.max_size:
@@ -189,6 +186,8 @@ class ValidationCache:
             # Store issues with timestamp
             # Deep copy to prevent external mutation
             self._cache[cache_key] = ([issue.copy() for issue in issues], now)
+            # OrderedDict preserves position on overwrite, so one move_to_end()
+            # after assignment is sufficient for both inserts and overwrites.
             self._cache.move_to_end(cache_key)
 
             if debug_enabled:
@@ -438,8 +437,7 @@ class SharedValidationCache:
         expired_keys = [key for key, (_issues, timestamp) in self._cache.items() if now - timestamp > self.ttl_seconds]
 
         for key in expired_keys:
-            if key in self._cache:
-                del self._cache[key]
+            del self._cache[key]
             if key in self._access_times:
                 del self._access_times[key]
 
@@ -473,10 +471,7 @@ class SharedValidationCache:
         with self._lock:
             now = time.time()
 
-            # Overwrites are treated as fresh writes for LRU ordering.
-            if cache_key in self._cache:
-                self._access_times[cache_key] = now
-            else:
+            if cache_key not in self._cache:
                 self._prune_expired_entries(now)
                 self._reconcile_access_times(now)
                 while len(self._cache) >= self.max_size:
@@ -487,7 +482,11 @@ class SharedValidationCache:
             self._access_times[cache_key] = now
 
     def _evict_lru(self) -> None:
-        """Evict least recently used cache entry (must be called within lock)."""
+        """Evict least recently used cache entry (must be called within lock).
+
+        NOTE: Manager().dict() does not provide ordered pop semantics, so this
+        implementation necessarily scans access-time metadata in O(N).
+        """
         if not self._cache:
             self._access_times.clear()
             return
@@ -495,9 +494,9 @@ class SharedValidationCache:
         now = time.time()
         self._reconcile_access_times(now)
 
-        access_times = dict(self._access_times)
-        if access_times:
-            lru_key = min(access_times, key=access_times.get)
+        access_items = list(self._access_times.items())
+        if access_items:
+            lru_key = min(access_items, key=lambda item: item[1])[0]
         else:
             lru_key = next(iter(self._cache))
 

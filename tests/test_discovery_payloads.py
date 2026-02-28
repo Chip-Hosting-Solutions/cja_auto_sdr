@@ -4,6 +4,7 @@ import pandas as pd
 
 from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind,
+    _normalize_dataview_lookup_payload,
     assess_component_payload,
     assess_dataview_lookup_payload,
     coerce_component_rows_or_none,
@@ -177,6 +178,46 @@ def test_assess_dataview_lookup_payload_rejects_invalid_id_type() -> None:
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
     assert assessment.kind is PayloadKind.ERROR
     assert assessment.reason == "invalid_id_type"
+
+
+def test_normalize_dataview_lookup_payload_uses_first_dataframe_record() -> None:
+    frame = pd.DataFrame([{"id": "dv_1", "name": "Valid View", "owner": "Owner"}])
+    payload, raw_type, reason = _normalize_dataview_lookup_payload(frame)
+    assert payload == {"id": "dv_1", "name": "Valid View", "owner": "Owner"}
+    assert raw_type == "DataFrame"
+    assert reason == "dataframe_first_record"
+
+
+def test_normalize_dataview_lookup_payload_rejects_non_mapping_dataframe_rows() -> None:
+    class _BadRecordFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return _BadRecordFrame
+
+        def to_dict(self, orient="dict", *args, **kwargs):
+            if orient == "records":
+                return [42]
+            return super().to_dict(orient=orient, *args, **kwargs)
+
+    frame = _BadRecordFrame({"id": ["dv_1"]})
+    payload, raw_type, reason = _normalize_dataview_lookup_payload(frame)
+    assert payload is None
+    assert raw_type == "_BadRecordFrame"
+    assert reason == "non_mapping_dataframe_row"
+
+
+def test_truthy_marker_fallback_logs_debug_and_treats_value_as_truthy(caplog) -> None:
+    class _ExplodingBool:
+        def __bool__(self):  # pragma: no cover - explicit failure path
+            raise TypeError("cannot coerce to bool")
+
+    payload = {"id": "dv_1", "name": "Unknown", "lookup_failed": _ExplodingBool()}
+    with caplog.at_level("DEBUG", logger="cja_auto_sdr.core.discovery_payloads"):
+        assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+    assert any("Treating lookup marker value as truthy" in record.message for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

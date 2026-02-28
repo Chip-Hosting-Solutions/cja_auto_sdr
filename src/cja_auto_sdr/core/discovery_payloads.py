@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -20,6 +21,7 @@ LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
 # Dataview payloads may include non-fatal diagnostic text under `error` while
 # still returning a valid object with identity fields.
 DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
+logger = logging.getLogger(__name__)
 
 
 class PayloadKind(Enum):
@@ -118,7 +120,12 @@ def _is_truthy_marker(value: Any) -> bool:
         return normalized not in {"false", "0", "no", "off"}
     try:
         return bool(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError) as exc:
+        logger.debug(
+            "Treating lookup marker value as truthy after bool() coercion failure: type=%s error=%s",
+            type(value).__name__,
+            exc,
+        )
         return True
 
 
@@ -128,6 +135,8 @@ def _normalize_dataview_lookup_payload(raw_payload: Any) -> tuple[dict[str, Any]
         return None, raw_type, "none_payload"
 
     if isinstance(raw_payload, pd.DataFrame):
+        # Some cjapy pathways may hand back a one-row DataFrame for getDataView.
+        # Normalize this to a plain mapping so downstream validation is uniform.
         if raw_payload.empty:
             return None, raw_type, "empty_dataframe"
         records = raw_payload.to_dict("records")

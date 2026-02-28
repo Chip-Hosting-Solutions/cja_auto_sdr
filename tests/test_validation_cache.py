@@ -15,6 +15,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -91,8 +92,6 @@ class TestValidationCache:
 
     def test_cache_ttl_expiration(self, sample_metrics_df):
         """Cache entries should expire after TTL (deterministic, no sleep)"""
-        from unittest.mock import patch
-
         fake_now = [1000000.0]
 
         def mock_time():
@@ -183,6 +182,21 @@ class TestValidationCache:
         assert result1[0]["issue"] == "1-updated"
         assert result2 is None
         assert result3 is not None
+
+    def test_overwrite_moves_to_end_only_once(self):
+        """Overwrite path should perform a single move_to_end after assignment."""
+        cache = ValidationCache(max_size=2, ttl_seconds=3600)
+        df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+
+        with patch.object(cache._cache, "move_to_end", wraps=cache._cache.move_to_end) as mock_move_to_end:
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            first_put_calls = mock_move_to_end.call_count
+
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1-updated"}])
+            second_put_calls = mock_move_to_end.call_count - first_put_calls
+
+        assert first_put_calls == 1
+        assert second_put_calls == 1
 
     def test_thread_safety(self, sample_metrics_df):
         """Cache should be thread-safe"""

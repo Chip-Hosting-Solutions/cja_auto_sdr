@@ -5902,6 +5902,10 @@ def process_single_dataview(
         # The shared logger is intentional; stdlib logging is thread-safe, but
         # emitted lines may interleave when inventories run concurrently.
         _inventory_tasks: list[tuple[str, Callable, Callable, str]] = []
+        # Inventory builders for calculated metrics and segments both call API
+        # methods on the same `cja` instance. Serialize those calls in case the
+        # client/session object is not safe for concurrent method execution.
+        cja_inventory_lock = threading.Lock()
 
         if include_derived_inventory:
             logger.info("=" * BANNER_WIDTH)
@@ -5942,7 +5946,8 @@ def process_single_dataview(
 
                 builder = CalculatedMetricsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                calculated_inventory = builder.build(cja, data_view_id, dv_name)
+                with cja_inventory_lock:
+                    calculated_inventory = builder.build(cja, data_view_id, dv_name)
 
                 calculated_df = calculated_inventory.get_dataframe()
 
@@ -5973,7 +5978,8 @@ def process_single_dataview(
 
                 builder = SegmentsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                segments_inventory = builder.build(cja, data_view_id, dv_name)
+                with cja_inventory_lock:
+                    segments_inventory = builder.build(cja, data_view_id, dv_name)
 
                 segments_df = segments_inventory.get_dataframe()
 
