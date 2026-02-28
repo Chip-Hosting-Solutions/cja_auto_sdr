@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,227 comprehensive tests**
+**Total: 5,232 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -122,7 +122,7 @@ tests/
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
 | `test_retry.py` | 25 | Retry with exponential backoff |
 | `test_batch_processor.py` | 26 | Batch processing of multiple data views |
-| `test_validation_cache.py` | 21 | Validation result caching |
+| `test_validation_cache.py` | 22 | Validation result caching |
 | `test_process_single_dataview.py` | 26 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 24 | Data view name to ID resolution |
@@ -135,7 +135,7 @@ tests/
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_discovery_formatters.py` | 32 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
 | `test_discovery_normalization.py` | 17 | Discovery normalization helpers (missing values, owner extraction, tags) |
-| `test_discovery_payloads.py` | 39 | Discovery payload classification (error detection, component extraction) |
+| `test_discovery_payloads.py` | 42 | Discovery payload classification (error detection, component extraction) |
 | `test_discovery_component_consistency.py` | 7 | Discovery component retrieval consistency |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
@@ -173,7 +173,7 @@ tests/
 | `test_interactive_discovery_coverage.py` | 112 | Interactive discovery and helpers coverage |
 | `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
 | `test_main_impl_cli_coverage.py` | 89 | _main_impl CLI path coverage |
-| `test_main_impl_coverage.py` | 55 | _main_impl coverage edge cases |
+| `test_main_impl_coverage.py` | 56 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
 | `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 17 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,227** | **Collected via pytest --collect-only** |
+| **Total** | **5,232** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,227 tests total)
+- [x] Comprehensive test coverage (5,232 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
