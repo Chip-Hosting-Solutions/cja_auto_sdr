@@ -4820,6 +4820,33 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_unknown_placeholder_with_error_diagnostic_treated_as_not_found(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """Unknown lookup placeholders with diagnostics must fail as not_found."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_missing", "name": "Unknown", "error": "not found"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert "dv_missing" in payload["error"]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_error_payload_treated_as_not_found(self, mock_profile, mock_configure, mock_cjapy):
         """API error-shaped payloads from getDataView should fail as not_found."""
         mock_configure.return_value = (True, "config", None)

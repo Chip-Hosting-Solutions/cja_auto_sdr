@@ -117,6 +117,28 @@ def test_assess_dataview_lookup_payload_accepts_valid_payload_with_error_field()
     assert assessment.is_valid is True
 
 
+def test_assess_dataview_lookup_payload_rejects_unknown_placeholder_with_error_field() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "unknown_placeholder_diagnostic:error"
+
+
+def test_assess_dataview_lookup_payload_rejects_unknown_placeholder_with_status_and_message() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "statusCode": 404, "message": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "unknown_placeholder_diagnostic:message"
+
+
+def test_assess_dataview_lookup_payload_allows_unknown_named_dataview_without_diagnostics() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+
+
 def test_assess_dataview_lookup_payload_rejects_explicit_lookup_failed_marker() -> None:
     payload = {
         "id": "dv_1",

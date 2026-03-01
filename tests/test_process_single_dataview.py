@@ -292,6 +292,44 @@ class TestProcessSingleDataviewFailures:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_data_view_validation_failure_unknown_placeholder_with_error_diagnostic(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+    ):
+        """Unknown placeholder + diagnostic keys must fail validation even without explicit failure markers."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (
+            pd.DataFrame(),
+            pd.DataFrame(),
+            {
+                "id": "dv_invalid",
+                "name": "Unknown",
+                "error": "not found",
+            },
+        )
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_invalid",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "validation failed" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     def test_data_view_validation_failure_error_placeholder(
         self,
         mock_fetcher_class,

@@ -484,6 +484,25 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result["lookup_failure_reason"] == "legacy_unknown_placeholder"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_unknown_placeholder_with_error_diagnostic(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Unknown placeholder with diagnostic keys should be normalized into failure payload."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "name": "Unknown", "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "unknown_placeholder_diagnostic:error"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_circuit_breaker_open(
         self,
         mock_api_call,

@@ -21,6 +21,7 @@ LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
 # Dataview payloads may include non-fatal diagnostic text under `error` while
 # still returning a valid object with identity fields.
 DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
+UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS = frozenset({"error"}) | DATAVIEW_EXPLICIT_ERROR_KEYS
 logger = logging.getLogger(__name__)
 
 
@@ -188,6 +189,78 @@ def _is_legacy_unknown_lookup_placeholder(payload: Mapping[str, Any], *, expecte
     return name_text.strip().casefold() == "unknown"
 
 
+def _unknown_placeholder_diagnostic_key(normalized_items: Mapping[str, Any]) -> str | None:
+    """Return a diagnostic key when an Unknown placeholder carries lookup-failure hints."""
+    for marker_key in sorted(LOOKUP_FAILURE_FLAG_KEYS):
+        if _is_truthy_marker(normalized_items.get(marker_key)):
+            return marker_key
+
+    for detail_key in sorted(LOOKUP_FAILURE_DETAIL_KEYS):
+        detail_value = normalized_items.get(detail_key)
+        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+            continue
+        return detail_key
+
+    for text_key in sorted(UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS):
+        detail_value = normalized_items.get(text_key)
+        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+            continue
+        return text_key
+
+    status_keys_present = any(
+        not is_missing_value(normalized_items.get(status_key), treat_blank_string=True, treat_null_like_strings=True)
+        for status_key in STATUS_KEYS
+    )
+    if status_keys_present:
+        for text_key in sorted(ERROR_TEXT_KEYS):
+            detail_value = normalized_items.get(text_key)
+            if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+                continue
+            return text_key
+
+    for key, value in normalized_items.items():
+        if not str(key).startswith("lookup_"):
+            continue
+        if is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True):
+            continue
+        return str(key)
+
+    return None
+
+
+def _unknown_lookup_placeholder_reason(
+    payload: Mapping[str, Any],
+    *,
+    expected_data_view_id: str | None,
+    normalized_items: Mapping[str, Any],
+) -> str | None:
+    """Return placeholder failure reason when payload matches fallback Unknown lookup output."""
+    if _is_legacy_unknown_lookup_placeholder(payload, expected_data_view_id=expected_data_view_id):
+        return "legacy_unknown_placeholder"
+
+    if expected_data_view_id is None:
+        return None
+
+    payload_id = payload.get("id")
+    if is_missing_value(payload_id, treat_blank_string=True, treat_null_like_strings=True):
+        return None
+    payload_id_text = _coerce_lookup_scalar_text(payload_id)
+    if payload_id_text is None or payload_id_text.strip() != expected_data_view_id:
+        return None
+
+    name_value = payload.get("name")
+    if is_missing_value(name_value, treat_blank_string=True, treat_null_like_strings=True):
+        return None
+    name_text = _coerce_lookup_scalar_text(name_value)
+    if name_text is None or name_text.strip().casefold() != "unknown":
+        return None
+
+    diagnostic_key = _unknown_placeholder_diagnostic_key(normalized_items)
+    if diagnostic_key is None:
+        return None
+    return f"unknown_placeholder_diagnostic:{diagnostic_key}"
+
+
 def assess_dataview_lookup_payload(
     raw_payload: Any,
     *,
@@ -272,11 +345,16 @@ def assess_dataview_lookup_payload(
                 raw_type=raw_type,
             )
 
-    if _is_legacy_unknown_lookup_placeholder(payload, expected_data_view_id=expected_data_view_id):
+    unknown_placeholder_reason = _unknown_lookup_placeholder_reason(
+        payload,
+        expected_data_view_id=expected_data_view_id,
+        normalized_items=normalized_items,
+    )
+    if unknown_placeholder_reason is not None:
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
             payload=payload,
-            reason="legacy_unknown_placeholder",
+            reason=unknown_placeholder_reason,
             raw_type=raw_type,
         )
 
