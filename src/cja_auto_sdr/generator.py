@@ -187,6 +187,7 @@ from cja_auto_sdr.org.models import (
 
 
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
+PARALLEL_INVENTORY_MIN_TASKS = 2
 
 # ==================== OUTPUT WRITER PROTOCOL ====================
 
@@ -6013,7 +6014,7 @@ def process_single_dataview(
             elif key == "segments":
                 segments_inventory_obj, segments_inventory_df = payload
 
-        if len(_inventory_tasks) >= 2:
+        if len(_inventory_tasks) >= PARALLEL_INVENTORY_MIN_TASKS:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             with ThreadPoolExecutor(max_workers=len(_inventory_tasks)) as executor:

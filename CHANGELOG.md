@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validate-config next-step hint**: `--validate-config` now suggests next steps on success
 
 ### Changed
-- **Exception narrowing (batch 3)**: 9 broad `except Exception` catches narrowed — 6 to `(RuntimeError, AttributeError)` and 3 to `RECOVERABLE_API_EXCEPTIONS`
+- **Exception narrowing (batch 3)**: 9 broad `except Exception` catches narrowed — 6 to `(RuntimeError, AttributeError)` and 3 to `RECOVERABLE_API_EXCEPTIONS`; plus 4 broad handlers in `api/fetch.py` explicitly retained with `# Intentional:` boundary annotations
 - **Redundant API call eliminated**: Removed `validate_data_view()` call from `process_single_dataview`; validation now occurs post-fetch, saving one API round-trip per data view
 - **Parallel inventory builds**: Inventory construction in `process_single_dataview` now uses `ThreadPoolExecutor` for concurrent builds
 - **O(1) LRU eviction**: `ValidationCache` refactored from dict + access-times to `OrderedDict` with O(1) eviction
