@@ -2161,7 +2161,7 @@ def test_profile(profile_name: str) -> bool:
         finally:
             os.unlink(temp_config.name)
 
-    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
         print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
         print(ConsoleColors.error(f"   Error: {e}"), file=sys.stderr)
         print()
@@ -2319,7 +2319,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
     except KeyboardInterrupt, SystemExit:
         raise
-    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
@@ -5461,7 +5461,7 @@ def process_inventory_summary(
     try:
         lookup_data = cja.dataviews.get_single(data_view_id)
         dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
     except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
@@ -7159,7 +7159,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
-        except RECOVERABLE_API_EXCEPTIONS as e:
+        except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
             print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
@@ -7758,7 +7758,7 @@ def resolve_data_view_names(
             resolution_diagnostics,
             include_diagnostics=include_diagnostics,
         )
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         error_message = f"Failed to resolve data view names: {e!s}"
         logger.error(error_message)
         resolution_diagnostics = NameResolutionDiagnostics(
@@ -10852,7 +10852,7 @@ def validate_config_only(
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(f"  \u2717 API connection failed: {e!s}")
         all_passed = False
     except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)

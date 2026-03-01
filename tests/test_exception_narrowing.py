@@ -1,19 +1,9 @@
-"""Tests verifying narrowed exception boundaries in generator.py.
+"""Tests verifying command-boundary exception handling in generator.py.
 
-After narrowing 8 broad ``except Exception`` handlers (v3.3.5), these tests
-ensure that:
-  - Exception types *inside* each handler's tuple are still caught gracefully.
-  - Exception types *outside* the tuple now propagate as expected.
-
-Boundaries tested:
-  Group A (fallback after RECOVERABLE_API_EXCEPTIONS -> (RuntimeError, AttributeError)):
-    - process_inventory_summary
-    - validate_config_only
-
-  Group B (sole handler -> RECOVERABLE_API_EXCEPTIONS):
-    - test_profile
-    - validate_data_view
-    - _require_accessible_dataview
+These tests enforce a strict CLI boundary contract:
+  - recoverable API/bootstrap failures (including ConfigurationError) are
+    surfaced as controlled user-facing failures.
+  - non-recoverable failures outside the configured tuples still propagate.
 """
 
 import logging
@@ -22,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cja_auto_sdr import generator
+from cja_auto_sdr.core.exceptions import ConfigurationError
 from cja_auto_sdr.generator import (
     _require_accessible_dataview,
     validate_data_view,
@@ -41,12 +32,12 @@ def _make_logger() -> logging.Logger:
 
 
 # ===========================================================================
-# Group B: test_profile  (now catches RECOVERABLE_API_EXCEPTIONS)
+# Group B: test_profile  (catches RECOVERABLE_CONFIG_API_EXCEPTIONS)
 # ===========================================================================
 
 
 class TestTestProfileExceptionNarrowing:
-    """Verify test_profile catches RECOVERABLE_API_EXCEPTIONS and propagates others."""
+    """Verify test_profile catches recoverable API/bootstrap failures and propagates others."""
 
     def _run_with_side_effect(self, exc, tmp_path, capsys):
         """Helper: invoke test_profile with cjapy.importConfigFile raising *exc*."""
@@ -74,6 +65,12 @@ class TestTestProfileExceptionNarrowing:
         result = self._run_with_side_effect(ValueError("bad token"), tmp_path, capsys)
         assert result is False
 
+    def test_configuration_error_caught(self, tmp_path, capsys):
+        """ConfigurationError should return a controlled failure, not a traceback."""
+        result = self._run_with_side_effect(ConfigurationError("invalid profile credentials"), tmp_path, capsys)
+        assert result is False
+        assert "FAILED" in capsys.readouterr().err
+
     def test_runtime_error_propagates(self, tmp_path, capsys):
         """RuntimeError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates."""
         with pytest.raises(RuntimeError, match="should escape"):
@@ -86,12 +83,12 @@ class TestTestProfileExceptionNarrowing:
 
 
 # ===========================================================================
-# Group B: validate_data_view  (now catches RECOVERABLE_API_EXCEPTIONS)
+# Group B: validate_data_view  (outer guard catches RECOVERABLE_CONFIG_API_EXCEPTIONS)
 # ===========================================================================
 
 
 class TestValidateDataViewExceptionNarrowing:
-    """Verify validate_data_view catches RECOVERABLE_API_EXCEPTIONS and propagates others."""
+    """Verify validate_data_view catches recoverable failures and propagates others."""
 
     def test_type_error_caught(self):
         """TypeError (in RECOVERABLE_API_EXCEPTIONS) is caught -> returns False."""
@@ -118,6 +115,13 @@ class TestValidateDataViewExceptionNarrowing:
         mock_cja.getDataView.side_effect = SystemError("should escape")
         with pytest.raises(SystemError, match="should escape"):
             validate_data_view(mock_cja, "dv_test", _make_logger())
+
+    def test_configuration_error_while_listing_available_views_caught(self):
+        """ConfigurationError from fallback list call should not escape."""
+        mock_cja = MagicMock()
+        mock_cja.getDataView.return_value = None
+        mock_cja.getDataViews.side_effect = ConfigurationError("token bootstrap failed")
+        assert validate_data_view(mock_cja, "dv_test", _make_logger()) is False
 
 
 # ===========================================================================
@@ -185,6 +189,12 @@ class TestProcessInventorySummaryExceptionNarrowing:
         # AttributeError is in BOTH tuples — first handler catches it
         assert "error" in result
 
+    def test_configuration_error_caught(self):
+        """ConfigurationError should be returned as structured summary error payload."""
+        result = self._run_with_side_effect(ConfigurationError("invalid auth bootstrap"))
+        assert "error" in result
+        assert "invalid auth bootstrap" in result["error"]
+
     def test_system_error_propagates(self):
         """SystemError is NOT in either handler -> propagates."""
         with pytest.raises(SystemError, match="should escape"):
@@ -223,7 +233,29 @@ class TestValidateConfigOnlyExceptionNarrowing:
         # AttributeError is in BOTH RECOVERABLE_API and fallback; first handler catches
         assert result is False
 
+    def test_configuration_error_caught(self):
+        """ConfigurationError should return False (controlled validation failure)."""
+        result = self._run_with_cja_side_effect(ConfigurationError("invalid oauth configuration"))
+        assert result is False
+
     def test_system_error_propagates(self):
         """SystemError is NOT in either handler -> propagates."""
         with pytest.raises(SystemError, match="should escape"):
             self._run_with_cja_side_effect(SystemError("should escape"))
+
+
+class TestResolveDataViewNamesExceptionBoundary:
+    """Verify resolve_data_view_names handles recoverable bootstrap failures."""
+
+    def test_configuration_error_returns_connectivity_diagnostics(self):
+        """ConfigurationError should produce controlled connectivity diagnostics."""
+        with patch("cja_auto_sdr.generator.configure_cjapy", side_effect=ConfigurationError("bad org credentials")):
+            ids, name_map, diagnostics = generator.resolve_data_view_names(
+                ["My DV"],
+                include_diagnostics=True,
+            )
+
+        assert ids == []
+        assert name_map == {}
+        assert diagnostics.error_type == "connectivity_error"
+        assert "bad org credentials" in diagnostics.error_message
