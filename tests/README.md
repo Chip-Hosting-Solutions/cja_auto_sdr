@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,232 comprehensive tests**
+**Total: 5,238 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -104,7 +104,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 400 | Command-line interface and argument parsing |
+| `test_cli.py` | 401 | Command-line interface and argument parsing |
 | `test_profiles.py` | 76 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -116,14 +116,14 @@ tests/
 | `test_cja_initialization.py` | 46 | CJA connection and configuration validation |
 | `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
-| `test_parallel_api_fetcher.py` | 27 | Parallel API data fetching |
+| `test_parallel_api_fetcher.py` | 28 | Parallel API data fetching |
 | `test_api_tuning.py` | 23 | API worker auto-tuning |
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
 | `test_retry.py` | 25 | Retry with exponential backoff |
 | `test_batch_processor.py` | 26 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 22 | Validation result caching |
-| `test_process_single_dataview.py` | 26 | End-to-end single data view processing |
+| `test_process_single_dataview.py` | 27 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 24 | Data view name to ID resolution |
 | `test_shared_cache.py` | 20 | Shared validation cache |
@@ -135,7 +135,7 @@ tests/
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_discovery_formatters.py` | 32 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
 | `test_discovery_normalization.py` | 17 | Discovery normalization helpers (missing values, owner extraction, tags) |
-| `test_discovery_payloads.py` | 42 | Discovery payload classification (error detection, component extraction) |
+| `test_discovery_payloads.py` | 45 | Discovery payload classification (error detection, component extraction) |
 | `test_discovery_component_consistency.py` | 7 | Discovery component retrieval consistency |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 17 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,232** | **Collected via pytest --collect-only** |
+| **Total** | **5,238** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,232 tests total)
+- [x] Comprehensive test coverage (5,238 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
