@@ -11,15 +11,12 @@ Validates that SharedValidationCache:
 8. Properly shuts down Manager resources
 """
 
-import os
-import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cja_auto_sdr.generator import SharedValidationCache, ValidationCache
 
 

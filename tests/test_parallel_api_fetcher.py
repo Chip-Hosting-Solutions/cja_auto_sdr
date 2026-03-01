@@ -1,15 +1,10 @@
 """Tests for ParallelAPIFetcher class"""
 
 import logging
-import os
-import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cja_auto_sdr.core.config import APITuningConfig
 from cja_auto_sdr.core.exceptions import CircuitBreakerOpen

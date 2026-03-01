@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Exception narrowing tests**: New `test_exception_narrowing.py` with 17 tests verifying narrowed boundaries catch expected types and propagate unexpected ones
-- **Coverage hardening tests**: New `test_coverage_hardening.py` with 101 tests covering previously-missed branches (output-dir access, lazy forwarding, logging init, discovery helpers, short-option clusters, config validation)
+- **Coverage hardening tests**: New `test_coverage_hardening.py` with 108 tests covering previously-missed branches (output-dir access, lazy forwarding, logging init, discovery helpers, short-option clusters, config validation)
 
 ## [3.3.4] - 2026-02-25
 
