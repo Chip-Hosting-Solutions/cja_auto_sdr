@@ -16,8 +16,10 @@ EXPLICIT_ERROR_KEYS = frozenset({"error", "errorcode", "errordescription", "erro
 STATUS_KEYS = frozenset({"statuscode", "status_code", "status"})
 ERROR_TEXT_KEYS = frozenset({"message", "detail", "title"})
 COMPONENT_SEQUENCE_KEYS = ("content", "items", "results", "data", "rows")
-LOOKUP_FAILURE_FLAG_KEYS = frozenset({"lookup_failed", "circuit_breaker_open"})
-LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
+LOOKUP_FAILURE_FLAG_PRECEDENCE = ("lookup_failed", "circuit_breaker_open")
+LOOKUP_FAILURE_FLAG_KEYS = frozenset(LOOKUP_FAILURE_FLAG_PRECEDENCE)
+LOOKUP_FAILURE_DETAIL_PRECEDENCE = ("lookup_failure_reason",)
+LOOKUP_FAILURE_DETAIL_KEYS = frozenset(LOOKUP_FAILURE_DETAIL_PRECEDENCE)
 # Dataview payloads may include non-fatal diagnostic text under `error` while
 # still returning a valid object with identity fields.
 DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
@@ -316,6 +318,24 @@ def _is_truthy_marker(value: Any) -> bool:
         return True
 
 
+def _first_lookup_failure_flag_key(normalized_items: Mapping[str, Any]) -> str | None:
+    """Return first truthy lookup-failure flag in fixed precedence order."""
+    for marker_key in LOOKUP_FAILURE_FLAG_PRECEDENCE:
+        if _is_truthy_marker(normalized_items.get(marker_key)):
+            return marker_key
+    return None
+
+
+def _first_lookup_failure_detail_key(normalized_items: Mapping[str, Any]) -> str | None:
+    """Return first lookup-failure detail key with a present value."""
+    for detail_key in LOOKUP_FAILURE_DETAIL_PRECEDENCE:
+        detail_value = normalized_items.get(detail_key)
+        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+            continue
+        return detail_key
+    return None
+
+
 def _normalize_dataview_lookup_payload(raw_payload: Any) -> tuple[dict[str, Any] | None, str, str]:
     raw_type = type(raw_payload).__name__
     if raw_payload is None:
@@ -408,14 +428,12 @@ def _is_legacy_unknown_lookup_placeholder(
 
 def _unknown_placeholder_diagnostic_key(normalized_items: Mapping[str, Any]) -> str | None:
     """Return a diagnostic key when an Unknown placeholder carries lookup-failure hints."""
-    for marker_key in sorted(LOOKUP_FAILURE_FLAG_KEYS):
-        if _is_truthy_marker(normalized_items.get(marker_key)):
-            return marker_key
+    marker_key = _first_lookup_failure_flag_key(normalized_items)
+    if marker_key is not None:
+        return marker_key
 
-    for detail_key in sorted(LOOKUP_FAILURE_DETAIL_KEYS):
-        detail_value = normalized_items.get(detail_key)
-        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
-            continue
+    detail_key = _first_lookup_failure_detail_key(normalized_items)
+    if detail_key is not None:
         return detail_key
 
     for text_key in sorted(UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS):
@@ -502,19 +520,17 @@ def assess_dataview_lookup_payload(
     canonical_payload = canonicalize_dataview_lookup_payload(payload)
     normalized_items = normalize_lookup_items(canonical_payload)
 
-    for marker_key in LOOKUP_FAILURE_FLAG_KEYS:
-        if _is_truthy_marker(normalized_items.get(marker_key)):
-            return DataViewLookupAssessment(
-                kind=PayloadKind.ERROR,
-                payload=canonical_payload,
-                reason=f"failure_flag:{marker_key}",
-                raw_type=raw_type,
-            )
+    marker_key = _first_lookup_failure_flag_key(normalized_items)
+    if marker_key is not None:
+        return DataViewLookupAssessment(
+            kind=PayloadKind.ERROR,
+            payload=canonical_payload,
+            reason=f"failure_flag:{marker_key}",
+            raw_type=raw_type,
+        )
 
-    for detail_key in LOOKUP_FAILURE_DETAIL_KEYS:
-        detail_value = normalized_items.get(detail_key)
-        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
-            continue
+    detail_key = _first_lookup_failure_detail_key(normalized_items)
+    if detail_key is not None:
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
             payload=canonical_payload,

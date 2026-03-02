@@ -184,6 +184,30 @@ def test_assess_dataview_lookup_payload_rejects_explicit_lookup_failed_marker() 
     assert assessment.reason == "failure_flag:lookup_failed"
 
 
+def test_assess_dataview_lookup_payload_prefers_lookup_failed_when_multiple_failure_flags_present() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": True,
+        "circuit_breaker_open": True,
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+
+
+def test_assess_dataview_lookup_payload_uses_next_failure_flag_when_higher_precedence_is_falsey() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": "false",
+        "circuit_breaker_open": "true",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:circuit_breaker_open"
+
+
 def test_assess_dataview_lookup_payload_rejects_circuit_breaker_marker() -> None:
     payload = {"id": "dv_1", "name": "Unknown", "circuit_breaker_open": "true"}
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
