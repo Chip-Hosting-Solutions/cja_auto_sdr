@@ -259,3 +259,39 @@ class TestResolveDataViewNamesExceptionBoundary:
         assert name_map == {}
         assert diagnostics.error_type == "connectivity_error"
         assert "bad org credentials" in diagnostics.error_message
+
+
+# ===========================================================================
+# Group A: _count_component_items_for_fetch_spec_with_retry (best-effort)
+# ===========================================================================
+
+
+class TestComponentCountRetryExceptionBoundary:
+    """Verify retry-based component counting degrades recoverable optional failures."""
+
+    def _run_count_with_retry_side_effect(self, exc):
+        """Run component count helper with a patched retry call that raises *exc*."""
+        with patch("cja_auto_sdr.generator.make_api_call_with_retry", side_effect=exc):
+            return generator._count_component_items_for_fetch_spec_with_retry(
+                MagicMock(),
+                "dv_test",
+                generator._METRICS_COMPONENT_FETCH_SPEC,
+                logger=_make_logger(),
+            )
+
+    def test_discovery_not_found_error_degrades_to_zero(self):
+        """Missing component methods should degrade to zero instead of raising."""
+        result = self._run_count_with_retry_side_effect(
+            generator.DiscoveryNotFoundError("missing getMetrics"),
+        )
+        assert result == 0
+
+    def test_runtime_error_degrades_to_zero(self):
+        """Unexpected runtime errors in optional count collection should degrade to zero."""
+        result = self._run_count_with_retry_side_effect(RuntimeError("cjapy internal bug"))
+        assert result == 0
+
+    def test_keyboard_interrupt_propagates(self):
+        """BaseException subclasses must still propagate through the helper."""
+        with pytest.raises(KeyboardInterrupt):
+            self._run_count_with_retry_side_effect(KeyboardInterrupt())

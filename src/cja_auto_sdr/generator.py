@@ -749,6 +749,10 @@ RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
 RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Optional component-count lookups (dry-run projections, describe metadata) are
+# best-effort. Any Exception should degrade to a fallback count instead of
+# terminating the command flow.
+RECOVERABLE_OPTIONAL_COMPONENT_COUNT_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 
 
 def _log_optional_inventory_failure(
@@ -8903,11 +8907,48 @@ def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _Component
 
 def _count_component_items_for_fetch_spec(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> int | str:
     """Return a component count for one fetch spec, falling back to 'N/A' on runtime failures."""
+    return _count_component_items_for_fetch_spec_best_effort(
+        cja,
+        data_view_id,
+        fetch_spec,
+        fallback_value="N/A",
+        use_retry=False,
+    )
+
+
+def _count_component_items_for_fetch_spec_best_effort(
+    cja: Any,
+    data_view_id: str,
+    fetch_spec: _ComponentFetchSpec,
+    *,
+    fallback_value: int | str,
+    use_retry: bool,
+    logger: logging.Logger | None = None,
+) -> int | str:
+    """Fetch one component payload and degrade failures to a caller-provided fallback value."""
+    component_label = fetch_spec.method_name
     try:
-        payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
-        return _count_component_items_or_na_from_assessment(payload)
-    except Exception:  # Intentional: wraps cjapy API; best-effort count
-        return "N/A"
+        if use_retry:
+            payload = make_api_call_with_retry(
+                _fetch_component_payload,
+                cja,
+                data_view_id,
+                fetch_spec,
+                logger=logger,
+                operation_name=f"{component_label}({data_view_id})",
+            )
+        else:
+            payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
+
+        count = _count_component_items_or_na_from_assessment(payload)
+        if isinstance(count, int):
+            return count
+        if logger:
+            logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
+    except RECOVERABLE_OPTIONAL_COMPONENT_COUNT_EXCEPTIONS as e:  # Intentional best-effort boundary
+        if logger:
+            logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e, exc_info=True)
+    return fallback_value
 
 
 def _count_component_items_for_fetch_spec_with_retry(
@@ -8918,25 +8959,15 @@ def _count_component_items_for_fetch_spec_with_retry(
     logger: logging.Logger,
 ) -> int:
     """Return component count via retry-aware fetches, degrading non-fatal issues to zero."""
-    component_label = fetch_spec.method_name
-    try:
-        payload = make_api_call_with_retry(
-            _fetch_component_payload,
-            cja,
-            data_view_id,
-            fetch_spec,
-            logger=logger,
-            operation_name=f"{component_label}({data_view_id})",
-        )
-        count = _count_component_items_or_na_from_assessment(payload)
-        if isinstance(count, int):
-            return count
-        logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
-    except RECOVERABLE_API_EXCEPTIONS as e:
-        logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
-    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
-        logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
-    return 0
+    count = _count_component_items_for_fetch_spec_best_effort(
+        cja,
+        data_view_id,
+        fetch_spec,
+        fallback_value=0,
+        use_retry=True,
+        logger=logger,
+    )
+    return count if isinstance(count, int) else 0
 
 
 def _build_component_list_fetcher(
