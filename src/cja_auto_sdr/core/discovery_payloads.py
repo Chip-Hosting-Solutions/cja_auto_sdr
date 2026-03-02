@@ -22,6 +22,31 @@ LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
 # still returning a valid object with identity fields.
 DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
 UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS = frozenset({"error"}) | DATAVIEW_EXPLICIT_ERROR_KEYS
+DATAVIEW_DIAGNOSTIC_KEYS = (
+    LOOKUP_FAILURE_FLAG_KEYS | LOOKUP_FAILURE_DETAIL_KEYS | STATUS_KEYS | ERROR_TEXT_KEYS | EXPLICIT_ERROR_KEYS
+)
+DATAVIEW_METADATA_HINT_KEYS = frozenset(
+    {
+        "owner",
+        "ownername",
+        "owner_name",
+        "ownerfullname",
+        "owner_full_name",
+        "description",
+        "parentdatagroupid",
+        "connectionid",
+        "connection_id",
+        "created",
+        "createddate",
+        "createdat",
+        "created_date",
+        "modified",
+        "modifieddate",
+        "modifiedat",
+        "modified_date",
+    },
+)
+_DIAGNOSTIC_KEY_PREFIXES = ("error", "lookup_", "status")
 _LOOKUP_MISSING_VALUE = object()
 _LOOKUP_CANONICAL_KEY_ALIASES = {
     "id": "id",
@@ -202,14 +227,72 @@ def looks_like_error_payload(
     return _schema_indicates_error(keys, has_identity=has_identity, explicit_error_keys=explicit_error_keys)
 
 
+def _lookup_field_is_present(value: Any) -> bool:
+    return not is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True)
+
+
+def _lookup_contains_any_present_key(
+    normalized_items: Mapping[str, Any],
+    *,
+    candidate_keys: frozenset[str],
+) -> bool:
+    return any(_lookup_field_is_present(normalized_items.get(candidate_key)) for candidate_key in candidate_keys)
+
+
+def _is_diagnostic_lookup_key(normalized_key: str) -> bool:
+    if normalized_key in DATAVIEW_DIAGNOSTIC_KEYS:
+        return True
+    return normalized_key.startswith(_DIAGNOSTIC_KEY_PREFIXES)
+
+
+def _has_minimum_dataview_lookup_metadata(normalized_items: Mapping[str, Any]) -> bool:
+    """Return True when lookup payload carries more than bare identity/error hints."""
+    if _lookup_field_is_present(normalized_items.get("name")):
+        return True
+
+    if _lookup_contains_any_present_key(normalized_items, candidate_keys=DATAVIEW_METADATA_HINT_KEYS):
+        return True
+
+    # Allow future nested metadata payloads while still failing closed on sparse
+    # scalar error objects (for example: {"id": "...", "error": "..."}).
+    for key, value in normalized_items.items():
+        normalized_key = str(key)
+        if normalized_key == "id" or _is_diagnostic_lookup_key(normalized_key):
+            continue
+        if isinstance(value, Mapping):
+            if value:
+                return True
+            continue
+        if isinstance(value, (list, tuple, set)) and len(value) > 0:
+            return True
+    return False
+
+
+def _is_diagnostic_only_dataview_payload(normalized_items: Mapping[str, Any]) -> bool:
+    if not has_identity_value(normalized_items, ("id", "name")):
+        return False
+
+    has_diagnostic_signal = any(
+        _lookup_field_is_present(value) and _is_diagnostic_lookup_key(str(key))
+        for key, value in normalized_items.items()
+    )
+    if not has_diagnostic_signal:
+        return False
+
+    return not _has_minimum_dataview_lookup_metadata(normalized_items)
+
+
 def is_dataview_error_payload(payload: Mapping[str, Any]) -> bool:
     """Return True when getDataView payload appears to be an API error object."""
     normalized_payload = normalize_lookup_items(payload)
-    return looks_like_error_payload(
+    if looks_like_error_payload(
         normalized_payload,
         identity_keys=("id", "name"),
         explicit_error_keys=DATAVIEW_EXPLICIT_ERROR_KEYS,
-    )
+    ):
+        return True
+
+    return _is_diagnostic_only_dataview_payload(normalized_payload)
 
 
 def _is_truthy_marker(value: Any) -> bool:
@@ -473,6 +556,14 @@ def assess_dataview_lookup_payload(
             kind=PayloadKind.ERROR,
             payload=canonical_payload,
             reason=unknown_placeholder_reason,
+            raw_type=raw_type,
+        )
+
+    if not _has_minimum_dataview_lookup_metadata(normalized_items):
+        return DataViewLookupAssessment(
+            kind=PayloadKind.ERROR,
+            payload=canonical_payload,
+            reason="insufficient_metadata",
             raw_type=raw_type,
         )
 

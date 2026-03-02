@@ -520,6 +520,44 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result["lookup_failure_reason"] == "unknown_placeholder_diagnostic:error"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_id_plus_error_only_payload(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with only id+error should fail closed."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "error_shape"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_id_only_payload_as_insufficient_metadata(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with only id should fail closed as insufficient metadata."""
+        mock_api_call.return_value = {"id": "dv_test_12345"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "insufficient_metadata"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_rejects_payload_missing_expected_id(
         self,
         mock_api_call,

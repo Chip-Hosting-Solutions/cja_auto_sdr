@@ -107,6 +107,11 @@ def test_dataview_payload_with_identity_and_error_field_is_not_error() -> None:
     assert is_dataview_error_payload(payload) is False
 
 
+def test_dataview_payload_with_id_and_error_only_is_treated_as_error() -> None:
+    payload = {"id": "dv_missing", "error": "not found"}
+    assert is_dataview_error_payload(payload) is True
+
+
 def test_assess_dataview_lookup_payload_accepts_valid_payload() -> None:
     payload = {"id": "dv_1", "name": "Valid View", "owner": {"name": "Owner"}}
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
@@ -120,6 +125,28 @@ def test_assess_dataview_lookup_payload_accepts_valid_payload_with_error_field()
     assert assessment.kind is PayloadKind.DATA
     assert assessment.reason == "valid_lookup_payload"
     assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_accepts_owner_only_metadata_with_error_field() -> None:
+    payload = {"id": "dv_1", "owner": {"name": "Owner"}, "error": "transient warning"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_rejects_id_plus_error_only_payload() -> None:
+    payload = {"id": "dv_1", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_rejects_id_only_payload_as_insufficient_metadata() -> None:
+    payload = {"id": "dv_1"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "insufficient_metadata"
 
 
 def test_assess_dataview_lookup_payload_rejects_unknown_placeholder_with_error_field() -> None:
