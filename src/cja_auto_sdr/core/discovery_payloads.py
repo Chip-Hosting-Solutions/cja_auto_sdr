@@ -73,6 +73,11 @@ def has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...
     return False
 
 
+def normalize_lookup_items(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return case-folded lookup payload keys for defensive field access."""
+    return {str(key).strip().casefold(): value for key, value in payload.items()}
+
+
 def _schema_indicates_error(
     keys: set[str],
     *,
@@ -102,8 +107,9 @@ def looks_like_error_payload(
 
 def is_dataview_error_payload(payload: Mapping[str, Any]) -> bool:
     """Return True when getDataView payload appears to be an API error object."""
+    normalized_payload = normalize_lookup_items(payload)
     return looks_like_error_payload(
-        payload,
+        normalized_payload,
         identity_keys=("id", "name"),
         explicit_error_keys=DATAVIEW_EXPLICIT_ERROR_KEYS,
     )
@@ -168,19 +174,50 @@ def _coerce_lookup_scalar_text(value: Any) -> str | None:
     return None
 
 
-def _is_legacy_unknown_lookup_placeholder(payload: Mapping[str, Any], *, expected_data_view_id: str | None) -> bool:
+def _assess_expected_lookup_id(
+    normalized_items: Mapping[str, Any],
+    *,
+    expected_data_view_id: str | None,
+) -> tuple[str | None, str | None]:
+    """Validate lookup `id` against the expected data view id."""
+    if expected_data_view_id is None:
+        return None, None
+
+    payload_id = normalized_items.get("id")
+    if is_missing_value(payload_id, treat_blank_string=True, treat_null_like_strings=True):
+        return None, "missing_expected_id"
+
+    payload_id_text = _coerce_lookup_scalar_text(payload_id)
+    if payload_id_text is None:
+        return None, "invalid_id_type"
+
+    normalized_id = payload_id_text.strip()
+    if not normalized_id:
+        return None, "missing_expected_id"
+
+    if normalized_id != expected_data_view_id:
+        return normalized_id, "id_mismatch"
+
+    return normalized_id, None
+
+
+def _is_legacy_unknown_lookup_placeholder(
+    *,
+    expected_data_view_id: str | None,
+    normalized_items: Mapping[str, Any],
+) -> bool:
     if expected_data_view_id is None:
         return False
-    payload_id = payload.get("id")
-    if is_missing_value(payload_id, treat_blank_string=True, treat_null_like_strings=True):
+
+    _, id_reason = _assess_expected_lookup_id(normalized_items, expected_data_view_id=expected_data_view_id)
+    if id_reason is not None:
         return False
-    payload_id_text = _coerce_lookup_scalar_text(payload_id)
-    if payload_id_text is None or payload_id_text.strip() != expected_data_view_id:
-        return False
-    normalized_keys = normalized_payload_keys(payload)
+
+    normalized_keys = set(normalized_items)
     if not normalized_keys.issubset({"id", "name"}):
         return False
-    name_value = payload.get("name")
+
+    name_value = normalized_items.get("name")
     if is_missing_value(name_value, treat_blank_string=True, treat_null_like_strings=True):
         return False
     name_text = _coerce_lookup_scalar_text(name_value)
@@ -229,26 +266,24 @@ def _unknown_placeholder_diagnostic_key(normalized_items: Mapping[str, Any]) -> 
 
 
 def _unknown_lookup_placeholder_reason(
-    payload: Mapping[str, Any],
-    *,
     expected_data_view_id: str | None,
     normalized_items: Mapping[str, Any],
 ) -> str | None:
     """Return placeholder failure reason when payload matches fallback Unknown lookup output."""
-    if _is_legacy_unknown_lookup_placeholder(payload, expected_data_view_id=expected_data_view_id):
+    if _is_legacy_unknown_lookup_placeholder(
+        expected_data_view_id=expected_data_view_id,
+        normalized_items=normalized_items,
+    ):
         return "legacy_unknown_placeholder"
 
     if expected_data_view_id is None:
         return None
 
-    payload_id = payload.get("id")
-    if is_missing_value(payload_id, treat_blank_string=True, treat_null_like_strings=True):
-        return None
-    payload_id_text = _coerce_lookup_scalar_text(payload_id)
-    if payload_id_text is None or payload_id_text.strip() != expected_data_view_id:
+    _, id_reason = _assess_expected_lookup_id(normalized_items, expected_data_view_id=expected_data_view_id)
+    if id_reason is not None:
         return None
 
-    name_value = payload.get("name")
+    name_value = normalized_items.get("name")
     if is_missing_value(name_value, treat_blank_string=True, treat_null_like_strings=True):
         return None
     name_text = _coerce_lookup_scalar_text(name_value)
@@ -284,7 +319,7 @@ def assess_dataview_lookup_payload(
             raw_type=raw_type,
         )
 
-    normalized_items = {str(key).strip().casefold(): value for key, value in payload.items()}
+    normalized_items = normalize_lookup_items(payload)
 
     for marker_key in LOOKUP_FAILURE_FLAG_KEYS:
         if _is_truthy_marker(normalized_items.get(marker_key)):
@@ -314,7 +349,7 @@ def assess_dataview_lookup_payload(
             raw_type=raw_type,
         )
 
-    if not has_identity_value(payload, ("id", "name")):
+    if not has_identity_value(normalized_items, ("id", "name")):
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
             payload=payload,
@@ -322,31 +357,16 @@ def assess_dataview_lookup_payload(
             raw_type=raw_type,
         )
 
-    payload_id = payload.get("id")
-    if expected_data_view_id is not None and not is_missing_value(
-        payload_id,
-        treat_blank_string=True,
-        treat_null_like_strings=True,
-    ):
-        payload_id_text = _coerce_lookup_scalar_text(payload_id)
-        if payload_id_text is None:
-            return DataViewLookupAssessment(
-                kind=PayloadKind.ERROR,
-                payload=payload,
-                reason="invalid_id_type",
-                raw_type=raw_type,
-            )
-        normalized_id = payload_id_text.strip()
-        if normalized_id and normalized_id != expected_data_view_id:
-            return DataViewLookupAssessment(
-                kind=PayloadKind.ERROR,
-                payload=payload,
-                reason="id_mismatch",
-                raw_type=raw_type,
-            )
+    _, id_reason = _assess_expected_lookup_id(normalized_items, expected_data_view_id=expected_data_view_id)
+    if id_reason is not None:
+        return DataViewLookupAssessment(
+            kind=PayloadKind.ERROR,
+            payload=payload,
+            reason=id_reason,
+            raw_type=raw_type,
+        )
 
     unknown_placeholder_reason = _unknown_lookup_placeholder_reason(
-        payload,
         expected_data_view_id=expected_data_view_id,
         normalized_items=normalized_items,
     )

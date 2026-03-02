@@ -87,6 +87,11 @@ def test_dataview_payload_with_identity_not_error() -> None:
     assert is_dataview_error_payload(payload) is False
 
 
+def test_dataview_payload_with_mixed_case_identity_not_error() -> None:
+    payload = {"ID": "dv_1", "Name": "Test View", "statusCode": 200, "message": "ok"}
+    assert is_dataview_error_payload(payload) is False
+
+
 def test_dataview_payload_with_na_identity_values_is_treated_as_error() -> None:
     payload = {"statusCode": 404, "message": "missing", "id": pd.NA, "name": pd.NA}
     assert is_dataview_error_payload(payload) is True
@@ -178,6 +183,28 @@ def test_assess_dataview_lookup_payload_rejects_id_mismatch() -> None:
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
     assert assessment.kind is PayloadKind.ERROR
     assert assessment.reason == "id_mismatch"
+
+
+def test_assess_dataview_lookup_payload_rejects_missing_id_when_expected() -> None:
+    payload = {"name": "Some Name", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "missing_expected_id"
+
+
+def test_assess_dataview_lookup_payload_rejects_blank_id_when_expected() -> None:
+    payload = {"id": "  ", "name": "Some Name"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "missing_expected_id"
+
+
+def test_assess_dataview_lookup_payload_accepts_mixed_case_identity_keys() -> None:
+    payload = {"ID": "dv_1", "Name": "Valid View", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
 
 
 def test_assess_dataview_lookup_payload_handles_non_stringifiable_name_value() -> None:
