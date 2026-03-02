@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,247 comprehensive tests**
+**Total: 5,252 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -116,7 +116,7 @@ tests/
 | `test_cja_initialization.py` | 46 | CJA connection and configuration validation |
 | `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
-| `test_parallel_api_fetcher.py` | 28 | Parallel API data fetching |
+| `test_parallel_api_fetcher.py` | 29 | Parallel API data fetching |
 | `test_api_tuning.py` | 23 | API worker auto-tuning |
 | `test_error_messages.py` | 23 | Enhanced error messages and guidance |
 | `test_circuit_breaker.py` | 22 | Circuit breaker pattern |
@@ -135,7 +135,7 @@ tests/
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_discovery_formatters.py` | 32 | Shared discovery formatters, WorkerArgs dataclass, _exit_error, BANNER_WIDTH |
 | `test_discovery_normalization.py` | 17 | Discovery normalization helpers (missing values, owner extraction, tags) |
-| `test_discovery_payloads.py` | 45 | Discovery payload classification (error detection, component extraction) |
+| `test_discovery_payloads.py` | 49 | Discovery payload classification (error detection, component extraction) |
 | `test_discovery_component_consistency.py` | 7 | Discovery component retrieval consistency |
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 25 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,247** | **Collected via pytest --collect-only** |
+| **Total** | **5,252** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,247 tests total)
+- [x] Comprehensive test coverage (5,252 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
