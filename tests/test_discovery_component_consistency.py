@@ -167,7 +167,7 @@ def test_run_dry_run_uses_hidden_inclusive_component_fetch_contract(
     mock_cja = MagicMock()
     mock_cjapy.CJA.return_value = mock_cja
     mock_cja.getDataViews.return_value = []
-    mock_cja.getDataView.return_value = {"name": "DryRun View"}
+    mock_cja.getDataView.return_value = {"id": "dv_1", "name": "DryRun View"}
     mock_cja.getMetrics.return_value = [{"id": "m_visible"}, {"id": "m_hidden"}]
     mock_cja.getDimensions.return_value = [{"id": "d_visible"}, {"id": "d_hidden"}]
 

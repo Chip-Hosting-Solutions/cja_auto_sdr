@@ -539,7 +539,10 @@ class TestValidateDataView:
 
         assert result is False
         calls = [str(c) for c in mock_logger.error.call_args_list]
-        assert any("Malformed data view payload returned by API" in c for c in calls)
+        assert any(
+            "Malformed data view payload returned by API" in c or "Data view lookup returned invalid payload" in c
+            for c in calls
+        )
 
     @pytest.mark.parametrize(
         "description",

@@ -114,6 +114,9 @@ from cja_auto_sdr.core.discovery_normalization import (
     pick_first_present_text as _pick_first_present_text,
 )
 from cja_auto_sdr.core.discovery_payloads import (
+    DataViewLookupAssessment as _DataViewLookupAssessment,
+)
+from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind as _PayloadKind,
 )
 from cja_auto_sdr.core.discovery_payloads import (
@@ -2234,7 +2237,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         # Attempt to fetch data view info
         logger.info("Fetching data view information from API...")
         try:
-            dv_info = cja.getDataView(data_view_id)
+            raw_dv_info = cja.getDataView(data_view_id)
         except AttributeError as e:
             logger.error("API method 'getDataView' not available")
             logger.error("Possible causes:")
@@ -2253,6 +2256,18 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             return False
 
         # Validate response
+        dv_info, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
+            raw_dv_info,
+            data_view_id=data_view_id,
+        )
+        if dv_info is None:
+            logger.error("Data view lookup returned invalid payload (%s)", lookup_failure_reason)
+            logger.debug(
+                "Rejected data view lookup payload: data_view_id=%s raw_type=%s",
+                data_view_id,
+                lookup_raw_type,
+            )
+
         if not dv_info:
             # Try to list available data views to provide context
             available_count = None
@@ -5737,19 +5752,18 @@ def process_single_dataview(
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
 
         # Validate fetched data view lookup metadata (defensive gate before processing).
-        lookup_assessment = _assess_dataview_lookup_payload(
+        lookup_data, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
             lookup_data,
-            expected_data_view_id=data_view_id,
+            data_view_id=data_view_id,
         )
-        if not lookup_assessment.is_valid:
+        if lookup_data is None:
             logger.error(
                 "Data view validation failed — invalid lookup payload (%s)",
-                lookup_assessment.reason,
+                lookup_failure_reason,
             )
             logger.debug(
-                "Lookup payload rejected: kind=%s raw_type=%s",
-                lookup_assessment.kind.value,
-                lookup_assessment.raw_type,
+                "Lookup payload rejected: raw_type=%s",
+                lookup_raw_type,
             )
             return ProcessingResult(
                 data_view_id=data_view_id,
@@ -5758,7 +5772,6 @@ def process_single_dataview(
                 duration=time.time() - start_time,
                 error_message="Data view validation failed",
             )
-        lookup_data = lookup_assessment.payload if lookup_assessment.payload is not None else {}
         logger.info("✓ Data view validated and fetched successfully")
 
         # Log tuner statistics if tuning was enabled
@@ -7123,13 +7136,17 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
     for dv_id in data_views:
         # Try to get data view info (with retry for transient errors)
         try:
-            dv_info = make_api_call_with_retry(
+            raw_dv_info = make_api_call_with_retry(
                 cja.getDataView,
                 dv_id,
                 logger=logger,
                 operation_name=f"getDataView({dv_id})",
             )
-            if dv_info:
+            dv_info, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
+                raw_dv_info,
+                data_view_id=dv_id,
+            )
+            if dv_info is not None:
                 dv_name = dv_info.get("name", "Unknown")
 
                 # Fetch component counts for predictions
@@ -7157,6 +7174,13 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 valid_count += 1
             else:
                 print(f"  ✗ {dv_id}: Not found or no access")
+                print(f"      Lookup validation failed: {lookup_failure_reason}")
+                logger.debug(
+                    "Dry-run rejected lookup payload for %s: reason=%s raw_type=%s",
+                    dv_id,
+                    lookup_failure_reason,
+                    lookup_raw_type,
+                )
                 invalid_count += 1
                 all_passed = False
         except KeyboardInterrupt, SystemExit:
@@ -8529,6 +8553,34 @@ def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
     return raw_dv if isinstance(raw_dv, dict) else None
 
 
+def _assess_dataview_lookup(
+    raw_payload: Any,
+    *,
+    data_view_id: str,
+    require_expected_id: bool = True,
+) -> _DataViewLookupAssessment:
+    """Assess a getDataView payload with a consistent expected-id policy."""
+    expected_data_view_id = data_view_id if require_expected_id else None
+    return _assess_dataview_lookup_payload(raw_payload, expected_data_view_id=expected_data_view_id)
+
+
+def _coerce_valid_dataview_lookup_payload(
+    raw_payload: Any,
+    *,
+    data_view_id: str,
+    require_expected_id: bool = True,
+) -> tuple[dict[str, Any] | None, str, str]:
+    """Return a validated lookup payload or structured failure metadata."""
+    assessment = _assess_dataview_lookup(
+        raw_payload,
+        data_view_id=data_view_id,
+        require_expected_id=require_expected_id,
+    )
+    if assessment.is_valid and assessment.payload is not None:
+        return assessment.payload, assessment.reason, assessment.raw_type
+    return None, assessment.reason, assessment.raw_type
+
+
 _DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES = frozenset({403, 404})
 _DATAVIEW_LOOKUP_STATUS_ATTRS = ("status_code", "statusCode", "status", "http_status", "httpStatus", "code")
 _DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS = (
@@ -8631,10 +8683,7 @@ def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
         raise
 
-    assessment = _assess_dataview_lookup_payload(raw_payload, expected_data_view_id=data_view_id)
-    if not assessment.is_valid:
-        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
-    payload = assessment.payload
+    payload, _, _ = _coerce_valid_dataview_lookup_payload(raw_payload, data_view_id=data_view_id)
     if payload is None:
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     return payload
@@ -10967,8 +11016,15 @@ def _require_numeric_component_count_for_stats(
 
 def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     """Fetch one data view's stats row. Raises on API/runtime errors."""
-    dv_info = cja.getDataView(data_view_id)
-    dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
+    raw_dv_info = cja.getDataView(data_view_id)
+    dv_info, lookup_failure_reason, _ = _coerce_valid_dataview_lookup_payload(
+        raw_dv_info,
+        data_view_id=data_view_id,
+        require_expected_id=False,
+    )
+    if dv_info is None:
+        raise ValueError(f"Data view validation failed for '{data_view_id}' ({lookup_failure_reason})")
+    dv_name = dv_info.get("name", "Unknown")
 
     metrics_count = _require_numeric_component_count_for_stats(
         cja,
@@ -10983,10 +11039,10 @@ def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
         component_label="dimensions",
     )
 
-    owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
+    owner_info = dv_info.get("owner", {})
     owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
 
-    raw_description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
+    raw_description = dv_info.get("description", "")
     description_text = str(raw_description) if raw_description is not None else ""
 
     return {

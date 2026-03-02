@@ -99,6 +99,37 @@ class TestDryRunMode:
         assert result is False
 
     @patch("cja_auto_sdr.generator.cjapy")
+    def test_dry_run_fails_for_lookup_failure_placeholder(self, mock_cjapy, valid_config_file, logger):
+        """Error-shaped lookup placeholders must fail dry-run validation."""
+        mock_cja_instance = MagicMock()
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cja_instance.getDataViews.return_value = []
+        mock_cja_instance.getDataView.return_value = {
+            "id": "dv_12345",
+            "name": "Unknown",
+            "lookup_failed": True,
+            "lookup_failure_reason": "exception",
+        }
+
+        result = run_dry_run(data_views=["dv_12345"], config_file=valid_config_file, logger=logger)
+        assert result is False
+        mock_cja_instance.getMetrics.assert_not_called()
+        mock_cja_instance.getDimensions.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    def test_dry_run_fails_for_id_plus_error_lookup_payload(self, mock_cjapy, valid_config_file, logger):
+        """id+error lookup payloads must fail dry-run validation."""
+        mock_cja_instance = MagicMock()
+        mock_cjapy.CJA.return_value = mock_cja_instance
+        mock_cja_instance.getDataViews.return_value = []
+        mock_cja_instance.getDataView.return_value = {"id": "dv_12345", "error": "not found"}
+
+        result = run_dry_run(data_views=["dv_12345"], config_file=valid_config_file, logger=logger)
+        assert result is False
+        mock_cja_instance.getMetrics.assert_not_called()
+        mock_cja_instance.getDimensions.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
     def test_dry_run_partial_success(self, mock_cjapy, valid_config_file, logger):
         """Test dry-run reports partial success when some data views fail"""
         # Mock CJA instance

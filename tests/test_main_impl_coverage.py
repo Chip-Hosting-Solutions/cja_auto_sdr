@@ -1836,7 +1836,7 @@ class TestRunDryRunAPIValidation:
 
             mock_retry.side_effect = [
                 [],  # getDataViews
-                {"name": "Test DV"},  # getDataView
+                {"id": "dv_test", "name": "Test DV"},  # getDataView
                 OSError("metrics fetch fail"),  # getMetrics
                 ValueError("dimensions fetch fail"),  # getDimensions
             ]
@@ -1862,7 +1862,7 @@ class TestRunDryRunAPIValidation:
                 if op == "getDataViews (dry-run)":
                     return []
                 if op == "getDataView(dv_partial)":
-                    return {"name": "Partial DV"}
+                    return {"id": "dv_partial", "name": "Partial DV"}
                 if op == "getMetrics(dv_partial)":
                     raise DiscoveryNotFoundError("missing getMetrics")
                 if op == "getDimensions(dv_partial)":
@@ -1963,7 +1963,7 @@ class TestRunDryRunAPIValidation:
                 if op == "getDataView(dv_flaky)":
                     raise RetryableHTTPError(504, "gateway timeout")
                 if op == "getDataView(dv_ok)":
-                    return {"name": "Healthy DV"}
+                    return {"id": "dv_ok", "name": "Healthy DV"}
                 if op == "getMetrics(dv_ok)":
                     return []
                 if op == "getDimensions(dv_ok)":
@@ -2214,7 +2214,7 @@ class TestRunDryRunAPIReturnsNone:
 
             mock_retry.side_effect = [
                 None,  # getDataViews (unstable)
-                {"name": "Found DV"},  # getDataView
+                {"id": "dv_test", "name": "Found DV"},  # getDataView
                 [],  # getMetrics
                 [],  # getDimensions
             ]
