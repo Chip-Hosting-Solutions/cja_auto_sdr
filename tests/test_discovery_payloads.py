@@ -205,6 +205,37 @@ def test_assess_dataview_lookup_payload_accepts_mixed_case_identity_keys() -> No
     assert assessment.kind is PayloadKind.DATA
     assert assessment.reason == "valid_lookup_payload"
     assert assessment.is_valid is True
+    assert assessment.payload is not None
+    assert assessment.payload["id"] == "dv_1"
+    assert assessment.payload["name"] == "Valid View"
+
+
+def test_assess_dataview_lookup_payload_canonicalizes_mixed_case_metadata_fields() -> None:
+    payload = {
+        "ID": "dv_1",
+        "Name": "Valid View",
+        "Owner": {"NAME": "Owner Name", "IMSUSERID": "owner@example.com"},
+        "Description": "A test view",
+        "ParentDataGroupID": "conn_1",
+        "CreatedDATE": "2025-01-01",
+        "MODIFIEDAT": "2025-06-01",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.payload is not None
+    assert assessment.payload["id"] == "dv_1"
+    assert assessment.payload["name"] == "Valid View"
+    assert assessment.payload["description"] == "A test view"
+    assert assessment.payload["parentDataGroupId"] == "conn_1"
+    assert assessment.payload["createdDate"] == "2025-01-01"
+    assert assessment.payload["modifiedAt"] == "2025-06-01"
+    assert assessment.payload["owner"] == {
+        "NAME": "Owner Name",
+        "IMSUSERID": "owner@example.com",
+        "name": "Owner Name",
+        "imsUserId": "owner@example.com",
+    }
 
 
 def test_assess_dataview_lookup_payload_handles_non_stringifiable_name_value() -> None:

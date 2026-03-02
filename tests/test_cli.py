@@ -4471,6 +4471,49 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_json_mixed_case_lookup_payload_fields_are_canonicalized(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "ID": "dv_1",
+            "Name": "Test View",
+            "Owner": {"NAME": "Jane"},
+            "Description": "A test view",
+            "ParentDataGroupID": "conn_1",
+            "CreatedDATE": "2025-01-01",
+            "MODIFIEDAT": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        dv = output["dataView"]
+        assert dv["id"] == "dv_1"
+        assert dv["name"] == "Test View"
+        assert dv["owner"] == "Jane"
+        assert dv["description"] == "A test view"
+        assert dv["connectionId"] == "conn_1"
+        assert dv["created"] == "2025-01-01"
+        assert dv["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_json_counts_hidden_metrics_and_dimensions(
         self,
         mock_profile,

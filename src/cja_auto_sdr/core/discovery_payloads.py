@@ -22,6 +22,51 @@ LOOKUP_FAILURE_DETAIL_KEYS = frozenset({"lookup_failure_reason"})
 # still returning a valid object with identity fields.
 DATAVIEW_EXPLICIT_ERROR_KEYS = frozenset({"errorcode", "errordescription", "error_description"})
 UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS = frozenset({"error"}) | DATAVIEW_EXPLICIT_ERROR_KEYS
+_LOOKUP_MISSING_VALUE = object()
+_LOOKUP_CANONICAL_KEY_ALIASES = {
+    "id": "id",
+    "name": "name",
+    "owner": "owner",
+    "ownername": "ownerName",
+    "owner_name": "owner_name",
+    "ownerfullname": "ownerFullName",
+    "owner_full_name": "owner_full_name",
+    "description": "description",
+    "parentdatagroupid": "parentDataGroupId",
+    "connectionid": "connectionId",
+    "connection_id": "connection_id",
+    "created": "created",
+    "createddate": "createdDate",
+    "createdat": "createdAt",
+    "created_date": "created_date",
+    "modified": "modified",
+    "modifieddate": "modifiedDate",
+    "modifiedat": "modifiedAt",
+    "modified_date": "modified_date",
+    "lookup_failed": "lookup_failed",
+    "lookup_failure_reason": "lookup_failure_reason",
+    "circuit_breaker_open": "circuit_breaker_open",
+    "error": "error",
+    "errorcode": "errorCode",
+    "errordescription": "errorDescription",
+    "error_description": "error_description",
+    "status": "status",
+    "statuscode": "statusCode",
+    "status_code": "status_code",
+    "message": "message",
+    "detail": "detail",
+    "title": "title",
+}
+_LOOKUP_OWNER_CANONICAL_KEY_ALIASES = {
+    "name": "name",
+    "fullname": "fullName",
+    "full_name": "full_name",
+    "ownerfullname": "ownerFullName",
+    "login": "login",
+    "email": "email",
+    "imsuserid": "imsUserId",
+    "id": "id",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -73,9 +118,61 @@ def has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...
     return False
 
 
+def _lookup_value_is_missing(value: Any) -> bool:
+    return is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True)
+
+
+def _should_replace_lookup_value(current_value: Any, replacement_value: Any) -> bool:
+    if current_value is _LOOKUP_MISSING_VALUE:
+        return True
+    return _lookup_value_is_missing(current_value) and not _lookup_value_is_missing(replacement_value)
+
+
 def normalize_lookup_items(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Return case-folded lookup payload keys for defensive field access."""
-    return {str(key).strip().casefold(): value for key, value in payload.items()}
+    """Return case-folded lookup payload keys for defensive field access.
+
+    When multiple source keys collapse to the same normalized key (for example,
+    ``id`` + ``ID``), prefer any non-missing value.
+    """
+    normalized_items: dict[str, Any] = {}
+    for key, value in payload.items():
+        normalized_key = str(key).strip().casefold()
+        current_value = normalized_items.get(normalized_key, _LOOKUP_MISSING_VALUE)
+        if _should_replace_lookup_value(current_value, value):
+            normalized_items[normalized_key] = value
+    return normalized_items
+
+
+def _canonicalize_lookup_owner(owner_payload: Mapping[str, Any]) -> dict[str, Any]:
+    canonical_owner = dict(owner_payload)
+    normalized_owner = normalize_lookup_items(canonical_owner)
+    for normalized_key, canonical_key in _LOOKUP_OWNER_CANONICAL_KEY_ALIASES.items():
+        if normalized_key not in normalized_owner:
+            continue
+        candidate_value = normalized_owner[normalized_key]
+        current_value = canonical_owner.get(canonical_key, _LOOKUP_MISSING_VALUE)
+        if _should_replace_lookup_value(current_value, candidate_value):
+            canonical_owner[canonical_key] = candidate_value
+    return canonical_owner
+
+
+def canonicalize_dataview_lookup_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Backfill canonical dataview lookup keys while preserving original fields."""
+    canonical_payload = dict(payload)
+    normalized_items = normalize_lookup_items(canonical_payload)
+    for normalized_key, canonical_key in _LOOKUP_CANONICAL_KEY_ALIASES.items():
+        if normalized_key not in normalized_items:
+            continue
+        candidate_value = normalized_items[normalized_key]
+        current_value = canonical_payload.get(canonical_key, _LOOKUP_MISSING_VALUE)
+        if _should_replace_lookup_value(current_value, candidate_value):
+            canonical_payload[canonical_key] = candidate_value
+
+    owner_payload = canonical_payload.get("owner")
+    if isinstance(owner_payload, Mapping):
+        canonical_payload["owner"] = _canonicalize_lookup_owner(owner_payload)
+
+    return canonical_payload
 
 
 def _schema_indicates_error(
@@ -319,13 +416,14 @@ def assess_dataview_lookup_payload(
             raw_type=raw_type,
         )
 
-    normalized_items = normalize_lookup_items(payload)
+    canonical_payload = canonicalize_dataview_lookup_payload(payload)
+    normalized_items = normalize_lookup_items(canonical_payload)
 
     for marker_key in LOOKUP_FAILURE_FLAG_KEYS:
         if _is_truthy_marker(normalized_items.get(marker_key)):
             return DataViewLookupAssessment(
                 kind=PayloadKind.ERROR,
-                payload=payload,
+                payload=canonical_payload,
                 reason=f"failure_flag:{marker_key}",
                 raw_type=raw_type,
             )
@@ -336,15 +434,15 @@ def assess_dataview_lookup_payload(
             continue
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
-            payload=payload,
+            payload=canonical_payload,
             reason=f"failure_detail:{detail_key}",
             raw_type=raw_type,
         )
 
-    if is_dataview_error_payload(payload):
+    if is_dataview_error_payload(canonical_payload):
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
-            payload=payload,
+            payload=canonical_payload,
             reason="error_shape",
             raw_type=raw_type,
         )
@@ -352,7 +450,7 @@ def assess_dataview_lookup_payload(
     if not has_identity_value(normalized_items, ("id", "name")):
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
-            payload=payload,
+            payload=canonical_payload,
             reason="missing_identity",
             raw_type=raw_type,
         )
@@ -361,7 +459,7 @@ def assess_dataview_lookup_payload(
     if id_reason is not None:
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
-            payload=payload,
+            payload=canonical_payload,
             reason=id_reason,
             raw_type=raw_type,
         )
@@ -373,14 +471,14 @@ def assess_dataview_lookup_payload(
     if unknown_placeholder_reason is not None:
         return DataViewLookupAssessment(
             kind=PayloadKind.ERROR,
-            payload=payload,
+            payload=canonical_payload,
             reason=unknown_placeholder_reason,
             raw_type=raw_type,
         )
 
     return DataViewLookupAssessment(
         kind=PayloadKind.DATA,
-        payload=payload,
+        payload=canonical_payload,
         reason="valid_lookup_payload",
         raw_type=raw_type,
     )

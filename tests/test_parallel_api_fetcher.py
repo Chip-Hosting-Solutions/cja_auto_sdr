@@ -433,6 +433,28 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result["name"] == "Test Data View"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_canonicalizes_mixed_case_identity_and_owner(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Successful mixed-case payloads should expose canonical keys downstream."""
+        mock_api_call.return_value = {
+            "ID": "dv_test_12345",
+            "Name": "Test Data View",
+            "Owner": {"NAME": "Test Owner"},
+        }
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["id"] == "dv_test_12345"
+        assert result["name"] == "Test Data View"
+        assert result["owner"]["name"] == "Test Owner"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_returns_none(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of None response"""
         mock_api_call.return_value = None
