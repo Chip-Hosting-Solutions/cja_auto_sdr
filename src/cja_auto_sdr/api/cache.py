@@ -178,10 +178,7 @@ class ValidationCache:
             now = time.time()
 
             if cache_key not in self._cache:
-                # Prefer reclaiming expired entries before evicting live data.
-                self._prune_expired_entries(now, debug_enabled)
-                while len(self._cache) >= self.max_size:
-                    self._evict_lru(debug_enabled)
+                self._ensure_capacity_for_new_entry(now, debug_enabled)
 
             # Store issues with timestamp
             # Deep copy to prevent external mutation
@@ -192,6 +189,26 @@ class ValidationCache:
 
             if debug_enabled:
                 self.logger.debug(f"Cache STORE: {item_type} ({len(issues)} issues)")
+
+    def _ensure_capacity_for_new_entry(self, now: float, debug_enabled: bool = False) -> None:
+        """Make room for one new entry when capacity pressure exists (must be called within lock)."""
+        if len(self._cache) < self.max_size:
+            return
+
+        # Prefer reclaiming expired entries before evicting live data, but only
+        # when the cache is already at capacity.
+        self._prune_expired_entries(now, debug_enabled)
+
+        # Defensive bound in case a future change causes eviction to stop shrinking.
+        max_eviction_attempts = len(self._cache) + 1
+        for _ in range(max_eviction_attempts):
+            if len(self._cache) < self.max_size:
+                return
+            self._evict_lru(debug_enabled)
+
+        if len(self._cache) >= self.max_size:
+            self.logger.warning("Cache capacity maintenance could not evict entries; clearing cache defensively")
+            self._cache.clear()
 
     def _prune_expired_entries(self, now: float, debug_enabled: bool = False) -> int:
         """Remove expired entries before capacity-based eviction (must be called within lock)."""
@@ -406,9 +423,7 @@ class SharedValidationCache:
             # Check TTL expiration
             age = time.time() - timestamp
             if age > self.ttl_seconds:
-                del self._cache[cache_key]
-                if cache_key in self._access_times:
-                    del self._access_times[cache_key]
+                self._remove_entry(cache_key)
                 self._stats["misses"] = self._stats.get("misses", 0) + 1
                 return None, cache_key
 
@@ -419,6 +434,12 @@ class SharedValidationCache:
             # Return copy to prevent mutation
             return [issue.copy() for issue in cached_issues], cache_key
 
+    def _remove_entry(self, cache_key: str) -> bool:
+        """Remove key from cache and access metadata (must be called within lock)."""
+        removed = self._cache.pop(cache_key, None) is not None
+        self._access_times.pop(cache_key, None)
+        return removed
+
     def _reconcile_access_times(self, now: float) -> None:
         """Keep _access_times and _cache in sync (must be called within lock)."""
         cache_keys = set(self._cache.keys())
@@ -426,7 +447,7 @@ class SharedValidationCache:
 
         # Remove stale access-time records for entries no longer in cache.
         for stale_key in access_keys - cache_keys:
-            del self._access_times[stale_key]
+            self._access_times.pop(stale_key, None)
 
         # Backfill missing access-time records so eviction always has a candidate.
         for missing_key in cache_keys - access_keys:
@@ -437,11 +458,37 @@ class SharedValidationCache:
         expired_keys = [key for key, (_issues, timestamp) in self._cache.items() if now - timestamp > self.ttl_seconds]
 
         for key in expired_keys:
-            del self._cache[key]
-            if key in self._access_times:
-                del self._access_times[key]
+            self._remove_entry(key)
 
         return len(expired_keys)
+
+    def _ensure_capacity_for_new_entry(self, now: float) -> None:
+        """Make room for one new entry when capacity pressure exists (must be called within lock)."""
+        if len(self._cache) < self.max_size:
+            return
+
+        self._prune_expired_entries(now)
+        if len(self._cache) < self.max_size:
+            return
+
+        self._reconcile_access_times(now)
+
+        # Defensive bound in case a future change causes eviction to stop shrinking.
+        max_eviction_attempts = len(self._cache) + 1
+        for _ in range(max_eviction_attempts):
+            if len(self._cache) < self.max_size:
+                return
+            if not self._evict_lru(now=now, access_times_reconciled=True):
+                break
+
+        # Last-resort fallback: drop oldest key from cache iteration to avoid
+        # blocking inserts on metadata corruption.
+        while len(self._cache) >= self.max_size:
+            fallback_key = next(iter(self._cache), None)
+            if fallback_key is None:
+                break
+            self._remove_entry(fallback_key)
+            self._stats["evictions"] = self._stats.get("evictions", 0) + 1
 
     def put(
         self,
@@ -472,16 +519,13 @@ class SharedValidationCache:
             now = time.time()
 
             if cache_key not in self._cache:
-                self._prune_expired_entries(now)
-                self._reconcile_access_times(now)
-                while len(self._cache) >= self.max_size:
-                    self._evict_lru()
+                self._ensure_capacity_for_new_entry(now)
 
             # Store issues with timestamp (deep copy for safety)
             self._cache[cache_key] = ([issue.copy() for issue in issues], now)
             self._access_times[cache_key] = now
 
-    def _evict_lru(self) -> None:
+    def _evict_lru(self, now: float | None = None, access_times_reconciled: bool = False) -> bool:
         """Evict least recently used cache entry (must be called within lock).
 
         NOTE: Manager().dict() does not provide ordered pop semantics, so this
@@ -489,10 +533,11 @@ class SharedValidationCache:
         """
         if not self._cache:
             self._access_times.clear()
-            return
+            return False
 
-        now = time.time()
-        self._reconcile_access_times(now)
+        current_time = now if now is not None else time.time()
+        if not access_times_reconciled:
+            self._reconcile_access_times(current_time)
 
         access_items = list(self._access_times.items())
         if access_items:
@@ -500,11 +545,21 @@ class SharedValidationCache:
         else:
             lru_key = next(iter(self._cache))
 
-        del self._cache[lru_key]
-        if lru_key in self._access_times:
-            del self._access_times[lru_key]
+        if self._remove_entry(lru_key):
+            self._stats["evictions"] = self._stats.get("evictions", 0) + 1
+            return True
 
-        self._stats["evictions"] = self._stats.get("evictions", 0) + 1
+        # Access metadata pointed at a missing cache key. Clean it up and
+        # fall back to evicting a concrete cache entry if possible.
+        self._access_times.pop(lru_key, None)
+        fallback_key = next(iter(self._cache), None)
+        if fallback_key is None:
+            return False
+
+        removed = self._remove_entry(fallback_key)
+        if removed:
+            self._stats["evictions"] = self._stats.get("evictions", 0) + 1
+        return removed
 
     def get_statistics(self) -> dict[str, Any]:
         """
@@ -558,6 +613,10 @@ class SharedValidationCache:
         IMPORTANT: Call this after batch processing is complete to avoid
         resource leaks. The cache cannot be used after shutdown.
         """
-        if self._manager is not None:
-            with contextlib.suppress(Exception):
-                self._manager.shutdown()
+        manager = self._manager
+        if manager is None:
+            return
+
+        self._manager = None
+        with contextlib.suppress(Exception):
+            manager.shutdown()

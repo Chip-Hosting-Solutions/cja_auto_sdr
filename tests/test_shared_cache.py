@@ -13,6 +13,7 @@ Validates that SharedValidationCache:
 
 import time
 from concurrent.futures import ProcessPoolExecutor
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -255,6 +256,70 @@ class TestSharedValidationCacheEviction:
         assert result2 is None
 
         cache.shutdown()
+
+    def test_put_defers_full_scans_until_capacity_pressure(self):
+        """New keys below capacity should not trigger prune/reconcile full scans."""
+        cache = SharedValidationCache(max_size=3, ttl_seconds=3600)
+
+        try:
+            dfs = [pd.DataFrame({"id": [f"item{idx}"]}) for idx in range(4)]
+
+            with (
+                patch.object(cache, "_prune_expired_entries", wraps=cache._prune_expired_entries) as mock_prune,
+                patch.object(cache, "_reconcile_access_times", wraps=cache._reconcile_access_times) as mock_reconcile,
+            ):
+                for idx in range(3):
+                    _, key = cache.get(dfs[idx], "Metrics", ["id"], ["id"])
+                    cache.put(dfs[idx], "Metrics", ["id"], ["id"], [{"v": idx}], key)
+
+                assert mock_prune.call_count == 0
+                assert mock_reconcile.call_count == 0
+
+                _, key = cache.get(dfs[3], "Metrics", ["id"], ["id"])
+                cache.put(dfs[3], "Metrics", ["id"], ["id"], [{"v": 3}], key)
+
+                assert mock_prune.call_count == 1
+                assert mock_reconcile.call_count == 1
+
+            stats = cache.get_statistics()
+            assert stats["size"] == 3
+            assert stats["evictions"] >= 1
+        finally:
+            cache.shutdown()
+
+    def test_capacity_pressure_skips_reconcile_when_prune_frees_space(self):
+        """Reconciliation should be skipped if expiration pruning already frees capacity."""
+        fake_now = [1000000.0]
+
+        def mock_time():
+            return fake_now[0]
+
+        with patch("cja_auto_sdr.api.cache.time") as mock_time_module:
+            mock_time_module.time = mock_time
+            cache = SharedValidationCache(max_size=2, ttl_seconds=1)
+
+            try:
+                df1 = pd.DataFrame({"id": ["expired-1"]})
+                df2 = pd.DataFrame({"id": ["expired-2"]})
+                df3 = pd.DataFrame({"id": ["fresh"]})
+
+                _, key1 = cache.get(df1, "Metrics", ["id"], ["id"])
+                cache.put(df1, "Metrics", ["id"], ["id"], [{"v": 1}], key1)
+                _, key2 = cache.get(df2, "Metrics", ["id"], ["id"])
+                cache.put(df2, "Metrics", ["id"], ["id"], [{"v": 2}], key2)
+
+                fake_now[0] += 1.5
+
+                with patch.object(cache, "_reconcile_access_times", wraps=cache._reconcile_access_times) as mock_reconcile:
+                    _, key3 = cache.get(df3, "Metrics", ["id"], ["id"])
+                    cache.put(df3, "Metrics", ["id"], ["id"], [{"v": 3}], key3)
+                    assert mock_reconcile.call_count == 0
+
+                stats = cache.get_statistics()
+                assert stats["size"] == 1
+                assert stats["evictions"] == 0
+            finally:
+                cache.shutdown()
 
     def test_overwrite_refreshes_recency_before_eviction(self):
         """Overwriting an entry should refresh recency so it is not evicted next."""

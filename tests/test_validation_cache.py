@@ -157,6 +157,52 @@ class TestValidationCache:
         assert result2 is None
         assert result3 is not None
 
+    def test_put_defers_prune_until_capacity_pressure(self):
+        """Inserts below capacity should not trigger full-cache expiration scans."""
+        cache = ValidationCache(max_size=3, ttl_seconds=3600)
+        dfs = [pd.DataFrame({"id": [idx], "name": [f"n{idx}"], "type": ["x"]}) for idx in range(4)]
+
+        with patch.object(cache, "_prune_expired_entries", wraps=cache._prune_expired_entries) as mock_prune:
+            cache.put(dfs[0], "Metrics", ["id", "name", "type"], [], [{"issue": "0"}])
+            cache.put(dfs[1], "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            cache.put(dfs[2], "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+            assert mock_prune.call_count == 0
+
+            # First insert under pressure should trigger capacity maintenance once.
+            cache.put(dfs[3], "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+            assert mock_prune.call_count == 1
+
+        stats = cache.get_statistics()
+        assert stats["size"] == 3
+        assert stats["evictions"] == 1
+
+    def test_capacity_pressure_prunes_expired_before_evicting(self):
+        """When full, expired entries should be reclaimed before any live-key eviction."""
+        fake_now = [1000000.0]
+
+        def mock_time():
+            return fake_now[0]
+
+        with patch("cja_auto_sdr.api.cache.time") as mock_time_module:
+            mock_time_module.time = mock_time
+            cache = ValidationCache(max_size=2, ttl_seconds=1)
+            df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+            df2 = pd.DataFrame({"id": [2], "name": ["b"], "type": ["y"]})
+            df3 = pd.DataFrame({"id": [3], "name": ["c"], "type": ["z"]})
+
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            cache.put(df2, "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+
+            fake_now[0] += 1.5
+
+            with patch.object(cache, "_evict_lru", wraps=cache._evict_lru) as mock_evict:
+                cache.put(df3, "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+                assert mock_evict.call_count == 0
+
+            stats = cache.get_statistics()
+            assert stats["size"] == 1
+            assert stats["evictions"] == 0
+
     def test_lru_overwrite_refreshes_recency(self):
         """Overwriting an existing key should refresh it to MRU for later eviction decisions."""
         cache = ValidationCache(max_size=2, ttl_seconds=3600)
