@@ -135,6 +135,34 @@ def test_assess_dataview_lookup_payload_accepts_owner_only_metadata_with_error_f
     assert assessment.is_valid is True
 
 
+def test_assess_dataview_lookup_payload_rejects_empty_owner_container_with_error_field() -> None:
+    payload = {"id": "dv_1", "owner": {}, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_rejects_owner_container_with_only_blank_values() -> None:
+    payload = {"id": "dv_1", "owner": {"name": "  ", "email": "null"}, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_prefers_non_empty_case_collided_owner_payload() -> None:
+    payload = {
+        "id": "dv_1",
+        "owner": {},
+        "Owner": {"NAME": "Owner Name"},
+        "error": "transient warning",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.payload is not None
+    assert assessment.payload["owner"]["name"] == "Owner Name"
+
+
 def test_assess_dataview_lookup_payload_rejects_id_plus_error_only_payload() -> None:
     payload = {"id": "dv_1", "error": "not found"}
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
@@ -298,6 +326,15 @@ def test_assess_dataview_lookup_payload_handles_non_stringifiable_name_value() -
     assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
     assert assessment.kind is PayloadKind.DATA
     assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_handles_recursive_owner_container() -> None:
+    owner_payload: dict[str, object] = {}
+    owner_payload["self"] = owner_payload
+    payload = {"id": "dv_1", "owner": owner_payload, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
 
 
 def test_assess_dataview_lookup_payload_rejects_invalid_id_type() -> None:

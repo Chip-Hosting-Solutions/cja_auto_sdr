@@ -145,8 +145,44 @@ def has_identity_value(payload: Mapping[str, Any], identity_keys: tuple[str, ...
     return False
 
 
+def _lookup_value_has_substance(
+    value: Any,
+    *,
+    _seen_containers: set[int] | None = None,
+) -> bool:
+    """Return True when lookup values contain meaningful content.
+
+    Empty mappings/sequences (or nested containers containing only missing leaf
+    values) should be treated as absent when classifying lookup payloads.
+    """
+    if is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True):
+        return False
+
+    if isinstance(value, Mapping):
+        if not value:
+            return False
+        seen = _seen_containers if _seen_containers is not None else set()
+        container_id = id(value)
+        if container_id in seen:
+            return False
+        seen.add(container_id)
+        return any(_lookup_value_has_substance(child, _seen_containers=seen) for child in value.values())
+
+    if isinstance(value, (list, tuple, set)):
+        if len(value) == 0:
+            return False
+        seen = _seen_containers if _seen_containers is not None else set()
+        container_id = id(value)
+        if container_id in seen:
+            return False
+        seen.add(container_id)
+        return any(_lookup_value_has_substance(child, _seen_containers=seen) for child in value)
+
+    return True
+
+
 def _lookup_value_is_missing(value: Any) -> bool:
-    return is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True)
+    return not _lookup_value_has_substance(value)
 
 
 def _should_replace_lookup_value(current_value: Any, replacement_value: Any) -> bool:
@@ -230,7 +266,7 @@ def looks_like_error_payload(
 
 
 def _lookup_field_is_present(value: Any) -> bool:
-    return not is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True)
+    return _lookup_value_has_substance(value)
 
 
 def _lookup_contains_any_present_key(
@@ -261,11 +297,7 @@ def _has_minimum_dataview_lookup_metadata(normalized_items: Mapping[str, Any]) -
         normalized_key = str(key)
         if normalized_key == "id" or _is_diagnostic_lookup_key(normalized_key):
             continue
-        if isinstance(value, Mapping):
-            if value:
-                return True
-            continue
-        if isinstance(value, (list, tuple, set)) and len(value) > 0:
+        if _lookup_field_is_present(value):
             return True
     return False
 
@@ -330,7 +362,7 @@ def _first_lookup_failure_detail_key(normalized_items: Mapping[str, Any]) -> str
     """Return first lookup-failure detail key with a present value."""
     for detail_key in LOOKUP_FAILURE_DETAIL_PRECEDENCE:
         detail_value = normalized_items.get(detail_key)
-        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+        if not _lookup_field_is_present(detail_value):
             continue
         return detail_key
     return None
@@ -438,25 +470,25 @@ def _unknown_placeholder_diagnostic_key(normalized_items: Mapping[str, Any]) -> 
 
     for text_key in sorted(UNKNOWN_PLACEHOLDER_ERROR_TEXT_KEYS):
         detail_value = normalized_items.get(text_key)
-        if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+        if not _lookup_field_is_present(detail_value):
             continue
         return text_key
 
     status_keys_present = any(
-        not is_missing_value(normalized_items.get(status_key), treat_blank_string=True, treat_null_like_strings=True)
+        _lookup_field_is_present(normalized_items.get(status_key))
         for status_key in STATUS_KEYS
     )
     if status_keys_present:
         for text_key in sorted(ERROR_TEXT_KEYS):
             detail_value = normalized_items.get(text_key)
-            if is_missing_value(detail_value, treat_blank_string=True, treat_null_like_strings=True):
+            if not _lookup_field_is_present(detail_value):
                 continue
             return text_key
 
     for key, value in normalized_items.items():
         if not str(key).startswith("lookup_"):
             continue
-        if is_missing_value(value, treat_blank_string=True, treat_null_like_strings=True):
+        if not _lookup_field_is_present(value):
             continue
         return str(key)
 

@@ -539,6 +539,48 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result["lookup_failure_reason"] == "error_shape"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_empty_owner_container_with_error(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with empty owner container should fail closed."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "owner": {}, "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "error_shape"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_prefers_non_empty_case_collided_owner_payload(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Case-collided owner keys should keep richer values over empty placeholders."""
+        mock_api_call.return_value = {
+            "id": "dv_test_12345",
+            "owner": {},
+            "Owner": {"NAME": "Test Owner"},
+            "error": "transient warning",
+        }
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["id"] == "dv_test_12345"
+        assert result["owner"]["name"] == "Test Owner"
+        assert "lookup_failed" not in result
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_rejects_id_only_payload_as_insufficient_metadata(
         self,
         mock_api_call,
