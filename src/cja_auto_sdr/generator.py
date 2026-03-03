@@ -95,6 +95,18 @@ from cja_auto_sdr.core.constants import (
     infer_format_from_path,
     should_generate_format,
 )
+from cja_auto_sdr.core.discovery_exceptions import (
+    coerce_http_status_code as _coerce_http_status_code_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    extract_http_status_codes as _extract_http_status_codes_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    is_dataview_lookup_not_found_error as _is_inaccessible_dataview_lookup_error_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    iter_error_chain_nodes as _iter_error_chain_nodes_core,
+)
 from cja_auto_sdr.core.discovery_normalization import (
     extract_owner_name as _extract_owner_name_normalized,
 )
@@ -2237,7 +2249,9 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         # Attempt to fetch data view info
         logger.info("Fetching data view information from API...")
         try:
-            raw_dv_info = cja.getDataView(data_view_id)
+            raw_dv_info = _fetch_dataview_lookup_payload(cja, data_view_id)
+        except DiscoveryNotFoundError:
+            raw_dv_info = None
         except AttributeError as e:
             logger.error("API method 'getDataView' not available")
             logger.error("Possible causes:")
@@ -8581,107 +8595,39 @@ def _coerce_valid_dataview_lookup_payload(
     return None, assessment.reason, assessment.raw_type
 
 
-_DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES = frozenset({403, 404})
-_DATAVIEW_LOOKUP_STATUS_ATTRS = ("status_code", "statusCode", "status", "http_status", "httpStatus", "code")
-_DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS = (
-    "not found",
-    "not_found",
-    "resource_not_found",
-    "forbidden",
-    "no access",
-    "access denied",
-)
-_HTTP_STATUS_CODE_RE = re.compile(r"\b([1-5]\d{2})\b")
-
-
 def _coerce_http_status_code(value: Any) -> int | None:
-    """Best-effort coercion of status-like values into an HTTP status code."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if 100 <= value <= 599 else None
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        if stripped.isdigit():
-            numeric_code = int(stripped)
-            return numeric_code if 100 <= numeric_code <= 599 else None
-        match = _HTTP_STATUS_CODE_RE.search(stripped)
-        if match:
-            numeric_code = int(match.group(1))
-            return numeric_code if 100 <= numeric_code <= 599 else None
-    return None
+    """Compatibility wrapper for centralized HTTP status-code coercion."""
+    return _coerce_http_status_code_core(value)
 
 
 def _iter_error_chain_nodes(error: Exception) -> list[Any]:
-    """Return error/cause/response nodes for robust status-code extraction."""
-    pending: list[Any] = [error]
-    seen: set[int] = set()
-    nodes: list[Any] = []
-    while pending:
-        node = pending.pop()
-        marker = id(node)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        nodes.append(node)
-
-        if isinstance(node, dict):
-            nested = node.get("error")
-            if nested is not None:
-                pending.append(nested)
-            continue
-
-        for attr_name in ("original_error", "__cause__", "__context__", "response"):
-            with contextlib.suppress(Exception):
-                nested = getattr(node, attr_name)
-                if nested is not None:
-                    pending.append(nested)
-    return nodes
+    """Compatibility wrapper for centralized nested exception traversal."""
+    return _iter_error_chain_nodes_core(error)
 
 
 def _extract_http_status_codes(error: Exception) -> set[int]:
-    """Extract candidate HTTP status codes from nested error objects."""
-    status_codes: set[int] = set()
-    for node in _iter_error_chain_nodes(error):
-        if isinstance(node, dict):
-            for key in _DATAVIEW_LOOKUP_STATUS_ATTRS:
-                code = _coerce_http_status_code(node.get(key))
-                if code is not None:
-                    status_codes.add(code)
-            continue
-
-        for attr_name in _DATAVIEW_LOOKUP_STATUS_ATTRS:
-            with contextlib.suppress(Exception):
-                code = _coerce_http_status_code(getattr(node, attr_name))
-                if code is not None:
-                    status_codes.add(code)
-    return status_codes
+    """Compatibility wrapper for centralized HTTP status extraction."""
+    return _extract_http_status_codes_core(error)
 
 
 def _is_inaccessible_dataview_lookup_error(error: Exception) -> bool:
-    """Return True when getDataView failures should map to not_found."""
-    status_codes = _extract_http_status_codes(error)
-    if any(code in _DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES for code in status_codes):
-        return True
+    """Compatibility wrapper for centralized dataview lookup classification."""
+    return _is_inaccessible_dataview_lookup_error_core(error)
 
-    # Some APIError paths omit status_code but still include a stable not-found/forbidden marker.
-    if isinstance(error, APIError):
-        normalized_message = str(error).casefold()
-        return any(marker in normalized_message for marker in _DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS)
 
-    return False
+def _fetch_dataview_lookup_payload(cja: Any, data_view_id: str) -> Any:
+    """Call getDataView and normalize inaccessible lookup failures to not_found."""
+    try:
+        return cja.getDataView(data_view_id)
+    except Exception as lookup_error:
+        if _is_inaccessible_dataview_lookup_error(lookup_error):
+            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from lookup_error
+        raise
 
 
 def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
-    try:
-        raw_payload = cja.getDataView(data_view_id)
-    except RECOVERABLE_API_EXCEPTIONS as e:  # cjapy API calls
-        if _is_inaccessible_dataview_lookup_error(e):
-            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
-        raise
+    raw_payload = _fetch_dataview_lookup_payload(cja, data_view_id)
 
     payload, _, _ = _coerce_valid_dataview_lookup_payload(raw_payload, data_view_id=data_view_id)
     if payload is None:
@@ -11016,7 +10962,7 @@ def _require_numeric_component_count_for_stats(
 
 def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     """Fetch one data view's stats row. Raises on API/runtime errors."""
-    raw_dv_info = cja.getDataView(data_view_id)
+    raw_dv_info = _fetch_dataview_lookup_payload(cja, data_view_id)
     dv_info, lookup_failure_reason, _ = _coerce_valid_dataview_lookup_payload(
         raw_dv_info,
         data_view_id=data_view_id,

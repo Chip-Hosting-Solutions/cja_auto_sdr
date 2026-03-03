@@ -125,12 +125,12 @@ class TestValidateDataViewExceptionNarrowing:
 
 
 # ===========================================================================
-# Group B: _require_accessible_dataview  (now catches RECOVERABLE_API_EXCEPTIONS)
+# Group B: _require_accessible_dataview  (centralized dataview lookup classification)
 # ===========================================================================
 
 
 class TestRequireAccessibleDataviewExceptionNarrowing:
-    """Verify _require_accessible_dataview catches RECOVERABLE_API_EXCEPTIONS and re-raises."""
+    """Verify _require_accessible_dataview maps inaccessible lookups and re-raises others."""
 
     def test_os_error_reraises(self):
         """OSError (in RECOVERABLE_API_EXCEPTIONS) is caught and re-raised."""
@@ -148,10 +148,20 @@ class TestRequireAccessibleDataviewExceptionNarrowing:
             _require_accessible_dataview(mock_cja, "dv_test")
 
     def test_runtime_error_propagates(self):
-        """RuntimeError is NOT in RECOVERABLE_API_EXCEPTIONS -> propagates uncaught."""
+        """RuntimeError without lookup metadata should propagate unchanged."""
         mock_cja = MagicMock()
         mock_cja.getDataView.side_effect = RuntimeError("should escape")
         with pytest.raises(RuntimeError, match="should escape"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
+    def test_runtime_error_with_404_metadata_maps_to_not_found(self):
+        """Non-whitelisted wrappers with 403/404 metadata must still map to not_found."""
+        mock_cja = MagicMock()
+        lookup_error = RuntimeError("wrapped lookup failure")
+        lookup_error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+        mock_cja.getDataView.side_effect = lookup_error
+
+        with pytest.raises(generator.DiscoveryNotFoundError, match="Data view 'dv_test' not found"):
             _require_accessible_dataview(mock_cja, "dv_test")
 
 

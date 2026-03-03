@@ -5241,6 +5241,51 @@ def test_list_inspection_commands_get_dataview_apierror_status_treated_as_not_fo
 @patch("cja_auto_sdr.generator.cjapy")
 @patch("cja_auto_sdr.generator.configure_cjapy")
 @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_get_dataview_non_api_wrapper_404_treated_as_not_found(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+):
+    """Non-API wrappers with 403/404 metadata should still fail as not_found."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+
+    class WrappedLookupFailure(RuntimeError):
+        pass
+
+    lookup_error = WrappedLookupFailure("wrapped cjapy failure")
+    lookup_error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+    cja.getDataView.side_effect = lookup_error
+    getattr(cja, component_method).return_value = []
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = command("dv_hidden", output_format="json")
+
+    assert result is False
+    payload = json.loads(err.getvalue())
+    assert payload["error_type"] == "not_found"
+    assert getattr(cja, component_method).call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "component_method"),
+    [
+        (list_metrics, "getMetrics"),
+        (list_dimensions, "getDimensions"),
+        (list_segments, "getFilters"),
+        (list_calculated_metrics, "getCalculatedMetrics"),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
 def test_list_inspection_commands_get_dataview_apierror_message_treated_as_not_found(
     mock_profile,
     mock_configure,
