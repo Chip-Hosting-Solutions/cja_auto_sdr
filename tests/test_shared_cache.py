@@ -310,7 +310,9 @@ class TestSharedValidationCacheEviction:
 
                 fake_now[0] += 1.5
 
-                with patch.object(cache, "_reconcile_access_times", wraps=cache._reconcile_access_times) as mock_reconcile:
+                with patch.object(
+                    cache, "_reconcile_access_times", wraps=cache._reconcile_access_times
+                ) as mock_reconcile:
                     _, key3 = cache.get(df3, "Metrics", ["id"], ["id"])
                     cache.put(df3, "Metrics", ["id"], ["id"], [{"v": 3}], key3)
                     assert mock_reconcile.call_count == 0
