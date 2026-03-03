@@ -7,7 +7,7 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.3.5] - 2026-02-26
+## [3.3.5] - 2026-03-03
 
 ### Fixed
 - **Profile error routing**: 19 bare `print()` error calls in profile management now route through `ConsoleColors.error()` to stderr with color styling
@@ -15,17 +15,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Format fallback warnings**: Discovery and profile-list commands now warn when an unsupported format falls back to console output
 - **Console format error routing**: Console format error messages now go to stderr instead of stdout
 - **Validate-config next-step hint**: `--validate-config` now suggests next steps on success
+- **LRU overwrite behavior**: `ValidationCache.put()` correctly handles insert and overwrite cases with `move_to_end()` after assignment
+- **Discovery stdout CSV format**: CSV output preserved on stdout for discovery commands; format resolver hardened
 
 ### Changed
 - **Exception narrowing (batch 3)**: 9 broad `except Exception` catches narrowed — 6 to `(RuntimeError, AttributeError)` and 3 to `RECOVERABLE_API_EXCEPTIONS`; plus 4 broad handlers in `api/fetch.py` explicitly retained with `# Intentional:` boundary annotations
-- **Redundant API call eliminated**: Removed `validate_data_view()` call from `process_single_dataview`; validation now occurs post-fetch, saving one API round-trip per data view
+- **Config/bootstrap exception boundaries**: `_load_cja_config` and `_bootstrap_cja` narrowed from bare `Exception` to `(FileNotFoundError, KeyError, ValueError, TypeError)`
+- **Redundant API call eliminated**: Removed `validate_data_view()` call from `process_single_dataview`; validation now occurs post-fetch via `assess_dataview_lookup_payload`, saving one API round-trip per data view
+- **Dataview lookup validation unification**: Runtime and dry-run paths now share `assess_dataview_lookup_payload`, eliminating duplicated validation logic
+- **Error classification extraction**: Dataview not-found detection extracted from `generator.py` into new `core/discovery_exceptions.py` module with `coerce_http_status_code()`, `iter_error_chain_nodes()`, `extract_http_status_codes()` helpers
+- **Cache capacity extraction**: Inline eviction logic in `put()` and `SharedValidationCache` extracted into dedicated methods (`_ensure_capacity_for_new_entry`, `_remove_entry`) for clarity and testability
 - **Parallel inventory builds**: Inventory construction in `process_single_dataview` now uses `ThreadPoolExecutor` for concurrent builds
 - **O(1) LRU eviction**: `ValidationCache` refactored from dict + access-times to `OrderedDict` with O(1) eviction
 - **Vectorized column widths**: Excel column-width calculation uses pandas vectorized string operations instead of Python loops
 
 ### Added
-- **Exception narrowing tests**: New `test_exception_narrowing.py` with 17 tests verifying narrowed boundaries catch expected types and propagate unexpected ones
+- **Dataview lookup validation**: New `DataViewLookupAssessment` dataclass with multi-layered validation — failure flags, error shape detection, missing identity, ID mismatch, unknown placeholders (`core/discovery_payloads.py`)
+- **Dataview error classification**: New `core/discovery_exceptions.py` module — robust HTTP status-code extraction from nested error chains, `is_dataview_lookup_not_found_error()` for 403/404 detection
+- **Dataview payload error detection**: `DATAVIEW_EXPLICIT_ERROR_KEYS` + `is_dataview_error_payload` for structured error classification
+- **Placeholder detection**: `_unknown_lookup_placeholder_reason` + legacy placeholder detection for backwards compatibility
+- **Cache capacity maintenance**: `_ensure_capacity_for_new_entry()` with defensive eviction bound and fallback clear; `_remove_entry()` helper for consistent cache+metadata cleanup; `_evict_lru()` returns success indicator with fallback eviction when access metadata drifts; shutdown race condition fixed
+- **Cache and inventory concurrency**: `SharedValidationCache._reconcile_access_times()` handles metadata drift between Manager dicts; inventory parallelization with safe main-thread assignment
+- **Profile format fallback diagnostics**: `_resolve_command_output_format` with warning emissions for unsupported format fallbacks
+- **Optional component count fallbacks**: Component count extraction in `process_single_dataview` hardened with safe `int` coercion and fallback defaults
+- **Exception narrowing tests**: New `test_exception_narrowing.py` with 26 tests verifying narrowed boundaries catch expected types and propagate unexpected ones, including config/bootstrap and component count fallbacks
 - **Coverage hardening tests**: New `test_coverage_hardening.py` with 108 tests covering previously-missed branches (output-dir access, lazy forwarding, logging init, discovery helpers, short-option clusters, config validation)
+- **Discovery payload tests**: New `test_discovery_payloads.py` with 60 tests — edge cases including exotic types, ID validation, canonicalization, metadata presence, failure-flag precedence
+- **Discovery exception tests**: New `test_discovery_exceptions.py` with 5 tests — HTTP status code extraction from nested error chains, not-found classification
+- **Dry-run hardening tests**: 14 expanded tests in `test_dry_run.py` for dataview lookup validation in dry-run mode
+- **Shared cache tests**: Additional tests for eviction, overwrite, cross-process recovery, and capacity-maintenance regression guards
+- **Process single dataview tests**: Expanded with post-fetch validation cases (empty lookup, None lookup, unknown placeholders, error placeholders, legacy unknown placeholders, ID mismatch)
+- **CLI integration tests**: Expanded with dataview lookup error routing, canonicalization fallbacks, and payload shape validation end-to-end
 
 ## [3.3.4] - 2026-02-25
 
