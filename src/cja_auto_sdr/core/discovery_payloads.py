@@ -474,10 +474,7 @@ def _unknown_placeholder_diagnostic_key(normalized_items: Mapping[str, Any]) -> 
             continue
         return text_key
 
-    status_keys_present = any(
-        _lookup_field_is_present(normalized_items.get(status_key))
-        for status_key in STATUS_KEYS
-    )
+    status_keys_present = any(_lookup_field_is_present(normalized_items.get(status_key)) for status_key in STATUS_KEYS)
     if status_keys_present:
         for text_key in sorted(ERROR_TEXT_KEYS):
             detail_value = normalized_items.get(text_key)
