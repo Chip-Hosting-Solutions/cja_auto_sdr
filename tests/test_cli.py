@@ -4471,6 +4471,49 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_json_mixed_case_lookup_payload_fields_are_canonicalized(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {
+            "ID": "dv_1",
+            "Name": "Test View",
+            "Owner": {"NAME": "Jane"},
+            "Description": "A test view",
+            "ParentDataGroupID": "conn_1",
+            "CreatedDATE": "2025-01-01",
+            "MODIFIEDAT": "2025-06-01",
+        }
+        cja.getMetrics.return_value = [{"id": "m1"}]
+        cja.getDimensions.return_value = [{"id": "d1"}]
+        cja.getFilters.return_value = []
+        cja.getCalculatedMetrics.return_value = []
+
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = describe_dataview("dv_1", output_format="json")
+
+        assert result is True
+        output = json.loads(f.getvalue())
+        dv = output["dataView"]
+        assert dv["id"] == "dv_1"
+        assert dv["name"] == "Test View"
+        assert dv["owner"] == "Jane"
+        assert dv["description"] == "A test view"
+        assert dv["connectionId"] == "conn_1"
+        assert dv["created"] == "2025-01-01"
+        assert dv["modified"] == "2025-06-01"
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_json_counts_hidden_metrics_and_dimensions(
         self,
         mock_profile,
@@ -4820,6 +4863,95 @@ class TestDescribeDataview:
     @patch("cja_auto_sdr.generator.cjapy")
     @patch("cja_auto_sdr.generator.configure_cjapy")
     @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_unknown_placeholder_with_error_diagnostic_treated_as_not_found(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """Unknown lookup placeholders with diagnostics must fail as not_found."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_missing", "name": "Unknown", "error": "not found"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert "dv_missing" in payload["error"]
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_id_plus_error_only_payload_treated_as_not_found(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """id+error-only lookup payloads must fail as not_found."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_missing", "error": "not found"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert "dv_missing" in payload["error"]
+        cja.getMetrics.assert_not_called()
+        cja.getDimensions.assert_not_called()
+        cja.getFilters.assert_not_called()
+        cja.getCalculatedMetrics.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+    def test_describe_dataview_id_only_payload_treated_as_not_found(
+        self,
+        mock_profile,
+        mock_configure,
+        mock_cjapy,
+    ):
+        """id-only lookup payloads must fail as not_found due missing metadata."""
+        mock_configure.return_value = (True, "config", None)
+        cja = mock_cjapy.CJA.return_value
+        cja.getDataView.return_value = {"id": "dv_missing"}
+
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            result = describe_dataview("dv_missing", output_format="json")
+
+        assert result is False
+        payload = json.loads(err.getvalue())
+        assert payload["error_type"] == "not_found"
+        assert "dv_missing" in payload["error"]
+        cja.getMetrics.assert_not_called()
+        cja.getDimensions.assert_not_called()
+        cja.getFilters.assert_not_called()
+        cja.getCalculatedMetrics.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.configure_cjapy")
+    @patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
     def test_describe_dataview_error_payload_treated_as_not_found(self, mock_profile, mock_configure, mock_cjapy):
         """API error-shaped payloads from getDataView should fail as not_found."""
         mock_configure.return_value = (True, "config", None)
@@ -5081,6 +5213,51 @@ def test_list_inspection_commands_get_dataview_apierror_status_treated_as_not_fo
     mock_configure.return_value = (True, "config", None)
     cja = mock_cjapy.CJA.return_value
     cja.getDataView.side_effect = APIError("Forbidden", status_code=403, operation="getDataView")
+    getattr(cja, component_method).return_value = []
+
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = command("dv_hidden", output_format="json")
+
+    assert result is False
+    payload = json.loads(err.getvalue())
+    assert payload["error_type"] == "not_found"
+    assert getattr(cja, component_method).call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "component_method"),
+    [
+        (list_metrics, "getMetrics"),
+        (list_dimensions, "getDimensions"),
+        (list_segments, "getFilters"),
+        (list_calculated_metrics, "getCalculatedMetrics"),
+    ],
+)
+@patch("cja_auto_sdr.generator.cjapy")
+@patch("cja_auto_sdr.generator.configure_cjapy")
+@patch("cja_auto_sdr.generator.resolve_active_profile", return_value=None)
+def test_list_inspection_commands_get_dataview_non_api_wrapper_404_treated_as_not_found(
+    mock_profile,
+    mock_configure,
+    mock_cjapy,
+    command,
+    component_method,
+):
+    """Non-API wrappers with 403/404 metadata should still fail as not_found."""
+    mock_configure.return_value = (True, "config", None)
+    cja = mock_cjapy.CJA.return_value
+
+    class WrappedLookupFailure(RuntimeError):
+        pass
+
+    lookup_error = WrappedLookupFailure("wrapped cjapy failure")
+    lookup_error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+    cja.getDataView.side_effect = lookup_error
     getattr(cja, component_method).return_value = []
 
     import io

@@ -14,6 +14,7 @@ from tqdm import tqdm
 from cja_auto_sdr.api.resilience import CircuitBreaker, make_api_call_with_retry
 from cja_auto_sdr.api.tuning import APIWorkerTuner
 from cja_auto_sdr.core.config import APITuningConfig
+from cja_auto_sdr.core.discovery_payloads import assess_dataview_lookup_payload
 from cja_auto_sdr.core.exceptions import CircuitBreakerOpen
 from cja_auto_sdr.core.perf import PerformanceTracker
 
@@ -113,7 +114,7 @@ class ParallelAPIFetcher:
                         results[task_name] = future.result()
                         pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
                         self.logger.info(f"\u2713 {task_name.capitalize()} fetch completed")
-                    except Exception as e:
+                    except Exception as e:  # Intentional: per-task boundary for heterogeneous worker failures
                         errors[task_name] = str(e)
                         pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
                         self.logger.error(f"\u2717 {task_name.capitalize()} fetch failed: {e}")
@@ -196,7 +197,7 @@ class ParallelAPIFetcher:
         except AttributeError as e:
             self.logger.error(f"API method error - getMetrics may not be available: {e!s}")
             return pd.DataFrame()
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for metrics fetch
             self.logger.error(f"Failed to fetch metrics: {e!s}")
             return pd.DataFrame()
 
@@ -227,7 +228,7 @@ class ParallelAPIFetcher:
         except AttributeError as e:
             self.logger.error(f"API method error - getDimensions may not be available: {e!s}")
             return pd.DataFrame()
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for dimensions fetch
             self.logger.error(f"Failed to fetch dimensions: {e!s}")
             return pd.DataFrame()
 
@@ -239,19 +240,59 @@ class ParallelAPIFetcher:
             # Use retry for transient network errors with circuit breaker support
             lookup_data = self._timed_api_call(self.cja.getDataView, data_view_id, operation_name="getDataView")
 
-            if not lookup_data:
-                self.logger.error("Data view information returned empty")
-                return {"name": "Unknown", "id": data_view_id}
+            assessment = assess_dataview_lookup_payload(lookup_data, expected_data_view_id=data_view_id)
+            if not assessment.is_valid:
+                self.logger.error("Data view information returned invalid payload (%s)", assessment.reason)
+                detail = "invalid data view lookup payload"
+                if isinstance(lookup_data, dict):
+                    error_text = lookup_data.get("error") or lookup_data.get("message")
+                    if error_text is not None:
+                        detail = str(error_text)
+                return self._build_lookup_failure_payload(
+                    data_view_id,
+                    reason=assessment.reason,
+                    error_message=detail,
+                )
 
-            self.logger.info(f"Successfully fetched data view info: {lookup_data.get('name', 'Unknown')}")
-            return lookup_data
+            validated_payload = assessment.payload or {}
+            self.logger.info(f"Successfully fetched data view info: {validated_payload.get('name', 'Unknown')}")
+            return validated_payload
 
         except CircuitBreakerOpen as e:
             self.logger.warning(f"Circuit breaker open for data view fetch: {e.message}")
-            return {"name": "Unknown", "id": data_view_id, "circuit_breaker_open": True}
-        except Exception as e:
+            return self._build_lookup_failure_payload(
+                data_view_id,
+                reason="circuit_breaker_open",
+                error_message=e.message,
+                circuit_breaker_open=True,
+            )
+        except Exception as e:  # Intentional: preserve resilient lookup-failure payload contract
             self.logger.error(f"Failed to fetch data view information: {e!s}")
-            return {"name": "Unknown", "id": data_view_id, "error": str(e)}
+            return self._build_lookup_failure_payload(
+                data_view_id,
+                reason="exception",
+                error_message=str(e),
+            )
+
+    @staticmethod
+    def _build_lookup_failure_payload(
+        data_view_id: str,
+        *,
+        reason: str,
+        error_message: str | None = None,
+        circuit_breaker_open: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "Unknown",
+            "id": data_view_id,
+            "lookup_failed": True,
+            "lookup_failure_reason": reason,
+        }
+        if error_message:
+            payload["error"] = error_message
+        if circuit_breaker_open:
+            payload["circuit_breaker_open"] = True
+        return payload
 
     def get_tuner_statistics(self) -> dict[str, Any] | None:
         """Get API tuner statistics if tuning is enabled."""

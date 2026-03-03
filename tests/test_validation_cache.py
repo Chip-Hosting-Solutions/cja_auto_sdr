@@ -15,6 +15,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -91,8 +92,6 @@ class TestValidationCache:
 
     def test_cache_ttl_expiration(self, sample_metrics_df):
         """Cache entries should expire after TTL (deterministic, no sleep)"""
-        from unittest.mock import patch
-
         fake_now = [1000000.0]
 
         def mock_time():
@@ -157,6 +156,93 @@ class TestValidationCache:
         assert result1 is not None
         assert result2 is None
         assert result3 is not None
+
+    def test_put_defers_prune_until_capacity_pressure(self):
+        """Inserts below capacity should not trigger full-cache expiration scans."""
+        cache = ValidationCache(max_size=3, ttl_seconds=3600)
+        dfs = [pd.DataFrame({"id": [idx], "name": [f"n{idx}"], "type": ["x"]}) for idx in range(4)]
+
+        with patch.object(cache, "_prune_expired_entries", wraps=cache._prune_expired_entries) as mock_prune:
+            cache.put(dfs[0], "Metrics", ["id", "name", "type"], [], [{"issue": "0"}])
+            cache.put(dfs[1], "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            cache.put(dfs[2], "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+            assert mock_prune.call_count == 0
+
+            # First insert under pressure should trigger capacity maintenance once.
+            cache.put(dfs[3], "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+            assert mock_prune.call_count == 1
+
+        stats = cache.get_statistics()
+        assert stats["size"] == 3
+        assert stats["evictions"] == 1
+
+    def test_capacity_pressure_prunes_expired_before_evicting(self):
+        """When full, expired entries should be reclaimed before any live-key eviction."""
+        fake_now = [1000000.0]
+
+        def mock_time():
+            return fake_now[0]
+
+        with patch("cja_auto_sdr.api.cache.time") as mock_time_module:
+            mock_time_module.time = mock_time
+            cache = ValidationCache(max_size=2, ttl_seconds=1)
+            df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+            df2 = pd.DataFrame({"id": [2], "name": ["b"], "type": ["y"]})
+            df3 = pd.DataFrame({"id": [3], "name": ["c"], "type": ["z"]})
+
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            cache.put(df2, "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+
+            fake_now[0] += 1.5
+
+            with patch.object(cache, "_evict_lru", wraps=cache._evict_lru) as mock_evict:
+                cache.put(df3, "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+                assert mock_evict.call_count == 0
+
+            stats = cache.get_statistics()
+            assert stats["size"] == 1
+            assert stats["evictions"] == 0
+
+    def test_lru_overwrite_refreshes_recency(self):
+        """Overwriting an existing key should refresh it to MRU for later eviction decisions."""
+        cache = ValidationCache(max_size=2, ttl_seconds=3600)
+
+        df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+        df2 = pd.DataFrame({"id": [2], "name": ["b"], "type": ["y"]})
+        df3 = pd.DataFrame({"id": [3], "name": ["c"], "type": ["z"]})
+
+        cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+        cache.put(df2, "Metrics", ["id", "name", "type"], [], [{"issue": "2"}])
+
+        # Overwrite df1; this write should refresh recency to MRU.
+        cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1-updated"}])
+
+        # Adding df3 should evict df2, not the recently updated df1.
+        cache.put(df3, "Metrics", ["id", "name", "type"], [], [{"issue": "3"}])
+
+        result1, _ = cache.get(df1, "Metrics", ["id", "name", "type"], [])
+        result2, _ = cache.get(df2, "Metrics", ["id", "name", "type"], [])
+        result3, _ = cache.get(df3, "Metrics", ["id", "name", "type"], [])
+
+        assert result1 is not None
+        assert result1[0]["issue"] == "1-updated"
+        assert result2 is None
+        assert result3 is not None
+
+    def test_overwrite_moves_to_end_only_once(self):
+        """Overwrite path should perform a single move_to_end after assignment."""
+        cache = ValidationCache(max_size=2, ttl_seconds=3600)
+        df1 = pd.DataFrame({"id": [1], "name": ["a"], "type": ["x"]})
+
+        with patch.object(cache._cache, "move_to_end", wraps=cache._cache.move_to_end) as mock_move_to_end:
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1"}])
+            first_put_calls = mock_move_to_end.call_count
+
+            cache.put(df1, "Metrics", ["id", "name", "type"], [], [{"issue": "1-updated"}])
+            second_put_calls = mock_move_to_end.call_count - first_put_calls
+
+        assert first_put_calls == 1
+        assert second_put_calls == 1
 
     def test_thread_safety(self, sample_metrics_df):
         """Cache should be thread-safe"""
@@ -552,3 +638,11 @@ class TestValidationCache:
         assert result is not None
         assert len(result) == 1
         assert result[0]["severity"] == "HIGH"
+
+    def test_invalid_cache_configuration_raises(self):
+        """Invalid size/TTL should fail fast during initialization."""
+        with pytest.raises(ValueError, match="max_size must be >= 1"):
+            ValidationCache(max_size=0, ttl_seconds=3600)
+
+        with pytest.raises(ValueError, match="ttl_seconds must be > 0"):
+            ValidationCache(max_size=10, ttl_seconds=0)

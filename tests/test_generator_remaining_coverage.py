@@ -226,10 +226,10 @@ class TestParseEnvCredentialsContent:
 
 
 class TestValidateDataViewException:
-    def test_unexpected_exception_returns_false(self):
-        """An unexpected exception in validate_data_view is caught and logged."""
+    def test_recoverable_api_exception_returns_false(self):
+        """A recoverable API exception in validate_data_view is caught and logged."""
         mock_cja = MagicMock()
-        mock_cja.getDataView.side_effect = RuntimeError("Unexpected crash")
+        mock_cja.getDataView.side_effect = ValueError("Unexpected crash")
         logger = _make_logger()
         logger.setLevel(logging.DEBUG)
 
@@ -239,7 +239,7 @@ class TestValidateDataViewException:
     def test_exception_with_non_string_id(self):
         """Edge case: validate_data_view with a non-standard ID that causes issues."""
         mock_cja = MagicMock()
-        mock_cja.getDataView.side_effect = RuntimeError("NoneType has no attribute")
+        mock_cja.getDataView.side_effect = TypeError("NoneType has no attribute")
         logger = _make_logger()
         result = validate_data_view(mock_cja, "dv_bad", logger)
         assert result is False
@@ -1946,7 +1946,6 @@ class TestMainImplSingleModeResults:
 class TestProcessSingleDataviewExceptions:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1957,7 +1956,6 @@ class TestProcessSingleDataviewExceptions:
         mock_apply_fmt,
         mock_dq_cls,
         mock_fetcher_cls,
-        mock_validate,
         mock_init_cja,
         mock_setup_log,
         tmp_path,
@@ -1970,7 +1968,6 @@ class TestProcessSingleDataviewExceptions:
 
         mock_cja = MagicMock()
         mock_init_cja.return_value = mock_cja
-        mock_validate.return_value = True
 
         metrics_df = pd.DataFrame({"id": ["m1"], "name": ["Met 1"], "type": ["std"]})
         dims_df = pd.DataFrame({"id": ["d1"], "name": ["Dim 1"], "type": ["str"]})

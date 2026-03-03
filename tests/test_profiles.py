@@ -438,7 +438,7 @@ class TestShowProfile:
             result = show_profile("nonexistent")
             assert result is False
             captured = capsys.readouterr()
-            assert "Error" in captured.out
+            assert "Error" in captured.err
 
 
 class TestProfileImport:

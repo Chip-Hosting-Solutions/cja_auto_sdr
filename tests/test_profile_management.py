@@ -61,7 +61,7 @@ class TestAddProfileInteractive:
         result = add_profile_interactive("bad name!")
         assert result is False
         captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "Error" in captured.err
 
     def test_existing_profile_overwrite_declined(self, tmp_path, capsys):
         """Declining overwrite of existing profile returns False."""
@@ -138,7 +138,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Organization ID is required" in captured.out
+        assert "Organization ID is required" in captured.err
 
     def test_empty_client_id_aborts(self, tmp_path, capsys):
         """Empty client ID causes early exit."""
@@ -153,7 +153,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Client ID is required" in captured.out
+        assert "Client ID is required" in captured.err
 
     def test_empty_secret_aborts(self, tmp_path, capsys):
         """Empty client secret causes early exit."""
@@ -169,7 +169,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Client Secret is required" in captured.out
+        assert "Client Secret is required" in captured.err
 
     def test_empty_scopes_aborts(self, tmp_path, capsys):
         """Empty scopes causes early exit."""
@@ -185,7 +185,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "OAuth Scopes are required" in captured.out
+        assert "OAuth Scopes are required" in captured.err
 
     def test_keyboard_interrupt_aborts(self, tmp_path, capsys):
         """KeyboardInterrupt during input aborts gracefully."""
@@ -231,7 +231,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Cannot securely read secret" in captured.out
+        assert "Cannot securely read secret" in captured.err
 
     def test_mkdir_failure(self, tmp_path, capsys):
         """OSError during directory creation returns False."""
@@ -246,7 +246,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error creating profile directory" in captured.out
+        assert "Error creating profile directory" in captured.err
 
     def test_config_write_failure(self, tmp_path, capsys):
         """OSError during config.json write returns False."""
@@ -266,7 +266,7 @@ class TestAddProfileInteractive:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error writing config file" in captured.out
+        assert "Error writing config file" in captured.err
 
 
 # ===========================================================================
@@ -380,7 +380,7 @@ class TestImportProfileNonInteractiveExtended:
         result = import_profile_non_interactive("bad name!", "/some/file.json")
         assert result is False
         captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "Error" in captured.err
 
     def test_source_file_not_found(self, tmp_path, capsys):
         """Non-existent source file returns False with error message."""
@@ -391,7 +391,7 @@ class TestImportProfileNonInteractiveExtended:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error loading profile import source" in captured.out
+        assert "Error loading profile import source" in captured.err
 
     def test_overwrite_existing_profile(self, tmp_path, capsys):
         """Overwrite=True should replace an existing profile."""
@@ -440,7 +440,7 @@ class TestImportProfileNonInteractiveExtended:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error writing profile config" in captured.out
+        assert "Error writing profile config" in captured.err
 
     def test_validation_failure(self, tmp_path, capsys):
         """Credentials that fail strict validation should be rejected."""
@@ -463,7 +463,29 @@ class TestImportProfileNonInteractiveExtended:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "failed validation" in captured.out
+        assert "failed validation" in captured.err
+
+    def test_validation_failure_details_stay_on_stderr(self, tmp_path, capsys):
+        """Validation issue detail lines should stay on stderr with the error header."""
+        source = tmp_path / "credentials.json"
+        source.write_text(json.dumps(VALID_CREDENTIALS))
+
+        profile_dir = tmp_path / "orgs" / "bad-creds"
+        expected_issues = ["org_id: invalid format", "client_id: too short"]
+
+        with (
+            patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
+            patch("cja_auto_sdr.generator.validate_credentials", return_value=(False, expected_issues)),
+        ):
+            result = import_profile_non_interactive("bad-creds", source)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "Imported credentials failed validation" in captured.err
+        assert "org_id: invalid format" in captured.err
+        assert "client_id: too short" in captured.err
+        assert "org_id: invalid format" not in captured.out
+        assert "client_id: too short" not in captured.out
 
     def test_success_message_includes_source_and_location(self, tmp_path, capsys):
         """Successful import prints source path and profile location."""
@@ -492,7 +514,7 @@ class TestTestProfile:
     """Tests for the profile connectivity test function."""
 
     def test_profile_not_found(self, tmp_path, capsys):
-        """Non-existent profile should fail with FAILED message."""
+        """Non-existent profile should fail with ERROR message."""
         nonexistent = tmp_path / "orgs" / "nonexistent"
 
         with patch("cja_auto_sdr.generator.get_profile_path", return_value=nonexistent):
@@ -500,10 +522,10 @@ class TestTestProfile:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "FAILED" in captured.out
+        assert "ERROR" in captured.err
 
     def test_profile_config_error(self, tmp_path, capsys):
-        """Profile with config error should fail with FAILED message."""
+        """Profile with config error should fail with ERROR message."""
         profile_dir = tmp_path / "orgs" / "bad-config"
         profile_dir.mkdir(parents=True)
         # Empty directory = no config files => ProfileConfigError
@@ -513,7 +535,7 @@ class TestTestProfile:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "FAILED" in captured.out
+        assert "ERROR" in captured.err
 
     def test_successful_api_connection(self, tmp_path, capsys):
         """Successful API test should return True with SUCCESS."""
@@ -576,15 +598,15 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
         ):
-            mock_cjapy.importConfigFile.side_effect = Exception("Connection refused")
+            mock_cjapy.importConfigFile.side_effect = OSError("Connection refused")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("api-fail")
 
         assert result is False
         captured = capsys.readouterr()
-        assert "API connection: FAILED" in captured.out
-        assert "Connection refused" in captured.out
-        assert "Profile test: FAILED" in captured.out
+        assert "API connection: FAILED" in captured.err
+        assert "Connection refused" in captured.err
+        assert "Profile test: FAILED" in captured.err
         assert "Common issues:" in captured.out
 
     def test_validation_warnings_displayed(self, tmp_path, capsys):
@@ -620,14 +642,14 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
         ):
             mock_cjapy.importConfigFile.return_value = None
-            mock_cjapy.CJA.side_effect = Exception("Auth failed: invalid credentials")
+            mock_cjapy.CJA.side_effect = OSError("Auth failed: invalid credentials")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("cja-fail")
 
         assert result is False
         captured = capsys.readouterr()
-        assert "FAILED" in captured.out
-        assert "invalid credentials" in captured.out
+        assert "FAILED" in captured.err
+        assert "invalid credentials" in captured.err
 
     def test_temp_file_cleaned_up_on_success(self, tmp_path):
         """Temp config file should be cleaned up after successful test."""
@@ -679,7 +701,7 @@ class TestShowProfileExtended:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "Error" in captured.err
 
     def test_show_profile_not_found(self, tmp_path, capsys):
         """ProfileNotFoundError path should print error and return False."""
@@ -690,7 +712,7 @@ class TestShowProfileExtended:
 
         assert result is False
         captured = capsys.readouterr()
-        assert "Error" in captured.out
+        assert "Error" in captured.err
 
     def test_show_profile_with_both_sources(self, tmp_path, capsys):
         """Profile with config.json and .env should list both sources."""

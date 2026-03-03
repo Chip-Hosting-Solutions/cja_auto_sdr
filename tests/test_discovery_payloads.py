@@ -4,7 +4,9 @@ import pandas as pd
 
 from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind,
+    _normalize_dataview_lookup_payload,
     assess_component_payload,
+    assess_dataview_lookup_payload,
     coerce_component_rows_or_none,
     count_component_items_or_na,
     extract_component_sequence,
@@ -85,6 +87,11 @@ def test_dataview_payload_with_identity_not_error() -> None:
     assert is_dataview_error_payload(payload) is False
 
 
+def test_dataview_payload_with_mixed_case_identity_not_error() -> None:
+    payload = {"ID": "dv_1", "Name": "Test View", "statusCode": 200, "message": "ok"}
+    assert is_dataview_error_payload(payload) is False
+
+
 def test_dataview_payload_with_na_identity_values_is_treated_as_error() -> None:
     payload = {"statusCode": 404, "message": "missing", "id": pd.NA, "name": pd.NA}
     assert is_dataview_error_payload(payload) is True
@@ -93,6 +100,292 @@ def test_dataview_payload_with_na_identity_values_is_treated_as_error() -> None:
 def test_dataview_payload_with_na_id_and_present_name_is_not_error() -> None:
     payload = {"statusCode": 200, "message": "ok", "id": pd.NA, "name": "Test View"}
     assert is_dataview_error_payload(payload) is False
+
+
+def test_dataview_payload_with_identity_and_error_field_is_not_error() -> None:
+    payload = {"id": "dv_1", "name": "Test View", "error": "non-fatal detail"}
+    assert is_dataview_error_payload(payload) is False
+
+
+def test_dataview_payload_with_id_and_error_only_is_treated_as_error() -> None:
+    payload = {"id": "dv_missing", "error": "not found"}
+    assert is_dataview_error_payload(payload) is True
+
+
+def test_assess_dataview_lookup_payload_accepts_valid_payload() -> None:
+    payload = {"id": "dv_1", "name": "Valid View", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_accepts_valid_payload_with_error_field() -> None:
+    payload = {"id": "dv_1", "name": "Valid View", "error": "temporary warning"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_accepts_owner_only_metadata_with_error_field() -> None:
+    payload = {"id": "dv_1", "owner": {"name": "Owner"}, "error": "transient warning"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_rejects_empty_owner_container_with_error_field() -> None:
+    payload = {"id": "dv_1", "owner": {}, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_rejects_owner_container_with_only_blank_values() -> None:
+    payload = {"id": "dv_1", "owner": {"name": "  ", "email": "null"}, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_prefers_non_empty_case_collided_owner_payload() -> None:
+    payload = {
+        "id": "dv_1",
+        "owner": {},
+        "Owner": {"NAME": "Owner Name"},
+        "error": "transient warning",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.payload is not None
+    assert assessment.payload["owner"]["name"] == "Owner Name"
+
+
+def test_assess_dataview_lookup_payload_rejects_id_plus_error_only_payload() -> None:
+    payload = {"id": "dv_1", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_rejects_id_only_payload_as_insufficient_metadata() -> None:
+    payload = {"id": "dv_1"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "insufficient_metadata"
+
+
+def test_assess_dataview_lookup_payload_rejects_unknown_placeholder_with_error_field() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "unknown_placeholder_diagnostic:error"
+
+
+def test_assess_dataview_lookup_payload_rejects_unknown_placeholder_with_status_and_message() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "statusCode": 404, "message": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "unknown_placeholder_diagnostic:message"
+
+
+def test_assess_dataview_lookup_payload_allows_unknown_named_dataview_without_diagnostics() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_rejects_explicit_lookup_failed_marker() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": True,
+        "lookup_failure_reason": "exception",
+        "error": "network timeout",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+
+
+def test_assess_dataview_lookup_payload_prefers_lookup_failed_when_multiple_failure_flags_present() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": True,
+        "circuit_breaker_open": True,
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+
+
+def test_assess_dataview_lookup_payload_uses_next_failure_flag_when_higher_precedence_is_falsey() -> None:
+    payload = {
+        "id": "dv_1",
+        "name": "Unknown",
+        "lookup_failed": "false",
+        "circuit_breaker_open": "true",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:circuit_breaker_open"
+
+
+def test_assess_dataview_lookup_payload_rejects_circuit_breaker_marker() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "circuit_breaker_open": "true"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:circuit_breaker_open"
+
+
+def test_assess_dataview_lookup_payload_rejects_lookup_failure_reason_detail() -> None:
+    payload = {"id": "dv_1", "name": "Unknown", "lookup_failure_reason": "exception"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_detail:lookup_failure_reason"
+
+
+def test_assess_dataview_lookup_payload_rejects_legacy_unknown_placeholder() -> None:
+    payload = {"id": "dv_1", "name": "Unknown"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "legacy_unknown_placeholder"
+
+
+def test_assess_dataview_lookup_payload_rejects_id_mismatch() -> None:
+    payload = {"id": "dv_other", "name": "Valid View"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "id_mismatch"
+
+
+def test_assess_dataview_lookup_payload_rejects_missing_id_when_expected() -> None:
+    payload = {"name": "Some Name", "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "missing_expected_id"
+
+
+def test_assess_dataview_lookup_payload_rejects_blank_id_when_expected() -> None:
+    payload = {"id": "  ", "name": "Some Name"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "missing_expected_id"
+
+
+def test_assess_dataview_lookup_payload_accepts_mixed_case_identity_keys() -> None:
+    payload = {"ID": "dv_1", "Name": "Valid View", "owner": {"name": "Owner"}}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.reason == "valid_lookup_payload"
+    assert assessment.is_valid is True
+    assert assessment.payload is not None
+    assert assessment.payload["id"] == "dv_1"
+    assert assessment.payload["name"] == "Valid View"
+
+
+def test_assess_dataview_lookup_payload_canonicalizes_mixed_case_metadata_fields() -> None:
+    payload = {
+        "ID": "dv_1",
+        "Name": "Valid View",
+        "Owner": {"NAME": "Owner Name", "IMSUSERID": "owner@example.com"},
+        "Description": "A test view",
+        "ParentDataGroupID": "conn_1",
+        "CreatedDATE": "2025-01-01",
+        "MODIFIEDAT": "2025-06-01",
+    }
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.payload is not None
+    assert assessment.payload["id"] == "dv_1"
+    assert assessment.payload["name"] == "Valid View"
+    assert assessment.payload["description"] == "A test view"
+    assert assessment.payload["parentDataGroupId"] == "conn_1"
+    assert assessment.payload["createdDate"] == "2025-01-01"
+    assert assessment.payload["modifiedAt"] == "2025-06-01"
+    assert assessment.payload["owner"] == {
+        "NAME": "Owner Name",
+        "IMSUSERID": "owner@example.com",
+        "name": "Owner Name",
+        "imsUserId": "owner@example.com",
+    }
+
+
+def test_assess_dataview_lookup_payload_handles_non_stringifiable_name_value() -> None:
+    class _ExplodingName:
+        def __str__(self) -> str:  # pragma: no cover - explicit failure path
+            raise RuntimeError("boom")
+
+    payload = {"id": "dv_1", "name": _ExplodingName()}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.DATA
+    assert assessment.is_valid is True
+
+
+def test_assess_dataview_lookup_payload_handles_recursive_owner_container() -> None:
+    owner_payload: dict[str, object] = {}
+    owner_payload["self"] = owner_payload
+    payload = {"id": "dv_1", "owner": owner_payload, "error": "not found"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "error_shape"
+
+
+def test_assess_dataview_lookup_payload_rejects_invalid_id_type() -> None:
+    class _ExplodingId:
+        def __str__(self) -> str:  # pragma: no cover - explicit failure path
+            raise RuntimeError("boom")
+
+    payload = {"id": _ExplodingId(), "name": "Valid View"}
+    assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "invalid_id_type"
+
+
+def test_normalize_dataview_lookup_payload_uses_first_dataframe_record() -> None:
+    frame = pd.DataFrame([{"id": "dv_1", "name": "Valid View", "owner": "Owner"}])
+    payload, raw_type, reason = _normalize_dataview_lookup_payload(frame)
+    assert payload == {"id": "dv_1", "name": "Valid View", "owner": "Owner"}
+    assert raw_type == "DataFrame"
+    assert reason == "dataframe_first_record"
+
+
+def test_normalize_dataview_lookup_payload_rejects_non_mapping_dataframe_rows() -> None:
+    class _BadRecordFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return _BadRecordFrame
+
+        def to_dict(self, orient="dict", *args, **kwargs):
+            if orient == "records":
+                return [42]
+            return super().to_dict(orient=orient, *args, **kwargs)
+
+    frame = _BadRecordFrame({"id": ["dv_1"]})
+    payload, raw_type, reason = _normalize_dataview_lookup_payload(frame)
+    assert payload is None
+    assert raw_type == "_BadRecordFrame"
+    assert reason == "non_mapping_dataframe_row"
+
+
+def test_truthy_marker_fallback_logs_debug_and_treats_value_as_truthy(caplog) -> None:
+    class _ExplodingBool:
+        def __bool__(self):  # pragma: no cover - explicit failure path
+            raise TypeError("cannot coerce to bool")
+
+    payload = {"id": "dv_1", "name": "Unknown", "lookup_failed": _ExplodingBool()}
+    with caplog.at_level("DEBUG", logger="cja_auto_sdr.core.discovery_payloads"):
+        assessment = assess_dataview_lookup_payload(payload, expected_data_view_id="dv_1")
+
+    assert assessment.kind is PayloadKind.ERROR
+    assert assessment.reason == "failure_flag:lookup_failed"
+    assert any("Treating lookup marker value as truthy" in record.message for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

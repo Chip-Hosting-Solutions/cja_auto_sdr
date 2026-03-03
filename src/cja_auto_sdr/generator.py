@@ -19,7 +19,7 @@ import textwrap
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -95,6 +95,18 @@ from cja_auto_sdr.core.constants import (
     infer_format_from_path,
     should_generate_format,
 )
+from cja_auto_sdr.core.discovery_exceptions import (
+    coerce_http_status_code as _coerce_http_status_code_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    extract_http_status_codes as _extract_http_status_codes_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    is_dataview_lookup_not_found_error as _is_inaccessible_dataview_lookup_error_core,
+)
+from cja_auto_sdr.core.discovery_exceptions import (
+    iter_error_chain_nodes as _iter_error_chain_nodes_core,
+)
 from cja_auto_sdr.core.discovery_normalization import (
     extract_owner_name as _extract_owner_name_normalized,
 )
@@ -114,19 +126,19 @@ from cja_auto_sdr.core.discovery_normalization import (
     pick_first_present_text as _pick_first_present_text,
 )
 from cja_auto_sdr.core.discovery_payloads import (
+    DataViewLookupAssessment as _DataViewLookupAssessment,
+)
+from cja_auto_sdr.core.discovery_payloads import (
     PayloadKind as _PayloadKind,
 )
 from cja_auto_sdr.core.discovery_payloads import (
     assess_component_payload as _assess_component_payload,
 )
 from cja_auto_sdr.core.discovery_payloads import (
+    assess_dataview_lookup_payload as _assess_dataview_lookup_payload,
+)
+from cja_auto_sdr.core.discovery_payloads import (
     count_component_items_or_na as _count_component_items_or_na_from_assessment,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    has_identity_value as _has_identity_discovery_value,
-)
-from cja_auto_sdr.core.discovery_payloads import (
-    is_dataview_error_payload as _is_dataview_error_payload,
 )
 from cja_auto_sdr.core.exceptions import (
     APIError,
@@ -190,6 +202,7 @@ from cja_auto_sdr.org.models import (
 
 
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
+PARALLEL_INVENTORY_MIN_TASKS = 2
 
 # ==================== OUTPUT WRITER PROTOCOL ====================
 
@@ -517,6 +530,91 @@ def _exit_error(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def _normalize_output_format(raw_format: Any) -> str | None:
+    """Normalize CLI output format values defensively."""
+    if raw_format is None:
+        return None
+
+    normalized = str(raw_format).strip().lower()
+    return normalized or None
+
+
+def _resolve_command_output_format(
+    raw_format: Any,
+    *,
+    supported_formats: Mapping[str, str],
+    fallback_format: str,
+    warning_scope: str,
+    logger: logging.Logger | None = None,
+    output_to_stdout: bool = False,
+    stdout_fallback_format: str | None = None,
+    stdout_allowed_formats: Collection[str] | None = None,
+) -> str:
+    """Resolve requested output format to a supported command format.
+
+    Args:
+        raw_format: User-provided format token from CLI args.
+        supported_formats: Mapping of accepted aliases to canonical format names.
+        fallback_format: Canonical fallback format when input is missing/unsupported.
+        warning_scope: Human-readable command scope for warning messages.
+        logger: Optional logger for warning emissions.
+        output_to_stdout: Whether command output is being piped to stdout.
+        stdout_fallback_format: Fallback format override for stdout paths.
+        stdout_allowed_formats: Canonical formats allowed for stdout output.
+    """
+    active_logger = logger or logging.getLogger(__name__)
+    allowed_stdout_formats = tuple(dict.fromkeys(stdout_allowed_formats or ()))
+
+    effective_fallback = fallback_format
+    if output_to_stdout and stdout_fallback_format is not None:
+        effective_fallback = stdout_fallback_format
+    if output_to_stdout and allowed_stdout_formats and effective_fallback not in allowed_stdout_formats:
+        effective_fallback = allowed_stdout_formats[0]
+
+    normalized_format = _normalize_output_format(raw_format)
+    if normalized_format is None:
+        return effective_fallback
+
+    resolved_format = supported_formats.get(normalized_format)
+    if resolved_format is None:
+        active_logger.warning(
+            "--format %s is not supported for %s; using %s",
+            raw_format,
+            warning_scope,
+            effective_fallback,
+        )
+        return effective_fallback
+
+    if output_to_stdout and allowed_stdout_formats and resolved_format not in allowed_stdout_formats:
+        active_logger.warning(
+            "--format %s is not supported for %s with --output stdout; using %s",
+            raw_format,
+            warning_scope,
+            effective_fallback,
+        )
+        return effective_fallback
+
+    return resolved_format
+
+
+def _print_error_list_to_stderr(
+    header: str, details: list[Any], *, fallback_detail: str = "Unknown validation error"
+) -> None:
+    """Emit an error header and detail lines to stderr using one consistent stream."""
+    print(ConsoleColors.error(header), file=sys.stderr)
+
+    emitted_detail = False
+    for detail in details:
+        detail_text = str(detail).strip()
+        if not detail_text:
+            continue
+        print(ConsoleColors.error(f"  - {detail_text}"), file=sys.stderr)
+        emitted_detail = True
+
+    if not emitted_detail:
+        print(ConsoleColors.error(f"  - {fallback_detail}"), file=sys.stderr)
+
+
 def _cli_option_specified(option_name: str, argv: list[str] | None = None) -> bool:
     """Return True if an option was explicitly provided via long-form token.
 
@@ -666,6 +764,10 @@ RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
 RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Optional component-count lookups (dry-run projections, describe metadata) are
+# best-effort. Any Exception should degrade to a fallback count instead of
+# terminating the command flow.
+RECOVERABLE_OPTIONAL_COMPONENT_COUNT_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 
 
 def _log_optional_inventory_failure(
@@ -1677,7 +1779,7 @@ def add_profile_interactive(profile_name: str) -> bool:
     # Validate profile name
     is_valid, error_msg = validate_profile_name(profile_name)
     if not is_valid:
-        print(f"Error: {error_msg}")
+        print(ConsoleColors.error(f"Error: {error_msg}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -1694,7 +1796,7 @@ def add_profile_interactive(profile_name: str) -> bool:
     try:
         profile_path.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        print(f"Error creating profile directory: {e}")
+        print(ConsoleColors.error(f"Error creating profile directory: {e}"), file=sys.stderr)
         return False
 
     print()
@@ -1709,12 +1811,12 @@ def add_profile_interactive(profile_name: str) -> bool:
     try:
         org_id = input("Organization ID (ends with @AdobeOrg): ").strip()
         if not org_id:
-            print("Error: Organization ID is required")
+            print(ConsoleColors.error("Error: Organization ID is required"), file=sys.stderr)
             return False
 
         client_id = input("Client ID: ").strip()
         if not client_id:
-            print("Error: Client ID is required")
+            print(ConsoleColors.error("Error: Client ID is required"), file=sys.stderr)
             return False
 
         # Use getpass for secret (never fall back to echoing input)
@@ -1723,16 +1825,21 @@ def add_profile_interactive(profile_name: str) -> bool:
         try:
             secret = getpass.getpass("Client Secret: ").strip()
         except getpass.GetPassWarning:
-            print("Error: Cannot securely read secret (no TTY available). Use --profile import instead.")
+            print(
+                ConsoleColors.error(
+                    "Error: Cannot securely read secret (no TTY available). Use --profile-import instead."
+                ),
+                file=sys.stderr,
+            )
             return False
 
         if not secret:
-            print("Error: Client Secret is required")
+            print(ConsoleColors.error("Error: Client Secret is required"), file=sys.stderr)
             return False
 
         scopes = input("OAuth Scopes (from Developer Console): ").strip()
         if not scopes:
-            print("Error: OAuth Scopes are required")
+            print(ConsoleColors.error("Error: OAuth Scopes are required"), file=sys.stderr)
             return False
 
     except KeyboardInterrupt, EOFError:
@@ -1748,7 +1855,7 @@ def add_profile_interactive(profile_name: str) -> bool:
         with open(fd, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
     except OSError as e:
-        print(f"Error writing config file: {e}")
+        print(ConsoleColors.error(f"Error writing config file: {e}"), file=sys.stderr)
         return False
 
     print()
@@ -1862,7 +1969,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     """Import a profile from JSON/.env without interactive prompts."""
     is_valid_name, error_msg = validate_profile_name(profile_name)
     if not is_valid_name:
-        print(f"Error: {error_msg}")
+        print(ConsoleColors.error(f"Error: {error_msg}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -1875,7 +1982,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
     try:
         credentials = load_profile_import_source(source_file)
     except (OSError, json.JSONDecodeError, ValueError) as e:
-        print(f"Error loading profile import source '{source_file}': {e}")
+        print(ConsoleColors.error(f"Error loading profile import source '{source_file}': {e}"), file=sys.stderr)
         return False
 
     validation_logger = logging.getLogger("profile_import")
@@ -1887,9 +1994,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
         source=f"profile import ({source_file})",
     )
     if not is_usable:
-        print("Error: Imported credentials failed validation:")
-        for issue in issues:
-            print(f"  - {issue}")
+        _print_error_list_to_stderr("Error: Imported credentials failed validation:", issues)
         return False
 
     config_payload = {
@@ -1904,7 +2009,7 @@ def import_profile_non_interactive(profile_name: str, source_file: str | Path, o
             json.dump(config_payload, f, indent=2)
             f.write("\n")
     except OSError as e:
-        print(f"Error writing profile config: {e}")
+        print(ConsoleColors.error(f"Error writing profile config: {e}"), file=sys.stderr)
         return False
 
     if profile_exists and (profile_path / ".env").exists():
@@ -1957,10 +2062,10 @@ def show_profile(profile_name: str) -> bool:
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
-        print(f"Error: {e}")
+        print(ConsoleColors.error(f"Error: {e}"), file=sys.stderr)
         return False
     except ProfileConfigError as e:
-        print(f"Error: {e}")
+        print(ConsoleColors.error(f"Error: {e}"), file=sys.stderr)
         return False
 
     profile_path = get_profile_path(profile_name)
@@ -2022,10 +2127,10 @@ def test_profile(profile_name: str) -> bool:
         logger.setLevel(logging.WARNING)
         credentials = load_profile_credentials(profile_name, logger)
     except ProfileNotFoundError as e:
-        print(f"FAILED: {e}")
+        print(ConsoleColors.error(f"ERROR: {e}"), file=sys.stderr)
         return False
     except ProfileConfigError as e:
-        print(f"FAILED: {e}")
+        print(ConsoleColors.error(f"ERROR: {e}"), file=sys.stderr)
         return False
 
     print("1. Profile found and loaded")
@@ -2075,11 +2180,11 @@ def test_profile(profile_name: str) -> bool:
         finally:
             os.unlink(temp_config.name)
 
-    except Exception as e:  # Intentional: wraps cjapy API calls that may raise anything
-        print("   API connection: FAILED")
-        print(f"   Error: {e}")
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
+        print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
+        print(ConsoleColors.error(f"   Error: {e}"), file=sys.stderr)
         print()
-        print("Profile test: FAILED")
+        print(ConsoleColors.error("Profile test: FAILED"), file=sys.stderr)
         print()
         print("Common issues:")
         print("  - Invalid client_id or secret")
@@ -2144,7 +2249,9 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
         # Attempt to fetch data view info
         logger.info("Fetching data view information from API...")
         try:
-            dv_info = cja.getDataView(data_view_id)
+            raw_dv_info = _fetch_dataview_lookup_payload(cja, data_view_id)
+        except DiscoveryNotFoundError:
+            raw_dv_info = None
         except AttributeError as e:
             logger.error("API method 'getDataView' not available")
             logger.error("Possible causes:")
@@ -2163,6 +2270,18 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
             return False
 
         # Validate response
+        dv_info, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
+            raw_dv_info,
+            data_view_id=data_view_id,
+        )
+        if dv_info is None:
+            logger.error("Data view lookup returned invalid payload (%s)", lookup_failure_reason)
+            logger.debug(
+                "Rejected data view lookup payload: data_view_id=%s raw_type=%s",
+                data_view_id,
+                lookup_raw_type,
+            )
+
         if not dv_info:
             # Try to list available data views to provide context
             available_count = None
@@ -2233,7 +2352,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
     except KeyboardInterrupt, SystemExit:
         raise
-    except Exception as e:  # Intentional: wraps cjapy API validation calls
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
         logger.error("=" * BANNER_WIDTH)
         logger.error("DATA VIEW VALIDATION ERROR")
         logger.error("=" * BANNER_WIDTH)
@@ -2547,19 +2666,16 @@ def apply_excel_formatting(
             column_width_caps = {}
             default_cap = 100
 
-        # Set column widths with appropriate caps
+        # Set column widths with appropriate caps (vectorized)
         for idx, col in enumerate(df.columns):
-            series = df[col]
             col_lower = col.lower()
             max_cap = column_width_caps.get(col_lower, default_cap)
-            max_len = min(
-                max(
-                    max(len(str(val).split("\n")[0]) for val in series) if len(series) > 0 else 0,
-                    len(str(series.name)),
-                )
-                + 2,
-                max_cap,
-            )
+            series = df[col]
+            if len(series) > 0:
+                content_max = int(series.astype(str).str.split("\n").str[0].str.len().max())
+            else:
+                content_max = 0
+            max_len = min(max(content_max, len(str(series.name))) + 2, max_cap)
             worksheet.set_column(idx, idx, max_len)
 
         # Apply row formatting (offset by summary rows)
@@ -5378,10 +5494,10 @@ def process_inventory_summary(
     try:
         lookup_data = cja.dataviews.get_single(data_view_id)
         dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view: {e}"), file=sys.stderr)
         return {"error": str(e)}
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         print(ConsoleColors.error(f"ERROR: Failed to fetch data view (unexpected): {e}"), file=sys.stderr)
         logger.debug("Unexpected error fetching data view", exc_info=True)
         return {"error": str(e)}
@@ -5622,18 +5738,6 @@ def process_single_dataview(
 
         logger.info("✓ CJA connection established successfully")
 
-        # Validate data view
-        if not validate_data_view(cja, data_view_id, logger):
-            return ProcessingResult(
-                data_view_id=data_view_id,
-                data_view_name="Unknown",
-                success=False,
-                duration=time.time() - start_time,
-                error_message="Data view validation failed",
-            )
-
-        logger.info("✓ Data view validation complete - proceeding with data fetch")
-
         # Fetch data with parallel optimization
         logger.info("=" * BANNER_WIDTH)
         logger.info("Starting optimized data fetch operations")
@@ -5660,6 +5764,29 @@ def process_single_dataview(
             )
 
         metrics, dimensions, lookup_data = fetcher.fetch_all_data(data_view_id)
+
+        # Validate fetched data view lookup metadata (defensive gate before processing).
+        lookup_data, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
+            lookup_data,
+            data_view_id=data_view_id,
+        )
+        if lookup_data is None:
+            logger.error(
+                "Data view validation failed — invalid lookup payload (%s)",
+                lookup_failure_reason,
+            )
+            logger.debug(
+                "Lookup payload rejected: raw_type=%s",
+                lookup_raw_type,
+            )
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name="Unknown",
+                success=False,
+                duration=time.time() - start_time,
+                error_message="Data view validation failed",
+            )
+        logger.info("✓ Data view validated and fetched successfully")
 
         # Log tuner statistics if tuning was enabled
         tuner_stats = fetcher.get_tuner_statistics()
@@ -5795,9 +5922,23 @@ def process_single_dataview(
                 ),
             )
 
-        # Derived field inventory (if enabled)
+        # Optional inventory builds (parallelized when 2+ are enabled)
         derived_inventory_df = pd.DataFrame()
         derived_inventory_obj = None  # Store inventory object for JSON output
+        calculated_metrics_df = pd.DataFrame()
+        calculated_inventory_obj = None  # Store inventory object for JSON output
+        segments_inventory_df = pd.DataFrame()
+        segments_inventory_obj = None  # Store inventory object for JSON output
+
+        # Collect enabled inventory tasks — closures defined conditionally.
+        # The shared logger is intentional; stdlib logging is thread-safe, but
+        # emitted lines may interleave when inventories run concurrently.
+        _inventory_tasks: list[tuple[str, Callable, Callable, str]] = []
+        # Inventory builders for calculated metrics and segments both call API
+        # methods on the same `cja` instance. Serialize those calls in case the
+        # client/session object is not safe for concurrent method execution.
+        cja_inventory_lock = threading.Lock()
+
         if include_derived_inventory:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building derived field inventory")
@@ -5823,19 +5964,10 @@ def process_single_dataview(
                 logger.warning(f"Could not import derived field inventory: {error}")
                 logger.info("Skipping derived field inventory - module not available")
 
-            derived_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="derived field inventory",
-                summary_mode=False,
-                build_inventory=_build_derived_inventory,
-                on_import_error=_handle_derived_import_error,
+            _inventory_tasks.append(
+                ("derived", _build_derived_inventory, _handle_derived_import_error, "derived field inventory")
             )
-            if derived_inventory_payload is not None:
-                derived_inventory_obj, derived_inventory_df = derived_inventory_payload
 
-        # Calculated metrics inventory (if enabled)
-        calculated_metrics_df = pd.DataFrame()
-        calculated_inventory_obj = None  # Store inventory object for JSON output
         if include_calculated_metrics:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building calculated metrics inventory")
@@ -5846,7 +5978,8 @@ def process_single_dataview(
 
                 builder = CalculatedMetricsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                calculated_inventory = builder.build(cja, data_view_id, dv_name)
+                with cja_inventory_lock:
+                    calculated_inventory = builder.build(cja, data_view_id, dv_name)
 
                 calculated_df = calculated_inventory.get_dataframe()
 
@@ -5858,19 +5991,15 @@ def process_single_dataview(
                 logger.warning(f"Could not import calculated metrics inventory: {error}")
                 logger.info("Skipping calculated metrics inventory - module not available")
 
-            calculated_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="calculated metrics inventory",
-                summary_mode=False,
-                build_inventory=_build_calculated_inventory,
-                on_import_error=_handle_calculated_import_error,
+            _inventory_tasks.append(
+                (
+                    "calculated",
+                    _build_calculated_inventory,
+                    _handle_calculated_import_error,
+                    "calculated metrics inventory",
+                )
             )
-            if calculated_inventory_payload is not None:
-                calculated_inventory_obj, calculated_metrics_df = calculated_inventory_payload
 
-        # Segments inventory (if enabled)
-        segments_inventory_df = pd.DataFrame()
-        segments_inventory_obj = None  # Store inventory object for JSON output
         if include_segments_inventory:
             logger.info("=" * BANNER_WIDTH)
             logger.info("Building segments inventory")
@@ -5881,7 +6010,8 @@ def process_single_dataview(
 
                 builder = SegmentsInventoryBuilder(logger=logger)
                 dv_name = lookup_data.get("name", data_view_id) if isinstance(lookup_data, dict) else data_view_id
-                segments_inventory = builder.build(cja, data_view_id, dv_name)
+                with cja_inventory_lock:
+                    segments_inventory = builder.build(cja, data_view_id, dv_name)
 
                 segments_df = segments_inventory.get_dataframe()
 
@@ -5893,15 +6023,58 @@ def process_single_dataview(
                 logger.warning(f"Could not import segments inventory: {error}")
                 logger.info("Skipping segments inventory - module not available")
 
-            segments_inventory_payload = _run_optional_inventory_step(
-                logger=logger,
-                inventory_label="segments inventory",
-                summary_mode=False,
-                build_inventory=_build_segments_inventory,
-                on_import_error=_handle_segments_import_error,
+            _inventory_tasks.append(
+                ("segments", _build_segments_inventory, _handle_segments_import_error, "segments inventory")
             )
-            if segments_inventory_payload is not None:
-                segments_inventory_obj, segments_inventory_df = segments_inventory_payload
+
+        def _assign_inventory_result(key: str, payload: Any) -> None:
+            """Assign inventory result to the correct outer variables.
+
+            This mutates outer state from the coordinator thread only.
+            Worker threads only build payloads.
+            """
+            nonlocal derived_inventory_obj, derived_inventory_df
+            nonlocal calculated_inventory_obj, calculated_metrics_df
+            nonlocal segments_inventory_obj, segments_inventory_df
+            if payload is None:
+                return
+            if key == "derived":
+                derived_inventory_obj, derived_inventory_df = payload
+            elif key == "calculated":
+                calculated_inventory_obj, calculated_metrics_df = payload
+            elif key == "segments":
+                segments_inventory_obj, segments_inventory_df = payload
+
+        if len(_inventory_tasks) >= PARALLEL_INVENTORY_MIN_TASKS:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=len(_inventory_tasks)) as executor:
+                futures = {}
+                for key, build_fn, err_fn, label in _inventory_tasks:
+                    future = executor.submit(
+                        _run_optional_inventory_step,
+                        logger=logger,
+                        inventory_label=label,
+                        summary_mode=False,
+                        build_inventory=build_fn,
+                        on_import_error=err_fn,
+                    )
+                    futures[future] = key
+                # Keep assignment on the main thread in completion order.
+                for future in as_completed(futures):
+                    key = futures[future]
+                    _assign_inventory_result(key, future.result())
+        else:
+            # Single inventory or none — run sequentially (no thread overhead)
+            for key, build_fn, err_fn, label in _inventory_tasks:
+                payload = _run_optional_inventory_step(
+                    logger=logger,
+                    inventory_label=label,
+                    summary_mode=False,
+                    build_inventory=build_fn,
+                    on_import_error=err_fn,
+                )
+                _assign_inventory_result(key, payload)
 
         # Data processing
         logger.info("=" * BANNER_WIDTH)
@@ -6944,9 +7117,7 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
         print("DRY-RUN FAILED - Cannot connect to CJA API")
         print("=" * BANNER_WIDTH)
         return False
-    except Exception as e:
-        # Defensive fallback: dry-run should surface a controlled failure, even
-        # when dependency/runtime exceptions fall outside expected API types.
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         logger.debug("Unexpected dry-run API connection failure", exc_info=True)
         print(f"  ✗ API connection failed: {_dry_run_error_text(e)}")
         all_passed = False
@@ -6979,13 +7150,17 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
     for dv_id in data_views:
         # Try to get data view info (with retry for transient errors)
         try:
-            dv_info = make_api_call_with_retry(
+            raw_dv_info = make_api_call_with_retry(
                 cja.getDataView,
                 dv_id,
                 logger=logger,
                 operation_name=f"getDataView({dv_id})",
             )
-            if dv_info:
+            dv_info, lookup_failure_reason, lookup_raw_type = _coerce_valid_dataview_lookup_payload(
+                raw_dv_info,
+                data_view_id=dv_id,
+            )
+            if dv_info is not None:
                 dv_name = dv_info.get("name", "Unknown")
 
                 # Fetch component counts for predictions
@@ -7013,17 +7188,24 @@ def run_dry_run(data_views: list[str], config_file: str, logger: logging.Logger,
                 valid_count += 1
             else:
                 print(f"  ✗ {dv_id}: Not found or no access")
+                print(f"      Lookup validation failed: {lookup_failure_reason}")
+                logger.debug(
+                    "Dry-run rejected lookup payload for %s: reason=%s raw_type=%s",
+                    dv_id,
+                    lookup_failure_reason,
+                    lookup_raw_type,
+                )
                 invalid_count += 1
                 all_passed = False
         except KeyboardInterrupt, SystemExit:
             print()
             print(ConsoleColors.warning("Validation cancelled."))
             raise
-        except RECOVERABLE_API_EXCEPTIONS as e:
+        except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
             print(f"  ✗ {dv_id}: Error - {e!s}")
             invalid_count += 1
             all_passed = False
-        except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+        except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
             logger.debug(f"Unexpected dry-run validation error for {dv_id}: {e!s}", exc_info=True)
             print(f"  ✗ {dv_id}: Error - {_dry_run_error_text(e)}")
             invalid_count += 1
@@ -7618,7 +7800,7 @@ def resolve_data_view_names(
             resolution_diagnostics,
             include_diagnostics=include_diagnostics,
         )
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         error_message = f"Failed to resolve data view names: {e!s}"
         logger.error(error_message)
         resolution_diagnostics = NameResolutionDiagnostics(
@@ -7631,7 +7813,7 @@ def resolve_data_view_names(
             resolution_diagnostics,
             include_diagnostics=include_diagnostics,
         )
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         error_message = f"Failed to resolve data view names (unexpected): {e!s}"
         logger.error(error_message)
         logger.debug("Unexpected error during name resolution", exc_info=True)
@@ -7925,11 +8107,15 @@ def _is_machine_readable_output(output_format: str | None, output_file: str | No
 
 def _resolve_discovery_output_format(raw_format: str | None, *, output_to_stdout: bool) -> str:
     """Normalize discovery output format with stdout piping semantics."""
-    if raw_format in ("json", "csv"):
-        return raw_format
-    if output_to_stdout:
-        return "json"
-    return "table"
+    return _resolve_command_output_format(
+        raw_format,
+        supported_formats={"json": "json", "csv": "csv", "console": "table", "table": "table"},
+        fallback_format="table",
+        output_to_stdout=output_to_stdout,
+        stdout_fallback_format="json",
+        stdout_allowed_formats={"json", "csv"},
+        warning_scope="this command",
+    )
 
 
 def _emit_discovery_error(
@@ -8381,112 +8567,70 @@ def _normalize_single_dataview_payload(raw_dv: Any) -> dict[str, Any] | None:
     return raw_dv if isinstance(raw_dv, dict) else None
 
 
-_DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES = frozenset({403, 404})
-_DATAVIEW_LOOKUP_STATUS_ATTRS = ("status_code", "statusCode", "status", "http_status", "httpStatus", "code")
-_DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS = (
-    "not found",
-    "not_found",
-    "resource_not_found",
-    "forbidden",
-    "no access",
-    "access denied",
-)
-_HTTP_STATUS_CODE_RE = re.compile(r"\b([1-5]\d{2})\b")
+def _assess_dataview_lookup(
+    raw_payload: Any,
+    *,
+    data_view_id: str,
+    require_expected_id: bool = True,
+) -> _DataViewLookupAssessment:
+    """Assess a getDataView payload with a consistent expected-id policy."""
+    expected_data_view_id = data_view_id if require_expected_id else None
+    return _assess_dataview_lookup_payload(raw_payload, expected_data_view_id=expected_data_view_id)
+
+
+def _coerce_valid_dataview_lookup_payload(
+    raw_payload: Any,
+    *,
+    data_view_id: str,
+    require_expected_id: bool = True,
+) -> tuple[dict[str, Any] | None, str, str]:
+    """Return a validated lookup payload or structured failure metadata."""
+    assessment = _assess_dataview_lookup(
+        raw_payload,
+        data_view_id=data_view_id,
+        require_expected_id=require_expected_id,
+    )
+    if assessment.is_valid and assessment.payload is not None:
+        return assessment.payload, assessment.reason, assessment.raw_type
+    return None, assessment.reason, assessment.raw_type
 
 
 def _coerce_http_status_code(value: Any) -> int | None:
-    """Best-effort coercion of status-like values into an HTTP status code."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if 100 <= value <= 599 else None
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        if stripped.isdigit():
-            numeric_code = int(stripped)
-            return numeric_code if 100 <= numeric_code <= 599 else None
-        match = _HTTP_STATUS_CODE_RE.search(stripped)
-        if match:
-            numeric_code = int(match.group(1))
-            return numeric_code if 100 <= numeric_code <= 599 else None
-    return None
+    """Compatibility wrapper for centralized HTTP status-code coercion."""
+    return _coerce_http_status_code_core(value)
 
 
 def _iter_error_chain_nodes(error: Exception) -> list[Any]:
-    """Return error/cause/response nodes for robust status-code extraction."""
-    pending: list[Any] = [error]
-    seen: set[int] = set()
-    nodes: list[Any] = []
-    while pending:
-        node = pending.pop()
-        marker = id(node)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        nodes.append(node)
-
-        if isinstance(node, dict):
-            nested = node.get("error")
-            if nested is not None:
-                pending.append(nested)
-            continue
-
-        for attr_name in ("original_error", "__cause__", "__context__", "response"):
-            with contextlib.suppress(Exception):
-                nested = getattr(node, attr_name)
-                if nested is not None:
-                    pending.append(nested)
-    return nodes
+    """Compatibility wrapper for centralized nested exception traversal."""
+    return _iter_error_chain_nodes_core(error)
 
 
 def _extract_http_status_codes(error: Exception) -> set[int]:
-    """Extract candidate HTTP status codes from nested error objects."""
-    status_codes: set[int] = set()
-    for node in _iter_error_chain_nodes(error):
-        if isinstance(node, dict):
-            for key in _DATAVIEW_LOOKUP_STATUS_ATTRS:
-                code = _coerce_http_status_code(node.get(key))
-                if code is not None:
-                    status_codes.add(code)
-            continue
-
-        for attr_name in _DATAVIEW_LOOKUP_STATUS_ATTRS:
-            with contextlib.suppress(Exception):
-                code = _coerce_http_status_code(getattr(node, attr_name))
-                if code is not None:
-                    status_codes.add(code)
-    return status_codes
+    """Compatibility wrapper for centralized HTTP status extraction."""
+    return _extract_http_status_codes_core(error)
 
 
 def _is_inaccessible_dataview_lookup_error(error: Exception) -> bool:
-    """Return True when getDataView failures should map to not_found."""
-    status_codes = _extract_http_status_codes(error)
-    if any(code in _DATAVIEW_LOOKUP_NOT_FOUND_STATUS_CODES for code in status_codes):
-        return True
+    """Compatibility wrapper for centralized dataview lookup classification."""
+    return _is_inaccessible_dataview_lookup_error_core(error)
 
-    # Some APIError paths omit status_code but still include a stable not-found/forbidden marker.
-    if isinstance(error, APIError):
-        normalized_message = str(error).casefold()
-        return any(marker in normalized_message for marker in _DATAVIEW_LOOKUP_NOT_FOUND_MESSAGE_MARKERS)
 
-    return False
+def _fetch_dataview_lookup_payload(cja: Any, data_view_id: str) -> Any:
+    """Call getDataView and normalize inaccessible lookup failures to not_found."""
+    try:
+        return cja.getDataView(data_view_id)
+    except Exception as lookup_error:
+        if _is_inaccessible_dataview_lookup_error(lookup_error):
+            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from lookup_error
+        raise
 
 
 def _require_accessible_dataview(cja: Any, data_view_id: str) -> dict[str, Any]:
     """Fetch a data view and raise DiscoveryNotFoundError when inaccessible/invalid."""
-    try:
-        raw_payload = cja.getDataView(data_view_id)
-    except Exception as e:  # Intentional: wraps cjapy.getDataView() which may raise anything
-        if _is_inaccessible_dataview_lookup_error(e):
-            raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from e
-        raise
+    raw_payload = _fetch_dataview_lookup_payload(cja, data_view_id)
 
-    payload = _normalize_single_dataview_payload(raw_payload)
-    if payload is None or _is_dataview_error_payload(payload):
-        raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
-    if not _has_identity_discovery_value(payload, ("id", "name")):
+    payload, _, _ = _coerce_valid_dataview_lookup_payload(raw_payload, data_view_id=data_view_id)
+    if payload is None:
         raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found")
     return payload
 
@@ -8758,11 +8902,48 @@ def _fetch_component_payload(cja: Any, data_view_id: str, fetch_spec: _Component
 
 def _count_component_items_for_fetch_spec(cja: Any, data_view_id: str, fetch_spec: _ComponentFetchSpec) -> int | str:
     """Return a component count for one fetch spec, falling back to 'N/A' on runtime failures."""
+    return _count_component_items_for_fetch_spec_best_effort(
+        cja,
+        data_view_id,
+        fetch_spec,
+        fallback_value="N/A",
+        use_retry=False,
+    )
+
+
+def _count_component_items_for_fetch_spec_best_effort(
+    cja: Any,
+    data_view_id: str,
+    fetch_spec: _ComponentFetchSpec,
+    *,
+    fallback_value: int | str,
+    use_retry: bool,
+    logger: logging.Logger | None = None,
+) -> int | str:
+    """Fetch one component payload and degrade failures to a caller-provided fallback value."""
+    component_label = fetch_spec.method_name
     try:
-        payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
-        return _count_component_items_or_na_from_assessment(payload)
-    except Exception:  # Intentional: wraps cjapy API; best-effort count
-        return "N/A"
+        if use_retry:
+            payload = make_api_call_with_retry(
+                _fetch_component_payload,
+                cja,
+                data_view_id,
+                fetch_spec,
+                logger=logger,
+                operation_name=f"{component_label}({data_view_id})",
+            )
+        else:
+            payload = _fetch_component_payload(cja, data_view_id, fetch_spec)
+
+        count = _count_component_items_or_na_from_assessment(payload)
+        if isinstance(count, int):
+            return count
+        if logger:
+            logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
+    except RECOVERABLE_OPTIONAL_COMPONENT_COUNT_EXCEPTIONS as e:  # Intentional best-effort boundary
+        if logger:
+            logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e, exc_info=True)
+    return fallback_value
 
 
 def _count_component_items_for_fetch_spec_with_retry(
@@ -8773,25 +8954,15 @@ def _count_component_items_for_fetch_spec_with_retry(
     logger: logging.Logger,
 ) -> int:
     """Return component count via retry-aware fetches, degrading non-fatal issues to zero."""
-    component_label = fetch_spec.method_name
-    try:
-        payload = make_api_call_with_retry(
-            _fetch_component_payload,
-            cja,
-            data_view_id,
-            fetch_spec,
-            logger=logger,
-            operation_name=f"{component_label}({data_view_id})",
-        )
-        count = _count_component_items_or_na_from_assessment(payload)
-        if isinstance(count, int):
-            return count
-        logger.debug("Could not fetch %s count for %s: non-countable payload", component_label, data_view_id)
-    except RECOVERABLE_API_EXCEPTIONS as e:
-        logger.debug("Could not fetch %s count for %s: %s", component_label, data_view_id, e)
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
-        logger.debug("Unexpected %s count error for %s: %s", component_label, data_view_id, e, exc_info=True)
-    return 0
+    count = _count_component_items_for_fetch_spec_best_effort(
+        cja,
+        data_view_id,
+        fetch_spec,
+        fallback_value=0,
+        use_retry=True,
+        logger=logger,
+    )
+    return count if isinstance(count, int) else 0
 
 
 def _build_component_list_fetcher(
@@ -10707,10 +10878,10 @@ def validate_config_only(
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
-    except RECOVERABLE_API_EXCEPTIONS as e:
+    except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
         print(f"  \u2717 API connection failed: {e!s}")
         all_passed = False
-    except Exception as e:  # Intentional: fallback after RECOVERABLE_API for cjapy calls
+    except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
         print(f"  \u2717 API connection failed (unexpected): {e!s}")
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
@@ -10745,9 +10916,16 @@ def validate_config_only(
     print("=" * BANNER_WIDTH)
     if all_passed:
         print(ConsoleColors.success("VALIDATION PASSED - Configuration is valid!"))
+        print()
+        print("Next steps — run with a data view to generate SDR reports:")
+        print("  cja_auto_sdr <DATA_VIEW_ID>")
+        print()
+        print("Or list available data views:")
+        print("  cja_auto_sdr --list-dataviews")
+        print("=" * BANNER_WIDTH)
     else:
         print(ConsoleColors.error("VALIDATION FAILED - Check errors above"))
-    print("=" * BANNER_WIDTH)
+        print("=" * BANNER_WIDTH)
 
     return all_passed
 
@@ -10784,8 +10962,15 @@ def _require_numeric_component_count_for_stats(
 
 def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
     """Fetch one data view's stats row. Raises on API/runtime errors."""
-    dv_info = cja.getDataView(data_view_id)
-    dv_name = dv_info.get("name", "Unknown") if isinstance(dv_info, dict) else "Unknown"
+    raw_dv_info = _fetch_dataview_lookup_payload(cja, data_view_id)
+    dv_info, lookup_failure_reason, _ = _coerce_valid_dataview_lookup_payload(
+        raw_dv_info,
+        data_view_id=data_view_id,
+        require_expected_id=False,
+    )
+    if dv_info is None:
+        raise ValueError(f"Data view validation failed for '{data_view_id}' ({lookup_failure_reason})")
+    dv_name = dv_info.get("name", "Unknown")
 
     metrics_count = _require_numeric_component_count_for_stats(
         cja,
@@ -10800,10 +10985,10 @@ def _collect_stats_row(cja: cjapy.CJA, data_view_id: str) -> dict[str, Any]:
         component_label="dimensions",
     )
 
-    owner_info = dv_info.get("owner", {}) if isinstance(dv_info, dict) else {}
+    owner_info = dv_info.get("owner", {})
     owner_name = owner_info.get("name", "N/A") if isinstance(owner_info, dict) else "N/A"
 
-    raw_description = dv_info.get("description", "") if isinstance(dv_info, dict) else ""
+    raw_description = dv_info.get("description", "")
     description_text = str(raw_description) if raw_description is not None else ""
 
     return {
@@ -14366,7 +14551,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Handle --profile-list mode (no data view required)
     if getattr(args, "profile_list", False):
-        list_format = "json" if args.format == "json" else "table"
+        list_format = _resolve_command_output_format(
+            args.format,
+            supported_formats={"json": "json", "console": "table", "table": "table"},
+            fallback_format="table",
+            warning_scope="--profile-list",
+        )
         success = list_profiles(output_format=list_format)
         if run_state is not None:
             run_state["details"] = {"operation_success": success}
@@ -15640,19 +15830,19 @@ def _main_impl(run_state: dict[str, Any] | None = None):
 
     # Validate format - console is only supported for diff comparison
     if sdr_format == "console" and not quality_report_only:
-        print(ConsoleColors.error("Error: Console format is only supported for diff comparison."))
-        print()
-        print("For SDR generation, use one of these formats:")
-        print("  --format excel     Excel workbook with multiple sheets (default)")
-        print("  --format csv       CSV files (one per data type)")
-        print("  --format json      JSON file with all data")
-        print("  --format html      HTML report")
-        print("  --format markdown  Markdown document")
-        print("  --format all       Generate all formats")
-        print()
-        print("For diff comparison, console is the default:")
-        print("  cja_auto_sdr --diff dv_A dv_B              # Console output")
-        print("  cja_auto_sdr --diff dv_A dv_B --format json  # JSON output")
+        print(ConsoleColors.error("Error: Console format is only supported for diff comparison."), file=sys.stderr)
+        print(file=sys.stderr)
+        print("For SDR generation, use one of these formats:", file=sys.stderr)
+        print("  --format excel     Excel workbook with multiple sheets (default)", file=sys.stderr)
+        print("  --format csv       CSV files (one per data type)", file=sys.stderr)
+        print("  --format json      JSON file with all data", file=sys.stderr)
+        print("  --format html      HTML report", file=sys.stderr)
+        print("  --format markdown  Markdown document", file=sys.stderr)
+        print("  --format all       Generate all formats", file=sys.stderr)
+        print(file=sys.stderr)
+        print("For diff comparison, console is the default:", file=sys.stderr)
+        print("  cja_auto_sdr --diff dv_A dv_B              # Console output", file=sys.stderr)
+        print("  cja_auto_sdr --diff dv_A dv_B --format json  # JSON output", file=sys.stderr)
         sys.exit(1)
 
     # Check for conflicting component filter options

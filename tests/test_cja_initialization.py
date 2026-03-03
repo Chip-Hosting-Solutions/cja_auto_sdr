@@ -500,10 +500,10 @@ class TestValidateDataView:
         assert result is False
         mock_logger.error.assert_called()
 
-    def test_fails_on_unexpected_runtime_exception(self, mock_logger):
-        """Unexpected runtime errors should return False (boolean contract), not propagate."""
+    def test_fails_on_unexpected_recoverable_exception(self, mock_logger):
+        """Recoverable API errors should return False (boolean contract), not propagate."""
         mock_cja = Mock()
-        mock_cja.getDataView.side_effect = RuntimeError("unexpected cjapy runtime failure")
+        mock_cja.getDataView.side_effect = ValueError("unexpected cjapy validation failure")
 
         result = validate_data_view(mock_cja, "dv_test_12345", mock_logger)
 
@@ -539,7 +539,10 @@ class TestValidateDataView:
 
         assert result is False
         calls = [str(c) for c in mock_logger.error.call_args_list]
-        assert any("Malformed data view payload returned by API" in c for c in calls)
+        assert any(
+            "Malformed data view payload returned by API" in c or "Data view lookup returned invalid payload" in c
+            for c in calls
+        )
 
     @pytest.mark.parametrize(
         "description",

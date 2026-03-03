@@ -22,6 +22,8 @@ Targets uncovered line ranges:
 import argparse
 import json
 import logging
+import threading
+import time
 from itertools import count
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
@@ -40,6 +42,7 @@ from cja_auto_sdr.core.exceptions import (
 )
 from cja_auto_sdr.generator import (
     BatchProcessor,
+    DiscoveryNotFoundError,
     ProcessingResult,
     process_single_dataview,
     run_dry_run,
@@ -138,7 +141,6 @@ def _standard_process_mocks():
     return {
         "setup_logging": "cja_auto_sdr.generator.setup_logging",
         "initialize_cja": "cja_auto_sdr.generator.initialize_cja",
-        "validate_data_view": "cja_auto_sdr.generator.validate_data_view",
         "fetcher_class": "cja_auto_sdr.generator.ParallelAPIFetcher",
         "dq_checker_class": "cja_auto_sdr.generator.DataQualityChecker",
         "apply_excel": "cja_auto_sdr.generator.apply_excel_formatting",
@@ -149,7 +151,6 @@ def _standard_process_mocks():
 def _configure_standard_mocks(
     mock_setup_logging,
     mock_init_cja,
-    mock_validate_dv,
     mock_fetcher_class,
     mock_dq_checker_class,
     mock_excel_writer,
@@ -164,7 +165,6 @@ def _configure_standard_mocks(
 
     mock_cja = Mock()
     mock_init_cja.return_value = mock_cja
-    mock_validate_dv.return_value = True
 
     mock_fetcher = Mock()
     mock_fetcher.fetch_all_data.return_value = (metrics_df, dimensions_df, dataview_info)
@@ -208,7 +208,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -221,7 +220,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -234,7 +232,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -256,7 +253,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -267,7 +263,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -280,7 +275,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -301,7 +295,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -312,7 +305,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -325,7 +317,6 @@ class TestProcessSingleDataviewCircuitBreakerAndTuning:
         _mock_logger, mock_fetcher, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -360,7 +351,6 @@ class TestProcessSingleDataviewSharedCache:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -371,7 +361,6 @@ class TestProcessSingleDataviewSharedCache:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -384,7 +373,6 @@ class TestProcessSingleDataviewSharedCache:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -417,7 +405,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -428,7 +415,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -441,7 +427,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -468,7 +453,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -479,7 +463,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -492,7 +475,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -521,7 +503,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -532,7 +513,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -545,7 +525,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -572,7 +551,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -583,7 +561,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -596,7 +573,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -626,7 +602,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -637,7 +612,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -650,7 +624,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -680,7 +653,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -691,7 +663,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -704,7 +675,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -731,7 +701,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -742,7 +711,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -755,7 +723,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -782,7 +749,6 @@ class TestProcessSingleDataviewInventoryBuilding:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -793,7 +759,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -806,7 +771,6 @@ class TestProcessSingleDataviewInventoryBuilding:
         mock_logger, _, _ = _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -831,6 +795,91 @@ class TestProcessSingleDataviewInventoryBuilding:
         assert _mock_call_contains(mock_logger.error, "Error during segments inventory: segments transport fail")
         assert _mock_call_contains(mock_logger.info, "Continuing with SDR generation despite segments inventory errors")
 
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_parallel_inventory_serializes_shared_cja_calls(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Calculated/segments inventory builders should not call the shared CJA client concurrently."""
+        _configure_standard_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_fetcher_class,
+            mock_dq_checker_class,
+            mock_excel_writer,
+            sample_metrics_df,
+            sample_dimensions_df,
+            sample_dataview_info,
+        )
+
+        calc_inv = _make_mock_inventory_obj(total_calculated_metrics=5)
+        seg_inv = _make_mock_inventory_obj(total_segments=7)
+
+        state_lock = threading.Lock()
+        active_calls = 0
+        max_active_calls = 0
+        first_call_claimed = False
+        release_first_call = threading.Event()
+
+        def _probe_build(return_inventory):
+            nonlocal active_calls, max_active_calls, first_call_claimed
+
+            with state_lock:
+                active_calls += 1
+                max_active_calls = max(max_active_calls, active_calls)
+                is_first = not first_call_claimed
+                if is_first:
+                    first_call_claimed = True
+
+            try:
+                if is_first:
+                    # Without serialization, the second builder enters and releases this wait.
+                    # With serialization, this times out because the second call is blocked.
+                    release_first_call.wait(timeout=0.30)
+                else:
+                    release_first_call.set()
+                time.sleep(0.05)
+                return return_inventory
+            finally:
+                with state_lock:
+                    active_calls -= 1
+
+        with (
+            patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder") as mock_calc_cls,
+            patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder") as mock_seg_cls,
+        ):
+            mock_calc_cls.return_value.build.side_effect = lambda *_args, **_kwargs: _probe_build(calc_inv)
+            mock_seg_cls.return_value.build.side_effect = lambda *_args, **_kwargs: _probe_build(seg_inv)
+
+            result = process_single_dataview(
+                data_view_id="dv_test_12345",
+                config_file=mock_config_file,
+                output_dir=temp_output_dir,
+                include_calculated_metrics=True,
+                include_segments_inventory=True,
+                skip_validation=True,
+            )
+
+        assert result.success is True
+        assert result.calculated_metrics_count == 5
+        assert result.segments_count == 7
+        assert max_active_calls == 1
+
 
 # ============================================================================
 # Tests: Metadata creation with inventory stats (5547-5676)
@@ -842,7 +891,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -853,7 +901,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -866,7 +913,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -904,7 +950,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -915,7 +960,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -927,7 +971,6 @@ class TestProcessSingleDataviewMetadataWithInventory:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -970,7 +1013,6 @@ class TestProcessSingleDataviewLookupDataException:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -981,7 +1023,6 @@ class TestProcessSingleDataviewLookupDataException:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -995,15 +1036,16 @@ class TestProcessSingleDataviewLookupDataException:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
-        # Return lookup_data that will cause issues: values that error on iteration
-        bad_lookup = MagicMock(spec=dict)
-        bad_lookup.__iter__ = Mock(side_effect=TypeError("bad iter"))
-        bad_lookup.items.side_effect = TypeError("bad items")
-        bad_lookup.get.return_value = "Unknown"
-        bad_lookup.__isinstance__ = Mock(return_value=True)
+        # Return lookup_data that passes post-fetch validation (non-empty real dict)
+        # but has a value that causes errors during metadata DataFrame creation.
+        # The metadata processing iterates over lookup_data items and tries to
+        # build a DataFrame; a value that errors on str() will trigger the fallback.
+        bad_value = MagicMock()
+        bad_value.__str__ = Mock(side_effect=TypeError("bad str"))
+        bad_value.__repr__ = Mock(side_effect=TypeError("bad repr"))
+        bad_lookup = {"id": "dv_test_12345", "name": "Unknown", "bad_key": bad_value}
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, bad_lookup)
         mock_fetcher.get_tuner_statistics.return_value = None
         mock_fetcher_class.return_value = mock_fetcher
@@ -1039,7 +1081,6 @@ class TestProcessSingleDataviewJSONFormatException:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1050,7 +1091,6 @@ class TestProcessSingleDataviewJSONFormatException:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1061,7 +1101,6 @@ class TestProcessSingleDataviewJSONFormatException:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1102,7 +1141,6 @@ class TestProcessSingleDataviewFilenameException:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1113,7 +1151,6 @@ class TestProcessSingleDataviewFilenameException:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1127,7 +1164,6 @@ class TestProcessSingleDataviewFilenameException:
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
         mock_init_cja.return_value = mock_cja
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         # lookup_data returns something that causes .get("name") to raise
@@ -1171,7 +1207,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1182,7 +1217,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1195,7 +1229,6 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1215,7 +1248,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1226,7 +1258,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1239,7 +1270,6 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1276,7 +1306,6 @@ class TestProcessSingleDataviewOutputFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
@@ -1285,7 +1314,6 @@ class TestProcessSingleDataviewOutputFormats:
         mock_write_json,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1298,7 +1326,6 @@ class TestProcessSingleDataviewOutputFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),  # not used for non-excel
@@ -1340,7 +1367,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1351,7 +1377,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1364,7 +1389,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1404,7 +1428,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1415,7 +1438,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1428,7 +1450,6 @@ class TestProcessSingleDataviewExcelPlaceholders:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1457,7 +1478,6 @@ class TestProcessSingleDataviewTimingsAndSummary:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1468,7 +1488,6 @@ class TestProcessSingleDataviewTimingsAndSummary:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1482,7 +1501,6 @@ class TestProcessSingleDataviewTimingsAndSummary:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1516,7 +1534,6 @@ class TestProcessSingleDataviewFileWriteErrors:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1527,7 +1544,6 @@ class TestProcessSingleDataviewFileWriteErrors:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1540,7 +1556,6 @@ class TestProcessSingleDataviewFileWriteErrors:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1561,7 +1576,6 @@ class TestProcessSingleDataviewFileWriteErrors:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -1572,7 +1586,6 @@ class TestProcessSingleDataviewFileWriteErrors:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -1585,7 +1598,6 @@ class TestProcessSingleDataviewFileWriteErrors:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -1824,7 +1836,7 @@ class TestRunDryRunAPIValidation:
 
             mock_retry.side_effect = [
                 [],  # getDataViews
-                {"name": "Test DV"},  # getDataView
+                {"id": "dv_test", "name": "Test DV"},  # getDataView
                 OSError("metrics fetch fail"),  # getMetrics
                 ValueError("dimensions fetch fail"),  # getDimensions
             ]
@@ -1832,6 +1844,39 @@ class TestRunDryRunAPIValidation:
             result = run_dry_run(["dv_test"], "config.json", logger)
         # Still passes because the DV was found
         assert result is True
+
+    def test_dv_validation_missing_component_method_degrades_to_zero(self, capsys):
+        """Missing metric/dimension methods should not abort dry-run validation."""
+        logger = logging.getLogger("test_dry_run_missing_component_method")
+        with (
+            patch("cja_auto_sdr.generator.validate_config_file", return_value=True),
+            patch("cja_auto_sdr.generator.configure_cjapy", return_value=(True, "config", {})),
+            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.make_api_call_with_retry") as mock_retry,
+        ):
+            mock_cja = MagicMock()
+            mock_cjapy.CJA.return_value = mock_cja
+
+            def _mock_retry_call(*_args, **kwargs):
+                op = kwargs.get("operation_name")
+                if op == "getDataViews (dry-run)":
+                    return []
+                if op == "getDataView(dv_partial)":
+                    return {"id": "dv_partial", "name": "Partial DV"}
+                if op == "getMetrics(dv_partial)":
+                    raise DiscoveryNotFoundError("missing getMetrics")
+                if op == "getDimensions(dv_partial)":
+                    return [{"id": "d1"}, {"id": "d2"}]
+                raise AssertionError(f"Unexpected operation: {op}")
+
+            mock_retry.side_effect = _mock_retry_call
+
+            result = run_dry_run(["dv_partial"], "config.json", logger)
+
+        assert result is True
+        captured = capsys.readouterr()
+        assert "dv_partial: Partial DV" in captured.out
+        assert "Components: 0 metrics, 2 dimensions" in captured.out
 
     def test_dv_not_found(self, capsys):
         """Lines 6636-6638: data view getDataView returns None."""
@@ -1918,7 +1963,7 @@ class TestRunDryRunAPIValidation:
                 if op == "getDataView(dv_flaky)":
                     raise RetryableHTTPError(504, "gateway timeout")
                 if op == "getDataView(dv_ok)":
-                    return {"name": "Healthy DV"}
+                    return {"id": "dv_ok", "name": "Healthy DV"}
                 if op == "getMetrics(dv_ok)":
                     return []
                 if op == "getDimensions(dv_ok)":
@@ -2169,7 +2214,7 @@ class TestRunDryRunAPIReturnsNone:
 
             mock_retry.side_effect = [
                 None,  # getDataViews (unstable)
-                {"name": "Found DV"},  # getDataView
+                {"id": "dv_test", "name": "Found DV"},  # getDataView
                 [],  # getMetrics
                 [],  # getDimensions
             ]
@@ -2189,7 +2234,6 @@ class TestProcessSingleDataviewMultipleFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.apply_excel_formatting")
@@ -2208,7 +2252,6 @@ class TestProcessSingleDataviewMultipleFormats:
         mock_apply_formatting,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -2221,7 +2264,6 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             mock_excel_writer,
@@ -2249,7 +2291,6 @@ class TestProcessSingleDataviewMultipleFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_html_output")
@@ -2258,7 +2299,6 @@ class TestProcessSingleDataviewMultipleFormats:
         mock_html,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -2271,7 +2311,6 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),
@@ -2300,7 +2339,6 @@ class TestProcessSingleDataviewMultipleFormats:
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
-    @patch("cja_auto_sdr.generator.validate_data_view")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_markdown_output")
@@ -2309,7 +2347,6 @@ class TestProcessSingleDataviewMultipleFormats:
         mock_md,
         mock_dq_checker_class,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         mock_config_file,
@@ -2322,7 +2359,6 @@ class TestProcessSingleDataviewMultipleFormats:
         _configure_standard_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             mock_dq_checker_class,
             MagicMock(),

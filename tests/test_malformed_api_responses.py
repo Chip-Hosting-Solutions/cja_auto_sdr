@@ -45,7 +45,6 @@ def _api_patches():
     return [
         patch("cja_auto_sdr.generator.setup_logging"),
         patch("cja_auto_sdr.generator.initialize_cja"),
-        patch("cja_auto_sdr.generator.validate_data_view"),
         patch("cja_auto_sdr.generator.ParallelAPIFetcher"),
     ]
 
@@ -59,7 +58,6 @@ def _apply(func):
 def _setup_mocks(
     mock_setup_logging,
     mock_init_cja,
-    mock_validate_dv,
     mock_fetcher_class,
     metrics_df,
     dimensions_df,
@@ -70,7 +68,6 @@ def _setup_mocks(
     logger.setLevel(logging.DEBUG)
     mock_setup_logging.return_value = logger
     mock_init_cja.return_value = Mock()
-    mock_validate_dv.return_value = True
 
     mock_fetcher = Mock()
     mock_fetcher.fetch_all_data.return_value = (metrics_df, dimensions_df, dataview_info)
@@ -91,7 +88,6 @@ class TestAPIReturnsWrongTypes:
     def test_metrics_as_list_instead_of_dataframe(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -104,7 +100,6 @@ class TestAPIReturnsWrongTypes:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame(raw_list),  # Convert so fetcher returns valid DF
             pd.DataFrame([{"id": "d1", "name": "Dim 1", "type": "string", "title": "D1", "description": "d"}]),
@@ -125,7 +120,6 @@ class TestAPIReturnsWrongTypes:
     def test_dataview_info_missing_owner_key(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -135,7 +129,6 @@ class TestAPIReturnsWrongTypes:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
@@ -155,17 +148,15 @@ class TestAPIReturnsWrongTypes:
     def test_dataview_info_is_empty_dict(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
         output_dir,
     ):
-        """API returns an empty dict for dataview info."""
+        """API returns an empty dict for dataview info — now triggers validation failure."""
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
@@ -179,7 +170,44 @@ class TestAPIReturnsWrongTypes:
             output_format="json",
             quiet=True,
         )
-        assert result.success is True
+        assert result.success is False
+        assert "validation failed" in result.error_message.lower()
+        assert result.data_view_name == "Unknown"
+
+    @_apply
+    def test_dataview_info_is_error_placeholder_dict(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        malformed_config,
+        output_dir,
+    ):
+        """Non-empty error placeholders are rejected by dataview validation."""
+        _setup_mocks(
+            mock_setup_logging,
+            mock_init_cja,
+            mock_fetcher_class,
+            pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
+            pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
+            {
+                "id": "dv_test",
+                "name": "Unknown",
+                "lookup_failed": True,
+                "lookup_failure_reason": "exception",
+                "error": "getDataView failed",
+            },
+        )
+
+        result = process_single_dataview(
+            data_view_id="dv_test",
+            config_file=malformed_config,
+            output_dir=output_dir,
+            output_format="json",
+            quiet=True,
+        )
+        assert result.success is False
+        assert "validation failed" in result.error_message.lower()
         assert result.data_view_name == "Unknown"
 
 
@@ -195,7 +223,6 @@ class TestMalformedDataFrameSchemas:
     def test_metrics_missing_description_column(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -205,7 +232,6 @@ class TestMalformedDataFrameSchemas:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1"}]),  # No description
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
@@ -226,7 +252,6 @@ class TestMalformedDataFrameSchemas:
     def test_metrics_with_extra_unknown_columns(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -236,7 +261,6 @@ class TestMalformedDataFrameSchemas:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame(
                 [
@@ -269,7 +293,6 @@ class TestMalformedDataFrameSchemas:
     def test_dimensions_all_null_descriptions(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -279,7 +302,6 @@ class TestMalformedDataFrameSchemas:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame(
@@ -306,7 +328,6 @@ class TestMalformedDataFrameSchemas:
     def test_metrics_with_mixed_types_in_columns(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -316,7 +337,6 @@ class TestMalformedDataFrameSchemas:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame(
                 [
@@ -351,7 +371,6 @@ class TestAPIExceptionsDuringFetch:
     def test_fetcher_raises_connection_error(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -362,7 +381,6 @@ class TestAPIExceptionsDuringFetch:
         logger.handlers = []
         mock_setup_logging.return_value = logger
         mock_init_cja.return_value = Mock()
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.side_effect = ConnectionError("Network unreachable")
@@ -381,7 +399,6 @@ class TestAPIExceptionsDuringFetch:
     def test_fetcher_raises_timeout_error(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -392,7 +409,6 @@ class TestAPIExceptionsDuringFetch:
         logger.handlers = []
         mock_setup_logging.return_value = logger
         mock_init_cja.return_value = Mock()
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.side_effect = TimeoutError("API timed out")
@@ -410,7 +426,6 @@ class TestAPIExceptionsDuringFetch:
     def test_fetcher_raises_attribute_error(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -421,7 +436,6 @@ class TestAPIExceptionsDuringFetch:
         logger.handlers = []
         mock_setup_logging.return_value = logger
         mock_init_cja.return_value = Mock()
-        mock_validate_dv.return_value = True
 
         mock_fetcher = Mock()
         mock_fetcher.fetch_all_data.side_effect = AttributeError("'NoneType' has no attribute 'getMetrics'")
@@ -448,7 +462,6 @@ class TestPartialAPIResponses:
     def test_metrics_only_no_dimensions(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -458,7 +471,6 @@ class TestPartialAPIResponses:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame(),  # Empty dimensions
@@ -481,7 +493,6 @@ class TestPartialAPIResponses:
     def test_dimensions_only_no_metrics(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -491,7 +502,6 @@ class TestPartialAPIResponses:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame(),  # Empty metrics
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),
@@ -513,7 +523,6 @@ class TestPartialAPIResponses:
     def test_single_row_dataframes(
         self,
         mock_fetcher_class,
-        mock_validate_dv,
         mock_init_cja,
         mock_setup_logging,
         malformed_config,
@@ -523,7 +532,6 @@ class TestPartialAPIResponses:
         _setup_mocks(
             mock_setup_logging,
             mock_init_cja,
-            mock_validate_dv,
             mock_fetcher_class,
             pd.DataFrame([{"id": "m1", "name": "M1", "type": "int", "title": "M1", "description": "d"}]),
             pd.DataFrame([{"id": "d1", "name": "D1", "type": "string", "title": "D1", "description": "d"}]),

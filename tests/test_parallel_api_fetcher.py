@@ -1,17 +1,13 @@
 """Tests for ParallelAPIFetcher class"""
 
 import logging
-import os
-import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 import pytest
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from cja_auto_sdr.core.config import APITuningConfig
+from cja_auto_sdr.core.exceptions import CircuitBreakerOpen
 from cja_auto_sdr.generator import ParallelAPIFetcher, PerformanceTracker
 
 
@@ -299,6 +295,8 @@ class TestParallelAPIFetcherFetchAllData:
         # When dataview info fetch fails, it returns a fallback dict with Unknown name
         assert dataview["name"] == "Unknown"
         assert dataview["id"] == "dv_test_12345"
+        assert dataview["lookup_failed"] is True
+        assert dataview["lookup_failure_reason"] == "none_payload"
 
 
 class TestParallelAPIFetcherFetchMetrics:
@@ -435,6 +433,28 @@ class TestParallelAPIFetcherFetchDataviewInfo:
         assert result["name"] == "Test Data View"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_canonicalizes_mixed_case_identity_and_owner(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Successful mixed-case payloads should expose canonical keys downstream."""
+        mock_api_call.return_value = {
+            "ID": "dv_test_12345",
+            "Name": "Test Data View",
+            "Owner": {"NAME": "Test Owner"},
+        }
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["id"] == "dv_test_12345"
+        assert result["name"] == "Test Data View"
+        assert result["owner"]["name"] == "Test Owner"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_returns_none(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
         """Test handling of None response"""
         mock_api_call.return_value = None
@@ -444,6 +464,8 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "none_payload"
         mock_logger.error.assert_called()
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
@@ -456,6 +478,166 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "empty_mapping"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_legacy_unknown_placeholder(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Legacy fallback payload shape should be normalized into explicit failure payload."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "name": "Unknown"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "legacy_unknown_placeholder"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_unknown_placeholder_with_error_diagnostic(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Unknown placeholder with diagnostic keys should be normalized into failure payload."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "name": "Unknown", "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "unknown_placeholder_diagnostic:error"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_id_plus_error_only_payload(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with only id+error should fail closed."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "error_shape"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_empty_owner_container_with_error(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with empty owner container should fail closed."""
+        mock_api_call.return_value = {"id": "dv_test_12345", "owner": {}, "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "error_shape"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_prefers_non_empty_case_collided_owner_payload(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Case-collided owner keys should keep richer values over empty placeholders."""
+        mock_api_call.return_value = {
+            "id": "dv_test_12345",
+            "owner": {},
+            "Owner": {"NAME": "Test Owner"},
+            "error": "transient warning",
+        }
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["id"] == "dv_test_12345"
+        assert result["owner"]["name"] == "Test Owner"
+        assert "lookup_failed" not in result
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_id_only_payload_as_insufficient_metadata(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with only id should fail closed as insufficient metadata."""
+        mock_api_call.return_value = {"id": "dv_test_12345"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "insufficient_metadata"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_rejects_payload_missing_expected_id(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Lookup payload with name/error but missing id should fail closed."""
+        mock_api_call.return_value = {"name": "Some Name", "error": "not found"}
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "missing_expected_id"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    def test_fetch_dataview_info_circuit_breaker_open(
+        self,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+    ):
+        """Circuit breaker opens should return explicit failure payload."""
+        mock_api_call.side_effect = CircuitBreakerOpen("breaker open", time_until_retry=10)
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        result = fetcher._fetch_dataview_info("dv_test_12345")
+
+        assert result["name"] == "Unknown"
+        assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "circuit_breaker_open"
+        assert result["circuit_breaker_open"] is True
+        assert "error" in result
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     def test_fetch_dataview_info_exception(self, mock_api_call, mock_cja, mock_logger, mock_perf_tracker):
@@ -467,6 +649,8 @@ class TestParallelAPIFetcherFetchDataviewInfo:
 
         assert result["name"] == "Unknown"
         assert result["id"] == "dv_test_12345"
+        assert result["lookup_failed"] is True
+        assert result["lookup_failure_reason"] == "exception"
         assert "error" in result
 
 
@@ -530,6 +714,8 @@ class TestParallelAPIFetcherErrorHandling:
         assert dimensions.empty
         # On failure, dataview returns fallback dict with error
         assert dataview["name"] == "Unknown"
+        assert dataview["lookup_failed"] is True
+        assert dataview["lookup_failure_reason"] == "exception"
         assert "error" in dataview
 
 
