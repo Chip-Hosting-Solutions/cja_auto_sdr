@@ -184,7 +184,10 @@ class DataViewSummary:
     def normalized_error_reason(self) -> str | None:
         """Fetch failure reason with normalized whitespace.
 
-        Returns None when there is no fetch failure.
+        This is the *read-time* normalization layer and the canonical accessor
+        that all output writers should use.  It complements the *write-time*
+        layer in ``OrgAnalyzer._normalize_exception_message`` which runs once
+        at capture time.  Returns None when there is no fetch failure.
         """
         if self.error is None:
             return None

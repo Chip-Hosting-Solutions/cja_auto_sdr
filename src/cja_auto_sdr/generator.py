@@ -12156,7 +12156,7 @@ def write_org_report_excel(
                 "Dimensions": dv.dimension_count,
                 "Total": dv.total_components,
                 "Status": dv.status,
-                "Error": dv.error or "",
+                "Error": dv.normalized_error_reason if dv.has_error else "",
             }
             # Add component type columns if enabled
             if result.parameters.include_component_types:

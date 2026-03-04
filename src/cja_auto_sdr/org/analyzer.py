@@ -145,7 +145,14 @@ class OrgComponentAnalyzer:
 
     @staticmethod
     def _normalize_exception_message(error: Exception) -> str:
-        """Return a stable, non-empty message for surfaced exceptions."""
+        """Return a stable, non-empty message for surfaced exceptions.
+
+        This is the *write-time* normalization layer: it runs once when the
+        exception is caught and the resulting string is stored in
+        ``DataViewSummary.error``.  The *read-time* layer lives in
+        ``DataViewSummary.normalized_error_reason`` and is the canonical
+        accessor that all output writers should use.
+        """
         normalized = " ".join(str(error).split())
         return normalized or type(error).__name__
 
