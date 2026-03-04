@@ -1135,6 +1135,29 @@ class TestBuildOrgReportJsonData:
             "Timeout": 2,
         }
 
+    def test_json_data_treats_empty_error_as_failed_data_view(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(
+            _make_data_view_summary(
+                "dv_err_blank",
+                "Error DV Blank",
+                metric_count=7,
+                dimension_count=4,
+                error="",
+            ),
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["data_views_total"] == 4
+        assert data["summary"]["data_views_analyzed"] == 3
+        assert data["summary"]["data_views_failed"] == 1
+        assert data["summary"]["total_metrics_non_unique"] == 15
+        assert data["summary"]["total_dimensions_non_unique"] == 9
+        assert data["summary"]["total_derived_fields_non_unique"] == 6
+        assert data["data_view_fetch_failures"]["count"] == 1
+        assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err_blank"]
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {"Unknown error": 1}
+
     def test_json_data_with_clusters(self):
         result = _make_org_result(include_clusters=True)
         data = build_org_report_json_data(result)

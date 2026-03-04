@@ -11339,7 +11339,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
         name = dv.data_view_name[:48] + ".." if len(dv.data_view_name) > 50 else dv.data_view_name
-        if dv.error:
+        if dv.error is not None:
             print(f"{name:<50} {dv.data_view_id:<30} {'ERROR':>8} {'':>10} {dv.status:<8}")
         else:
             print(f"{name:<50} {dv.data_view_id:<30} {dv.metric_count:>8} {dv.dimension_count:>10} {dv.status:<8}")
@@ -11356,11 +11356,11 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
     total_all = result.total_unique_components
 
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     dist = result.distribution
@@ -11884,21 +11884,23 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
             "total_unique_metrics": result.total_unique_metrics,
             "total_unique_dimensions": result.total_unique_dimensions,
             "total_unique_components": result.total_unique_components,
-            "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if not dv.error),
-            "total_dimensions_non_unique": sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error),
+            "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None),
+            "total_dimensions_non_unique": sum(
+                dv.dimension_count for dv in result.data_view_summaries if dv.error is None
+            ),
             "total_components_non_unique": sum(
-                dv.total_components for dv in result.data_view_summaries if not dv.error
+                dv.total_components for dv in result.data_view_summaries if dv.error is None
             ),
             "derived_metrics_non_unique": sum(
-                dv.derived_metric_count for dv in result.data_view_summaries if not dv.error
+                dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None
             ),
             "derived_dimensions_non_unique": sum(
-                dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error
+                dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
             ),
             "total_derived_fields_non_unique": sum(
                 dv.derived_metric_count + dv.derived_dimension_count
                 for dv in result.data_view_summaries
-                if not dv.error
+                if dv.error is None
             ),
             "analysis_duration_seconds": round(result.duration, 2),
         },
@@ -12074,11 +12076,13 @@ def write_org_report_excel(
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         # Sheet 1: Summary
         # Calculate total aggregates (non-unique counts across all data views)
-        total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-        total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-        total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-        total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-        total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+        total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+        total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+        total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+        total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+        total_derived_dimensions = sum(
+            dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
+        )
         total_derived_fields = total_derived_metrics + total_derived_dimensions
         effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
@@ -12222,7 +12226,7 @@ def write_org_report_excel(
         # Sheet 4: Isolated by Data View
         isolated_data = []
         for dv in result.data_view_summaries:
-            if dv.error:
+            if dv.error is not None:
                 continue
             isolated_metrics = [
                 c
@@ -12405,11 +12409,11 @@ def write_org_report_markdown(
 
     # Summary Table
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     lines.append("## Summary")
@@ -12467,7 +12471,7 @@ def write_org_report_markdown(
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
         name = dv.data_view_name.replace("|", "\\|")
-        if dv.error:
+        if dv.error is not None:
             lines.append(f"| {name} | `{dv.data_view_id}` | ERROR | - | {dv.status} |")
         else:
             lines.append(f"| {name} | `{dv.data_view_id}` | {dv.metric_count} | {dv.dimension_count} | {dv.status} |")
@@ -12621,9 +12625,11 @@ def write_org_report_html(
     org_id_escaped = html.escape(result.org_id)
 
     # Calculate total aggregates (non-unique counts across all data views)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(
+        dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
+    )
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     html_out = f"""<!DOCTYPE html>
@@ -12813,7 +12819,7 @@ def write_org_report_html(
         # Escape user-sourced strings to prevent HTML injection
         dv_name_escaped = html.escape(dv.data_view_name)
         dv_id_escaped = html.escape(dv.data_view_id)
-        if dv.error:
+        if dv.error is not None:
             error_escaped = html.escape(dv.error)
             html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td colspan="2">ERROR: {error_escaped}</td><td>{dv.status}</td></tr>\n'
         else:
@@ -12961,11 +12967,11 @@ def write_org_report_csv(
 
     # 1. Summary CSV
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
     effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 

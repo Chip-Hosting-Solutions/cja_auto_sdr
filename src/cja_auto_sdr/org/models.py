@@ -338,34 +338,35 @@ class OrgReportResult:
 
     @property
     def successful_data_views(self) -> int:
-        return len([s for s in self.data_view_summaries if s.error is None])
+        return sum(1 for summary in self.data_view_summaries if summary.error is None)
 
     @property
     def failed_data_views(self) -> int:
-        return len([s for s in self.data_view_summaries if s.error is not None])
+        return sum(1 for summary in self.data_view_summaries if summary.error is not None)
 
     @property
     def failed_data_view_ids(self) -> list[str]:
-        return [s.data_view_id for s in self.data_view_summaries if s.error is not None]
+        return [summary.data_view_id for summary in self.data_view_summaries if summary.error is not None]
 
     @property
     def failed_data_view_reason_counts(self) -> dict[str, int]:
         """Count failed data views by normalized error reason."""
-        reasons: list[str] = []
+        reason_counts: Counter[str] = Counter()
         for summary in self.data_view_summaries:
             if summary.error is None:
                 continue
-            normalized_reason = summary.error.strip() or "Unknown error"
-            reasons.append(normalized_reason)
-        return dict(sorted(Counter(reasons).items()))
+            # Collapse whitespace for stable reason rollups across equivalent error messages.
+            normalized_reason = " ".join(summary.error.split()) or "Unknown error"
+            reason_counts[normalized_reason] += 1
+        return dict(sorted(reason_counts.items()))
 
     @property
     def total_unique_metrics(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == "metric"])
+        return sum(1 for component in self.component_index.values() if component.component_type == "metric")
 
     @property
     def total_unique_dimensions(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == "dimension"])
+        return sum(1 for component in self.component_index.values() if component.component_type == "dimension")
 
     @property
     def total_unique_components(self) -> int:

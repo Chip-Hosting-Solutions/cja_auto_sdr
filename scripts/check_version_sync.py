@@ -23,7 +23,7 @@ VERSION_FILE = ROOT / "src" / "cja_auto_sdr" / "core" / "version.py"
 
 def get_canonical_version() -> str:
     """Read the canonical version from version.py."""
-    content = VERSION_FILE.read_text()
+    content = VERSION_FILE.read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*"([^"]+)"', content)
     if not match:
         raise SystemExit(f"FAIL: Could not parse version from {VERSION_FILE.relative_to(ROOT)}")
@@ -75,7 +75,7 @@ def check_all(canonical: str) -> list[str]:
             errors.append(f"  {rel_path}: file not found")
             continue
 
-        content = filepath.read_text()
+        content = filepath.read_text(encoding="utf-8")
         matches = re.findall(pattern, content, re.MULTILINE)
 
         if not matches:
@@ -97,7 +97,7 @@ def check_release_tag(canonical: str) -> str | None:
     tag_name = f"v{canonical}"
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag_name}"],
+            ["git", "rev-parse", "--verify", f"refs/tags/{tag_name}"],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -107,9 +107,13 @@ def check_release_tag(canonical: str) -> str | None:
         return f"Unable to verify release tag {tag_name}: {exc}"
 
     if result.returncode != 0:
+        stderr = (result.stderr or "").strip().lower()
+        if "not a git repository" in stderr:
+            return f"Unable to verify release tag {tag_name}: {ROOT} is not a git repository"
         return (
             f"Missing required release tag: {tag_name}. "
-            f"Create it with: git tag {tag_name}"
+            f"Create it with: git tag {tag_name}. "
+            "If it already exists remotely, run: git fetch --tags"
         )
     return None
 

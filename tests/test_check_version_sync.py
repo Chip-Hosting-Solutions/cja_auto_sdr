@@ -48,13 +48,30 @@ def test_check_release_tag_reports_missing_tag(monkeypatch) -> None:
     monkeypatch.setattr(
         check_version_sync.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=1),
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stderr=""),
     )
 
     error = check_version_sync.check_release_tag("3.3.6")
 
     assert error is not None
     assert "v3.3.6" in error
+    assert "git fetch --tags" in error
+
+
+def test_check_release_tag_reports_non_git_repository(monkeypatch) -> None:
+    monkeypatch.setattr(
+        check_version_sync.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=128,
+            stderr="fatal: not a git repository (or any of the parent directories): .git",
+        ),
+    )
+
+    error = check_version_sync.check_release_tag("3.3.6")
+
+    assert error is not None
+    assert "not a git repository" in error
 
 
 def test_check_release_tag_reports_oserror(monkeypatch) -> None:

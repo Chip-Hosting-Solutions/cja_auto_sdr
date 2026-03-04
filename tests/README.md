@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,317 comprehensive tests**
+**Total: 5,320 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -102,7 +102,7 @@ tests/
 |-----------|-------|---------------|
 | `test_diff_comparison.py` | 169 | Data view diff comparison feature with inventory support |
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
-| `test_org_report.py` | 172 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
+| `test_org_report.py` | 173 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 408 | Command-line interface and argument parsing |
 | `test_profiles.py` | 76 | Multi-organization profile support |
@@ -176,7 +176,7 @@ tests/
 | `test_main_impl_coverage.py` | 57 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
-| `test_org_writer_coverage.py` | 95 | Org writer edge cases and coverage |
+| `test_org_writer_coverage.py` | 96 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
 | `test_backwards_compat.py` | 34 | Backwards compatibility tests |
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 26 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,317** | **Collected via pytest --collect-only** |
+| **Total** | **5,320** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,8 +591,8 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,317 tests total)
-- [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
+- [x] Comprehensive test coverage (5,320 tests total)
+- [x] Org-wide analysis tests (test_org_report.py) - 173 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
