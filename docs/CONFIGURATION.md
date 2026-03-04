@@ -272,7 +272,7 @@ uv add python-dotenv
 
 ---
 
-## OAuth Scopes
+## OAuth Scopes Explained
 
 OAuth scopes control which APIs your integration can access. The required scopes vary based on your Adobe Developer Console project configuration.
 

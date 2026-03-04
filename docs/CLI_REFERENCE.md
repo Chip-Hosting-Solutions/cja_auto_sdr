@@ -686,12 +686,14 @@ cja_auto_sdr dv_12345 --stats --format csv --output stats.csv
 # Launch interactive selection mode
 cja_auto_sdr --interactive
 
-# Interactive selection with custom output format
-cja_auto_sdr --interactive --format markdown
+# Interactive selection with a specific profile
+cja_auto_sdr --interactive --profile client-a
 
 # Interactive selection with specific output directory
 cja_auto_sdr --interactive --output-dir ./reports
 ```
+
+> **Note:** In `--interactive` mode, the wizard prompts you to choose output format and inventory options.
 
 **Selection Syntax:**
 - Single: `3` (selects #3)
