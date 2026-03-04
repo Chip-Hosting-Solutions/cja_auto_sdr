@@ -34,6 +34,13 @@ def test_check_all_reports_mismatch_for_first_match(tmp_path, monkeypatch) -> No
     assert "expected 1.2.3, found 1.2.2" in errors[0]
 
 
+def test_version_locations_include_claude_version_entry() -> None:
+    assert any(
+        rel_path == "CLAUDE.md" and "current version" in description.lower()
+        for rel_path, _pattern, description in check_version_sync.VERSION_LOCATIONS
+    )
+
+
 def test_check_release_tag_returns_none_when_tag_exists(monkeypatch) -> None:
     monkeypatch.setattr(
         check_version_sync.subprocess,

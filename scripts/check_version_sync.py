@@ -53,6 +53,11 @@ VERSION_LOCATIONS: list[tuple[str, str, str]] = [
         "Configuration startup diagnostics version example",
     ),
     (
+        "CLAUDE.md",
+        r"Current version:\s*v(\d+\.\d+\.\d+)",
+        "Claude project notes current version",
+    ),
+    (
         "tests/test_ux_features.py",
         r'assert __version__ == "(\d+\.\d+\.\d+)"',
         "UX features version assertion",
@@ -85,9 +90,7 @@ def check_all(canonical: str) -> list[str]:
         # Check first match (most relevant — e.g. latest changelog entry)
         found = matches[0]
         if found != canonical:
-            errors.append(
-                f"  {rel_path}: expected {canonical}, found {found} ({description})"
-            )
+            errors.append(f"  {rel_path}: expected {canonical}, found {found} ({description})")
 
     return errors
 

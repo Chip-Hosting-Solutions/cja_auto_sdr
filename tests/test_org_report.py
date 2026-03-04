@@ -673,7 +673,21 @@ class TestDataViewSummary:
         """Test error state"""
         summary = DataViewSummary(data_view_id="dv_error", data_view_name="Error DV", error="API Error")
         assert summary.error == "API Error"
+        assert summary.has_error is True
+        assert summary.normalized_error_reason == "API Error"
         assert summary.total_components == 0
+
+    def test_blank_error_is_failed_with_unknown_reason(self):
+        """Empty-string error should still be treated as failure."""
+        summary = DataViewSummary(data_view_id="dv_error_blank", data_view_name="Error DV", error="")
+        assert summary.has_error is True
+        assert summary.normalized_error_reason == "Unknown error"
+
+    def test_success_summary_has_no_error_reason(self):
+        """Successful summaries should not expose failure reason text."""
+        summary = DataViewSummary(data_view_id="dv_ok", data_view_name="Healthy DV")
+        assert summary.has_error is False
+        assert summary.normalized_error_reason is None
 
 
 class TestSimilarityPair:

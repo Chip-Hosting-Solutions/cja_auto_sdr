@@ -416,6 +416,33 @@ class TestCompareOrgReports:
         assert comparison.summary["new_duplicates"] >= 1
         assert comparison.summary["resolved_duplicates"] >= 1
 
+    def test_compare_excludes_failed_data_views_with_blank_error(self, tmp_path):
+        """Blank error text should still exclude a DV from current-side comparison sets."""
+        prev_report = {
+            "generated_at": "2024-08-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+            ],
+            "summary": {"total_unique_components": 20},
+            "distribution": {
+                "core": {"total": 5},
+                "isolated": {"total": 2},
+            },
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev_blank_error.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+        current.data_view_summaries[0] = _make_data_view_summary("dv_001", "Data View 1", error="")
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert "dv_001" in comparison.data_views_removed
+        assert "dv_001" not in comparison.data_views_added
+
 
 # ===================================================================
 # write_org_report_console
@@ -1081,6 +1108,20 @@ class TestWriteOrgReportCsv:
             first_row = next(csv.DictReader(handle))
 
         assert first_row["Failed Data Views"] == "1"
+
+    def test_csv_data_view_rows_render_unknown_error_for_blank_failure(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err_blank", "Error DV Blank", error=""))
+        logger = logging.getLogger("test_csv_blank_error")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        data_views_path = Path(returned) / "org_report_data_views.csv"
+
+        with data_views_path.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+
+        blank_error_row = next(row for row in rows if row["Data View ID"] == "dv_err_blank")
+        assert blank_error_row["Error"] == "Unknown error"
 
 
 # ===================================================================

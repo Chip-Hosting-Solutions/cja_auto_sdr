@@ -176,6 +176,22 @@ class DataViewSummary:
     has_description: bool = False
 
     @property
+    def has_error(self) -> bool:
+        """Whether this summary represents a fetch failure."""
+        return self.error is not None
+
+    @property
+    def normalized_error_reason(self) -> str | None:
+        """Fetch failure reason with normalized whitespace.
+
+        Returns None when there is no fetch failure.
+        """
+        if self.error is None:
+            return None
+        normalized_reason = " ".join(self.error.split())
+        return normalized_reason or "Unknown error"
+
+    @property
     def total_components(self) -> int:
         """Total number of components (metrics + dimensions)."""
         return self.metric_count + self.dimension_count
@@ -338,25 +354,24 @@ class OrgReportResult:
 
     @property
     def successful_data_views(self) -> int:
-        return sum(1 for summary in self.data_view_summaries if summary.error is None)
+        return sum(1 for summary in self.data_view_summaries if not summary.has_error)
 
     @property
     def failed_data_views(self) -> int:
-        return sum(1 for summary in self.data_view_summaries if summary.error is not None)
+        return sum(1 for summary in self.data_view_summaries if summary.has_error)
 
     @property
     def failed_data_view_ids(self) -> list[str]:
-        return [summary.data_view_id for summary in self.data_view_summaries if summary.error is not None]
+        return [summary.data_view_id for summary in self.data_view_summaries if summary.has_error]
 
     @property
     def failed_data_view_reason_counts(self) -> dict[str, int]:
         """Count failed data views by normalized error reason."""
         reason_counts: Counter[str] = Counter()
         for summary in self.data_view_summaries:
-            if summary.error is None:
+            normalized_reason = summary.normalized_error_reason
+            if normalized_reason is None:
                 continue
-            # Collapse whitespace for stable reason rollups across equivalent error messages.
-            normalized_reason = " ".join(summary.error.split()) or "Unknown error"
             reason_counts[normalized_reason] += 1
         return dict(sorted(reason_counts.items()))
 

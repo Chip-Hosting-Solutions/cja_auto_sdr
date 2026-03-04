@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Validate-config color behavior**: `validate_config_only` status lines now route through `ConsoleColors.success/error/warning/info` so `--no-color` and `NO_COLOR` are consistently honored.
 - **Org failure accounting consistency**: Org-report writers and JSON aggregations now consistently treat `error is not None` as fetch failure (including empty error strings) so failure counts and non-unique totals cannot drift.
+- **Analyzer failure contract hardening**: `OrgComponentAnalyzer` now uses explicit failure semantics (`has_error`) for indexing, recommendations, caching, owner summaries, and distribution pre-processing so blank error messages cannot be misclassified as success.
+- **CSV failure diagnostics**: Org-report data-view CSV rows now emit `Unknown error` for blank failure messages instead of an empty cell.
 
 ### Changed
 - **Type hygiene**: `ProcessingConfig.shared_cache` and `WorkerArgs.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Interactive warning clarity**: `--interactive` warning now explicitly states that positional data view arguments are ignored.
 - **Release gate hardening**: `check_version_sync.py --require-tag` now also verifies `GITHUB_REF` exactly matches `refs/tags/v<canonical>` when running under tag CI refs.
 - **Version-gate diagnostics**: `check_version_sync.py` now reads files as UTF-8 explicitly and provides clearer release-tag diagnostics for non-git contexts and missing local tags (including `git fetch --tags` guidance).
+- **Version-sync coverage**: `check_version_sync.py` now validates the `CLAUDE.md` "Current version" reference as part of canonical version checks.
+- **Manual release-gate safety**: `patch-release-gate.yml` now supports manual dispatch with optional `require_tag` strictness to avoid accidental false failures when no local tag context exists.
 
 ### Added
 - **CLI docs coverage**: Added `--metrics-only` and `--dimensions-only` coverage to README, quick reference, quickstart, and CLI reference.

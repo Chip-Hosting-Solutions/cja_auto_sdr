@@ -1143,6 +1143,47 @@ class TestGenerateRecommendations:
         types = [r["type"] for r in result]
         assert "fetch_errors" in types
 
+    def test_empty_error_string_is_treated_as_failure_everywhere(self, mock_cja, logger):
+        """Blank error text should still count as failure and be excluded from success-only checks."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_component_types=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv_ok",
+                data_view_name="Healthy DV",
+                metric_ids={"m1"},
+                dimension_ids={"d1"},
+                metric_count=1,
+                dimension_count=1,
+                derived_metric_count=0,
+                derived_dimension_count=0,
+            ),
+            DataViewSummary(
+                data_view_id="dv_err_blank",
+                data_view_name="Blank Error DV",
+                metric_ids={"m_bad_1", "m_bad_2"},
+                dimension_ids={"d_bad_1"},
+                metric_count=2,
+                dimension_count=1,
+                derived_metric_count=2,
+                derived_dimension_count=1,
+                error="",
+            ),
+        ]
+
+        index = analyzer._build_component_index(summaries)
+        assert "m_bad_1" not in index
+        assert "d_bad_1" not in index
+
+        recommendations = analyzer._generate_recommendations(summaries, index, ComponentDistribution(), None)
+        fetch_error_rec = next(rec for rec in recommendations if rec["type"] == "fetch_errors")
+        assert fetch_error_rec["count"] == 1
+        assert all(
+            not (rec["type"] == "high_derived_ratio" and rec.get("data_view") == "dv_err_blank")
+            for rec in recommendations
+        )
+
 
 # ===================================================================
 # 12. Exception handlers
@@ -1580,6 +1621,30 @@ class TestComputeOwnerSummary:
                 owner="Alice",
             ),
         ]
+        result = analyzer._compute_owner_summary(summaries)
+        assert result["by_owner"]["Alice"]["data_view_count"] == 1
+
+    def test_owner_summary_skips_empty_error_string_summaries(self, mock_cja, logger):
+        """Legacy blank error messages should still be treated as failed summaries."""
+        config = OrgReportConfig(skip_lock=True, cja_per_thread=False, include_metadata=True)
+        analyzer = _make_analyzer(mock_cja, logger, config=config)
+
+        summaries = [
+            DataViewSummary(
+                data_view_id="dv1",
+                data_view_name="DV 1",
+                metric_count=1,
+                dimension_count=0,
+                owner="Alice",
+            ),
+            DataViewSummary(
+                data_view_id="dv2",
+                data_view_name="Blank Error DV",
+                error="",
+                owner="Alice",
+            ),
+        ]
+
         result = analyzer._compute_owner_summary(summaries)
         assert result["by_owner"]["Alice"]["data_view_count"] == 1
 

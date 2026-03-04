@@ -11193,7 +11193,7 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         prev_data = json.load(f)
 
     # Extract data view IDs from both
-    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.error}
+    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.has_error}
     current_dv_names = {s.data_view_id: s.data_view_name for s in current.data_view_summaries}
 
     prev_dv_ids = set()
@@ -11513,10 +11513,10 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
     # Component Type Breakdown (if enabled)
     if config.include_component_types and not config.summary_only:
         # Aggregate type counts
-        total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.error)
-        total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.error)
-        total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.error)
-        total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.error)
+        total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.has_error)
+        total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.has_error)
+        total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.has_error)
+        total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.has_error)
 
         if total_standard_metrics + total_derived_metrics > 0:
             print("-" * 110)
@@ -13009,7 +13009,7 @@ def write_org_report_csv(
             "Dimensions Count": dv.dimension_count,
             "Total Components": dv.total_components,
             "Status": dv.status,
-            "Error": dv.error or "",
+            "Error": dv.normalized_error_reason if dv.has_error else "",
             "Fetch Duration (s)": round(dv.fetch_duration, 3),
         }
         for dv in result.data_view_summaries

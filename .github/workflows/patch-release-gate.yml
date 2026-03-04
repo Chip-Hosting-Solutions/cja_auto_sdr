@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      require_tag:
+        description: "Require local/CI tag verification (v<canonical>) during manual runs"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   patch-release-gate:
@@ -21,6 +27,13 @@ jobs:
       - name: Verify version, changelog, docs, release tag, and CI tag ref
         env:
           GITHUB_REF: ${{ github.ref }}
-        run: uv run python scripts/check_version_sync.py --require-tag
+          REQUIRE_TAG: ${{ github.event_name == 'push' && 'true' || github.event.inputs.require_tag || 'false' }}
+        run: |
+          if [ "${REQUIRE_TAG}" = "true" ]; then
+            uv run python scripts/check_version_sync.py --require-tag
+          else
+            echo "INFO: running manual release-gate checks without tag requirement."
+            uv run python scripts/check_version_sync.py
+          fi
       - name: Verify test counts are up to date
         run: uv run python scripts/update_test_counts.py --check
