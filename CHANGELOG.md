@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validate-config color behavior**: `validate_config_only` status lines now route through `ConsoleColors.success/error/warning/info` so `--no-color` and `NO_COLOR` are consistently honored.
 - **Org failure accounting consistency**: Org-report writers and JSON aggregations now consistently treat `error is not None` as fetch failure (including empty error strings) so failure counts and non-unique totals cannot drift.
 - **Analyzer failure contract hardening**: `OrgComponentAnalyzer` now uses explicit failure semantics (`has_error`) for indexing, recommendations, caching, owner summaries, and distribution pre-processing so blank error messages cannot be misclassified as success.
-- **CSV failure diagnostics**: Org-report data-view CSV rows now emit `Unknown error` for blank failure messages instead of an empty cell.
+- **Org report failure diagnostics**: Org-report data-view rows now emit `Unknown error` for blank failure messages instead of an empty cell, in both CSV and Excel outputs.
 
 ### Changed
 - **Type hygiene**: `ProcessingConfig.shared_cache` and `WorkerArgs.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
