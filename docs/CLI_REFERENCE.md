@@ -409,6 +409,8 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 - **Clusters**: Related data view groups (when `--cluster` is enabled)
 - **Owner Summary**: Stats grouped by owner (when `--owner-summary` is enabled)
 
+> **Org JSON telemetry contract:** The `data_view_fetch_failures` block is always present and includes `count`, `data_view_ids`, and `failure_reason_counts` (an additive reason-to-count map that may be empty). Consumers should ignore unknown future keys in this block.
+
 ### Git Integration
 
 | Option | Description | Default |

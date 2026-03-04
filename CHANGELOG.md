@@ -17,10 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docstring modernization**: `OutputWriter` protocol example updated to modern type syntax (`list[dict[str, Any]] | None`).
 - **Exception intent clarity**: Remaining broad `except Exception` handlers in `org/analyzer.py` are now explicitly documented with `# Intentional:` rationale comments at resilience boundaries.
 - **Interactive warning clarity**: `--interactive` warning now explicitly states that positional data view arguments are ignored.
+- **Release gate hardening**: `check_version_sync.py --require-tag` now also verifies `GITHUB_REF` exactly matches `refs/tags/v<canonical>` when running under tag CI refs.
 
 ### Added
 - **CLI docs coverage**: Added `--metrics-only` and `--dimensions-only` coverage to README, quick reference, quickstart, and CLI reference.
 - **CLI color-policy regression test**: Added `_main_impl` coverage proving `--validate-config --no-color` suppresses ANSI output even when `FORCE_COLOR=1`.
+- **Org JSON failure telemetry detail**: Added `data_view_fetch_failures.failure_reason_counts` as an additive field for fetch-failure reason rollups.
 
 ## [3.3.5] - 2026-03-03
 

@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -113,6 +114,22 @@ def check_release_tag(canonical: str) -> str | None:
     return None
 
 
+def check_ci_tag_ref_match(canonical: str, *, github_ref: str | None = None) -> str | None:
+    """Return an error if CI tag ref doesn't exactly match v<canonical>; otherwise None.
+
+    Applies only when running under a tag ref (`refs/tags/...`). For branch refs
+    or missing refs, this check is a no-op.
+    """
+    ref = github_ref if github_ref is not None else os.environ.get("GITHUB_REF")
+    if not ref or not ref.startswith("refs/tags/"):
+        return None
+
+    expected_ref = f"refs/tags/v{canonical}"
+    if ref != expected_ref:
+        return f"GITHUB_REF tag mismatch: expected {expected_ref}, found {ref}"
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify version/docs/changelog sync.")
     parser.add_argument(
@@ -132,6 +149,9 @@ def main() -> None:
         tag_error = check_release_tag(canonical)
         if tag_error is not None:
             errors.append(f"  {tag_error}")
+        ref_error = check_ci_tag_ref_match(canonical)
+        if ref_error is not None:
+            errors.append(f"  {ref_error}")
 
     if errors:
         lines = [f"Version sync check FAILED (canonical: {canonical})", ""]

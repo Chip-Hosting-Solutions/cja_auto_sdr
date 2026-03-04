@@ -75,6 +75,33 @@ def test_validate_config_redirected_force_color_emits_ansi(tmp_path: Path) -> No
     assert ANSI_ESCAPE_PREFIX in (result.stdout + result.stderr)
 
 
+def test_validate_config_redirected_force_color_zero_has_no_ansi(tmp_path: Path) -> None:
+    """FORCE_COLOR=0 should disable ANSI in redirected output."""
+    result = _run_validate_config_redirected(tmp_path, env_overrides={"FORCE_COLOR": "0"})
+
+    assert result.returncode == 1
+    assert ANSI_ESCAPE_PREFIX not in (result.stdout + result.stderr)
+
+
+def test_validate_config_redirected_no_color_env_has_no_ansi(tmp_path: Path) -> None:
+    """NO_COLOR should disable ANSI in redirected output."""
+    result = _run_validate_config_redirected(tmp_path, env_overrides={"NO_COLOR": "1"})
+
+    assert result.returncode == 1
+    assert ANSI_ESCAPE_PREFIX not in (result.stdout + result.stderr)
+
+
+def test_validate_config_redirected_force_color_takes_precedence_over_no_color_env(tmp_path: Path) -> None:
+    """FORCE_COLOR should win over NO_COLOR based on documented precedence."""
+    result = _run_validate_config_redirected(
+        tmp_path,
+        env_overrides={"FORCE_COLOR": "1", "NO_COLOR": "1"},
+    )
+
+    assert result.returncode == 1
+    assert ANSI_ESCAPE_PREFIX in (result.stdout + result.stderr)
+
+
 def test_validate_config_no_color_flag_overrides_force_color_in_redirected_mode(tmp_path: Path) -> None:
     """--no-color should override FORCE_COLOR in redirected mode."""
     result = _run_validate_config_redirected(

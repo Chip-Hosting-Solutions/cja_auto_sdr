@@ -1106,6 +1106,7 @@ class TestBuildOrgReportJsonData:
         assert data["summary"]["data_views_failed"] == 0
         assert data["data_view_fetch_failures"]["count"] == 0
         assert data["data_view_fetch_failures"]["data_view_ids"] == []
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {}
 
     def test_json_data_includes_failed_data_view_telemetry(self):
         result = _make_org_result()
@@ -1115,6 +1116,24 @@ class TestBuildOrgReportJsonData:
         assert data["summary"]["data_views_failed"] == 1
         assert data["data_view_fetch_failures"]["count"] == 1
         assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err"]
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {"Failure": 1}
+
+    def test_json_data_rolls_up_failed_data_view_reason_counts(self):
+        result = _make_org_result()
+        result.data_view_summaries.extend(
+            [
+                _make_data_view_summary("dv_err_1", "Error DV 1", error="Timeout"),
+                _make_data_view_summary("dv_err_2", "Error DV 2", error="Timeout"),
+                _make_data_view_summary("dv_err_3", "Error DV 3", error="Permission denied"),
+            ],
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["data_view_fetch_failures"]["count"] == 3
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {
+            "Permission denied": 1,
+            "Timeout": 2,
+        }
 
     def test_json_data_with_clusters(self):
         result = _make_org_result(include_clusters=True)
@@ -1178,6 +1197,73 @@ class TestBuildOrgStepSummary:
 
         assert "Data View Fetch Failures" in summary
         assert "| Data View Fetch Failures | 1 |" in summary
+
+
+class TestOrgFailureTelemetryAcrossOutputs:
+    """Contract tests ensuring failure telemetry remains visible in all org-report outputs."""
+
+    def test_failure_telemetry_present_across_outputs_with_zero_failures(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_org_telemetry_zero")
+
+        json_path = Path(write_org_report_json(result, tmp_path / "report.json", str(tmp_path), logger))
+        json_data = json.loads(json_path.read_text(encoding="utf-8"))
+        assert json_data["data_view_fetch_failures"]["count"] == 0
+        assert json_data["data_view_fetch_failures"]["data_view_ids"] == []
+        assert json_data["data_view_fetch_failures"]["failure_reason_counts"] == {}
+
+        csv_dir = Path(write_org_report_csv(result, None, str(tmp_path), logger))
+        with (csv_dir / "org_report_summary.csv").open(encoding="utf-8", newline="") as handle:
+            csv_row = next(csv.DictReader(handle))
+        assert csv_row["Failed Data Views"] == "0"
+
+        markdown_path = Path(write_org_report_markdown(result, tmp_path / "report.md", str(tmp_path), logger))
+        markdown_text = markdown_path.read_text(encoding="utf-8")
+        assert "| Data View Fetch Failures | 0 |" in markdown_text
+
+        html_path = Path(write_org_report_html(result, tmp_path / "report.html", str(tmp_path), logger))
+        html_text = html_path.read_text(encoding="utf-8")
+        assert "Data View Fetch Failures" in html_text
+
+        step_summary = build_org_step_summary(result)
+        assert "| Data View Fetch Failures | 0 |" in step_summary
+
+    def test_failure_telemetry_present_across_outputs_with_nonzero_failures(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.extend(
+            [
+                _make_data_view_summary("dv_err_1", "Error DV 1", error="Timeout"),
+                _make_data_view_summary("dv_err_2", "Error DV 2", error="Permission denied"),
+            ],
+        )
+        logger = logging.getLogger("test_org_telemetry_nonzero")
+
+        json_path = Path(write_org_report_json(result, tmp_path / "report_fail.json", str(tmp_path), logger))
+        json_data = json.loads(json_path.read_text(encoding="utf-8"))
+        assert json_data["data_view_fetch_failures"]["count"] == 2
+        assert json_data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err_1", "dv_err_2"]
+        assert json_data["data_view_fetch_failures"]["failure_reason_counts"] == {
+            "Permission denied": 1,
+            "Timeout": 1,
+        }
+
+        csv_dir = Path(write_org_report_csv(result, None, str(tmp_path), logger))
+        with (csv_dir / "org_report_summary.csv").open(encoding="utf-8", newline="") as handle:
+            csv_row = next(csv.DictReader(handle))
+        assert csv_row["Failed Data Views"] == "2"
+
+        markdown_path = Path(
+            write_org_report_markdown(result, tmp_path / "report_fail.md", str(tmp_path), logger),
+        )
+        markdown_text = markdown_path.read_text(encoding="utf-8")
+        assert "| Data View Fetch Failures | 2 |" in markdown_text
+
+        html_path = Path(write_org_report_html(result, tmp_path / "report_fail.html", str(tmp_path), logger))
+        html_text = html_path.read_text(encoding="utf-8")
+        assert "Data View Fetch Failures" in html_text
+
+        step_summary = build_org_step_summary(result)
+        assert "| Data View Fetch Failures | 2 |" in step_summary
 
 
 # ===================================================================

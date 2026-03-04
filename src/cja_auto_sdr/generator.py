@@ -341,7 +341,7 @@ class WorkerArgs:
     include_calculated_metrics: bool = False
     include_segments_inventory: bool = False
     inventory_only: bool = False
-    inventory_order: str | None = None
+    inventory_order: list[str] | None = None
     quality_report_only: bool = False
     production_mode: bool = False
     batch_id: str | None = None
@@ -8860,7 +8860,7 @@ class _ComponentFetchSpec:
 
     method_name: str
     data_view_arg_name: str | None = None
-    kwargs: dict[str, Any] = field(default_factory=dict)
+    kwargs: dict[str, str | bool] = field(default_factory=dict)
 
 
 _METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
@@ -11905,6 +11905,7 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
         "data_view_fetch_failures": {
             "count": result.failed_data_views,
             "data_view_ids": result.failed_data_view_ids,
+            "failure_reason_counts": result.failed_data_view_reason_counts,
         },
         "distribution": {
             "core": {

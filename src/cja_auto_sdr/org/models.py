@@ -6,6 +6,7 @@ This module contains all dataclasses used for org-wide component analysis.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -346,6 +347,17 @@ class OrgReportResult:
     @property
     def failed_data_view_ids(self) -> list[str]:
         return [s.data_view_id for s in self.data_view_summaries if s.error is not None]
+
+    @property
+    def failed_data_view_reason_counts(self) -> dict[str, int]:
+        """Count failed data views by normalized error reason."""
+        reasons: list[str] = []
+        for summary in self.data_view_summaries:
+            if summary.error is None:
+                continue
+            normalized_reason = summary.error.strip() or "Unknown error"
+            reasons.append(normalized_reason)
+        return dict(sorted(Counter(reasons).items()))
 
     @property
     def total_unique_metrics(self) -> int:

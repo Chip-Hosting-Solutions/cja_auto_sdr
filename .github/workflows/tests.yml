@@ -7,6 +7,39 @@ on:
   workflow_dispatch:
 
 jobs:
+  release-gate-change-detect:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      release_gate_related: ${{ steps.filter.outputs.release_gate_related }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            release_gate_related:
+              - "scripts/check_version_sync.py"
+              - ".github/workflows/patch-release-gate.yml"
+              - ".github/workflows/tests.yml"
+
+  release-gate-focused-tests:
+    if: github.event_name == 'pull_request' && needs.release-gate-change-detect.outputs.release_gate_related == 'true'
+    needs: release-gate-change-detect
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sync dependencies
+        run: uv sync --dev
+      - name: Run focused release-gate contract tests
+        run: uv run pytest -q tests/test_check_version_sync.py tests/test_cli_color_policy_e2e.py
+
   test:
     runs-on: ubuntu-latest
     strategy:
