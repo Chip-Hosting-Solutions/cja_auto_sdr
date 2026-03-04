@@ -115,6 +115,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--output PATH` | Output file path. Use `-` or `stdout` to write to stdout (JSON/CSV only). Implies `--quiet` for stdout | - |
 | `--format FORMAT` | Output format (see table below) | excel (SDR), console (diff) |
 | `--stats` | Show quick statistics (metrics/dimensions count) without generating full SDR report | False |
+| `--metrics-only` | Restrict output to metrics (exclude dimensions). Applies to SDR generation and diff comparison | False |
+| `--dimensions-only` | Restrict output to dimensions (exclude metrics). Applies to SDR generation and diff comparison | False |
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
 | `--run-summary-json PATH` | Write a machine-readable run summary JSON (all modes). Use `-` or `stdout` for stdout | - |
 | `--name-match MODE` | Data view name matching mode: `exact` (default), `insensitive` (case-insensitive), or `fuzzy` (nearest match) | exact |
@@ -504,6 +506,12 @@ cja_auto_sdr dv_12345 --fail-on-quality HIGH
 
 # Generate standalone quality report only (no SDR files)
 cja_auto_sdr dv_12345 --quality-report json --output quality_issues.json
+
+# Generate metrics-only SDR output
+cja_auto_sdr dv_12345 --metrics-only
+
+# Generate dimensions-only SDR output
+cja_auto_sdr dv_12345 --dimensions-only
 ```
 
 ### Multiple Data Views

@@ -7,6 +7,19 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.6] - 2026-03-04
+
+### Fixed
+- **Validate-config color behavior**: `validate_config_only` status lines now route through `ConsoleColors.success/error/warning/info` so `--no-color` and `NO_COLOR` are consistently honored.
+
+### Changed
+- **Type hygiene**: `ProcessingConfig.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
+- **Docstring modernization**: `OutputWriter` protocol example updated to modern type syntax (`list[dict[str, Any]] | None`).
+- **Exception intent clarity**: Remaining broad `except Exception` handlers in `org/analyzer.py` are now explicitly documented with `# Intentional:` rationale comments at resilience boundaries.
+
+### Added
+- **CLI docs coverage**: Added `--metrics-only` and `--dimensions-only` coverage to README, quick reference, quickstart, and CLI reference.
+
 ## [3.3.5] - 2026-03-03
 
 ### Fixed

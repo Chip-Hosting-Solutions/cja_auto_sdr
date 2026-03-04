@@ -199,6 +199,84 @@ class TestValidateConfigOnly:
         assert result is True
         assert "VALIDATION PASSED" in capsys.readouterr().out
 
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_no_color_env_disables_validate_config_ansi(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        """NO_COLOR should suppress ANSI styling in validate_config_only output."""
+        from cja_auto_sdr.core.colors import ConsoleColors
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+
+        previous_enabled = ConsoleColors.is_enabled()
+        try:
+            with patch.dict("os.environ", {"NO_COLOR": "1", "FORCE_COLOR": ""}, clear=False):
+                ConsoleColors.configure(no_color=False)
+                result = validate_config_only(profile="myprofile")
+            assert result is True
+            output = capsys.readouterr().out
+            assert "\x1b[" not in output
+        finally:
+            ConsoleColors.set_enabled(previous_enabled)
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_force_color_env_enables_validate_config_ansi(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        """FORCE_COLOR should enable ANSI styling in validate_config_only output."""
+        from cja_auto_sdr.core.colors import ConsoleColors
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+
+        previous_enabled = ConsoleColors.is_enabled()
+        try:
+            with patch.dict("os.environ", {"FORCE_COLOR": "1"}, clear=False):
+                ConsoleColors.configure(no_color=False)
+                result = validate_config_only(profile="myprofile")
+            assert result is True
+            output = capsys.readouterr().out
+            assert "\x1b[" in output
+        finally:
+            ConsoleColors.set_enabled(previous_enabled)
+
+    @patch("cja_auto_sdr.generator._config_from_env")
+    @patch("cja_auto_sdr.generator.cjapy")
+    @patch("cja_auto_sdr.generator.load_profile_credentials")
+    def test_no_color_policy_overrides_force_color_for_validate_config(
+        self, mock_load, mock_cjapy, _mock_config_env, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Explicit no-color policy should beat FORCE_COLOR for validate_config_only output."""
+        from cja_auto_sdr.core.colors import ConsoleColors
+        from cja_auto_sdr.generator import validate_config_only
+
+        mock_load.return_value = {"org_id": "org@Adobe", "client_id": "abcd1234efgh", "secret": "secret12345678"}
+        mock_cja = MagicMock()
+        mock_cja.getDataViews.return_value = [{"id": "dv1"}]
+        mock_cjapy.CJA.return_value = mock_cja
+
+        previous_enabled = ConsoleColors.is_enabled()
+        try:
+            with patch.dict("os.environ", {"FORCE_COLOR": "1"}, clear=False):
+                ConsoleColors.configure(no_color=True)
+                result = validate_config_only(profile="myprofile")
+            assert result is True
+            output = capsys.readouterr().out
+            assert "\x1b[" not in output
+        finally:
+            ConsoleColors.set_enabled(previous_enabled)
+
     @patch("cja_auto_sdr.generator.load_profile_credentials")
     def test_profile_not_found(self, mock_load) -> None:
         from cja_auto_sdr.generator import ProfileNotFoundError, validate_config_only

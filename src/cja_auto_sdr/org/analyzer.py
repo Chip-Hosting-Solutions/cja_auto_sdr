@@ -139,7 +139,7 @@ class OrgComponentAnalyzer:
         for future in futures:
             try:
                 future.cancel()
-            except Exception as e:
+            except Exception as e:  # Intentional: best-effort cancellation should not fail analysis shutdown.
                 logging.getLogger(__name__).debug("Best-effort future cancel failed: %s", e)
                 continue
 
@@ -163,7 +163,7 @@ class OrgComponentAnalyzer:
                     is_sampled=False,
                     total_available_data_views=0,
                 )
-        except Exception as e:
+        except Exception as e:  # Intentional: quick-check is diagnostic and must not block normal analysis flow.
             self.logger.debug("Quick empty-org check skipped: %s", e)
         return None
 
@@ -370,7 +370,7 @@ class OrgComponentAnalyzer:
 
         try:
             all_data_views = self.cja.getDataViews()
-        except Exception as e:
+        except Exception as e:  # Intentional: API boundary, return empty result to preserve command resilience.
             self.logger.error(f"Failed to list data views: {e}")
             return [], False, 0
 
@@ -567,7 +567,7 @@ class OrgComponentAnalyzer:
                                 pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
                         except LockOwnershipLostError:
                             raise
-                        except Exception as e:
+                        except Exception as e:  # Intentional: per-data-view failures are isolated into summary error rows.
                             error_msg = str(e) or f"{type(e).__name__}"
                             summaries.append(
                                 DataViewSummary(
@@ -728,7 +728,7 @@ class OrgComponentAnalyzer:
                         # Extract description
                         description = dv_details.get("description", "")
                         has_description = bool(description and description.strip())
-                except Exception as e:
+                except Exception as e:  # Intentional: metadata enrichment is optional and best-effort only.
                     # Metadata fetch may fail - continue without it
                     self.logger.debug("Metadata fetch failed for %s: %s", dv_id, e)
 
@@ -755,7 +755,7 @@ class OrgComponentAnalyzer:
                 has_description=has_description,
             )
 
-        except Exception as e:
+        except Exception as e:  # Intentional: preserve per-data-view resilience by returning an error summary.
             error_msg = str(e) or f"{type(e).__name__}"
             return DataViewSummary(
                 data_view_id=dv_id,
@@ -1086,7 +1086,7 @@ class OrgComponentAnalyzer:
         # Perform hierarchical clustering
         try:
             Z = linkage(condensed_dist, method=self.config.cluster_method)
-        except Exception as e:
+        except Exception as e:  # Intentional: clustering is optional and should never fail the full org report.
             self.logger.warning(f"Clustering failed: {e}")
             return None
 

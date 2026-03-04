@@ -222,7 +222,7 @@ class OutputWriter(Protocol):
                 dimensions_df: pd.DataFrame,
                 dataview_info: dict,
                 output_path: Path,
-                quality_results: Optional[List[Dict]] = None
+                quality_results: list[dict[str, Any]] | None = None
             ) -> str:
                 # Write CSV files and return output path
                 ...
@@ -367,7 +367,7 @@ class ProcessingConfig:
     metrics_only: bool = False
     dimensions_only: bool = False
     profile: str | None = None
-    shared_cache: Any = None
+    shared_cache: SharedValidationCache | None = None
     api_tuning_config: APITuningConfig | None = None
     circuit_breaker_config: CircuitBreakerConfig | None = None
     include_derived_inventory: bool = False
@@ -10687,23 +10687,23 @@ def validate_config_only(
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
-                print(f"    \u2713 {field_name}: {masked}")
+                print(ConsoleColors.success(f"    \u2713 {field_name}: {masked}"))
             else:
-                print(f"    \u2717 {field_name}: not set (required)")
+                print(ConsoleColors.error(f"    \u2717 {field_name}: not set (required)"))
                 missing.append(field_name)
 
         for field_name in optional_fields:
             if creds.get(field_name):
-                print(f"    \u2713 {field_name}: {creds[field_name]}")
+                print(ConsoleColors.success(f"    \u2713 {field_name}: {creds[field_name]}"))
             else:
-                print(f"    - {field_name}: not set (optional)")
+                print(ConsoleColors.info(f"    - {field_name}: not set (optional)"))
 
         print()
         if missing:
-            print(f"  \u2717 Missing required fields: {', '.join(missing)}")
+            print(ConsoleColors.error(f"  \u2717 Missing required fields: {', '.join(missing)}"))
             return False
-        print("  \u2713 All required fields present")
-        print(f"  \u2192 Using: {source_name}")
+        print(ConsoleColors.success("  \u2713 All required fields present"))
+        print(ConsoleColors.info(f"  \u2192 Using: {source_name}"))
         return True
 
     # Step 1: Check environment
@@ -10711,9 +10711,9 @@ def validate_config_only(
     vi = sys.version_info
     python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
     if vi >= (3, 14):
-        print(f"  \u2713 Python {python_version} (minimum: 3.14)")
+        print(ConsoleColors.success(f"  \u2713 Python {python_version} (minimum: 3.14)"))
     else:
-        print(f"  \u2717 Python {python_version} (minimum: 3.14)")
+        print(ConsoleColors.error(f"  \u2717 Python {python_version} (minimum: 3.14)"))
         all_passed = False
     platform_system = platform.system()
     platform_release = platform.release()
@@ -10726,7 +10726,7 @@ def validate_config_only(
             platform_label += f" ({platform_system} {platform_release})"
     elif platform_system:
         platform_label += f" ({platform_system} {platform_release})"
-    print(f"  \u2713 Platform: {platform_label}")
+    print(ConsoleColors.success(f"  \u2713 Platform: {platform_label}"))
 
     # Step 2: Check dependencies
     print()
@@ -10736,12 +10736,12 @@ def validate_config_only(
     for pkg in _CORE_DEPENDENCIES:
         try:
             ver = importlib.metadata.version(pkg)
-            print(f"  \u2713 {pkg} {ver}")
+            print(ConsoleColors.success(f"  \u2713 {pkg} {ver}"))
         except importlib.metadata.PackageNotFoundError:
-            print(f"  \u2717 {pkg} (not installed)")
+            print(ConsoleColors.error(f"  \u2717 {pkg} (not installed)"))
             all_passed = False
         except Exception as exc:
-            print(f"  \u2717 {pkg} (metadata error: {exc})")
+            print(ConsoleColors.error(f"  \u2717 {pkg} (metadata error: {exc})"))
             all_passed = False
 
     # Optional dependencies (info-only, never fail validation)
@@ -10776,33 +10776,33 @@ def validate_config_only(
         try:
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
-                print(f"  \u2713 Profile '{profile}' found")
+                print(ConsoleColors.success(f"  \u2713 Profile '{profile}' found"))
                 if display_credentials(profile_creds, f"Profile: {profile}"):
                     active_credentials = profile_creds
                     credential_source = "profile"
                 else:
                     all_passed = False
         except ProfileNotFoundError:
-            print(f"  \u2717 Profile '{profile}' not found")
+            print(ConsoleColors.error(f"  \u2717 Profile '{profile}' not found"))
             print()
             print("  Create the profile with:")
             print(f"    cja_auto_sdr --profile-add {profile}")
             all_passed = False
         except ProfileConfigError as e:
-            print(f"  \u2717 Profile '{profile}' has invalid configuration: {e}")
+            print(ConsoleColors.error(f"  \u2717 Profile '{profile}' has invalid configuration: {e}"))
             all_passed = False
 
     # Priority 2: Environment variables (if no profile or profile failed)
     if not active_credentials and all_passed:
         env_credentials = load_credentials_from_env()
         if env_credentials:
-            print("  \u2713 Environment variables detected")
+            print(ConsoleColors.success("  \u2713 Environment variables detected"))
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
                     credential_source = "env"
             else:
-                print("  \u26a0 Environment credentials incomplete, checking config file...")
+                print(ConsoleColors.warning("  \u26a0 Environment credentials incomplete, checking config file..."))
         else:
             if not profile:
                 print("  - No environment variables set")
@@ -10814,21 +10814,21 @@ def validate_config_only(
         config_path = Path(config_file)
         if config_path.exists():
             abs_path = config_path.resolve()
-            print(f"  \u2713 Config file found: {abs_path}")
+            print(ConsoleColors.success(f"  \u2713 Config file found: {abs_path}"))
             try:
                 with open(config_file) as f:
                     config = json.load(f)
-                print("  \u2713 Config file is valid JSON")
+                print(ConsoleColors.success("  \u2713 Config file is valid JSON"))
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
                     credential_source = "file"
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
-                print(f"  \u2717 Invalid JSON: {e!s}")
+                print(ConsoleColors.error(f"  \u2717 Invalid JSON: {e!s}"))
                 all_passed = False
         else:
-            print(f"  \u2717 Config file not found: {config_file}")
+            print(ConsoleColors.error(f"  \u2717 Config file not found: {config_file}"))
             print()
             print("  To create a sample config file:")
             print("    cja_auto_sdr --sample-config")
@@ -10863,26 +10863,26 @@ def validate_config_only(
             cjapy.importConfigFile(config_file)
 
         cja = cjapy.CJA()
-        print("  \u2713 CJA client initialized")
+        print(ConsoleColors.success("  \u2713 CJA client initialized"))
 
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print("  \u2713 API connection successful")
-            print(f"  \u2713 Found {dv_count} accessible data view(s)")
+            print(ConsoleColors.success("  \u2713 API connection successful"))
+            print(ConsoleColors.success(f"  \u2713 Found {dv_count} accessible data view(s)"))
         else:
-            print("  \u26a0 API returned empty response - connection may be unstable")
+            print(ConsoleColors.warning("  \u26a0 API returned empty response - connection may be unstable"))
 
     except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
     except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
-        print(f"  \u2717 API connection failed: {e!s}")
+        print(ConsoleColors.error(f"  \u2717 API connection failed: {e!s}"))
         all_passed = False
     except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
-        print(f"  \u2717 API connection failed (unexpected): {e!s}")
+        print(ConsoleColors.error(f"  \u2717 API connection failed (unexpected): {e!s}"))
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
 
@@ -10892,23 +10892,29 @@ def validate_config_only(
         print("[5/5] Checking output permissions...")
         output_access_ok, resolved_dir, access_reason, parent_dir = _check_output_dir_access(output_dir)
         if output_access_ok and access_reason == "creatable" and parent_dir is not None:
-            print(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})")
+            print(ConsoleColors.success(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})"))
         elif output_access_ok:
-            print(f"  \u2713 Output directory writable: {resolved_dir}")
+            print(ConsoleColors.success(f"  \u2713 Output directory writable: {resolved_dir}"))
         else:
             if access_reason == "not_directory":
-                print(f"  \u2717 Output path is not a directory: {resolved_dir}")
+                print(ConsoleColors.error(f"  \u2717 Output path is not a directory: {resolved_dir}"))
             elif access_reason == "parent_not_directory" and parent_dir is not None:
                 print(
-                    "  \u2717 Cannot create output directory: "
-                    f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                    ConsoleColors.error(
+                        "  \u2717 Cannot create output directory: "
+                        f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                    ),
                 )
             elif access_reason == "parent_not_writable" and parent_dir is not None:
-                print(f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})")
+                print(
+                    ConsoleColors.error(
+                        f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})",
+                    ),
+                )
             elif access_reason == "no_existing_parent":
-                print(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}")
+                print(ConsoleColors.error(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}"))
             else:
-                print(f"  \u2717 Output directory not writable: {resolved_dir}")
+                print(ConsoleColors.error(f"  \u2717 Output directory not writable: {resolved_dir}"))
             all_passed = False
 
     # Summary

@@ -232,6 +232,8 @@ cja_auto_sdr "Production Analytics"
 | Batch processing | `cja_auto_sdr dv_1 dv_2 dv_3` |
 | Custom output location | `cja_auto_sdr dv_12345 --output-dir ./reports` |
 | Skip validation (faster) | `cja_auto_sdr dv_12345 --skip-validation` |
+| Metrics-only SDR output (skip dimensions) | `cja_auto_sdr dv_12345 --metrics-only` |
+| Dimensions-only SDR output (skip metrics) | `cja_auto_sdr dv_12345 --dimensions-only` |
 | Include segments inventory | `cja_auto_sdr dv_12345 --include-segments` |
 | Include derived fields (SDR only) | `cja_auto_sdr dv_12345 --include-derived` |
 | Include calculated metrics | `cja_auto_sdr dv_12345 --include-calculated` |
@@ -269,6 +271,8 @@ cja_auto_sdr "Production Analytics"
 | Compare by name | `cja_auto_sdr --diff "Production" "Staging"` |
 | Diff as Markdown | `cja_auto_sdr --diff dv_1 dv_2 --format markdown` |
 | Diff as JSON | `cja_auto_sdr --diff dv_1 dv_2 --format json` |
+| Diff metrics only | `cja_auto_sdr --diff dv_1 dv_2 --metrics-only` |
+| Diff dimensions only | `cja_auto_sdr --diff dv_1 dv_2 --dimensions-only` |
 | Save snapshot | `cja_auto_sdr dv_12345 --snapshot ./baseline.json` |
 | Compare to snapshot | `cja_auto_sdr dv_12345 --diff-snapshot ./baseline.json` |
 | Compare two snapshots | `cja_auto_sdr --compare-snapshots ./old.json ./new.json` |
