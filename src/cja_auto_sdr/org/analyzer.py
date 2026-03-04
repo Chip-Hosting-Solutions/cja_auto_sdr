@@ -139,9 +139,22 @@ class OrgComponentAnalyzer:
         for future in futures:
             try:
                 future.cancel()
-            except Exception as e:
+            except Exception as e:  # Intentional: best-effort cancellation should not fail analysis shutdown.
                 logging.getLogger(__name__).debug("Best-effort future cancel failed: %s", e)
                 continue
+
+    @staticmethod
+    def _normalize_exception_message(error: Exception) -> str:
+        """Return a stable, non-empty message for surfaced exceptions.
+
+        This is the *write-time* normalization layer: it runs once when the
+        exception is caught and the resulting string is stored in
+        ``DataViewSummary.error``.  The *read-time* layer lives in
+        ``DataViewSummary.normalized_error_reason`` and is the canonical
+        accessor that all output writers should use.
+        """
+        normalized = " ".join(str(error).split())
+        return normalized or type(error).__name__
 
     def _quick_check_empty_org(self) -> OrgReportResult | None:
         """Return an empty-org result if no data views exist, otherwise None."""
@@ -163,7 +176,7 @@ class OrgComponentAnalyzer:
                     is_sampled=False,
                     total_available_data_views=0,
                 )
-        except Exception as e:
+        except Exception as e:  # Intentional: quick-check is diagnostic and must not block normal analysis flow.
             self.logger.debug("Quick empty-org check skipped: %s", e)
         return None
 
@@ -215,7 +228,7 @@ class OrgComponentAnalyzer:
 
         # 4. Compute distribution
         self.logger.info("Computing distribution buckets...")
-        successful_summaries = [summary for summary in summaries if not summary.error]
+        successful_summaries = [summary for summary in summaries if not summary.has_error]
         distribution = self._compute_distribution(component_index, len(successful_summaries))
         self._assert_lock_healthy()
 
@@ -370,7 +383,7 @@ class OrgComponentAnalyzer:
 
         try:
             all_data_views = self.cja.getDataViews()
-        except Exception as e:
+        except Exception as e:  # Intentional: API boundary, return empty result to preserve command resilience.
             self.logger.error(f"Failed to list data views: {e}")
             return [], False, 0
 
@@ -558,17 +571,19 @@ class OrgComponentAnalyzer:
                             summaries.append(summary)
 
                             # Store in cache if enabled (batch to reduce disk writes)
-                            if self.config.use_cache and self.cache and not summary.error:
+                            if self.config.use_cache and self.cache and not summary.has_error:
                                 pending_cache.append(summary)
 
-                            if summary.error:
+                            if summary.has_error:
                                 pbar.set_postfix_str(f"✗ {dv.get('name', dv.get('id', '?'))[:20]}")
                             else:
                                 pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
                         except LockOwnershipLostError:
                             raise
-                        except Exception as e:
-                            error_msg = str(e) or f"{type(e).__name__}"
+                        except (
+                            Exception
+                        ) as e:  # Intentional: per-data-view failures are isolated into summary error rows.
+                            error_msg = self._normalize_exception_message(e)
                             summaries.append(
                                 DataViewSummary(
                                     data_view_id=dv.get("id", "unknown"),
@@ -728,7 +743,7 @@ class OrgComponentAnalyzer:
                         # Extract description
                         description = dv_details.get("description", "")
                         has_description = bool(description and description.strip())
-                except Exception as e:
+                except Exception as e:  # Intentional: metadata enrichment is optional and best-effort only.
                     # Metadata fetch may fail - continue without it
                     self.logger.debug("Metadata fetch failed for %s: %s", dv_id, e)
 
@@ -755,8 +770,8 @@ class OrgComponentAnalyzer:
                 has_description=has_description,
             )
 
-        except Exception as e:
-            error_msg = str(e) or f"{type(e).__name__}"
+        except Exception as e:  # Intentional: preserve per-data-view resilience by returning an error summary.
+            error_msg = self._normalize_exception_message(e)
             return DataViewSummary(
                 data_view_id=dv_id,
                 data_view_name=dv_name,
@@ -776,7 +791,7 @@ class OrgComponentAnalyzer:
         index: dict[str, ComponentInfo] = {}
 
         for summary in summaries:
-            if summary.error:
+            if summary.has_error:
                 continue
 
             # Index metrics
@@ -1086,7 +1101,7 @@ class OrgComponentAnalyzer:
         # Perform hierarchical clustering
         try:
             Z = linkage(condensed_dist, method=self.config.cluster_method)
-        except Exception as e:
+        except Exception as e:  # Intentional: clustering is optional and should never fail the full org report.
             self.logger.warning(f"Clustering failed: {e}")
             return None
 
@@ -1231,7 +1246,7 @@ class OrgComponentAnalyzer:
             )
 
         # Recommendation: Core component standardization
-        total_successful = len([s for s in summaries if s.error is None])
+        total_successful = len([s for s in summaries if not s.has_error])
         if total_successful > 3:
             # Check for near-core components (in 70-99% of DVs but not all)
             near_core_count = 0
@@ -1252,7 +1267,7 @@ class OrgComponentAnalyzer:
                 )
 
         # Recommendation: Fetch errors
-        error_count = len([s for s in summaries if s.error is not None])
+        error_count = len([s for s in summaries if s.has_error])
         if error_count > 0:
             recommendations.append(
                 {
@@ -1267,7 +1282,7 @@ class OrgComponentAnalyzer:
         # Recommendation: High derived ratio (if component types enabled)
         if self.config.include_component_types:
             for summary in summaries:
-                if summary.error:
+                if summary.has_error:
                     continue
                 total_components = summary.metric_count + summary.dimension_count
                 derived_count = summary.derived_metric_count + summary.derived_dimension_count
@@ -1290,7 +1305,7 @@ class OrgComponentAnalyzer:
         if self.config.include_metadata:
             six_months_ago = datetime.now(UTC) - timedelta(days=180)
             for summary in summaries:
-                if summary.error or not summary.modified:
+                if summary.has_error or not summary.modified:
                     continue
                 try:
                     modified_date = datetime.fromisoformat(summary.modified)
@@ -1312,7 +1327,7 @@ class OrgComponentAnalyzer:
                     pass
 
             # Missing descriptions
-            successful_summaries = [s for s in summaries if not s.error]
+            successful_summaries = [s for s in summaries if not s.has_error]
             no_desc_count = len([s for s in successful_summaries if not s.has_description])
             if successful_summaries and no_desc_count > 0 and no_desc_count >= len(successful_summaries) * 0.3:
                 recommendations.append(
@@ -1514,7 +1529,7 @@ class OrgComponentAnalyzer:
         owner_stats: dict[str, dict[str, Any]] = {}
 
         for summary in summaries:
-            if summary.error:
+            if summary.has_error:
                 continue
 
             owner = summary.owner or "Unknown"

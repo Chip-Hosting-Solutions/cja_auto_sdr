@@ -6,6 +6,7 @@ This module contains all dataclasses used for org-wide component analysis.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -175,6 +176,25 @@ class DataViewSummary:
     has_description: bool = False
 
     @property
+    def has_error(self) -> bool:
+        """Whether this summary represents a fetch failure."""
+        return self.error is not None
+
+    @property
+    def normalized_error_reason(self) -> str | None:
+        """Fetch failure reason with normalized whitespace.
+
+        This is the *read-time* normalization layer and the canonical accessor
+        that all output writers should use.  It complements the *write-time*
+        layer in ``OrgAnalyzer._normalize_exception_message`` which runs once
+        at capture time.  Returns None when there is no fetch failure.
+        """
+        if self.error is None:
+            return None
+        normalized_reason = " ".join(self.error.split())
+        return normalized_reason or "Unknown error"
+
+    @property
     def total_components(self) -> int:
         """Total number of components (metrics + dimensions)."""
         return self.metric_count + self.dimension_count
@@ -337,15 +357,34 @@ class OrgReportResult:
 
     @property
     def successful_data_views(self) -> int:
-        return len([s for s in self.data_view_summaries if s.error is None])
+        return sum(1 for summary in self.data_view_summaries if not summary.has_error)
+
+    @property
+    def failed_data_views(self) -> int:
+        return sum(1 for summary in self.data_view_summaries if summary.has_error)
+
+    @property
+    def failed_data_view_ids(self) -> list[str]:
+        return [summary.data_view_id for summary in self.data_view_summaries if summary.has_error]
+
+    @property
+    def failed_data_view_reason_counts(self) -> dict[str, int]:
+        """Count failed data views by normalized error reason."""
+        reason_counts: Counter[str] = Counter()
+        for summary in self.data_view_summaries:
+            normalized_reason = summary.normalized_error_reason
+            if normalized_reason is None:
+                continue
+            reason_counts[normalized_reason] += 1
+        return dict(sorted(reason_counts.items()))
 
     @property
     def total_unique_metrics(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == "metric"])
+        return sum(1 for component in self.component_index.values() if component.component_type == "metric")
 
     @property
     def total_unique_dimensions(self) -> int:
-        return len([c for c in self.component_index.values() if c.component_type == "dimension"])
+        return sum(1 for component in self.component_index.values() if component.component_type == "dimension")
 
     @property
     def total_unique_components(self) -> int:

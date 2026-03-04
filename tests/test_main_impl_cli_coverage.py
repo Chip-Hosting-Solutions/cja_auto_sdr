@@ -14,6 +14,7 @@ Targets the following uncovered blocks:
   - Block 11: Inventory summary display in single mode (lines 15329-15354)
   - Block 12: Git commit integration (lines 15362-15442)
   - Block 13: Open file in batch mode (lines 15250-15262)
+  - Block 14: --validate-config color policy (--no-color vs FORCE_COLOR)
 """
 
 import argparse
@@ -334,7 +335,7 @@ class TestInteractiveMode:
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
-        assert "--interactive mode ignores command line arguments" in out
+        assert "--interactive mode ignores positional data view arguments" in out
         assert "Cancelled. Exiting." in out
 
     @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
@@ -364,7 +365,36 @@ class TestInteractiveMode:
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
-        assert "--interactive mode ignores command line arguments" not in out
+        assert "--interactive mode ignores positional data view arguments" not in out
+
+
+class TestValidateConfigColorPolicy:
+    """Tests for color-policy wiring in --validate-config path."""
+
+    @patch("cja_auto_sdr.generator._cli_option_specified", _mock_cli_option_specified)
+    @patch("cja_auto_sdr.generator.validate_config_only")
+    def test_validate_config_no_color_overrides_force_color_env(self, mock_validate, capsys):
+        """--no-color should disable ANSI output even when FORCE_COLOR is set."""
+        from cja_auto_sdr.core.colors import ConsoleColors
+
+        def _emit_validate_output(*_args, **_kwargs):
+            print(ConsoleColors.success("validate-config color check"))
+            return True
+
+        mock_validate.side_effect = _emit_validate_output
+        args = _make_args(validate_config=True, no_color=True, output_dir="/tmp/reports")
+        previous_enabled = ConsoleColors.is_enabled()
+        try:
+            with patch.dict("os.environ", {"FORCE_COLOR": "1"}, clear=False):
+                with patch("cja_auto_sdr.generator.parse_arguments", return_value=args):
+                    with pytest.raises(SystemExit) as exc_info:
+                        _main_impl()
+        finally:
+            ConsoleColors.set_enabled(previous_enabled)
+
+        assert exc_info.value.code == 0
+        assert "\x1b[" not in capsys.readouterr().out
+        mock_validate.assert_called_once_with("config.json", profile=None, output_dir="/tmp/reports")
 
 
 # =========================================================================

@@ -12,7 +12,7 @@ CJA SDR Generator - A tool for generating Solution Design Reference (SDR) docume
 
 - Package manager: uv
 - Entry point: `cja_auto_sdr` command (via pyproject.toml scripts)
-- Current version: v3.3.5
+- Current version: v3.3.6
 - Main script: `generator.py` (~10k lines) — subpackages use lazy forwarding via `make_getattr()` in `core/lazy.py`
 
 ## CI & Quality
@@ -21,6 +21,15 @@ CJA SDR Generator - A tool for generating Solution Design Reference (SDR) docume
 - Coverage gate: **95%** (`--cov-fail-under=95` in `.github/workflows/tests.yml`)
 - Linter: `uv run ruff check src/ tests/` (41 active rule sets)
 - Formatter: `uv run ruff format src/ tests/`
+
+## Patch Release Gate (Recommended)
+
+For patch releases, run this verification sequence before tagging:
+
+1. `uv run pytest tests/ --collect-only -q`
+2. `uv run pytest -q tests/test_generator_mock_contract.py tests/test_backwards_compat.py tests/test_lazy_forwarding.py`
+3. `uv run pytest tests/ -x -q`
+4. `uv run ruff check src/ tests/`
 
 ## Version Bump Checklist
 

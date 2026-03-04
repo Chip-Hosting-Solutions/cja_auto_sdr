@@ -222,7 +222,7 @@ class OutputWriter(Protocol):
                 dimensions_df: pd.DataFrame,
                 dataview_info: dict,
                 output_path: Path,
-                quality_results: Optional[List[Dict]] = None
+                quality_results: list[dict[str, Any]] | None = None
             ) -> str:
                 # Write CSV files and return output path
                 ...
@@ -334,14 +334,14 @@ class WorkerArgs:
     metrics_only: bool = False
     dimensions_only: bool = False
     profile: str | None = None
-    shared_cache: Any = None
-    api_tuning_config: Any = None
-    circuit_breaker_config: Any = None
+    shared_cache: SharedValidationCache | None = None
+    api_tuning_config: APITuningConfig | None = None
+    circuit_breaker_config: CircuitBreakerConfig | None = None
     include_derived_inventory: bool = False
     include_calculated_metrics: bool = False
     include_segments_inventory: bool = False
     inventory_only: bool = False
-    inventory_order: str | None = None
+    inventory_order: list[str] | None = None
     quality_report_only: bool = False
     production_mode: bool = False
     batch_id: str | None = None
@@ -367,7 +367,7 @@ class ProcessingConfig:
     metrics_only: bool = False
     dimensions_only: bool = False
     profile: str | None = None
-    shared_cache: Any = None
+    shared_cache: SharedValidationCache | None = None
     api_tuning_config: APITuningConfig | None = None
     circuit_breaker_config: CircuitBreakerConfig | None = None
     include_derived_inventory: bool = False
@@ -1370,6 +1370,7 @@ def build_org_step_summary(result: OrgReportResult) -> str:
         "| Metric | Value |",
         "|---|---:|",
         f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |",
+        f"| Data View Fetch Failures | {result.failed_data_views} |",
         f"| Total Unique Components | {result.total_unique_components} |",
         f"| Total Unique Metrics | {result.total_unique_metrics} |",
         f"| Total Unique Dimensions | {result.total_unique_dimensions} |",
@@ -8859,7 +8860,7 @@ class _ComponentFetchSpec:
 
     method_name: str
     data_view_arg_name: str | None = None
-    kwargs: dict[str, Any] = field(default_factory=dict)
+    kwargs: dict[str, str | bool] = field(default_factory=dict)
 
 
 _METRICS_COMPONENT_FETCH_SPEC = _ComponentFetchSpec(
@@ -10687,23 +10688,23 @@ def validate_config_only(
                     masked = value[:4] + "****" + value[-4:] if len(value) > 8 else "****"
                 else:
                     masked = value
-                print(f"    \u2713 {field_name}: {masked}")
+                print(ConsoleColors.success(f"    \u2713 {field_name}: {masked}"))
             else:
-                print(f"    \u2717 {field_name}: not set (required)")
+                print(ConsoleColors.error(f"    \u2717 {field_name}: not set (required)"))
                 missing.append(field_name)
 
         for field_name in optional_fields:
             if creds.get(field_name):
-                print(f"    \u2713 {field_name}: {creds[field_name]}")
+                print(ConsoleColors.success(f"    \u2713 {field_name}: {creds[field_name]}"))
             else:
-                print(f"    - {field_name}: not set (optional)")
+                print(ConsoleColors.info(f"    - {field_name}: not set (optional)"))
 
         print()
         if missing:
-            print(f"  \u2717 Missing required fields: {', '.join(missing)}")
+            print(ConsoleColors.error(f"  \u2717 Missing required fields: {', '.join(missing)}"))
             return False
-        print("  \u2713 All required fields present")
-        print(f"  \u2192 Using: {source_name}")
+        print(ConsoleColors.success("  \u2713 All required fields present"))
+        print(ConsoleColors.info(f"  \u2192 Using: {source_name}"))
         return True
 
     # Step 1: Check environment
@@ -10711,9 +10712,9 @@ def validate_config_only(
     vi = sys.version_info
     python_version = f"{vi.major}.{vi.minor}.{vi.micro}"
     if vi >= (3, 14):
-        print(f"  \u2713 Python {python_version} (minimum: 3.14)")
+        print(ConsoleColors.success(f"  \u2713 Python {python_version} (minimum: 3.14)"))
     else:
-        print(f"  \u2717 Python {python_version} (minimum: 3.14)")
+        print(ConsoleColors.error(f"  \u2717 Python {python_version} (minimum: 3.14)"))
         all_passed = False
     platform_system = platform.system()
     platform_release = platform.release()
@@ -10726,7 +10727,7 @@ def validate_config_only(
             platform_label += f" ({platform_system} {platform_release})"
     elif platform_system:
         platform_label += f" ({platform_system} {platform_release})"
-    print(f"  \u2713 Platform: {platform_label}")
+    print(ConsoleColors.success(f"  \u2713 Platform: {platform_label}"))
 
     # Step 2: Check dependencies
     print()
@@ -10736,12 +10737,12 @@ def validate_config_only(
     for pkg in _CORE_DEPENDENCIES:
         try:
             ver = importlib.metadata.version(pkg)
-            print(f"  \u2713 {pkg} {ver}")
+            print(ConsoleColors.success(f"  \u2713 {pkg} {ver}"))
         except importlib.metadata.PackageNotFoundError:
-            print(f"  \u2717 {pkg} (not installed)")
+            print(ConsoleColors.error(f"  \u2717 {pkg} (not installed)"))
             all_passed = False
         except Exception as exc:
-            print(f"  \u2717 {pkg} (metadata error: {exc})")
+            print(ConsoleColors.error(f"  \u2717 {pkg} (metadata error: {exc})"))
             all_passed = False
 
     # Optional dependencies (info-only, never fail validation)
@@ -10776,33 +10777,33 @@ def validate_config_only(
         try:
             profile_creds = load_profile_credentials(profile, logger)
             if profile_creds:
-                print(f"  \u2713 Profile '{profile}' found")
+                print(ConsoleColors.success(f"  \u2713 Profile '{profile}' found"))
                 if display_credentials(profile_creds, f"Profile: {profile}"):
                     active_credentials = profile_creds
                     credential_source = "profile"
                 else:
                     all_passed = False
         except ProfileNotFoundError:
-            print(f"  \u2717 Profile '{profile}' not found")
+            print(ConsoleColors.error(f"  \u2717 Profile '{profile}' not found"))
             print()
             print("  Create the profile with:")
             print(f"    cja_auto_sdr --profile-add {profile}")
             all_passed = False
         except ProfileConfigError as e:
-            print(f"  \u2717 Profile '{profile}' has invalid configuration: {e}")
+            print(ConsoleColors.error(f"  \u2717 Profile '{profile}' has invalid configuration: {e}"))
             all_passed = False
 
     # Priority 2: Environment variables (if no profile or profile failed)
     if not active_credentials and all_passed:
         env_credentials = load_credentials_from_env()
         if env_credentials:
-            print("  \u2713 Environment variables detected")
+            print(ConsoleColors.success("  \u2713 Environment variables detected"))
             if validate_env_credentials(env_credentials, logger):
                 if display_credentials(env_credentials, "Environment variables"):
                     active_credentials = env_credentials
                     credential_source = "env"
             else:
-                print("  \u26a0 Environment credentials incomplete, checking config file...")
+                print(ConsoleColors.warning("  \u26a0 Environment credentials incomplete, checking config file..."))
         else:
             if not profile:
                 print("  - No environment variables set")
@@ -10814,21 +10815,21 @@ def validate_config_only(
         config_path = Path(config_file)
         if config_path.exists():
             abs_path = config_path.resolve()
-            print(f"  \u2713 Config file found: {abs_path}")
+            print(ConsoleColors.success(f"  \u2713 Config file found: {abs_path}"))
             try:
                 with open(config_file) as f:
                     config = json.load(f)
-                print("  \u2713 Config file is valid JSON")
+                print(ConsoleColors.success("  \u2713 Config file is valid JSON"))
                 if display_credentials(config, f"Config file ({config_file})"):
                     active_credentials = config
                     credential_source = "file"
                 else:
                     all_passed = False
             except json.JSONDecodeError as e:
-                print(f"  \u2717 Invalid JSON: {e!s}")
+                print(ConsoleColors.error(f"  \u2717 Invalid JSON: {e!s}"))
                 all_passed = False
         else:
-            print(f"  \u2717 Config file not found: {config_file}")
+            print(ConsoleColors.error(f"  \u2717 Config file not found: {config_file}"))
             print()
             print("  To create a sample config file:")
             print("    cja_auto_sdr --sample-config")
@@ -10863,26 +10864,26 @@ def validate_config_only(
             cjapy.importConfigFile(config_file)
 
         cja = cjapy.CJA()
-        print("  \u2713 CJA client initialized")
+        print(ConsoleColors.success("  \u2713 CJA client initialized"))
 
         # Test connection with API call
         available_dvs = cja.getDataViews()
         if available_dvs is not None:
             dv_count = len(available_dvs) if hasattr(available_dvs, "__len__") else 0
-            print("  \u2713 API connection successful")
-            print(f"  \u2713 Found {dv_count} accessible data view(s)")
+            print(ConsoleColors.success("  \u2713 API connection successful"))
+            print(ConsoleColors.success(f"  \u2713 Found {dv_count} accessible data view(s)"))
         else:
-            print("  \u26a0 API returned empty response - connection may be unstable")
+            print(ConsoleColors.warning("  \u26a0 API returned empty response - connection may be unstable"))
 
     except KeyboardInterrupt, SystemExit:
         print()
         print(ConsoleColors.warning("Validation cancelled."))
         raise
     except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:
-        print(f"  \u2717 API connection failed: {e!s}")
+        print(ConsoleColors.error(f"  \u2717 API connection failed: {e!s}"))
         all_passed = False
     except (RuntimeError, AttributeError) as e:  # Residual non-API failures (e.g. cjapy internals)
-        print(f"  \u2717 API connection failed (unexpected): {e!s}")
+        print(ConsoleColors.error(f"  \u2717 API connection failed (unexpected): {e!s}"))
         logging.getLogger(__name__).debug("Unexpected validate-config error", exc_info=True)
         all_passed = False
 
@@ -10892,23 +10893,37 @@ def validate_config_only(
         print("[5/5] Checking output permissions...")
         output_access_ok, resolved_dir, access_reason, parent_dir = _check_output_dir_access(output_dir)
         if output_access_ok and access_reason == "creatable" and parent_dir is not None:
-            print(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})")
+            print(
+                ConsoleColors.success(
+                    f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})"
+                )
+            )
         elif output_access_ok:
-            print(f"  \u2713 Output directory writable: {resolved_dir}")
+            print(ConsoleColors.success(f"  \u2713 Output directory writable: {resolved_dir}"))
         else:
             if access_reason == "not_directory":
-                print(f"  \u2717 Output path is not a directory: {resolved_dir}")
+                print(ConsoleColors.error(f"  \u2717 Output path is not a directory: {resolved_dir}"))
             elif access_reason == "parent_not_directory" and parent_dir is not None:
                 print(
-                    "  \u2717 Cannot create output directory: "
-                    f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                    ConsoleColors.error(
+                        "  \u2717 Cannot create output directory: "
+                        f"{resolved_dir} (path component is not a directory: {parent_dir})",
+                    ),
                 )
             elif access_reason == "parent_not_writable" and parent_dir is not None:
-                print(f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})")
+                print(
+                    ConsoleColors.error(
+                        f"  \u2717 Cannot create output directory: {resolved_dir} (parent not writable: {parent_dir})",
+                    ),
+                )
             elif access_reason == "no_existing_parent":
-                print(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}")
+                print(
+                    ConsoleColors.error(
+                        f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}"
+                    )
+                )
             else:
-                print(f"  \u2717 Output directory not writable: {resolved_dir}")
+                print(ConsoleColors.error(f"  \u2717 Output directory not writable: {resolved_dir}"))
             all_passed = False
 
     # Summary
@@ -11178,7 +11193,7 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         prev_data = json.load(f)
 
     # Extract data view IDs from both
-    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.error}
+    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.has_error}
     current_dv_names = {s.data_view_id: s.data_view_name for s in current.data_view_summaries}
 
     prev_dv_ids = set()
@@ -11311,6 +11326,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         )
     else:
         print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views}")
+    print(f"Data View Fetch Failures: {result.failed_data_views}")
     print(f"Analysis Duration: {result.duration:.2f}s")
     print()
 
@@ -11323,7 +11339,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
         name = dv.data_view_name[:48] + ".." if len(dv.data_view_name) > 50 else dv.data_view_name
-        if dv.error:
+        if dv.error is not None:
             print(f"{name:<50} {dv.data_view_id:<30} {'ERROR':>8} {'':>10} {dv.status:<8}")
         else:
             print(f"{name:<50} {dv.data_view_id:<30} {dv.metric_count:>8} {dv.dimension_count:>10} {dv.status:<8}")
@@ -11340,11 +11356,11 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
     total_all = result.total_unique_components
 
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     dist = result.distribution
@@ -11497,10 +11513,10 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
     # Component Type Breakdown (if enabled)
     if config.include_component_types and not config.summary_only:
         # Aggregate type counts
-        total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.error)
-        total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.error)
-        total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.error)
-        total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.error)
+        total_standard_metrics = sum(s.standard_metric_count for s in result.data_view_summaries if not s.has_error)
+        total_derived_metrics = sum(s.derived_metric_count for s in result.data_view_summaries if not s.has_error)
+        total_standard_dims = sum(s.standard_dimension_count for s in result.data_view_summaries if not s.has_error)
+        total_derived_dims = sum(s.derived_dimension_count for s in result.data_view_summaries if not s.has_error)
 
         if total_standard_metrics + total_derived_metrics > 0:
             print("-" * 110)
@@ -11643,6 +11659,7 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
     print(f"ORG STATS: {result.org_id}")
     print("=" * BANNER_WIDTH)
     print(f"Data Views: {result.successful_data_views} analyzed")
+    print(f"Fetch Failures: {result.failed_data_views}")
     print(f"Components: {result.total_unique_components} unique")
     print(f"  Metrics:    {result.total_unique_metrics}")
     print(f"  Dimensions: {result.total_unique_dimensions}")
@@ -11861,28 +11878,36 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
         "summary": {
             "data_views_total": result.total_data_views,
             "data_views_analyzed": result.successful_data_views,
+            "data_views_failed": result.failed_data_views,
             "total_available_data_views": result.total_available_data_views,
             "is_sampled": result.is_sampled,
             "total_unique_metrics": result.total_unique_metrics,
             "total_unique_dimensions": result.total_unique_dimensions,
             "total_unique_components": result.total_unique_components,
-            "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if not dv.error),
-            "total_dimensions_non_unique": sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error),
+            "total_metrics_non_unique": sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None),
+            "total_dimensions_non_unique": sum(
+                dv.dimension_count for dv in result.data_view_summaries if dv.error is None
+            ),
             "total_components_non_unique": sum(
-                dv.total_components for dv in result.data_view_summaries if not dv.error
+                dv.total_components for dv in result.data_view_summaries if dv.error is None
             ),
             "derived_metrics_non_unique": sum(
-                dv.derived_metric_count for dv in result.data_view_summaries if not dv.error
+                dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None
             ),
             "derived_dimensions_non_unique": sum(
-                dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error
+                dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
             ),
             "total_derived_fields_non_unique": sum(
                 dv.derived_metric_count + dv.derived_dimension_count
                 for dv in result.data_view_summaries
-                if not dv.error
+                if dv.error is None
             ),
             "analysis_duration_seconds": round(result.duration, 2),
+        },
+        "data_view_fetch_failures": {
+            "count": result.failed_data_views,
+            "data_view_ids": result.failed_data_view_ids,
+            "failure_reason_counts": result.failed_data_view_reason_counts,
         },
         "distribution": {
             "core": {
@@ -12051,11 +12076,13 @@ def write_org_report_excel(
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         # Sheet 1: Summary
         # Calculate total aggregates (non-unique counts across all data views)
-        total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-        total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-        total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-        total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-        total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+        total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+        total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+        total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+        total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+        total_derived_dimensions = sum(
+            dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
+        )
         total_derived_fields = total_derived_metrics + total_derived_dimensions
         effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
@@ -12129,7 +12156,7 @@ def write_org_report_excel(
                 "Dimensions": dv.dimension_count,
                 "Total": dv.total_components,
                 "Status": dv.status,
-                "Error": dv.error or "",
+                "Error": dv.normalized_error_reason if dv.has_error else "",
             }
             # Add component type columns if enabled
             if result.parameters.include_component_types:
@@ -12199,7 +12226,7 @@ def write_org_report_excel(
         # Sheet 4: Isolated by Data View
         isolated_data = []
         for dv in result.data_view_summaries:
-            if dv.error:
+            if dv.error is not None:
                 continue
             isolated_metrics = [
                 c
@@ -12382,11 +12409,11 @@ def write_org_report_markdown(
 
     # Summary Table
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     lines.append("## Summary")
@@ -12394,6 +12421,7 @@ def write_org_report_markdown(
     lines.append("| Metric | Value |")
     lines.append("|--------|-------|")
     lines.append(f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |")
+    lines.append(f"| Data View Fetch Failures | {result.failed_data_views} |")
     lines.append(f"| Total Unique Metrics | {result.total_unique_metrics:,} |")
     lines.append(f"| Total Unique Dimensions | {result.total_unique_dimensions:,} |")
     lines.append(f"| Total Unique Components | {result.total_unique_components:,} |")
@@ -12443,7 +12471,7 @@ def write_org_report_markdown(
 
     for dv in sorted(result.data_view_summaries, key=lambda x: x.data_view_name):
         name = dv.data_view_name.replace("|", "\\|")
-        if dv.error:
+        if dv.error is not None:
             lines.append(f"| {name} | `{dv.data_view_id}` | ERROR | - | {dv.status} |")
         else:
             lines.append(f"| {name} | `{dv.data_view_id}` | {dv.metric_count} | {dv.dimension_count} | {dv.status} |")
@@ -12597,9 +12625,9 @@ def write_org_report_html(
     org_id_escaped = html.escape(result.org_id)
 
     # Calculate total aggregates (non-unique counts across all data views)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     html_out = f"""<!DOCTYPE html>
@@ -12711,6 +12739,10 @@ def write_org_report_html(
                 <div class="stat-label">Data Views Analyzed</div>
             </div>
             <div class="stat-card">
+                <div class="stat-value">{result.failed_data_views}</div>
+                <div class="stat-label">Data View Fetch Failures</div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-value">{result.total_unique_metrics:,}</div>
                 <div class="stat-label">Unique Metrics</div>
             </div>
@@ -12785,7 +12817,7 @@ def write_org_report_html(
         # Escape user-sourced strings to prevent HTML injection
         dv_name_escaped = html.escape(dv.data_view_name)
         dv_id_escaped = html.escape(dv.data_view_id)
-        if dv.error:
+        if dv.error is not None:
             error_escaped = html.escape(dv.error)
             html_out += f'                    <tr><td>{dv_name_escaped}</td><td><code>{dv_id_escaped}</code></td><td colspan="2">ERROR: {error_escaped}</td><td>{dv.status}</td></tr>\n'
         else:
@@ -12933,11 +12965,11 @@ def write_org_report_csv(
 
     # 1. Summary CSV
     # Calculate total aggregates (non-unique counts across all data views)
-    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if not dv.error)
-    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if not dv.error)
-    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if not dv.error)
-    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if not dv.error)
-    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if not dv.error)
+    total_metrics_aggregate = sum(dv.metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_dimensions_aggregate = sum(dv.dimension_count for dv in result.data_view_summaries if dv.error is None)
+    total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
+    total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
     effective_overlap_threshold = min(result.parameters.overlap_threshold, 0.9)
 
@@ -12948,6 +12980,7 @@ def write_org_report_csv(
             "Org ID": result.org_id,
             "Total Data Views": result.total_data_views,
             "Successful Data Views": result.successful_data_views,
+            "Failed Data Views": result.failed_data_views,
             "Total Unique Metrics": result.total_unique_metrics,
             "Total Unique Dimensions": result.total_unique_dimensions,
             "Total Unique Components": result.total_unique_components,
@@ -12976,7 +13009,7 @@ def write_org_report_csv(
             "Dimensions Count": dv.dimension_count,
             "Total Components": dv.total_components,
             "Status": dv.status,
-            "Error": dv.error or "",
+            "Error": dv.normalized_error_reason if dv.has_error else "",
             "Fetch Duration (s)": round(dv.fetch_duration, 3),
         }
         for dv in result.data_view_summaries
@@ -14795,7 +14828,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     # Handle --interactive mode (full wizard for guided SDR generation)
     if getattr(args, "interactive", False):
         if data_view_inputs:
-            print(ConsoleColors.warning("Note: --interactive mode ignores command line arguments"))
+            print(ConsoleColors.warning("Note: --interactive mode ignores positional data view arguments"))
 
         wizard_config = interactive_wizard(args.config_file, profile=getattr(args, "profile", None))
         if wizard_config is None:

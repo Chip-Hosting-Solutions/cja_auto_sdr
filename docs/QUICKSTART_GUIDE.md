@@ -203,7 +203,7 @@ This command:
 
 ```bash
 $ uv run cja_auto_sdr -V
-cja_auto_sdr 3.3.5
+cja_auto_sdr 3.3.6
 ```
 
 > **Important:** All commands in this guide assume you're in the `cja_auto_sdr` directory. If you see "command not found", make sure you're in the right directory and have run `uv sync`.
@@ -490,6 +490,24 @@ uv run cja_auto_sdr dv_677ea9291244fd082f02dd42
 **Windows (PowerShell):**
 ```powershell
 cja_auto_sdr dv_677ea9291244fd082f02dd42
+```
+
+### 5.2.1 Scoped Component Output (Optional)
+
+Use these flags to focus output on one component type in either SDR or diff mode:
+
+```bash
+# SDR mode: metrics only (exclude dimensions)
+uv run cja_auto_sdr dv_677ea9291244fd082f02dd42 --metrics-only
+
+# SDR mode: dimensions only (exclude metrics)
+uv run cja_auto_sdr dv_677ea9291244fd082f02dd42 --dimensions-only
+
+# Diff mode: compare metrics only
+uv run cja_auto_sdr --diff dv_12345 dv_67890 --metrics-only
+
+# Diff mode: compare dimensions only
+uv run cja_auto_sdr --diff dv_12345 dv_67890 --dimensions-only
 ```
 
 ### 5.3 Watch the Progress

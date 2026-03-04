@@ -7,6 +7,29 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.6] - 2026-03-04
+
+### Fixed
+- **Validate-config color behavior**: `validate_config_only` status lines now route through `ConsoleColors.success/error/warning/info` so `--no-color` and `NO_COLOR` are consistently honored.
+- **Org failure accounting consistency**: Org-report writers and JSON aggregations now consistently treat `error is not None` as fetch failure (including empty error strings) so failure counts and non-unique totals cannot drift.
+- **Analyzer failure contract hardening**: `OrgComponentAnalyzer` now uses explicit failure semantics (`has_error`) for indexing, recommendations, caching, owner summaries, and distribution pre-processing so blank error messages cannot be misclassified as success.
+- **Org report failure diagnostics**: Org-report data-view rows now emit `Unknown error` for blank failure messages instead of an empty cell, in both CSV and Excel outputs.
+
+### Changed
+- **Type hygiene**: `ProcessingConfig.shared_cache` and `WorkerArgs.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
+- **Docstring modernization**: `OutputWriter` protocol example updated to modern type syntax (`list[dict[str, Any]] | None`).
+- **Exception intent clarity**: Remaining broad `except Exception` handlers in `org/analyzer.py` are now explicitly documented with `# Intentional:` rationale comments at resilience boundaries.
+- **Interactive warning clarity**: `--interactive` warning now explicitly states that positional data view arguments are ignored.
+- **Release gate hardening**: `check_version_sync.py --require-tag` now also verifies `GITHUB_REF` exactly matches `refs/tags/v<canonical>` when running under tag CI refs.
+- **Version-gate diagnostics**: `check_version_sync.py` now reads files as UTF-8 explicitly and provides clearer release-tag diagnostics for non-git contexts and missing local tags (including `git fetch --tags` guidance).
+- **Version-sync coverage**: `check_version_sync.py` now validates the `CLAUDE.md` "Current version" reference as part of canonical version checks.
+- **Manual release-gate safety**: `patch-release-gate.yml` now supports manual dispatch with optional `require_tag` strictness to avoid accidental false failures when no local tag context exists.
+
+### Added
+- **CLI docs coverage**: Added `--metrics-only` and `--dimensions-only` coverage to README, quick reference, quickstart, and CLI reference.
+- **CLI color-policy regression test**: Added `_main_impl` coverage proving `--validate-config --no-color` suppresses ANSI output even when `FORCE_COLOR=1`.
+- **Org JSON failure telemetry detail**: Added `data_view_fetch_failures.failure_reason_counts` as an additive field for fetch-failure reason rollups.
+
 ## [3.3.5] - 2026-03-03
 
 ### Fixed

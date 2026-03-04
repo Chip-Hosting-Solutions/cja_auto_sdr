@@ -15,6 +15,7 @@ Covers:
 - _main_impl workers validation and org-report dispatch
 """
 
+import csv
 import json
 import logging
 from pathlib import Path
@@ -25,6 +26,7 @@ import pytest
 from cja_auto_sdr.generator import (
     _render_distribution_bar,
     build_org_report_json_data,
+    build_org_step_summary,
     compare_org_reports,
     run_org_report,
     write_org_report_comparison_console,
@@ -414,6 +416,33 @@ class TestCompareOrgReports:
         assert comparison.summary["new_duplicates"] >= 1
         assert comparison.summary["resolved_duplicates"] >= 1
 
+    def test_compare_excludes_failed_data_views_with_blank_error(self, tmp_path):
+        """Blank error text should still exclude a DV from current-side comparison sets."""
+        prev_report = {
+            "generated_at": "2024-08-01T10:00:00Z",
+            "data_views": [
+                {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+            ],
+            "summary": {"total_unique_components": 20},
+            "distribution": {
+                "core": {"total": 5},
+                "isolated": {"total": 2},
+            },
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev_blank_error.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+        current.data_view_summaries[0] = _make_data_view_summary("dv_001", "Data View 1", error="")
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert "dv_001" in comparison.data_views_removed
+        assert "dv_001" not in comparison.data_views_added
+
 
 # ===================================================================
 # write_org_report_console
@@ -460,6 +489,7 @@ class TestWriteOrgReportConsole:
 
         captured = capsys.readouterr().out
         assert "ERROR" in captured
+        assert "Data View Fetch Failures: 1" in captured
 
     def test_console_core_min_count_label(self, capsys):
         result = _make_org_result(config_overrides={"core_min_count": 5})
@@ -604,6 +634,7 @@ class TestWriteOrgReportStatsOnly:
         assert "ORG STATS" in captured
         assert "test_org_123" in captured
         assert "Data Views:" in captured
+        assert "Fetch Failures:" in captured
         assert "Components:" in captured
         assert "Distribution:" in captured
 
@@ -892,6 +923,7 @@ class TestWriteOrgReportMarkdown:
         returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
         content = Path(returned).read_text(encoding="utf-8")
         assert "ERROR" in content
+        assert "| Data View Fetch Failures | 1 |" in content
 
     def test_markdown_similarity_pairs(self, tmp_path):
         result = _make_org_result(include_similarity=True)
@@ -996,6 +1028,7 @@ class TestWriteOrgReportHtml:
         content = Path(returned).read_text(encoding="utf-8")
         # HTML-escaped error text
         assert "&lt;b&gt;fail&lt;/b&gt;" in content
+        assert "Data View Fetch Failures" in content
 
     def test_html_overlap_threshold_note(self, tmp_path):
         result = _make_org_result(config_overrides={"overlap_threshold": 0.95})
@@ -1063,6 +1096,33 @@ class TestWriteOrgReportCsv:
         csv_dir = Path(returned)
         assert csv_dir.is_dir()
 
+    def test_csv_summary_includes_failed_data_views(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+        logger = logging.getLogger("test_csv_failed_dvs")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        summary_path = Path(returned) / "org_report_summary.csv"
+
+        with summary_path.open(encoding="utf-8", newline="") as handle:
+            first_row = next(csv.DictReader(handle))
+
+        assert first_row["Failed Data Views"] == "1"
+
+    def test_csv_data_view_rows_render_unknown_error_for_blank_failure(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err_blank", "Error DV Blank", error=""))
+        logger = logging.getLogger("test_csv_blank_error")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        data_views_path = Path(returned) / "org_report_data_views.csv"
+
+        with data_views_path.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+
+        blank_error_row = next(row for row in rows if row["Data View ID"] == "dv_err_blank")
+        assert blank_error_row["Error"] == "Unknown error"
+
 
 # ===================================================================
 # build_org_report_json_data
@@ -1084,6 +1144,60 @@ class TestBuildOrgReportJsonData:
         assert "data_views" in data
         assert "component_index" in data
         assert "recommendations" in data
+        assert data["summary"]["data_views_failed"] == 0
+        assert data["data_view_fetch_failures"]["count"] == 0
+        assert data["data_view_fetch_failures"]["data_view_ids"] == []
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {}
+
+    def test_json_data_includes_failed_data_view_telemetry(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["data_views_failed"] == 1
+        assert data["data_view_fetch_failures"]["count"] == 1
+        assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err"]
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {"Failure": 1}
+
+    def test_json_data_rolls_up_failed_data_view_reason_counts(self):
+        result = _make_org_result()
+        result.data_view_summaries.extend(
+            [
+                _make_data_view_summary("dv_err_1", "Error DV 1", error="Timeout"),
+                _make_data_view_summary("dv_err_2", "Error DV 2", error="Timeout"),
+                _make_data_view_summary("dv_err_3", "Error DV 3", error="Permission denied"),
+            ],
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["data_view_fetch_failures"]["count"] == 3
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {
+            "Permission denied": 1,
+            "Timeout": 2,
+        }
+
+    def test_json_data_treats_empty_error_as_failed_data_view(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(
+            _make_data_view_summary(
+                "dv_err_blank",
+                "Error DV Blank",
+                metric_count=7,
+                dimension_count=4,
+                error="",
+            ),
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["data_views_total"] == 4
+        assert data["summary"]["data_views_analyzed"] == 3
+        assert data["summary"]["data_views_failed"] == 1
+        assert data["summary"]["total_metrics_non_unique"] == 15
+        assert data["summary"]["total_dimensions_non_unique"] == 9
+        assert data["summary"]["total_derived_fields_non_unique"] == 6
+        assert data["data_view_fetch_failures"]["count"] == 1
+        assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err_blank"]
+        assert data["data_view_fetch_failures"]["failure_reason_counts"] == {"Unknown error": 1}
 
     def test_json_data_with_clusters(self):
         result = _make_org_result(include_clusters=True)
@@ -1134,6 +1248,86 @@ class TestRenderDistributionBar:
     def test_half_bar(self):
         bar = _render_distribution_bar(50, 100)
         assert "50%" in bar
+
+
+class TestBuildOrgStepSummary:
+    """Tests for build_org_step_summary()."""
+
+    def test_includes_failed_data_view_count(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+
+        summary = build_org_step_summary(result)
+
+        assert "Data View Fetch Failures" in summary
+        assert "| Data View Fetch Failures | 1 |" in summary
+
+
+class TestOrgFailureTelemetryAcrossOutputs:
+    """Contract tests ensuring failure telemetry remains visible in all org-report outputs."""
+
+    def test_failure_telemetry_present_across_outputs_with_zero_failures(self, tmp_path):
+        result = _make_org_result()
+        logger = logging.getLogger("test_org_telemetry_zero")
+
+        json_path = Path(write_org_report_json(result, tmp_path / "report.json", str(tmp_path), logger))
+        json_data = json.loads(json_path.read_text(encoding="utf-8"))
+        assert json_data["data_view_fetch_failures"]["count"] == 0
+        assert json_data["data_view_fetch_failures"]["data_view_ids"] == []
+        assert json_data["data_view_fetch_failures"]["failure_reason_counts"] == {}
+
+        csv_dir = Path(write_org_report_csv(result, None, str(tmp_path), logger))
+        with (csv_dir / "org_report_summary.csv").open(encoding="utf-8", newline="") as handle:
+            csv_row = next(csv.DictReader(handle))
+        assert csv_row["Failed Data Views"] == "0"
+
+        markdown_path = Path(write_org_report_markdown(result, tmp_path / "report.md", str(tmp_path), logger))
+        markdown_text = markdown_path.read_text(encoding="utf-8")
+        assert "| Data View Fetch Failures | 0 |" in markdown_text
+
+        html_path = Path(write_org_report_html(result, tmp_path / "report.html", str(tmp_path), logger))
+        html_text = html_path.read_text(encoding="utf-8")
+        assert "Data View Fetch Failures" in html_text
+
+        step_summary = build_org_step_summary(result)
+        assert "| Data View Fetch Failures | 0 |" in step_summary
+
+    def test_failure_telemetry_present_across_outputs_with_nonzero_failures(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.extend(
+            [
+                _make_data_view_summary("dv_err_1", "Error DV 1", error="Timeout"),
+                _make_data_view_summary("dv_err_2", "Error DV 2", error="Permission denied"),
+            ],
+        )
+        logger = logging.getLogger("test_org_telemetry_nonzero")
+
+        json_path = Path(write_org_report_json(result, tmp_path / "report_fail.json", str(tmp_path), logger))
+        json_data = json.loads(json_path.read_text(encoding="utf-8"))
+        assert json_data["data_view_fetch_failures"]["count"] == 2
+        assert json_data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err_1", "dv_err_2"]
+        assert json_data["data_view_fetch_failures"]["failure_reason_counts"] == {
+            "Permission denied": 1,
+            "Timeout": 1,
+        }
+
+        csv_dir = Path(write_org_report_csv(result, None, str(tmp_path), logger))
+        with (csv_dir / "org_report_summary.csv").open(encoding="utf-8", newline="") as handle:
+            csv_row = next(csv.DictReader(handle))
+        assert csv_row["Failed Data Views"] == "2"
+
+        markdown_path = Path(
+            write_org_report_markdown(result, tmp_path / "report_fail.md", str(tmp_path), logger),
+        )
+        markdown_text = markdown_path.read_text(encoding="utf-8")
+        assert "| Data View Fetch Failures | 2 |" in markdown_text
+
+        html_path = Path(write_org_report_html(result, tmp_path / "report_fail.html", str(tmp_path), logger))
+        html_text = html_path.read_text(encoding="utf-8")
+        assert "Data View Fetch Failures" in html_text
+
+        step_summary = build_org_step_summary(result)
+        assert "| Data View Fetch Failures | 2 |" in step_summary
 
 
 # ===================================================================

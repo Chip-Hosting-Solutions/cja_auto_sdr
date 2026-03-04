@@ -673,7 +673,21 @@ class TestDataViewSummary:
         """Test error state"""
         summary = DataViewSummary(data_view_id="dv_error", data_view_name="Error DV", error="API Error")
         assert summary.error == "API Error"
+        assert summary.has_error is True
+        assert summary.normalized_error_reason == "API Error"
         assert summary.total_components == 0
+
+    def test_blank_error_is_failed_with_unknown_reason(self):
+        """Empty-string error should still be treated as failure."""
+        summary = DataViewSummary(data_view_id="dv_error_blank", data_view_name="Error DV", error="")
+        assert summary.has_error is True
+        assert summary.normalized_error_reason == "Unknown error"
+
+    def test_success_summary_has_no_error_reason(self):
+        """Successful summaries should not expose failure reason text."""
+        summary = DataViewSummary(data_view_id="dv_ok", data_view_name="Healthy DV")
+        assert summary.has_error is False
+        assert summary.normalized_error_reason is None
 
 
 class TestSimilarityPair:
@@ -750,9 +764,38 @@ class TestOrgReportResult:
         )
         assert result.total_data_views == 3
         assert result.successful_data_views == 2
+        assert result.failed_data_views == 1
+        assert result.failed_data_view_ids == ["dv_3"]
         assert result.total_unique_metrics == 2
         assert result.total_unique_dimensions == 1
         assert result.total_unique_components == 3
+
+    def test_failed_reason_rollups_normalize_whitespace_and_empty_error(self):
+        """Failed reason rollups should normalize whitespace and classify empty messages."""
+        result = OrgReportResult(
+            timestamp="2024-01-15T10:30:00",
+            org_id="org_123",
+            parameters=OrgReportConfig(),
+            data_view_summaries=[
+                DataViewSummary("dv_1", "DV 1", error="Timeout   while\nfetching"),
+                DataViewSummary("dv_2", "DV 2", error="Timeout while fetching"),
+                DataViewSummary("dv_3", "DV 3", error=""),
+                DataViewSummary("dv_4", "DV 4", metric_count=3, dimension_count=2),
+            ],
+            component_index={},
+            distribution=ComponentDistribution(),
+            similarity_pairs=None,
+            recommendations=[],
+            duration=1.2,
+        )
+
+        assert result.successful_data_views == 1
+        assert result.failed_data_views == 3
+        assert result.failed_data_view_ids == ["dv_1", "dv_2", "dv_3"]
+        assert result.failed_data_view_reason_counts == {
+            "Timeout while fetching": 2,
+            "Unknown error": 1,
+        }
 
 
 class TestDistributionBar:

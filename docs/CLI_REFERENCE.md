@@ -115,6 +115,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--output PATH` | Output file path. Use `-` or `stdout` to write to stdout (JSON/CSV only). Implies `--quiet` for stdout | - |
 | `--format FORMAT` | Output format (see table below) | excel (SDR), console (diff) |
 | `--stats` | Show quick statistics (metrics/dimensions count) without generating full SDR report | False |
+| `--metrics-only` | Restrict output to metrics (exclude dimensions). Applies to SDR generation and diff comparison | False |
+| `--dimensions-only` | Restrict output to dimensions (exclude metrics). Applies to SDR generation and diff comparison | False |
 | `--max-issues N` | Limit issues to top N by severity (0=all) | 0 |
 | `--run-summary-json PATH` | Write a machine-readable run summary JSON (all modes). Use `-` or `stdout` for stdout | - |
 | `--name-match MODE` | Data view name matching mode: `exact` (default), `insensitive` (case-insensitive), or `fuzzy` (nearest match) | exact |
@@ -407,6 +409,8 @@ Cache is stored in `~/.cja_auto_sdr/cache/org_report_cache.json`.
 - **Clusters**: Related data view groups (when `--cluster` is enabled)
 - **Owner Summary**: Stats grouped by owner (when `--owner-summary` is enabled)
 
+> **Org JSON telemetry contract:** The `data_view_fetch_failures` block is always present and includes `count`, `data_view_ids`, and `failure_reason_counts` (an additive reason-to-count map that may be empty). Consumers should ignore unknown future keys in this block.
+
 ### Git Integration
 
 | Option | Description | Default |
@@ -504,6 +508,12 @@ cja_auto_sdr dv_12345 --fail-on-quality HIGH
 
 # Generate standalone quality report only (no SDR files)
 cja_auto_sdr dv_12345 --quality-report json --output quality_issues.json
+
+# Generate metrics-only SDR output
+cja_auto_sdr dv_12345 --metrics-only
+
+# Generate dimensions-only SDR output
+cja_auto_sdr dv_12345 --dimensions-only
 ```
 
 ### Multiple Data Views
@@ -678,12 +688,14 @@ cja_auto_sdr dv_12345 --stats --format csv --output stats.csv
 # Launch interactive selection mode
 cja_auto_sdr --interactive
 
-# Interactive selection with custom output format
-cja_auto_sdr --interactive --format markdown
+# Interactive selection with a specific profile
+cja_auto_sdr --interactive --profile client-a
 
 # Interactive selection with specific output directory
 cja_auto_sdr --interactive --output-dir ./reports
 ```
+
+> **Note:** In `--interactive` mode, the wizard prompts you to choose output format and inventory options.
 
 **Selection Syntax:**
 - Single: `3` (selects #3)
