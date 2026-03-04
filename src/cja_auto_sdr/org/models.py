@@ -340,6 +340,14 @@ class OrgReportResult:
         return len([s for s in self.data_view_summaries if s.error is None])
 
     @property
+    def failed_data_views(self) -> int:
+        return len([s for s in self.data_view_summaries if s.error is not None])
+
+    @property
+    def failed_data_view_ids(self) -> list[str]:
+        return [s.data_view_id for s in self.data_view_summaries if s.error is not None]
+
+    @property
     def total_unique_metrics(self) -> int:
         return len([c for c in self.component_index.values() if c.component_type == "metric"])
 

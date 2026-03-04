@@ -750,6 +750,8 @@ class TestOrgReportResult:
         )
         assert result.total_data_views == 3
         assert result.successful_data_views == 2
+        assert result.failed_data_views == 1
+        assert result.failed_data_view_ids == ["dv_3"]
         assert result.total_unique_metrics == 2
         assert result.total_unique_dimensions == 1
         assert result.total_unique_components == 3

@@ -1,15 +1,16 @@
-#!/usr/bin/env python3
 """
 Verify that version strings are consistent across the project.
 
 Usage:
   uv run python scripts/check_version_sync.py          # check and report
-  uv run python scripts/check_version_sync.py --fix    # not yet supported
+  uv run python scripts/check_version_sync.py --require-tag
 """
 
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,8 +25,7 @@ def get_canonical_version() -> str:
     content = VERSION_FILE.read_text()
     match = re.search(r'__version__\s*=\s*"([^"]+)"', content)
     if not match:
-        print(f"FAIL: Could not parse version from {VERSION_FILE.relative_to(ROOT)}")
-        sys.exit(2)
+        raise SystemExit(f"FAIL: Could not parse version from {VERSION_FILE.relative_to(ROOT)}")
     return match.group(1)
 
 
@@ -91,20 +91,57 @@ def check_all(canonical: str) -> list[str]:
     return errors
 
 
+def check_release_tag(canonical: str) -> str | None:
+    """Return an error message when v<canonical> tag is missing, else None."""
+    tag_name = f"v{canonical}"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag_name}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return f"Unable to verify release tag {tag_name}: {exc}"
+
+    if result.returncode != 0:
+        return (
+            f"Missing required release tag: {tag_name}. "
+            f"Create it with: git tag {tag_name}"
+        )
+    return None
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify version/docs/changelog sync.")
+    parser.add_argument(
+        "--require-tag",
+        action="store_true",
+        help="Require git tag v<canonical version> to exist.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     canonical = get_canonical_version()
     errors = check_all(canonical)
 
+    if args.require_tag:
+        tag_error = check_release_tag(canonical)
+        if tag_error is not None:
+            errors.append(f"  {tag_error}")
+
     if errors:
-        print(f"Version sync check FAILED (canonical: {canonical})")
-        print()
-        for error in errors:
-            print(error)
-        print()
-        print(f"Canonical source: {VERSION_FILE.relative_to(ROOT)}")
-        sys.exit(1)
-    else:
-        print(f"Version sync OK: all references match {canonical}")
+        lines = [f"Version sync check FAILED (canonical: {canonical})", ""]
+        lines.extend(errors)
+        lines.append("")
+        lines.append(f"Canonical source: {VERSION_FILE.relative_to(ROOT)}")
+        sys.stdout.write("\n".join(lines) + "\n")
+        raise SystemExit(1)
+
+    sys.stdout.write(f"Version sync OK: all references match {canonical}\n")
 
 
 if __name__ == "__main__":

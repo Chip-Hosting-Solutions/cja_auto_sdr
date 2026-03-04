@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,291 comprehensive tests**
+**Total: 5,302 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -176,7 +176,7 @@ tests/
 | `test_main_impl_coverage.py` | 57 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
 | `test_org_cache_branches.py` | 15 | Org cache branch coverage |
-| `test_org_writer_coverage.py` | 89 | Org writer edge cases and coverage |
+| `test_org_writer_coverage.py` | 92 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
 | `test_backwards_compat.py` | 34 | Backwards compatibility tests |
 | `test_exception_contracts.py` | 13 | Exception boundary contract tests |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 26 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,291** | **Collected via pytest --collect-only** |
+| **Total** | **5,302** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,291 tests total)
+- [x] Comprehensive test coverage (5,302 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 172 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests

@@ -1,0 +1,24 @@
+name: Patch Release Gate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  patch-release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: Sync dependencies
+        run: uv sync --dev
+      - name: Verify version, changelog, docs, and release tag
+        run: uv run python scripts/check_version_sync.py --require-tag
+      - name: Verify test counts are up to date
+        run: uv run python scripts/update_test_counts.py --check

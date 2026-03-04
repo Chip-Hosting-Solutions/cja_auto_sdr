@@ -335,8 +335,8 @@ class WorkerArgs:
     dimensions_only: bool = False
     profile: str | None = None
     shared_cache: SharedValidationCache | None = None
-    api_tuning_config: Any = None
-    circuit_breaker_config: Any = None
+    api_tuning_config: APITuningConfig | None = None
+    circuit_breaker_config: CircuitBreakerConfig | None = None
     include_derived_inventory: bool = False
     include_calculated_metrics: bool = False
     include_segments_inventory: bool = False
@@ -1370,6 +1370,7 @@ def build_org_step_summary(result: OrgReportResult) -> str:
         "| Metric | Value |",
         "|---|---:|",
         f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |",
+        f"| Data View Fetch Failures | {result.failed_data_views} |",
         f"| Total Unique Components | {result.total_unique_components} |",
         f"| Total Unique Metrics | {result.total_unique_metrics} |",
         f"| Total Unique Dimensions | {result.total_unique_dimensions} |",
@@ -11325,6 +11326,7 @@ def write_org_report_console(result: OrgReportResult, config: OrgReportConfig, q
         )
     else:
         print(f"Data Views Analyzed: {result.successful_data_views} / {result.total_data_views}")
+    print(f"Data View Fetch Failures: {result.failed_data_views}")
     print(f"Analysis Duration: {result.duration:.2f}s")
     print()
 
@@ -11657,6 +11659,7 @@ def write_org_report_stats_only(result: OrgReportResult, quiet: bool = False) ->
     print(f"ORG STATS: {result.org_id}")
     print("=" * BANNER_WIDTH)
     print(f"Data Views: {result.successful_data_views} analyzed")
+    print(f"Fetch Failures: {result.failed_data_views}")
     print(f"Components: {result.total_unique_components} unique")
     print(f"  Metrics:    {result.total_unique_metrics}")
     print(f"  Dimensions: {result.total_unique_dimensions}")
@@ -11875,6 +11878,7 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
         "summary": {
             "data_views_total": result.total_data_views,
             "data_views_analyzed": result.successful_data_views,
+            "data_views_failed": result.failed_data_views,
             "total_available_data_views": result.total_available_data_views,
             "is_sampled": result.is_sampled,
             "total_unique_metrics": result.total_unique_metrics,
@@ -11897,6 +11901,10 @@ def build_org_report_json_data(result: OrgReportResult) -> dict[str, Any]:
                 if not dv.error
             ),
             "analysis_duration_seconds": round(result.duration, 2),
+        },
+        "data_view_fetch_failures": {
+            "count": result.failed_data_views,
+            "data_view_ids": result.failed_data_view_ids,
         },
         "distribution": {
             "core": {
@@ -12408,6 +12416,7 @@ def write_org_report_markdown(
     lines.append("| Metric | Value |")
     lines.append("|--------|-------|")
     lines.append(f"| Data Views Analyzed | {result.successful_data_views} / {result.total_data_views} |")
+    lines.append(f"| Data View Fetch Failures | {result.failed_data_views} |")
     lines.append(f"| Total Unique Metrics | {result.total_unique_metrics:,} |")
     lines.append(f"| Total Unique Dimensions | {result.total_unique_dimensions:,} |")
     lines.append(f"| Total Unique Components | {result.total_unique_components:,} |")
@@ -12725,6 +12734,10 @@ def write_org_report_html(
                 <div class="stat-label">Data Views Analyzed</div>
             </div>
             <div class="stat-card">
+                <div class="stat-value">{result.failed_data_views}</div>
+                <div class="stat-label">Data View Fetch Failures</div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-value">{result.total_unique_metrics:,}</div>
                 <div class="stat-label">Unique Metrics</div>
             </div>
@@ -12962,6 +12975,7 @@ def write_org_report_csv(
             "Org ID": result.org_id,
             "Total Data Views": result.total_data_views,
             "Successful Data Views": result.successful_data_views,
+            "Failed Data Views": result.failed_data_views,
             "Total Unique Metrics": result.total_unique_metrics,
             "Total Unique Dimensions": result.total_unique_dimensions,
             "Total Unique Components": result.total_unique_components,

@@ -15,6 +15,7 @@ Covers:
 - _main_impl workers validation and org-report dispatch
 """
 
+import csv
 import json
 import logging
 from pathlib import Path
@@ -25,6 +26,7 @@ import pytest
 from cja_auto_sdr.generator import (
     _render_distribution_bar,
     build_org_report_json_data,
+    build_org_step_summary,
     compare_org_reports,
     run_org_report,
     write_org_report_comparison_console,
@@ -460,6 +462,7 @@ class TestWriteOrgReportConsole:
 
         captured = capsys.readouterr().out
         assert "ERROR" in captured
+        assert "Data View Fetch Failures: 1" in captured
 
     def test_console_core_min_count_label(self, capsys):
         result = _make_org_result(config_overrides={"core_min_count": 5})
@@ -604,6 +607,7 @@ class TestWriteOrgReportStatsOnly:
         assert "ORG STATS" in captured
         assert "test_org_123" in captured
         assert "Data Views:" in captured
+        assert "Fetch Failures:" in captured
         assert "Components:" in captured
         assert "Distribution:" in captured
 
@@ -892,6 +896,7 @@ class TestWriteOrgReportMarkdown:
         returned = write_org_report_markdown(result, out_path, str(tmp_path), logger)
         content = Path(returned).read_text(encoding="utf-8")
         assert "ERROR" in content
+        assert "| Data View Fetch Failures | 1 |" in content
 
     def test_markdown_similarity_pairs(self, tmp_path):
         result = _make_org_result(include_similarity=True)
@@ -996,6 +1001,7 @@ class TestWriteOrgReportHtml:
         content = Path(returned).read_text(encoding="utf-8")
         # HTML-escaped error text
         assert "&lt;b&gt;fail&lt;/b&gt;" in content
+        assert "Data View Fetch Failures" in content
 
     def test_html_overlap_threshold_note(self, tmp_path):
         result = _make_org_result(config_overrides={"overlap_threshold": 0.95})
@@ -1063,6 +1069,19 @@ class TestWriteOrgReportCsv:
         csv_dir = Path(returned)
         assert csv_dir.is_dir()
 
+    def test_csv_summary_includes_failed_data_views(self, tmp_path):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+        logger = logging.getLogger("test_csv_failed_dvs")
+
+        returned = write_org_report_csv(result, None, str(tmp_path), logger)
+        summary_path = Path(returned) / "org_report_summary.csv"
+
+        with summary_path.open(encoding="utf-8", newline="") as handle:
+            first_row = next(csv.DictReader(handle))
+
+        assert first_row["Failed Data Views"] == "1"
+
 
 # ===================================================================
 # build_org_report_json_data
@@ -1084,6 +1103,18 @@ class TestBuildOrgReportJsonData:
         assert "data_views" in data
         assert "component_index" in data
         assert "recommendations" in data
+        assert data["summary"]["data_views_failed"] == 0
+        assert data["data_view_fetch_failures"]["count"] == 0
+        assert data["data_view_fetch_failures"]["data_view_ids"] == []
+
+    def test_json_data_includes_failed_data_view_telemetry(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["data_views_failed"] == 1
+        assert data["data_view_fetch_failures"]["count"] == 1
+        assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err"]
 
     def test_json_data_with_clusters(self):
         result = _make_org_result(include_clusters=True)
@@ -1134,6 +1165,19 @@ class TestRenderDistributionBar:
     def test_half_bar(self):
         bar = _render_distribution_bar(50, 100)
         assert "50%" in bar
+
+
+class TestBuildOrgStepSummary:
+    """Tests for build_org_step_summary()."""
+
+    def test_includes_failed_data_view_count(self):
+        result = _make_org_result()
+        result.data_view_summaries.append(_make_data_view_summary("dv_err", "Error DV", error="Failure"))
+
+        summary = build_org_step_summary(result)
+
+        assert "Data View Fetch Failures" in summary
+        assert "| Data View Fetch Failures | 1 |" in summary
 
 
 # ===================================================================
