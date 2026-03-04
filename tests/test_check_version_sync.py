@@ -17,6 +17,17 @@ def test_get_canonical_version_reads_version_file(tmp_path, monkeypatch) -> None
     assert check_version_sync.get_canonical_version() == "9.8.7"
 
 
+def test_get_canonical_version_reports_missing_version_file(tmp_path, monkeypatch) -> None:
+    missing_file = tmp_path / "version.py"
+    monkeypatch.setattr(check_version_sync, "VERSION_FILE", missing_file)
+    monkeypatch.setattr(check_version_sync, "ROOT", tmp_path)
+
+    with pytest.raises(SystemExit) as excinfo:
+        check_version_sync.get_canonical_version()
+
+    assert "Could not read version.py" in str(excinfo.value)
+
+
 def test_check_all_reports_mismatch_for_first_match(tmp_path, monkeypatch) -> None:
     tracked = tmp_path / "tracked.md"
     tracked.write_text("Release v1.2.2\nRelease v1.2.3\n", encoding="utf-8")
@@ -32,6 +43,40 @@ def test_check_all_reports_mismatch_for_first_match(tmp_path, monkeypatch) -> No
 
     assert len(errors) == 1
     assert "expected 1.2.3, found 1.2.2" in errors[0]
+
+
+def test_check_all_reports_unreadable_file(tmp_path, monkeypatch) -> None:
+    unreadable_path = tmp_path / "unreadable"
+    unreadable_path.mkdir()
+
+    monkeypatch.setattr(
+        check_version_sync,
+        "VERSION_LOCATIONS",
+        [("unreadable", r"v(\d+\.\d+\.\d+)", "Unreadable target")],
+    )
+    monkeypatch.setattr(check_version_sync, "ROOT", tmp_path)
+
+    errors = check_version_sync.check_all("1.2.3")
+
+    assert len(errors) == 1
+    assert "unreadable: could not read file" in errors[0]
+
+
+def test_check_all_reports_non_utf8_file(tmp_path, monkeypatch) -> None:
+    bad_encoding = tmp_path / "bad_encoding.md"
+    bad_encoding.write_bytes(b"\x80\x81")
+
+    monkeypatch.setattr(
+        check_version_sync,
+        "VERSION_LOCATIONS",
+        [("bad_encoding.md", r"v(\d+\.\d+\.\d+)", "Bad encoding target")],
+    )
+    monkeypatch.setattr(check_version_sync, "ROOT", tmp_path)
+
+    errors = check_version_sync.check_all("1.2.3")
+
+    assert len(errors) == 1
+    assert "bad_encoding.md: not valid UTF-8" in errors[0]
 
 
 def test_version_locations_include_claude_version_entry() -> None:

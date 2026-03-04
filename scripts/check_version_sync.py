@@ -23,10 +23,16 @@ VERSION_FILE = ROOT / "src" / "cja_auto_sdr" / "core" / "version.py"
 
 def get_canonical_version() -> str:
     """Read the canonical version from version.py."""
-    content = VERSION_FILE.read_text(encoding="utf-8")
+    rel_version_file = VERSION_FILE.relative_to(ROOT)
+    try:
+        content = VERSION_FILE.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"FAIL: Could not read {rel_version_file}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise SystemExit(f"FAIL: Could not decode {rel_version_file} as UTF-8: {exc}") from exc
     match = re.search(r'__version__\s*=\s*"([^"]+)"', content)
     if not match:
-        raise SystemExit(f"FAIL: Could not parse version from {VERSION_FILE.relative_to(ROOT)}")
+        raise SystemExit(f"FAIL: Could not parse version from {rel_version_file}")
     return match.group(1)
 
 
@@ -80,7 +86,14 @@ def check_all(canonical: str) -> list[str]:
             errors.append(f"  {rel_path}: file not found")
             continue
 
-        content = filepath.read_text(encoding="utf-8")
+        try:
+            content = filepath.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"  {rel_path}: could not read file ({exc})")
+            continue
+        except UnicodeDecodeError as exc:
+            errors.append(f"  {rel_path}: not valid UTF-8 ({exc})")
+            continue
         matches = re.findall(pattern, content, re.MULTILINE)
 
         if not matches:
