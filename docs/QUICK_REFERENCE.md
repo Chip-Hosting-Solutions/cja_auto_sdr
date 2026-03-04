@@ -307,17 +307,17 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 
 | Option | Purpose | Mode |
 |--------|---------|------|
-| `-V, --version` | Show program version and exit | Both |
-| `--profile NAME`, `-p` | Use named profile from `~/.cja/orgs/` | Both |
-| `--output-dir PATH` | Save output to specific directory | Both |
-| `--output PATH` | Output file path; use `-` for stdout (JSON/CSV) | Both |
-| `--format FORMAT` | Output format (see note below) | Both |
-| `--open` | Open generated file(s) in default application | SDR |
-| `--stats` | Quick statistics only (no full report) | SDR |
-| `--interactive`, `-i` | Interactively select data views from a numbered list | Both |
-| `--config-file PATH` | Use custom config file (default: config.json) | Both |
-| `--log-level LEVEL` | Set logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` | Both |
-| `--log-format FORMAT` | Log output: `text` (default) or `json` (structured) | Both |
+| `-V, --version` | Show program version and exit | All modes |
+| `--profile NAME`, `-p` | Use named profile from `~/.cja/orgs/` | All modes |
+| `--output-dir PATH` | Save output to specific directory | All modes |
+| `--output PATH` | Output file path; use `-` for stdout (JSON/CSV) | All modes |
+| `--format FORMAT` | Output format (see note below) | All modes |
+| `--open` | Open generated file(s) in default application | SDR only |
+| `--stats` | Quick statistics only (no full report) | SDR only |
+| `--interactive`, `-i` | Interactively select data views from a numbered list | SDR only |
+| `--config-file PATH` | Use custom config file (default: config.json) | All modes |
+| `--log-level LEVEL` | Set logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` | All modes |
+| `--log-format FORMAT` | Log output: `text` (default) or `json` (structured) | All modes |
 | `--workers N` | Parallel workers: `auto` (default) or `1-256` | SDR only |
 | `--skip-validation` | Skip data quality checks (faster) | SDR only |
 | `--metrics-only` | Include/compare metrics only (exclude dimensions) | SDR + Diff |
