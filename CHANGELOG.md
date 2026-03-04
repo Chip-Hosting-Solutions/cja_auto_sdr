@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validate-config color behavior**: `validate_config_only` status lines now route through `ConsoleColors.success/error/warning/info` so `--no-color` and `NO_COLOR` are consistently honored.
 
 ### Changed
-- **Type hygiene**: `ProcessingConfig.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
+- **Type hygiene**: `ProcessingConfig.shared_cache` and `WorkerArgs.shared_cache` narrowed from `Any` to `SharedValidationCache | None` for safer typing without API changes.
 - **Docstring modernization**: `OutputWriter` protocol example updated to modern type syntax (`list[dict[str, Any]] | None`).
 - **Exception intent clarity**: Remaining broad `except Exception` handlers in `org/analyzer.py` are now explicitly documented with `# Intentional:` rationale comments at resilience boundaries.
+- **Interactive warning clarity**: `--interactive` warning now explicitly states that positional data view arguments are ignored.
 
 ### Added
 - **CLI docs coverage**: Added `--metrics-only` and `--dimensions-only` coverage to README, quick reference, quickstart, and CLI reference.
+- **CLI color-policy regression test**: Added `_main_impl` coverage proving `--validate-config --no-color` suppresses ANSI output even when `FORCE_COLOR=1`.
 
 ## [3.3.5] - 2026-03-03
 

@@ -334,7 +334,7 @@ class WorkerArgs:
     metrics_only: bool = False
     dimensions_only: bool = False
     profile: str | None = None
-    shared_cache: Any = None
+    shared_cache: SharedValidationCache | None = None
     api_tuning_config: Any = None
     circuit_breaker_config: Any = None
     include_derived_inventory: bool = False
@@ -14809,7 +14809,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     # Handle --interactive mode (full wizard for guided SDR generation)
     if getattr(args, "interactive", False):
         if data_view_inputs:
-            print(ConsoleColors.warning("Note: --interactive mode ignores command line arguments"))
+            print(ConsoleColors.warning("Note: --interactive mode ignores positional data view arguments"))
 
         wizard_config = interactive_wizard(args.config_file, profile=getattr(args, "profile", None))
         if wizard_config is None:
