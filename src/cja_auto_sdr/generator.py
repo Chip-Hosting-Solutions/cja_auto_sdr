@@ -10892,7 +10892,11 @@ def validate_config_only(
         print("[5/5] Checking output permissions...")
         output_access_ok, resolved_dir, access_reason, parent_dir = _check_output_dir_access(output_dir)
         if output_access_ok and access_reason == "creatable" and parent_dir is not None:
-            print(ConsoleColors.success(f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})"))
+            print(
+                ConsoleColors.success(
+                    f"  \u2713 Output directory creatable: {resolved_dir} (parent writable: {parent_dir})"
+                )
+            )
         elif output_access_ok:
             print(ConsoleColors.success(f"  \u2713 Output directory writable: {resolved_dir}"))
         else:
@@ -10912,7 +10916,11 @@ def validate_config_only(
                     ),
                 )
             elif access_reason == "no_existing_parent":
-                print(ConsoleColors.error(f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}"))
+                print(
+                    ConsoleColors.error(
+                        f"  \u2717 Cannot determine writable parent for output directory: {resolved_dir}"
+                    )
+                )
             else:
                 print(ConsoleColors.error(f"  \u2717 Output directory not writable: {resolved_dir}"))
             all_passed = False

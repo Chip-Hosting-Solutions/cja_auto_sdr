@@ -567,7 +567,9 @@ class OrgComponentAnalyzer:
                                 pbar.set_postfix_str(f"✓ {summary.metric_count}m/{summary.dimension_count}d")
                         except LockOwnershipLostError:
                             raise
-                        except Exception as e:  # Intentional: per-data-view failures are isolated into summary error rows.
+                        except (
+                            Exception
+                        ) as e:  # Intentional: per-data-view failures are isolated into summary error rows.
                             error_msg = str(e) or f"{type(e).__name__}"
                             summaries.append(
                                 DataViewSummary(
