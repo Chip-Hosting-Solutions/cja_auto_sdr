@@ -12627,9 +12627,7 @@ def write_org_report_html(
     # Calculate total aggregates (non-unique counts across all data views)
     total_components_aggregate = sum(dv.total_components for dv in result.data_view_summaries if dv.error is None)
     total_derived_metrics = sum(dv.derived_metric_count for dv in result.data_view_summaries if dv.error is None)
-    total_derived_dimensions = sum(
-        dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None
-    )
+    total_derived_dimensions = sum(dv.derived_dimension_count for dv in result.data_view_summaries if dv.error is None)
     total_derived_fields = total_derived_metrics + total_derived_dimensions
 
     html_out = f"""<!DOCTYPE html>
