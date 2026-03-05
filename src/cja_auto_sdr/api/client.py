@@ -13,6 +13,10 @@ import cjapy
 from cja_auto_sdr.api.resilience import make_api_call_with_retry
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.core.credentials import CredentialResolver
+from cja_auto_sdr.core.error_policies import (
+    RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
+    RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS,
+)
 from cja_auto_sdr.core.exceptions import (
     CredentialSourceError,
     ProfileConfigError,
@@ -27,6 +31,9 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
     except ImportError:
         logger.debug("python-dotenv not installed (.env files will not be auto-loaded)")
         return
+    except RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS as e:
+        logger.debug(f"Failed to import python-dotenv for .env auto-loading: {e}")
+        return
 
     try:
         dotenv_loaded = load_dotenv()
@@ -34,7 +41,7 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
             logger.debug(".env file found and loaded")
         else:
             logger.debug(".env file not found (python-dotenv available but no .env file)")
-    except Exception as e:
+    except RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS as e:
         logger.debug(f"Failed to load .env via python-dotenv: {e}")
 
 
@@ -235,7 +242,7 @@ def initialize_cja(
                 )
             else:
                 logger.warning("API connection test returned None - connection may be unstable")
-        except Exception as test_error:
+        except RECOVERABLE_CONNECTION_TEST_EXCEPTIONS as test_error:
             logger.warning(f"Could not verify connection with test call: {test_error!s}")
             logger.warning("Proceeding anyway - errors may occur during data fetching")
 
@@ -276,7 +283,7 @@ def initialize_cja(
         logger.critical("Please check file permissions")
         return None
 
-    except Exception as e:
+    except Exception as e:  # Intentional: Top-level init boundary; credentials, config, and API subsystems can all fail with heterogeneous errors
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA INITIALIZATION FAILED")
         logger.critical("=" * BANNER_WIDTH)

@@ -538,11 +538,11 @@ class TestValidateConfigFile:
         config_file = tmp_path / "crash.json"
         config_file.write_text(json.dumps({"org_id": "test@AdobeOrg"}))
 
-        with patch("builtins.open", side_effect=RuntimeError("Something broke")):
+        with patch("builtins.open", side_effect=OSError("Something broke")):
             result = validate_config_file(config_file, logger)
         assert result is False
         error_calls = [str(c) for c in logger.error.call_args_list]
-        assert any("Unexpected error" in e or "RuntimeError" in e for e in error_calls)
+        assert any("Unexpected error" in e or "OSError" in e for e in error_calls)
 
     def test_valid_config_file_passes(self, tmp_path):
         """Valid config file passes all validation."""

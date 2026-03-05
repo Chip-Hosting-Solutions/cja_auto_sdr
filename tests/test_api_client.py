@@ -96,6 +96,15 @@ class TestBootstrapDotenv:
         calls = [str(c) for c in mock_logger.debug.call_args_list]
         assert any("Failed to load .env" in c for c in calls)
 
+    def test_dotenv_load_runtime_error_is_non_fatal(self, mock_logger):
+        """Unexpected loader failures are still best-effort and must not abort."""
+        mock_load_dotenv = Mock(side_effect=RuntimeError("internal dotenv failure"))
+        with patch.dict("sys.modules", {"dotenv": MagicMock(load_dotenv=mock_load_dotenv)}):
+            _bootstrap_dotenv(mock_logger)
+
+        calls = [str(c) for c in mock_logger.debug.call_args_list]
+        assert any("Failed to load .env" in c for c in calls)
+
     def test_dotenv_not_installed(self, mock_logger):
         """Import of dotenv fails -> logs 'python-dotenv not installed'."""
         # Temporarily remove dotenv from sys.modules if present, and make import fail
@@ -104,6 +113,23 @@ class TestBootstrapDotenv:
 
         calls = [str(c) for c in mock_logger.debug.call_args_list]
         assert any("python-dotenv not installed" in c for c in calls)
+
+    def test_dotenv_import_runtime_error_is_non_fatal(self, mock_logger):
+        """Unexpected dotenv import errors should remain best-effort."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _import_with_runtime_error(name, *args, **kwargs):
+            if name == "dotenv":
+                raise RuntimeError("broken dotenv install")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_import_with_runtime_error):
+            _bootstrap_dotenv(mock_logger)
+
+        calls = [str(c) for c in mock_logger.debug.call_args_list]
+        assert any("Failed to import python-dotenv" in c for c in calls)
 
 
 # ==================== _config_from_env atexit cleanup (lines 62-63) ====================

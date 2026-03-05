@@ -9,6 +9,7 @@ from cja_auto_sdr.generator import (
     DataViewSnapshot,
     generate_git_commit_message,
     git_commit_snapshot,
+    git_get_user_info,
     git_init_snapshot_repo,
     is_git_repository,
     save_git_friendly_snapshot,
@@ -44,6 +45,24 @@ class TestIsGitRepository:
         """Test that function handles missing Git gracefully."""
         mock_run.side_effect = FileNotFoundError()
         assert is_git_repository(Path(".")) is False
+
+    @patch("subprocess.run")
+    def test_handles_decode_error(self, mock_run):
+        """Test that subprocess decode errors are treated as non-repo signals."""
+        mock_run.side_effect = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        assert is_git_repository(Path(".")) is False
+
+
+class TestGitGetUserInfo:
+    """Tests for git_get_user_info function."""
+
+    @patch("cja_auto_sdr.diff.git.subprocess.run")
+    def test_handles_decode_errors(self, mock_run):
+        """Decode failures should keep default identity and never raise."""
+        mock_run.side_effect = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        name, email = git_get_user_info()
+        assert name == "CJA SDR Generator"
+        assert email == ""
 
 
 class TestSaveGitFriendlySnapshot:
@@ -436,6 +455,17 @@ class TestGitInitSnapshotRepo:
         assert success is False
         assert "git commit failed" in message
 
+    @patch("cja_auto_sdr.diff.git.is_git_repository", return_value=False)
+    @patch("cja_auto_sdr.diff.git.subprocess.run")
+    def test_init_decode_error_returns_failure_tuple(self, mock_run, _mock_is_repo, tmp_path):
+        """Unicode decode failures should preserve non-throwing tuple contract."""
+        mock_run.side_effect = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+        success, message = git_init_snapshot_repo(tmp_path)
+
+        assert success is False
+        assert "Initialization failed:" in message
+
 
 class TestGitCommitSnapshot:
     """Tests for git_commit_snapshot function."""
@@ -581,6 +611,24 @@ class TestGitCommitSnapshot:
         assert "Target_dv_12345/metadata.json" in changed_files
         assert "Other_dv_99999/metadata.json" not in changed_files
         assert "notes.txt" not in changed_files
+
+    @patch("cja_auto_sdr.diff.git._snapshot_pathspecs_for_data_view", return_value=["Target_dv_12345"])
+    @patch("cja_auto_sdr.diff.git.is_git_repository", return_value=True)
+    @patch("cja_auto_sdr.diff.git.subprocess.run")
+    def test_decode_error_returns_git_error_tuple(self, mock_run, _mock_is_repo, _mock_pathspecs, tmp_path):
+        """Unicode decode failures must return (False, message), not raise."""
+        mock_run.side_effect = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+        success, message = git_commit_snapshot(
+            snapshot_dir=tmp_path,
+            data_view_id="dv_12345",
+            data_view_name="Target",
+            metrics_count=1,
+            dimensions_count=1,
+        )
+
+        assert success is False
+        assert "Git error:" in message
 
 
 class TestCLIGitArguments:

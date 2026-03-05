@@ -7,12 +7,14 @@ These tests enforce a strict CLI boundary contract:
 """
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
 from cja_auto_sdr import generator
+from cja_auto_sdr.api.quality import DataQualityChecker
 from cja_auto_sdr.core.exceptions import ConfigurationError
+from cja_auto_sdr.core.logging import _safe_format_exception, _safe_record_message, _safe_str
 from cja_auto_sdr.generator import (
     _require_accessible_dataview,
     validate_data_view,
@@ -164,6 +166,16 @@ class TestRequireAccessibleDataviewExceptionNarrowing:
         with pytest.raises(generator.DiscoveryNotFoundError, match="Data view 'dv_test' not found"):
             _require_accessible_dataview(mock_cja, "dv_test")
 
+    def test_os_error_with_404_metadata_maps_to_not_found(self):
+        """OSError wrappers carrying lookup metadata must normalize to not_found."""
+        mock_cja = MagicMock()
+        lookup_error = OSError("wrapped lookup failure")
+        lookup_error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+        mock_cja.getDataView.side_effect = lookup_error
+
+        with pytest.raises(generator.DiscoveryNotFoundError, match="Data view 'dv_test' not found"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
 
 # ===========================================================================
 # Group A: process_inventory_summary  (fallback -> (RuntimeError, AttributeError))
@@ -305,3 +317,253 @@ class TestComponentCountRetryExceptionBoundary:
         """BaseException subclasses must still propagate through the helper."""
         with pytest.raises(KeyboardInterrupt):
             self._run_count_with_retry_side_effect(KeyboardInterrupt())
+
+
+# ===========================================================================
+# Group C: DataQualityChecker — narrowed handlers in api/quality.py
+# ===========================================================================
+
+
+class TestDataQualityExceptionNarrowing:
+    """Verify narrowed except clauses in DataQualityChecker methods."""
+
+    def _make_checker(self) -> DataQualityChecker:
+        return DataQualityChecker(logger=_make_logger())
+
+    def _mock_df_raising_on_empty(self, exc_type: type[Exception]) -> MagicMock:
+        """Return a MagicMock whose .empty property raises *exc_type*."""
+        df = MagicMock()
+        type(df).empty = PropertyMock(side_effect=exc_type("boom"))
+        return df
+
+    # -- check_duplicates: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_duplicates_catches_key_error(self):
+        """KeyError on DataFrame access is caught by check_duplicates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(KeyError)
+        checker.check_duplicates(df, "Metrics")  # should not raise
+
+    def test_check_duplicates_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_duplicates tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_duplicates(df, "Metrics")
+
+    # -- check_required_fields: TypeError, AttributeError --
+
+    def test_check_required_fields_catches_type_error(self):
+        """TypeError on DataFrame access is caught by check_required_fields."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(TypeError)
+        checker.check_required_fields(df, "Metrics", ["name"])  # should not raise
+
+    def test_check_required_fields_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_required_fields tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_required_fields(df, "Metrics", ["name"])
+
+    # -- check_null_values: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_null_values_catches_attribute_error(self):
+        """AttributeError on DataFrame access is caught by check_null_values."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(AttributeError)
+        checker.check_null_values(df, "Metrics", ["name"])  # should not raise
+
+    def test_check_null_values_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_null_values tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_null_values(df, "Metrics", ["name"])
+
+    # -- check_missing_descriptions: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_missing_descriptions_catches_value_error(self):
+        """ValueError on DataFrame access is caught by check_missing_descriptions."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(ValueError)
+        checker.check_missing_descriptions(df, "Dimensions")  # should not raise
+
+    def test_check_missing_descriptions_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_missing_descriptions tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_missing_descriptions(df, "Dimensions")
+
+    # -- check_empty_dataframe: AttributeError, TypeError --
+
+    def test_check_empty_dataframe_catches_attribute_error(self):
+        """AttributeError on DataFrame access is caught by check_empty_dataframe."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(AttributeError)
+        checker.check_empty_dataframe(df, "Metrics")  # should not raise
+
+    def test_check_empty_dataframe_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_empty_dataframe tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_empty_dataframe(df, "Metrics")
+
+    # -- check_id_validity: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_id_validity_catches_type_error(self):
+        """TypeError on DataFrame access is caught by check_id_validity."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(TypeError)
+        checker.check_id_validity(df, "Dimensions")  # should not raise
+
+    def test_check_id_validity_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_id_validity tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_id_validity(df, "Dimensions")
+
+
+# ---------------------------------------------------------------------------
+# core/logging.py helper narrowing
+# ---------------------------------------------------------------------------
+
+
+class TestLoggingHelperExceptionNarrowing:
+    """Verify logging helper best-effort boundaries remain non-fatal."""
+
+    # -- _safe_str --------------------------------------------------------
+
+    def test_safe_str_catches_type_error(self):
+        """TypeError from __str__ is caught -> '<unprintable>'."""
+
+        class BadStr:
+            def __str__(self):
+                raise TypeError("boom")
+
+        assert _safe_str(BadStr()) == "<unprintable>"
+
+    def test_safe_str_catches_attribute_error(self):
+        """AttributeError from __str__ is caught -> '<unprintable>'."""
+
+        class BadStr:
+            def __str__(self):
+                raise AttributeError("boom")
+
+        assert _safe_str(BadStr()) == "<unprintable>"
+
+    def test_safe_str_catches_runtime_error(self):
+        """RuntimeError should not escape logging stringification helpers."""
+
+        class BadStr:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        assert _safe_str(BadStr()) == "<unprintable>"
+
+    # -- _safe_record_message ---------------------------------------------
+
+    def test_safe_record_message_catches_type_error(self):
+        """TypeError during getMessage() is caught gracefully."""
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="%d",
+            args=("not-a-number",),
+            exc_info=None,
+        )
+        result = _safe_record_message(record)
+        assert isinstance(result, str)
+
+    def test_safe_record_message_catches_runtime_error(self):
+        """RuntimeError from getMessage() should not escape logging helpers."""
+        record = MagicMock(spec=logging.LogRecord)
+        record.getMessage.side_effect = RuntimeError("boom")
+        record.msg = "msg-template"
+        result = _safe_record_message(record)
+        assert result.endswith("[log-message-format-error]")
+
+    # -- _safe_format_exception -------------------------------------------
+
+    def test_safe_format_exception_catches_type_error(self):
+        """Malformed exc_info tuple that triggers TypeError -> error string."""
+        result = _safe_format_exception((None, None, None))
+        assert isinstance(result, str)
+
+    def test_safe_format_exception_non_tuple_returns_unavailable(self):
+        """Non-tuple input -> '<exception-unavailable>'."""
+        assert _safe_format_exception("not-a-tuple") == "<exception-unavailable>"
+
+
+# ===========================================================================
+# Group D: LockInfo.from_dict — narrowed (KeyError, TypeError, ValueError, OverflowError)
+# ===========================================================================
+
+
+class TestLockBackendsExceptionNarrowing:
+    """Verify narrowed except clauses in LockInfo.from_dict."""
+
+    def test_from_dict_catches_key_error(self):
+        """Empty dict triggers KeyError in modern parse -> returns None."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        result = LockInfo.from_dict({})
+        assert result is None
+
+    def test_from_dict_catches_type_error(self):
+        """Dict with None pid triggers TypeError in int() coercion -> returns None."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        result = LockInfo.from_dict(
+            {
+                "lock_id": "abc",
+                "pid": None,
+                "host": "localhost",
+                "started_at": "2024-01-01T00:00:00+00:00",
+            }
+        )
+        assert result is None
+
+    def test_from_dict_valid_dict_succeeds(self):
+        """Valid dict round-trips through from_dict successfully."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        info = LockInfo(
+            lock_id="test-123",
+            pid=12345,
+            host="myhost",
+            owner="tester",
+            started_at="2024-01-01T00:00:00+00:00",
+            updated_at="2024-01-01T00:00:00+00:00",
+            backend="fcntl",
+            version=1,
+        )
+        restored = LockInfo.from_dict(info.to_dict())
+        assert restored is not None
+        assert restored.pid == 12345
+        assert restored.lock_id == "test-123"
+        assert restored.host == "myhost"
+
+    def test_from_dict_narrowing_preserves_happy_path(self):
+        """Narrowed handlers do not break the normal code path."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        data = {
+            "lock_id": "round-trip",
+            "pid": 99,
+            "host": "h",
+            "owner": "o",
+            "started_at": "2024-06-01T12:00:00+00:00",
+            "updated_at": "2024-06-01T12:00:00+00:00",
+            "backend": "lease",
+            "version": 1,
+        }
+        result = LockInfo.from_dict(data)
+        assert result is not None
+        assert result.pid == 99
+        assert result.backend == "lease"

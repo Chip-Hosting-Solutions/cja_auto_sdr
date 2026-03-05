@@ -435,7 +435,7 @@ class CalculatedMetricsInventoryBuilder:
 
             self.logger.info(f"Calculated metrics inventory built: {inventory.total_calculated_metrics} metrics")
 
-        except Exception:
+        except Exception:  # Intentional: Orchestrator boundary; logs full traceback and re-raises for caller handling
             self.logger.exception(f"Error fetching calculated metrics for data view {data_view_id}")
             raise
 

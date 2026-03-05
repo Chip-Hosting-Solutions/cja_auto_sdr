@@ -1713,7 +1713,7 @@ def list_profiles(output_format: str = "table") -> bool:
 
             try:
                 org_id = _read_profile_org_id(item)
-            except Exception:
+            except Exception:  # Intentional: Best-effort metadata enrichment; listing must remain available
                 # Best-effort metadata enrichment only; listing must remain
                 # available even if an individual profile cannot be read.
                 org_id = None
@@ -8620,7 +8620,11 @@ def _fetch_dataview_lookup_payload(cja: Any, data_view_id: str) -> Any:
     """Call getDataView and normalize inaccessible lookup failures to not_found."""
     try:
         return cja.getDataView(data_view_id)
-    except Exception as lookup_error:
+    except (
+        Exception
+    ) as lookup_error:  # Intentional: wrapped client/transport lookup failures vary; re-raise non-404/403 cases
+        # Classification is centralized in core.discovery_exceptions and supports
+        # nested/wrapped transport errors across diverse exception types.
         if _is_inaccessible_dataview_lookup_error(lookup_error):
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from lookup_error
         raise
@@ -10741,7 +10745,7 @@ def validate_config_only(
         except importlib.metadata.PackageNotFoundError:
             print(ConsoleColors.error(f"  \u2717 {pkg} (not installed)"))
             all_passed = False
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             print(ConsoleColors.error(f"  \u2717 {pkg} (metadata error: {exc})"))
             all_passed = False
 
@@ -10757,7 +10761,7 @@ def validate_config_only(
             print(f"  - {pkg} {ver} (optional, {purpose})")
         except importlib.metadata.PackageNotFoundError:
             print(f"  - {pkg} not installed (optional, {purpose})")
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             print(f"  - {pkg} metadata error: {exc} (optional, {purpose})")
 
     if not all_passed:

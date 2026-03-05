@@ -62,7 +62,7 @@ class TestValidationCacheGenerateCacheKeyException:
         logger = _make_logger()
         cache = ValidationCache(max_size=10, logger=logger)
         df = _sample_df()
-        with patch("cja_auto_sdr.api.cache.pd.util.hash_pandas_object", side_effect=RuntimeError("boom")):
+        with patch("cja_auto_sdr.api.cache.pd.util.hash_pandas_object", side_effect=TypeError("boom")):
             key = cache._generate_cache_key(df, "Metrics", ["id"], ["name"])
         assert key.startswith("error:")
 
@@ -224,7 +224,7 @@ class TestCheckDuplicatesException:
         logger.setLevel(logging.ERROR)
         checker = DataQualityChecker(logger=logger)
         df = _sample_df()
-        with patch.object(df["name"], "value_counts", side_effect=RuntimeError("mock error")):
+        with patch.object(df["name"], "value_counts", side_effect=TypeError("mock error")):
             with caplog.at_level(logging.ERROR, logger="test_dup_exc"):
                 checker.check_duplicates(df, "Metrics")
         assert "checking duplicates" in caplog.text
@@ -239,7 +239,7 @@ class TestCheckRequiredFieldsException:
         checker = DataQualityChecker(logger=logger)
         # Create a DataFrame whose .empty property raises
         df = MagicMock(spec=pd.DataFrame)
-        type(df).empty = PropertyMock(side_effect=RuntimeError("boom"))
+        type(df).empty = PropertyMock(side_effect=TypeError("boom"))
         with caplog.at_level(logging.ERROR, logger="test_req_exc"):
             checker.check_required_fields(df, "Metrics", ["id", "name"])
         assert "checking required fields" in caplog.text
@@ -253,7 +253,7 @@ class TestCheckNullValuesException:
         logger.setLevel(logging.ERROR)
         checker = DataQualityChecker(logger=logger)
         df = MagicMock(spec=pd.DataFrame)
-        type(df).empty = PropertyMock(side_effect=RuntimeError("null boom"))
+        type(df).empty = PropertyMock(side_effect=TypeError("null boom"))
         with caplog.at_level(logging.ERROR, logger="test_null_exc"):
             checker.check_null_values(df, "Metrics", ["id"])
         assert "checking null values" in caplog.text
@@ -267,7 +267,7 @@ class TestCheckMissingDescriptionsException:
         logger.setLevel(logging.ERROR)
         checker = DataQualityChecker(logger=logger)
         df = MagicMock(spec=pd.DataFrame)
-        type(df).empty = PropertyMock(side_effect=RuntimeError("desc boom"))
+        type(df).empty = PropertyMock(side_effect=TypeError("desc boom"))
         with caplog.at_level(logging.ERROR, logger="test_desc_exc"):
             checker.check_missing_descriptions(df, "Dimensions")
         assert "checking descriptions" in caplog.text
@@ -281,7 +281,7 @@ class TestCheckEmptyDataframeException:
         logger.setLevel(logging.ERROR)
         checker = DataQualityChecker(logger=logger)
         df = MagicMock(spec=pd.DataFrame)
-        type(df).empty = PropertyMock(side_effect=RuntimeError("empty boom"))
+        type(df).empty = PropertyMock(side_effect=TypeError("empty boom"))
         with caplog.at_level(logging.ERROR, logger="test_empty_exc"):
             checker.check_empty_dataframe(df, "Metrics")
         assert "checking if dataframe is empty" in caplog.text
@@ -295,7 +295,7 @@ class TestCheckIdValidityException:
         logger.setLevel(logging.ERROR)
         checker = DataQualityChecker(logger=logger)
         df = MagicMock(spec=pd.DataFrame)
-        type(df).empty = PropertyMock(side_effect=RuntimeError("id boom"))
+        type(df).empty = PropertyMock(side_effect=TypeError("id boom"))
         with caplog.at_level(logging.ERROR, logger="test_id_exc"):
             checker.check_id_validity(df, "Metrics")
         assert "checking ID validity" in caplog.text

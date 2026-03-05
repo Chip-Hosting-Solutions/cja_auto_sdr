@@ -7,6 +7,28 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.7] - 2026-03-05
+
+### Fixed
+- **Exception narrowing (batch 4)**: 30+ broad `except Exception` handlers narrowed across `api/quality.py` (6), `diff/git.py` (2), `locks/backends.py` (3), `diff/snapshot.py` (2), `core/logging.py` (3), `api/cache.py` (2), `api/client.py` (2), `core/config_validation.py`, `core/colors.py`, `org/cache.py`, and `generator.py` (3) to specific exception types
+- **Intentional boundary annotations**: 12 remaining broad `except Exception` handlers annotated with `# Intentional:` rationale at resilience boundaries (dotenv bootstrap, dataview lookup, open-file helpers, lock metadata, connection tests)
+
+### Changed
+- **Centralized error policies**: New `core/error_policies.py` module defines named exception tuples (`RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS`, `RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS`, etc.) for consistent use across resilience boundaries
+- **Centralized resilient lock and git error boundaries**: Lock and git helpers now reference shared exception policy tuples instead of inline exception lists
+- **Hardened logging safety boundaries**: Logging initialization and helper functions use narrowed exception types with clearer fallback behavior
+- **Hardened dotenv/bootstrap fallbacks**: Bootstrap and dataview error normalization paths use explicit exception policies
+
+### Added
+- **Exception narrowing regression tests**: Expanded `test_exception_narrowing.py` with tests verifying narrowed boundaries catch expected types and propagate unexpected ones across all batch 4 modules
+- **Exception contract tests**: New `test_exception_contracts.py` validating error policy tuple contents and boundary annotation consistency
+- **Logging redaction tests**: New `test_logging_redaction.py` with tests for logging safety boundary edge cases
+- **Git integration tests**: Expanded `test_git_integration.py` with narrowed exception boundary coverage
+- **Snapshot tests**: Expanded `test_snapshot.py` with narrowed exception boundary coverage
+
+### Docs
+- **Quick Reference consistency**: Standardized Output column in Four Main Modes table to list supported file formats consistently across all modes
+
 ## [3.3.6] - 2026-03-04
 
 ### Fixed

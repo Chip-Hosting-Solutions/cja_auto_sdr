@@ -248,7 +248,7 @@ class OrgReportCache:
                 description=entry.get("description"),
                 has_description=entry.get("has_description", False),
             )
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             self.logger.debug("Cache deserialization failed for %s: %s", dv_id, e)
             return None
 

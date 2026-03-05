@@ -702,7 +702,7 @@ class CircuitBreaker:
                 result = func(*args, **kwargs)
                 self.record_success()
                 return result
-            except Exception as e:
+            except Exception as e:  # Intentional: Circuit breaker must observe all failures to track error rate
                 self.record_failure(e)
                 raise
 
@@ -800,7 +800,9 @@ def retry_with_backoff(
                         f"Retrying in {delay:.1f}s...",
                     )
                     time.sleep(delay)
-                except Exception as e:
+                except (
+                    Exception
+                ) as e:  # Intentional: Retry loop must catch all to distinguish retryable vs non-retryable
                     # Non-retryable exception, raise immediately
                     _logger.error(f"{func.__name__} failed with non-retryable error: {e!s}")
                     raise
@@ -929,7 +931,7 @@ def make_api_call_with_retry[T](
                 f"⚠ {operation_name} attempt {attempt + 1}/{max_retries + 1} failed: {e!s}. Retrying in {delay:.1f}s...",
             )
             time.sleep(delay)
-        except Exception as e:
+        except Exception as e:  # Intentional: Retry loop must catch all to distinguish retryable vs non-retryable
             # Non-retryable exception
             _logger.error(f"{operation_name} failed with non-retryable error: {e!s}")
             # Record failure to circuit breaker

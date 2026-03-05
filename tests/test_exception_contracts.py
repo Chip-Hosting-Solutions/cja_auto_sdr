@@ -2,12 +2,21 @@
 
 import json
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import cja_auto_sdr.generator as generator
+from cja_auto_sdr.core.error_policies import (
+    RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
+    RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS,
+    RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS,
+    RECOVERABLE_OPEN_FILE_EXCEPTIONS,
+    RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS,
+)
+from cja_auto_sdr.core.logging import RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS
 from cja_auto_sdr.org.models import OrgReportConfig
 
 
@@ -30,6 +39,38 @@ def test_git_snapshot_refetch_exception_policy_keeps_generic_fallback() -> None:
 def test_stats_row_exception_policy_keeps_generic_fallback() -> None:
     """Stats row fallback must keep a generic per-item Exception boundary."""
     assert Exception in generator.RECOVERABLE_STATS_ROW_EXCEPTIONS
+
+
+def test_connection_test_exception_policy_keeps_generic_fallback() -> None:
+    """Connection test is best-effort and must stay non-fatal for unexpected errors."""
+    assert Exception in RECOVERABLE_CONNECTION_TEST_EXCEPTIONS
+
+
+def test_optional_enrichment_exception_policy_keeps_generic_fallback() -> None:
+    """Optional snapshot enrichments must stay non-fatal for unexpected runtime errors."""
+    assert Exception in RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS
+
+
+def test_open_file_exception_policy_keeps_generic_fallback() -> None:
+    """open_file_in_default_app must preserve its bool contract for unexpected failures."""
+    assert Exception in RECOVERABLE_OPEN_FILE_EXCEPTIONS
+
+
+def test_lock_metadata_parse_exception_policy_keeps_generic_fallback() -> None:
+    """Advisory lock metadata parsing must never abort lock ownership flows."""
+    assert Exception in RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS
+
+
+def test_git_subprocess_exception_policy_includes_decode_failures() -> None:
+    """Git wrappers must treat subprocess text decode failures as recoverable."""
+    assert OSError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
+    assert ValueError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
+    assert subprocess.SubprocessError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
+
+
+def test_logging_boundary_exception_policy_keeps_generic_fallback() -> None:
+    """Logging safety helpers must remain non-fatal for unexpected runtime errors."""
+    assert Exception in RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS
 
 
 @pytest.mark.parametrize("summary_mode", [True, False])

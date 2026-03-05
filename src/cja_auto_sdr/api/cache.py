@@ -100,7 +100,7 @@ class ValidationCache:
             # Combine into cache key
             return f"{item_type}:{df_hash}:{config_hash}"
 
-        except Exception as e:
+        except (TypeError, KeyError, ValueError) as e:
             self.logger.warning(f"Error generating cache key: {e}. Cache disabled for this call.")
             # Return unique key to force cache miss
             return f"error:{time.time()}"
@@ -383,7 +383,7 @@ class SharedValidationCache:
             # Combine into cache key
             return f"{item_type}:{df_hash}:{config_hash}"
 
-        except Exception as e:
+        except (TypeError, KeyError, ValueError) as e:
             self.logger.warning(f"Error generating cache key: {e}. Cache disabled for this call.")
             # Return unique key to force cache miss
             return f"error:{time.time()}"

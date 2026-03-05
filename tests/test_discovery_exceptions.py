@@ -22,6 +22,13 @@ def test_non_api_error_with_nested_response_status_403_maps_to_not_found() -> No
     assert is_dataview_lookup_not_found_error(error) is True
 
 
+def test_os_error_wrapper_with_404_metadata_maps_to_not_found() -> None:
+    error = OSError("wrapped failure")
+    error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+
+    assert is_dataview_lookup_not_found_error(error) is True
+
+
 def test_non_api_error_5xx_status_remains_non_not_found() -> None:
     error = _RuntimeLookupError("backend unavailable")
     error.status_code = 503  # type: ignore[attr-defined]

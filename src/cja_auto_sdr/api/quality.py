@@ -91,7 +91,7 @@ class DataQualityChecker:
                     description=f"Duplicate name found {count} times",
                     details=f"This {item_type.lower()} name appears {count} times in the data view",
                 )
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
             self.logger.error(_format_error_msg("checking duplicates", item_type, e))
 
     def check_required_fields(self, df: pd.DataFrame, item_type: str, required_fields: list[str]):
@@ -112,7 +112,7 @@ class DataQualityChecker:
                     description="Required fields missing from API response",
                     details=f"Missing fields: {', '.join(missing_fields)}",
                 )
-        except Exception as e:
+        except (TypeError, AttributeError) as e:
             self.logger.error(_format_error_msg("checking required fields", item_type, e))
 
     def check_null_values(self, df: pd.DataFrame, item_type: str, critical_fields: list[str]):
@@ -135,7 +135,7 @@ class DataQualityChecker:
                             description=f'Null values in "{field}" field',
                             details=f"{null_count} item(s) missing {field}. Items: {', '.join(str(x) for x in null_items)}",
                         )
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
             self.logger.error(_format_error_msg("checking null values", item_type, e))
 
     def check_missing_descriptions(self, df: pd.DataFrame, item_type: str):
@@ -162,7 +162,7 @@ class DataQualityChecker:
                     description=f"{missing_desc_count} items without descriptions",
                     details=f"Items: {', '.join(str(x) for x in item_names)}",
                 )
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
             self.logger.error(_format_error_msg("checking descriptions", item_type, e))
 
     def check_empty_dataframe(self, df: pd.DataFrame, item_type: str):
@@ -177,7 +177,7 @@ class DataQualityChecker:
                     description=f"No {item_type.lower()} found in data view",
                     details=f"The API returned an empty dataset for {item_type.lower()}",
                 )
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             self.logger.error(_format_error_msg("checking if dataframe is empty", item_type, e))
 
     def check_id_validity(self, df: pd.DataFrame, item_type: str):
@@ -202,7 +202,7 @@ class DataQualityChecker:
                     description=f"{missing_ids_count} items with missing or invalid IDs",
                     details="Items without valid IDs may cause issues in reporting",
                 )
-        except Exception as e:
+        except (KeyError, TypeError, AttributeError, ValueError) as e:
             self.logger.error(_format_error_msg("checking ID validity", item_type, e))
 
     def check_all_quality_issues_optimized(
@@ -339,7 +339,7 @@ class DataQualityChecker:
             if self.validation_cache is not None:
                 self.validation_cache.put(df, item_type, required_fields, critical_fields, local_issues, cache_key)
 
-        except Exception as e:
+        except Exception as e:  # Intentional: Orchestrator boundary for optimized single-pass validation
             self.logger.error(_format_error_msg("in optimized validation", item_type, e))
             self.logger.exception("Full error details:")
 
@@ -390,7 +390,7 @@ class DataQualityChecker:
                             future.result()
                             pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
                             self.logger.debug(f"\u2713 {task_name.capitalize()} validation completed")
-                        except Exception as e:
+                        except Exception as e:  # Intentional: Future result collection must handle any worker exception
                             pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
                             self.logger.error(f"\u2717 {task_name.capitalize()} validation failed: {e}")
                             self.logger.exception("Full error details:")
@@ -398,7 +398,7 @@ class DataQualityChecker:
 
             self.logger.info(f"Parallel validation complete. Found {len(self.issues)} issue(s)")
 
-        except Exception as e:
+        except Exception as e:  # Intentional: Parallel executor boundary; thread pool can surface heterogeneous errors
             self.logger.error(_format_error_msg("in parallel validation", error=e))
             self.logger.exception("Full error details:")
             raise
@@ -444,7 +444,9 @@ class DataQualityChecker:
                 df = df.head(max_issues)
 
             return df
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional: DataFrame construction from heterogeneous issue dicts can fail in many ways
             self.logger.error(_format_error_msg("creating issues dataframe", error=e))
             return pd.DataFrame(
                 {
