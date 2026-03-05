@@ -2,7 +2,7 @@
 
 Covers:
 - _bootstrap_dotenv inner try/except paths (lines 31-38)
-- _config_from_env atexit cleanup function (lines 62-63)
+- _config_from_env direct configure + stale cleanup paths
 - configure_cjapy default logger creation (lines 96-97)
 - configure_cjapy unknown source format fallback (line 132)
 - configure_cjapy ProfileNotFoundError/ProfileConfigError handling (lines 139-141)
@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -132,67 +133,53 @@ class TestBootstrapDotenv:
         assert any("Failed to import python-dotenv" in c for c in calls)
 
 
-# ==================== _config_from_env atexit cleanup (lines 62-63) ====================
+# ==================== _config_from_env direct configure + stale cleanup ====================
 
 
 class TestConfigFromEnvCleanup:
-    """Tests for the atexit cleanup function registered by _config_from_env."""
+    """Tests for in-memory configuration and stale temp-file cleanup."""
 
-    @patch("cja_auto_sdr.api.client.atexit")
     @patch("cja_auto_sdr.api.client.cjapy")
-    def test_atexit_cleanup_registered(self, mock_cjapy, mock_atexit, mock_logger):
-        """Verify that an atexit handler is registered."""
+    def test_configures_cjapy_directly(self, mock_cjapy, mock_logger):
+        """Direct configuration should call cjapy.configure without temp files."""
         credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
+        expected_secret = credentials["secret"]
         _config_from_env(credentials, mock_logger)
 
-        mock_atexit.register.assert_called_once()
+        mock_cjapy.configure.assert_called_once_with(
+            org_id="test@AdobeOrg",
+            client_id="x",
+            secret=expected_secret,
+            scopes=None,
+        )
 
-    @patch("cja_auto_sdr.api.client.atexit")
     @patch("cja_auto_sdr.api.client.cjapy")
-    def test_atexit_cleanup_removes_temp_file(self, mock_cjapy, mock_atexit, mock_logger, tmp_path):
-        """Verify the atexit cleanup function deletes the temp config file."""
+    @patch("cja_auto_sdr.api.client.tempfile.gettempdir")
+    def test_stale_temp_configs_removed_during_config(self, mock_gettempdir, mock_cjapy, mock_logger, tmp_path):
+        """Old temp credential files from prior versions should be cleaned up."""
+        mock_gettempdir.return_value = str(tmp_path)
         credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
+        stale_file = tmp_path / "cja_env_config_stale.json"
+        stale_file.write_text("{}", encoding="utf-8")
+        os.utime(stale_file, (time.time() - 7200, time.time() - 7200))
+
         _config_from_env(credentials, mock_logger)
 
-        # Get the cleanup function that was registered
-        cleanup_fn = mock_atexit.register.call_args[0][0]
+        assert not stale_file.exists()
+        assert any("Removed 1 stale temp credential file" in str(call) for call in mock_logger.debug.call_args_list)
 
-        # The temp file was created by _config_from_env — find it from debug log
-        temp_path_call = [str(c) for c in mock_logger.debug.call_args_list if "temporary config file" in str(c).lower()]
-        assert len(temp_path_call) == 1, "Should log temp file creation"
-
-        # Extract path from log message
-        import re
-
-        match = re.search(r"Created temporary config file: (.+?)(?:'|$)", temp_path_call[0])
-        assert match is not None
-        temp_file_path = match.group(1).rstrip("',)")
-        assert os.path.exists(temp_file_path), "Temp file should exist before cleanup"
-
-        # Run the cleanup function (exercises lines 62-63)
-        cleanup_fn()
-
-        assert not os.path.exists(temp_file_path), "Temp file should be removed by cleanup"
-
-    @patch("cja_auto_sdr.api.client.atexit")
     @patch("cja_auto_sdr.api.client.cjapy")
-    def test_atexit_cleanup_suppresses_os_error(self, mock_cjapy, mock_atexit, mock_logger):
-        """Cleanup function should not raise even if file already deleted."""
+    @patch("cja_auto_sdr.api.client.tempfile.gettempdir")
+    def test_recent_temp_configs_are_kept(self, mock_gettempdir, mock_cjapy, mock_logger, tmp_path):
+        """Recent temp files should be left untouched to avoid racing live older processes."""
+        mock_gettempdir.return_value = str(tmp_path)
         credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
+        recent_file = tmp_path / "cja_env_config_recent.json"
+        recent_file.write_text("{}", encoding="utf-8")
+
         _config_from_env(credentials, mock_logger)
 
-        cleanup_fn = mock_atexit.register.call_args[0][0]
-
-        # Delete the temp file first so cleanup gets an OSError
-        temp_path_call = [str(c) for c in mock_logger.debug.call_args_list if "temporary config file" in str(c).lower()]
-        import re
-
-        match = re.search(r"Created temporary config file: (.+?)(?:'|$)", temp_path_call[0])
-        temp_file_path = match.group(1).rstrip("',)")
-        os.unlink(temp_file_path)
-
-        # Should NOT raise (contextlib.suppress)
-        cleanup_fn()
+        assert recent_file.exists()
 
 
 # ==================== configure_cjapy default logger (lines 96-97) ====================

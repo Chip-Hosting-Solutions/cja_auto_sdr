@@ -42,17 +42,17 @@ class TestTestProfileExceptionNarrowing:
     """Verify test_profile catches recoverable API/bootstrap failures and propagates others."""
 
     def _run_with_side_effect(self, exc, tmp_path, capsys):
-        """Helper: invoke test_profile with cjapy.importConfigFile raising *exc*."""
+        """Helper: invoke test_profile with in-memory cjapy configuration raising *exc*."""
         profile_dir = tmp_path / "orgs" / "narrowing"
         profile_dir.mkdir(parents=True)
         (profile_dir / "config.json").write_text('{"client_id":"x","secret":"s","org_id":"o@AdobeOrg"}')
 
         with (
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
-            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.cjapy"),
+            patch("cja_auto_sdr.generator._config_from_env", side_effect=exc),
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
         ):
-            mock_cjapy.importConfigFile.side_effect = exc
             mock_validator.validate_all.return_value = []
             return run_test_profile("narrowing")
 

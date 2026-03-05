@@ -9,8 +9,6 @@ Covers uncovered lines in generator.py:
 """
 
 import json
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -552,12 +550,14 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+            patch("cja_auto_sdr.generator._config_from_env") as mock_config_from_env,
         ):
             mock_cjapy.CJA.return_value = mock_cja_instance
             mock_validator.validate_all.return_value = []
             result = run_test_profile("good")
 
         assert result is True
+        mock_config_from_env.assert_called_once()
         captured = capsys.readouterr()
         assert "TESTING PROFILE: good" in captured.out
         assert "Profile found and loaded" in captured.out
@@ -578,12 +578,14 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+            patch("cja_auto_sdr.generator._config_from_env") as mock_config_from_env,
         ):
             mock_cjapy.CJA.return_value = mock_cja_instance
             mock_validator.validate_all.return_value = []
             result = run_test_profile("none-dv")
 
         assert result is True
+        mock_config_from_env.assert_called_once()
         captured = capsys.readouterr()
         assert "no data views found" in captured.out
         assert "Profile test: PASSED" in captured.out
@@ -595,10 +597,10 @@ class TestTestProfile:
 
         with (
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
-            patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
+            patch("cja_auto_sdr.generator.cjapy"),
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+            patch("cja_auto_sdr.generator._config_from_env", side_effect=OSError("Connection refused")),
         ):
-            mock_cjapy.importConfigFile.side_effect = OSError("Connection refused")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("api-fail")
 
@@ -621,12 +623,14 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+            patch("cja_auto_sdr.generator._config_from_env") as mock_config_from_env,
         ):
             mock_cjapy.CJA.return_value = mock_cja_instance
             mock_validator.validate_all.return_value = ["org_id format looks unusual"]
             result = run_test_profile("warnings")
 
         assert result is True
+        mock_config_from_env.assert_called_once()
         captured = capsys.readouterr()
         assert "Credential validation: WARNINGS" in captured.out
         assert "org_id format looks unusual" in captured.out
@@ -640,46 +644,37 @@ class TestTestProfile:
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
+            patch("cja_auto_sdr.generator._config_from_env") as mock_config_from_env,
         ):
-            mock_cjapy.importConfigFile.return_value = None
             mock_cjapy.CJA.side_effect = OSError("Auth failed: invalid credentials")
             mock_validator.validate_all.return_value = []
             result = run_test_profile("cja-fail")
 
         assert result is False
+        mock_config_from_env.assert_called_once()
         captured = capsys.readouterr()
         assert "FAILED" in captured.err
         assert "invalid credentials" in captured.err
 
-    def test_temp_file_cleaned_up_on_success(self, tmp_path):
-        """Temp config file should be cleaned up after successful test."""
+    def test_profile_test_uses_in_memory_config_path(self, tmp_path):
+        """Profile test should configure cjapy in memory instead of creating temp files."""
         profile_dir = tmp_path / "orgs" / "cleanup"
         _write_config_json(profile_dir)
 
         mock_cja_instance = MagicMock()
         mock_cja_instance.getDataViews.return_value = [{"id": "dv1"}]
 
-        created_files = []
-        original_named_temp = tempfile.NamedTemporaryFile
-
-        def tracking_temp(**kwargs):
-            f = original_named_temp(**kwargs)
-            created_files.append(f.name)
-            return f
-
         with (
             patch("cja_auto_sdr.generator.get_profile_path", return_value=profile_dir),
             patch("cja_auto_sdr.generator.cjapy") as mock_cjapy,
             patch("cja_auto_sdr.generator.ConfigValidator") as mock_validator,
-            patch("cja_auto_sdr.generator.tempfile.NamedTemporaryFile", side_effect=tracking_temp),
+            patch("cja_auto_sdr.generator._config_from_env") as mock_config_from_env,
         ):
             mock_cjapy.CJA.return_value = mock_cja_instance
             mock_validator.validate_all.return_value = []
             run_test_profile("cleanup")
 
-        # Temp file should have been unlinked
-        for path in created_files:
-            assert not os.path.exists(path), f"Temp file not cleaned up: {path}"
+        mock_config_from_env.assert_called_once()
 
 
 # ===========================================================================

@@ -14,7 +14,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import threading
 import time
@@ -756,10 +755,8 @@ RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERA
 # Optional git snapshot re-fetch runs after successful SDR generation and must
 # not terminate the command. Keep broad to preserve graceful degradation.
 RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
-# Data quality validation is intentionally best-effort for SDR generation:
-# validator/runtime/threadpool failures should not abort report generation.
-# Quality-report mode still surfaces this as a failed result via
-# `validation_failed` state in process_single_dataview().
+# Data quality validation failures should stop SDR generation so downstream
+# automation never treats incomplete validation as a successful audit run.
 RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
@@ -787,9 +784,9 @@ def _log_optional_inventory_failure(
 
 
 def _log_validation_failure(logger: Any, *, error: Exception) -> None:
-    """Log non-fatal validation failures consistently."""
+    """Log fatal validation failures consistently."""
     logger.error(_format_error_msg("during data quality validation", error=error))
-    logger.info("Continuing with SDR generation despite validation errors")
+    logger.info("Aborting SDR generation because data quality validation did not complete")
     logger.debug(f"Validation failure details: {error!r}")
 
 
@@ -2149,37 +2146,23 @@ def test_profile(profile_name: str) -> bool:
     print("3. Testing API connectivity...")
 
     try:
-        # Create temp config file with restrictive permissions
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".json",
-            delete=False,
-            prefix="cja_profile_test_",
-        ) as temp_config:
-            os.chmod(temp_config.name, 0o600)
-            json.dump(credentials, temp_config)
+        _config_from_env(credentials, logger)
+        cja = cjapy.CJA()
+        dataviews = cja.getDataViews()
 
-        try:
-            cjapy.importConfigFile(temp_config.name)
-            cja = cjapy.CJA()
-            dataviews = cja.getDataViews()
-
-            if dataviews is not None:
-                count = len(dataviews) if hasattr(dataviews, "__len__") else 0
-                print("   API connection: SUCCESS")
-                print(f"   Data views accessible: {count}")
-                print()
-                print("Profile test: PASSED")
-                print()
-                return True
-            print("   API connection: OK (no data views found)")
+        if dataviews is not None:
+            count = len(dataviews) if hasattr(dataviews, "__len__") else 0
+            print("   API connection: SUCCESS")
+            print(f"   Data views accessible: {count}")
             print()
             print("Profile test: PASSED")
             print()
             return True
-
-        finally:
-            os.unlink(temp_config.name)
+        print("   API connection: OK (no data views found)")
+        print()
+        print("Profile test: PASSED")
+        print()
+        return True
 
     except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
         print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
@@ -5537,19 +5520,19 @@ def process_inventory_summary(
             recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
         )
 
-    # Fetch calculated metrics inventory
+        # Fetch calculated metrics inventory
     if include_calculated:
 
         def _build_calculated_inventory_summary() -> Any:
-            from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder  # pragma: no cover
+            from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
 
-            builder = CalculatedMetricsInventoryBuilder(logger=logger)  # pragma: no cover
-            calculated = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
-            if not quiet:  # pragma: no cover
+            builder = CalculatedMetricsInventoryBuilder(logger=logger)
+            calculated = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
                 print(
                     ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}")
-                )  # pragma: no cover
-            return calculated  # pragma: no cover
+                )
+            return calculated
 
         calculated_inventory = _run_optional_inventory_step(
             logger=logger,
@@ -5563,13 +5546,13 @@ def process_inventory_summary(
     if include_segments:
 
         def _build_segments_inventory_summary() -> Any:
-            from cja_segments_inventory import SegmentsInventoryBuilder  # pragma: no cover
+            from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
 
-            builder = SegmentsInventoryBuilder(logger=logger)  # pragma: no cover
-            segments = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
-            if not quiet:  # pragma: no cover
-                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))  # pragma: no cover
-            return segments  # pragma: no cover
+            builder = SegmentsInventoryBuilder(logger=logger)
+            segments = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))
+            return segments
 
         segments_inventory = _run_optional_inventory_step(
             logger=logger,
@@ -5798,6 +5781,52 @@ def process_single_dataview(
                 f"avg response: {tuner_stats['average_response_ms']:.0f}ms",
             )
 
+        fetch_statuses: dict[str, Any] = {}
+        get_fetch_statuses = getattr(fetcher, "get_fetch_statuses", None)
+        if callable(get_fetch_statuses):
+            raw_fetch_statuses = get_fetch_statuses()
+            if isinstance(raw_fetch_statuses, dict):
+                fetch_statuses = raw_fetch_statuses
+
+        component_failures: list[str] = []
+        for endpoint in ("metrics", "dimensions"):
+            status = fetch_statuses.get(endpoint)
+            if isinstance(status, dict):
+                endpoint_status = status.get("status")
+                endpoint_reason = str(status.get("reason", ""))
+                endpoint_error = str(status.get("error_message", ""))
+            else:
+                endpoint_status = getattr(status, "status", None)
+                endpoint_reason = str(getattr(status, "reason", ""))
+                endpoint_error = str(getattr(status, "error_message", ""))
+
+            if endpoint_status == "failed":
+                detail = endpoint_error or endpoint_reason or "unknown API failure"
+                component_failures.append(f"{endpoint}: {detail}")
+
+        if component_failures:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            logger.critical("Component fetch failed. Refusing to generate a partial SDR.")
+            for failure in component_failures:
+                logger.critical(f"  - {failure}")
+            logger.info("=" * BANNER_WIDTH)
+            logger.info("EXECUTION FAILED")
+            logger.info("=" * BANNER_WIDTH)
+            logger.info(f"Data View: {dv_name} ({data_view_id})")
+            logger.info("Error: Component fetch failed")
+            logger.info(f"Duration: {time.time() - start_time:.2f}s")
+            logger.info("=" * BANNER_WIDTH)
+            flush_logging_handlers(logger)
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=False,
+                duration=time.time() - start_time,
+                metrics_count=len(metrics),
+                dimensions_count=len(dimensions),
+                error_message=f"Component fetch failed: {'; '.join(component_failures)}",
+            )
+
         # Check if we have any data to process
         if metrics.empty and dimensions.empty:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
@@ -5902,25 +5931,47 @@ def process_single_dataview(
                 validation_error_message = str(e)
 
             # Get data quality issues dataframe (limited if max_issues > 0)
-            data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
-            dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
-            severity_counts = count_quality_issues_by_severity(dq_issues)
+            with contextlib.suppress(Exception):
+                data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
+                dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
+                severity_counts = count_quality_issues_by_severity(dq_issues)
 
-        if quality_report_only:
+        if validation_failed:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            logger.info("=" * BANNER_WIDTH)
+            logger.info("EXECUTION FAILED")
+            logger.info("=" * BANNER_WIDTH)
+            logger.info(f"Data View: {dv_name} ({data_view_id})")
+            logger.info("Error: Data quality validation failed")
+            logger.info(f"Duration: {time.time() - start_time:.2f}s")
+            logger.info("=" * BANNER_WIDTH)
+            flush_logging_handlers(logger)
             return ProcessingResult(
                 data_view_id=data_view_id,
                 data_view_name=dv_name,
-                success=not validation_failed,
+                success=False,
                 duration=time.time() - start_time,
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_issues),
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
-                error_message=(
-                    f"Data quality validation failed: {validation_error_message}" if validation_failed else ""
-                ),
+                error_message=f"Data quality validation failed: {validation_error_message}",
+            )
+
+        if quality_report_only:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            return ProcessingResult(
+                data_view_id=data_view_id,
+                data_view_name=dv_name,
+                success=True,
+                duration=time.time() - start_time,
+                metrics_count=len(metrics),
+                dimensions_count=len(dimensions),
+                dq_issues_count=len(dq_issues),
+                dq_issues=dq_issues,
+                dq_severity_counts=severity_counts,
+                error_message="",
             )
 
         # Optional inventory builds (parallelized when 2+ are enabled)

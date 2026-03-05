@@ -253,7 +253,7 @@ class TestProcessInventorySummary:
         # Force import to fail
         with patch.dict(
             "sys.modules",
-            {"cja_calculated_metrics_inventory": None},
+            {"cja_auto_sdr.inventory.calculated_metrics": None},
         ):
             result = process_inventory_summary("dv_test123", include_calculated=True)
 
@@ -277,7 +277,7 @@ class TestProcessInventorySummary:
         mock_builder_cls.return_value.build.side_effect = ConnectionError("calc transport down")
         with patch.dict(
             "sys.modules",
-            {"cja_calculated_metrics_inventory": MagicMock(CalculatedMetricsInventoryBuilder=mock_builder_cls)},
+            {"cja_auto_sdr.inventory.calculated_metrics": MagicMock(CalculatedMetricsInventoryBuilder=mock_builder_cls)},
         ):
             result = process_inventory_summary("dv_test123", include_calculated=True)
 
@@ -302,7 +302,7 @@ class TestProcessInventorySummary:
         # Force import to fail
         with patch.dict(
             "sys.modules",
-            {"cja_segments_inventory": None},
+            {"cja_auto_sdr.inventory.segments": None},
         ):
             result = process_inventory_summary("dv_test123", include_segments=True)
 
@@ -326,7 +326,7 @@ class TestProcessInventorySummary:
         mock_builder_cls.return_value.build.side_effect = ConnectionError("segments transport down")
         with patch.dict(
             "sys.modules",
-            {"cja_segments_inventory": MagicMock(SegmentsInventoryBuilder=mock_builder_cls)},
+            {"cja_auto_sdr.inventory.segments": MagicMock(SegmentsInventoryBuilder=mock_builder_cls)},
         ):
             result = process_inventory_summary("dv_test123", include_segments=True)
 
@@ -344,13 +344,13 @@ class TestProcessInventorySummary:
                 "derived_inventory",
             ),
             (
-                "cja_calculated_metrics_inventory",
+                "cja_auto_sdr.inventory.calculated_metrics",
                 "CalculatedMetricsInventoryBuilder",
                 {"include_calculated": True},
                 "calculated_inventory",
             ),
             (
-                "cja_segments_inventory",
+                "cja_auto_sdr.inventory.segments",
                 "SegmentsInventoryBuilder",
                 {"include_segments": True},
                 "segments_inventory",

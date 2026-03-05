@@ -1,11 +1,9 @@
 """CJA client initialization for CJA Auto SDR."""
 
-import atexit
-import contextlib
-import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import cjapy
@@ -22,6 +20,10 @@ from cja_auto_sdr.core.exceptions import (
     ProfileConfigError,
     ProfileNotFoundError,
 )
+
+_LEGACY_TEMP_CONFIG_PREFIX = "cja_env_config_"
+_LEGACY_TEMP_CONFIG_SUFFIX = ".json"
+_LEGACY_TEMP_CONFIG_MAX_AGE_SECONDS = 3600.0
 
 
 def _bootstrap_dotenv(logger: logging.Logger) -> None:
@@ -45,34 +47,56 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
         logger.debug(f"Failed to load .env via python-dotenv: {e}")
 
 
+def _cleanup_stale_temp_configs(logger: logging.Logger) -> None:
+    """Remove leftover temp credential files from older releases."""
+    temp_dir = Path(tempfile.gettempdir())
+    now = time.time()
+
+    try:
+        candidates = temp_dir.glob(f"{_LEGACY_TEMP_CONFIG_PREFIX}*{_LEGACY_TEMP_CONFIG_SUFFIX}")
+    except OSError as e:
+        logger.debug(f"Failed to scan temp directory for stale config files: {e}")
+        return
+
+    removed = 0
+    for candidate in candidates:
+        try:
+            age_seconds = now - candidate.stat().st_mtime
+        except OSError:
+            continue
+        if age_seconds < _LEGACY_TEMP_CONFIG_MAX_AGE_SECONDS:
+            continue
+        try:
+            candidate.unlink()
+        except OSError:
+            continue
+        removed += 1
+
+    if removed:
+        logger.debug(f"Removed {removed} stale temp credential file(s) from previous runs")
+
+
 def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
     """
-    Configure cjapy using environment credentials.
+    Configure cjapy directly from in-memory OAuth credentials.
 
-    Creates a temporary JSON config file that is cleaned up on exit.
+    Older releases wrote environment/profile credentials to temporary JSON
+    files for ``cjapy.importConfigFile``. ``cjapy`` also supports direct
+    programmatic configuration, so use that path instead and opportunistically
+    clean up stale temp files left behind by previous versions.
 
     Args:
         credentials: Dictionary of credentials from environment
         logger: Logger instance
     """
-    # cjapy.importConfigFile expects a JSON file, so we create a temporary one
-    # This is cleaned up on exit. Use restrictive permissions (0o600) since it contains credentials.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, prefix="cja_env_config_") as temp_config:
-        json.dump(credentials, temp_config)
-        temp_config_path = temp_config.name
-    os.chmod(temp_config_path, 0o600)
-
-    logger.debug(f"Created temporary config file: {temp_config_path}")
-
-    # Register cleanup
-    def cleanup_temp_config():
-        with contextlib.suppress(OSError):
-            os.unlink(temp_config_path)
-
-    atexit.register(cleanup_temp_config)
-
-    # Import the temporary config
-    cjapy.importConfigFile(temp_config_path)
+    _cleanup_stale_temp_configs(logger)
+    cjapy.configure(
+        org_id=credentials.get("org_id"),
+        client_id=credentials.get("client_id"),
+        secret=credentials.get("secret"),
+        scopes=credentials.get("scopes"),
+    )
+    logger.debug("Configured cjapy directly from in-memory credentials")
 
 
 def configure_cjapy(

@@ -370,6 +370,82 @@ class TestProcessSingleDataviewFailures:
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_metrics_fetch_failure_aborts_partial_sdr(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Metrics transport failures should fail the run instead of generating a partial SDR."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics api down"},
+            "dimensions": {"status": "success"},
+            "dataview": {"status": "success"},
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "metrics api down" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_dimensions_fetch_failure_aborts_partial_sdr(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dataview_info,
+    ):
+        """Dimensions transport failures should fail the run instead of generating a partial SDR."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, pd.DataFrame(), lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": {"status": "success"},
+            "dimensions": {"status": "failed", "reason": "exception", "error_message": "dimensions api down"},
+            "dataview": {"status": "success"},
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "dimensions api down" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     def test_data_view_validation_failure_legacy_unknown_placeholder(
         self,
         mock_fetcher_class,
@@ -750,6 +826,15 @@ class TestProcessSingleDataviewCaching:
         mock_fetcher_class.return_value = mock_fetcher
 
         mock_cache = Mock()
+        mock_cache.get_statistics.return_value = {
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
+            "size": 0,
+            "max_size": 500,
+            "evictions": 0,
+            "total_requests": 0,
+        }
         mock_cache_class.return_value = mock_cache
 
         mock_dq_checker = Mock()
@@ -808,6 +893,15 @@ class TestProcessSingleDataviewCaching:
         mock_fetcher_class.return_value = mock_fetcher
 
         mock_cache = Mock()
+        mock_cache.get_statistics.return_value = {
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
+            "size": 0,
+            "max_size": 1000,
+            "evictions": 0,
+            "total_requests": 0,
+        }
         mock_cache_class.return_value = mock_cache
 
         mock_dq_checker = Mock()
@@ -1082,7 +1176,7 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
-    def test_sdr_generation_continues_on_unexpected_validation_runtime_error(
+    def test_sdr_generation_fails_on_unexpected_validation_runtime_error(
         self,
         mock_write_json,
         mock_dq_checker_class,
@@ -1095,7 +1189,7 @@ class TestProcessSingleDataviewMaxIssues:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Unexpected validation runtime errors should be non-fatal for SDR generation."""
+        """Unexpected validation runtime errors should fail the SDR run."""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
@@ -1122,14 +1216,16 @@ class TestProcessSingleDataviewMaxIssues:
             output_format="json",
         )
 
-        assert result.success is True
+        assert result.success is False
         assert result.dq_issues_count == 0
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "threadpool failure" in result.error_message.lower()
         assert any(
-            "Continuing with SDR generation despite validation errors" in str(call.args[0])
+            "Aborting SDR generation because data quality validation did not complete" in str(call.args[0])
             for call in mock_logger.info.call_args_list
             if call.args
         )
-        mock_write_json.assert_called_once()
+        mock_write_json.assert_not_called()
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
