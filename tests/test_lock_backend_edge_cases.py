@@ -940,11 +940,11 @@ class TestCoerceLegacyTime:
 
 class TestFromDictExceptionBranches:
     def test_modern_raises_unexpected_exception_falls_to_legacy(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When _from_modern_dict raises an unexpected exception, from_dict catches it
+        """When _from_modern_dict raises a recoverable exception, from_dict catches it
         and tries the legacy path."""
 
         def _boom(data: dict) -> LockInfo | None:
-            raise RuntimeError("unexpected boom")
+            raise ValueError("unexpected boom")
 
         monkeypatch.setattr(LockInfo, "_from_modern_dict", staticmethod(_boom))
         # Legacy path should still work with pid key
@@ -954,13 +954,13 @@ class TestFromDictExceptionBranches:
         assert result.pid == 42
 
     def test_both_raise_unexpected_exceptions_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When both modern and legacy raise unexpected exceptions, return None."""
+        """When both modern and legacy raise recoverable exceptions, return None."""
 
         def _boom_modern(data: dict) -> LockInfo | None:
-            raise RuntimeError("modern boom")
+            raise ValueError("modern boom")
 
         def _boom_legacy(data: dict) -> LockInfo | None:
-            raise RuntimeError("legacy boom")
+            raise ValueError("legacy boom")
 
         monkeypatch.setattr(LockInfo, "_from_modern_dict", staticmethod(_boom_modern))
         monkeypatch.setattr(LockInfo, "_from_legacy_dict", staticmethod(_boom_legacy))
