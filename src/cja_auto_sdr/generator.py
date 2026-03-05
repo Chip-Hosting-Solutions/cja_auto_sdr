@@ -1713,7 +1713,7 @@ def list_profiles(output_format: str = "table") -> bool:
 
             try:
                 org_id = _read_profile_org_id(item)
-            except Exception:
+            except Exception:  # Intentional: Best-effort metadata enrichment; listing must remain available
                 # Best-effort metadata enrichment only; listing must remain
                 # available even if an individual profile cannot be read.
                 org_id = None

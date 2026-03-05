@@ -339,7 +339,7 @@ class DataQualityChecker:
             if self.validation_cache is not None:
                 self.validation_cache.put(df, item_type, required_fields, critical_fields, local_issues, cache_key)
 
-        except Exception as e:
+        except Exception as e:  # Intentional: Orchestrator boundary for optimized single-pass validation
             self.logger.error(_format_error_msg("in optimized validation", item_type, e))
             self.logger.exception("Full error details:")
 
@@ -390,7 +390,7 @@ class DataQualityChecker:
                             future.result()
                             pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
                             self.logger.debug(f"\u2713 {task_name.capitalize()} validation completed")
-                        except Exception as e:
+                        except Exception as e:  # Intentional: Future result collection must handle any worker exception
                             pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
                             self.logger.error(f"\u2717 {task_name.capitalize()} validation failed: {e}")
                             self.logger.exception("Full error details:")
@@ -398,7 +398,7 @@ class DataQualityChecker:
 
             self.logger.info(f"Parallel validation complete. Found {len(self.issues)} issue(s)")
 
-        except Exception as e:
+        except Exception as e:  # Intentional: Parallel executor boundary; thread pool can surface heterogeneous errors
             self.logger.error(_format_error_msg("in parallel validation", error=e))
             self.logger.exception("Full error details:")
             raise
@@ -444,7 +444,9 @@ class DataQualityChecker:
                 df = df.head(max_issues)
 
             return df
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional: DataFrame construction from heterogeneous issue dicts can fail in many ways
             self.logger.error(_format_error_msg("creating issues dataframe", error=e))
             return pd.DataFrame(
                 {
