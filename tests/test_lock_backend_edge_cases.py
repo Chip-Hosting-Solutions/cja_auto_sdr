@@ -967,6 +967,16 @@ class TestFromDictExceptionBranches:
         result = LockInfo.from_dict({"pid": 42})
         assert result is None
 
+    def test_legacy_hostname_oserror_is_recoverable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Legacy parse OSError must degrade to None instead of aborting lock flows."""
+
+        def _hostname_boom() -> str:
+            raise OSError("hostname unavailable")
+
+        monkeypatch.setattr(backends_module.socket, "gethostname", _hostname_boom)
+        result = LockInfo.from_dict({"pid": 42, "timestamp": time.time()})
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # 20. _is_fcntl_lock_active() edge cases (lines 332-348)

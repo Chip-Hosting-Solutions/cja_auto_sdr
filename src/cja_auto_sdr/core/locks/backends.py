@@ -18,11 +18,14 @@ import os
 import socket
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
+
+from cja_auto_sdr.core.error_policies import RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS
 
 _logger = logging.getLogger(__name__)
 
@@ -186,19 +189,25 @@ class LockInfo:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
+    def _parse_best_effort(
+        cls,
+        parser: Callable[[dict[str, Any]], LockInfo | None],
+        data: dict[str, Any],
+        *,
+        parser_name: str,
+    ) -> LockInfo | None:
         try:
-            modern = cls._from_modern_dict(data)
-        except (KeyError, TypeError, ValueError, OverflowError) as e:
-            _logger.debug("Modern lock info parse failed: %s", e)
-            modern = None
+            return parser(data)
+        except RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS as e:
+            _logger.debug("%s lock info parse failed: %s", parser_name, e)
+            return None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
+        modern = cls._parse_best_effort(cls._from_modern_dict, data, parser_name="Modern")
         if modern is not None:
             return modern
-        try:
-            return cls._from_legacy_dict(data)
-        except (KeyError, TypeError, ValueError, OverflowError) as e:
-            _logger.debug("Legacy lock info parse failed: %s", e)
-            return None
+        return cls._parse_best_effort(cls._from_legacy_dict, data, parser_name="Legacy")
 
     @classmethod
     def _from_modern_dict(cls, data: dict[str, Any]) -> LockInfo | None:

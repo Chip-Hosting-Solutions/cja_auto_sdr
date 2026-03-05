@@ -6,6 +6,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cja_auto_sdr.core.error_policies import RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
 from cja_auto_sdr.core.version import __version__
 from cja_auto_sdr.diff.models import DataViewSnapshot, DiffResult
 
@@ -19,19 +20,43 @@ def _snapshot_pathspecs_for_data_view(snapshot_dir: Path, data_view_id: str) -> 
         return []
 
 
+def _run_git_command(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int,
+    text: bool = True,
+) -> tuple[subprocess.CompletedProcess | None, Exception | None]:
+    """Run a git command behind a non-throwing boundary."""
+    try:
+        return (
+            subprocess.run(
+                args,
+                cwd=str(cwd) if cwd is not None else None,
+                capture_output=True,
+                text=text,
+                timeout=timeout,
+            ),
+            None,
+        )
+    except RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS as exc:
+        return None, exc
+
+
+def _format_git_boundary_error(exc: Exception, *, timeout_message: str, generic_prefix: str) -> str:
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return timeout_message
+    if isinstance(exc, FileNotFoundError):
+        return "Git not found - ensure Git is installed and in PATH"
+    return f"{generic_prefix}: {exc!s}"
+
+
 def is_git_repository(path: Path) -> bool:
     """Check if the given path is inside a Git repository."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            cwd=str(path),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return result.returncode == 0
-    except subprocess.TimeoutExpired, FileNotFoundError:
+    result, error = _run_git_command(["git", "rev-parse", "--git-dir"], cwd=path, timeout=10, text=True)
+    if error is not None or result is None:
         return False
+    return result.returncode == 0
 
 
 def git_get_user_info() -> tuple[str, str]:
@@ -39,19 +64,13 @@ def git_get_user_info() -> tuple[str, str]:
     name = "CJA SDR Generator"
     email = ""
 
-    try:
-        result = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout.strip():
-            name = result.stdout.strip()
-    except subprocess.TimeoutExpired, FileNotFoundError:
-        pass
+    result, error = _run_git_command(["git", "config", "user.name"], timeout=5, text=True)
+    if error is None and result is not None and result.returncode == 0 and result.stdout.strip():
+        name = result.stdout.strip()
 
-    try:
-        result = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout.strip():
-            email = result.stdout.strip()
-    except subprocess.TimeoutExpired, FileNotFoundError:
-        pass
+    result, error = _run_git_command(["git", "config", "user.email"], timeout=5, text=True)
+    if error is None and result is not None and result.returncode == 0 and result.stdout.strip():
+        email = result.stdout.strip()
 
     return name, email
 
@@ -220,80 +239,84 @@ def git_commit_snapshot(
     if not is_git_repository(snapshot_dir):
         return False, f"Not a Git repository: {snapshot_dir}"
 
-    try:
-        logger.info(f"Staging snapshot files in {snapshot_dir}")
-        pathspecs = _snapshot_pathspecs_for_data_view(snapshot_dir, data_view_id)
-        if not pathspecs:
-            return False, f"No snapshot directory found for data view '{data_view_id}' in {snapshot_dir}"
+    logger.info(f"Staging snapshot files in {snapshot_dir}")
+    pathspecs = _snapshot_pathspecs_for_data_view(snapshot_dir, data_view_id)
+    if not pathspecs:
+        return False, f"No snapshot directory found for data view '{data_view_id}' in {snapshot_dir}"
 
-        result = subprocess.run(
-            ["git", "add", "-A", "--", *pathspecs],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30,
+    result, error = _run_git_command(["git", "add", "-A", "--", *pathspecs], cwd=snapshot_dir, timeout=30, text=True)
+    if error is not None:
+        return False, _format_git_boundary_error(
+            error, timeout_message="Git operation timed out", generic_prefix="Git error"
         )
+    if result is None:
+        return False, "Git error: unknown subprocess failure"
+    if result.returncode != 0:
+        return False, f"git add failed: {result.stderr}"
+
+    result, error = _run_git_command(["git", "diff", "--cached", "--quiet"], cwd=snapshot_dir, timeout=10, text=False)
+    if error is not None:
+        return False, _format_git_boundary_error(
+            error, timeout_message="Git operation timed out", generic_prefix="Git error"
+        )
+    if result is None:
+        return False, "Git error: unknown subprocess failure"
+    if result.returncode == 0:
+        logger.info("No changes to commit (snapshot unchanged)")
+        return True, "no_changes"
+
+    commit_message = generate_git_commit_message(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        metrics_count=metrics_count,
+        dimensions_count=dimensions_count,
+        quality_issues=quality_issues,
+        diff_result=diff_result,
+        custom_message=custom_message,
+    )
+
+    logger.info("Committing snapshot to Git")
+    result, error = _run_git_command(["git", "commit", "-m", commit_message], cwd=snapshot_dir, timeout=30, text=True)
+    if error is not None:
+        return False, _format_git_boundary_error(
+            error, timeout_message="Git operation timed out", generic_prefix="Git error"
+        )
+    if result is None:
+        return False, "Git error: unknown subprocess failure"
+    if result.returncode != 0:
+        return False, f"git commit failed: {result.stderr}"
+
+    result, error = _run_git_command(["git", "rev-parse", "HEAD"], cwd=snapshot_dir, timeout=10, text=True)
+    if error is not None:
+        return False, _format_git_boundary_error(
+            error, timeout_message="Git operation timed out", generic_prefix="Git error"
+        )
+    if result is None:
+        return False, "Git error: unknown subprocess failure"
+    commit_sha = result.stdout.strip()[:8] if result.returncode == 0 else "unknown"
+
+    logger.info(f"Committed snapshot: {commit_sha}")
+
+    if push:
+        logger.info("Pushing to remote")
+        result, error = _run_git_command(["git", "push"], cwd=snapshot_dir, timeout=60, text=True)
+        if error is not None:
+            logger.warning(
+                "git push failed: %s",
+                _format_git_boundary_error(
+                    error, timeout_message="Git operation timed out", generic_prefix="Git error"
+                ),
+            )
+            return True, f"{commit_sha} (push failed: {error!s})"
+        if result is None:
+            logger.warning("git push failed: unknown subprocess failure")
+            return True, f"{commit_sha} (push failed: unknown subprocess failure)"
         if result.returncode != 0:
-            return False, f"git add failed: {result.stderr}"
+            logger.warning(f"git push failed: {result.stderr}")
+            return True, f"{commit_sha} (push failed: {result.stderr.strip()})"
+        logger.info("Pushed to remote successfully")
 
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            logger.info("No changes to commit (snapshot unchanged)")
-            return True, "no_changes"
-
-        commit_message = generate_git_commit_message(
-            data_view_id=data_view_id,
-            data_view_name=data_view_name,
-            metrics_count=metrics_count,
-            dimensions_count=dimensions_count,
-            quality_issues=quality_issues,
-            diff_result=diff_result,
-            custom_message=custom_message,
-        )
-
-        logger.info("Committing snapshot to Git")
-        result = subprocess.run(
-            ["git", "commit", "-m", commit_message],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return False, f"git commit failed: {result.stderr}"
-
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(snapshot_dir),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        commit_sha = result.stdout.strip()[:8] if result.returncode == 0 else "unknown"
-
-        logger.info(f"Committed snapshot: {commit_sha}")
-
-        if push:
-            logger.info("Pushing to remote")
-            result = subprocess.run(["git", "push"], cwd=str(snapshot_dir), capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                logger.warning(f"git push failed: {result.stderr}")
-                return True, f"{commit_sha} (push failed: {result.stderr.strip()})"
-            logger.info("Pushed to remote successfully")
-
-        return True, commit_sha
-
-    except subprocess.TimeoutExpired:
-        return False, "Git operation timed out"
-    except FileNotFoundError:
-        return False, "Git not found - ensure Git is installed and in PATH"
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, f"Git error: {e!s}"
+    return True, commit_sha
 
 
 def git_init_snapshot_repo(directory: Path, logger: logging.Logger | None = None) -> tuple[bool, str]:
@@ -307,7 +330,15 @@ def git_init_snapshot_repo(directory: Path, logger: logging.Logger | None = None
             return True, "Already a Git repository"
 
         logger.info(f"Initializing Git repository in {directory}")
-        result = subprocess.run(["git", "init"], cwd=str(directory), capture_output=True, text=True, timeout=30)
+        result, error = _run_git_command(["git", "init"], cwd=directory, timeout=30, text=True)
+        if error is not None:
+            return False, _format_git_boundary_error(
+                error,
+                timeout_message="Initialization timed out",
+                generic_prefix="Initialization failed",
+            )
+        if result is None:
+            return False, "Initialization failed: unknown subprocess failure"
         if result.returncode != 0:
             return False, f"git init failed: {result.stderr}"
 
@@ -316,23 +347,37 @@ def git_init_snapshot_repo(directory: Path, logger: logging.Logger | None = None
         if not user_email:
             user_email = "cja-auto-sdr@local"
 
-        result = subprocess.run(
+        result, error = _run_git_command(
             ["git", "config", "user.name", user_name],
-            cwd=str(directory),
-            capture_output=True,
-            text=True,
+            cwd=directory,
             timeout=30,
+            text=True,
         )
+        if error is not None:
+            return False, _format_git_boundary_error(
+                error,
+                timeout_message="Initialization timed out",
+                generic_prefix="Initialization failed",
+            )
+        if result is None:
+            return False, "Initialization failed: unknown subprocess failure"
         if result.returncode != 0:
             return False, f"git config user.name failed: {result.stderr}"
 
-        result = subprocess.run(
+        result, error = _run_git_command(
             ["git", "config", "user.email", user_email],
-            cwd=str(directory),
-            capture_output=True,
-            text=True,
+            cwd=directory,
             timeout=30,
+            text=True,
         )
+        if error is not None:
+            return False, _format_git_boundary_error(
+                error,
+                timeout_message="Initialization timed out",
+                generic_prefix="Initialization failed",
+            )
+        if result is None:
+            return False, "Initialization failed: unknown subprocess failure"
         if result.returncode != 0:
             return False, f"git config user.email failed: {result.stderr}"
 
@@ -369,22 +414,37 @@ git diff HEAD~1 HEAD -- <data_view_dir>/metrics.json
 Generated by CJA SDR Generator v{__version__}
 """)
 
-        result = subprocess.run(["git", "add", "."], cwd=str(directory), capture_output=True, text=True, timeout=30)
+        result, error = _run_git_command(["git", "add", "."], cwd=directory, timeout=30, text=True)
+        if error is not None:
+            return False, _format_git_boundary_error(
+                error,
+                timeout_message="Initialization timed out",
+                generic_prefix="Initialization failed",
+            )
+        if result is None:
+            return False, "Initialization failed: unknown subprocess failure"
         if result.returncode != 0:
             return False, f"git add failed: {result.stderr}"
 
-        result = subprocess.run(
+        result, error = _run_git_command(
             ["git", "commit", "-m", "Initialize SDR snapshot repository"],
-            cwd=str(directory),
-            capture_output=True,
-            text=True,
+            cwd=directory,
             timeout=30,
+            text=True,
         )
+        if error is not None:
+            return False, _format_git_boundary_error(
+                error,
+                timeout_message="Initialization timed out",
+                generic_prefix="Initialization failed",
+            )
+        if result is None:
+            return False, "Initialization failed: unknown subprocess failure"
         if result.returncode != 0:
             return False, f"git commit failed: {result.stderr}"
 
         logger.info(f"Initialized Git repository: {directory}")
         return True, "Repository initialized"
 
-    except (OSError, subprocess.SubprocessError) as e:
+    except OSError as e:
         return False, f"Initialization failed: {e!s}"

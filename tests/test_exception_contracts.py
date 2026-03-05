@@ -2,6 +2,7 @@
 
 import json
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,8 @@ import pytest
 import cja_auto_sdr.generator as generator
 from cja_auto_sdr.core.error_policies import (
     RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
+    RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS,
+    RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS,
     RECOVERABLE_OPEN_FILE_EXCEPTIONS,
     RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS,
 )
@@ -51,6 +54,18 @@ def test_optional_enrichment_exception_policy_keeps_generic_fallback() -> None:
 def test_open_file_exception_policy_keeps_generic_fallback() -> None:
     """open_file_in_default_app must preserve its bool contract for unexpected failures."""
     assert Exception in RECOVERABLE_OPEN_FILE_EXCEPTIONS
+
+
+def test_lock_metadata_parse_exception_policy_keeps_generic_fallback() -> None:
+    """Advisory lock metadata parsing must never abort lock ownership flows."""
+    assert Exception in RECOVERABLE_LOCK_METADATA_PARSE_EXCEPTIONS
+
+
+def test_git_subprocess_exception_policy_includes_decode_failures() -> None:
+    """Git wrappers must treat subprocess text decode failures as recoverable."""
+    assert OSError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
+    assert ValueError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
+    assert subprocess.SubprocessError in RECOVERABLE_GIT_SUBPROCESS_EXCEPTIONS
 
 
 def test_logging_boundary_exception_policy_keeps_generic_fallback() -> None:
