@@ -435,6 +435,64 @@ class TestInitializeCjaConnectionTest:
         assert result is not None
         mock_logger.warning.assert_called()
 
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_connection_test_raises_oserror_non_fatal(
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
+    ):
+        """Transport errors in connection test should degrade to warnings."""
+        mock_resolver = Mock()
+        mock_resolver.resolve.return_value = (
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
+        )
+        mock_resolver_class.return_value = mock_resolver
+
+        mock_cja = Mock()
+        mock_cjapy.CJA.return_value = mock_cja
+        mock_api_call.side_effect = OSError("socket closed")
+
+        result = initialize_cja(mock_config_file, mock_logger)
+
+        assert result is not None
+        warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Proceeding anyway" in call for call in warning_calls)
+
+    @patch("cja_auto_sdr.api.client.CredentialResolver")
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.make_api_call_with_retry")
+    def test_connection_test_raises_apierror_non_fatal(
+        self,
+        mock_api_call,
+        mock_cjapy,
+        mock_resolver_class,
+        mock_logger,
+        mock_config_file,
+    ):
+        """API-layer errors in connection test should degrade to warnings."""
+        mock_resolver = Mock()
+        mock_resolver.resolve.return_value = (
+            {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"},
+            f"config:{Path(mock_config_file).name}",
+        )
+        mock_resolver_class.return_value = mock_resolver
+
+        mock_cja = Mock()
+        mock_cjapy.CJA.return_value = mock_cja
+        mock_api_call.side_effect = APIError("permission denied")
+
+        result = initialize_cja(mock_config_file, mock_logger)
+
+        assert result is not None
+        warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Proceeding anyway" in call for call in warning_calls)
+
 
 class TestValidateDataView:
     """Tests for validate_data_view function"""

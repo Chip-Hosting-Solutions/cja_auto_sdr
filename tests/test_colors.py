@@ -15,6 +15,7 @@ Validates:
 
 import os
 import sys
+import webbrowser
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -553,6 +554,13 @@ class TestOpenFile:
     @patch("subprocess.run", side_effect=OSError("no such command"))
     @patch("platform.system", return_value="Darwin")
     def test_html_fallback_also_fails(self, _mock_platform, _mock_run, _mock_wb):
+        result = open_file_in_default_app("/tmp/report.html")
+        assert result is False
+
+    @patch("webbrowser.open", side_effect=webbrowser.Error("no runnable browser"))
+    @patch("subprocess.run", side_effect=OSError("no such command"))
+    @patch("platform.system", return_value="Linux")
+    def test_html_fallback_webbrowser_backend_error_returns_false(self, _mock_platform, _mock_run, _mock_wb):
         result = open_file_in_default_app("/tmp/report.html")
         assert result is False
 

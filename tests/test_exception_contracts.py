@@ -8,6 +8,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import cja_auto_sdr.generator as generator
+from cja_auto_sdr.core.error_policies import (
+    RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
+    RECOVERABLE_OPEN_FILE_EXCEPTIONS,
+    RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS,
+)
 from cja_auto_sdr.org.models import OrgReportConfig
 
 
@@ -30,6 +35,21 @@ def test_git_snapshot_refetch_exception_policy_keeps_generic_fallback() -> None:
 def test_stats_row_exception_policy_keeps_generic_fallback() -> None:
     """Stats row fallback must keep a generic per-item Exception boundary."""
     assert Exception in generator.RECOVERABLE_STATS_ROW_EXCEPTIONS
+
+
+def test_connection_test_exception_policy_keeps_generic_fallback() -> None:
+    """Connection test is best-effort and must stay non-fatal for unexpected errors."""
+    assert Exception in RECOVERABLE_CONNECTION_TEST_EXCEPTIONS
+
+
+def test_optional_enrichment_exception_policy_keeps_generic_fallback() -> None:
+    """Optional snapshot enrichments must stay non-fatal for unexpected runtime errors."""
+    assert Exception in RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS
+
+
+def test_open_file_exception_policy_keeps_generic_fallback() -> None:
+    """open_file_in_default_app must preserve its bool contract for unexpected failures."""
+    assert Exception in RECOVERABLE_OPEN_FILE_EXCEPTIONS
 
 
 @pytest.mark.parametrize("summary_mode", [True, False])

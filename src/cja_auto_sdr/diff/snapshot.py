@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from cja_auto_sdr.core.colors import ConsoleColors
+from cja_auto_sdr.core.error_policies import RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS
 from cja_auto_sdr.diff.models import DataViewSnapshot
 
 
@@ -148,7 +149,7 @@ class SnapshotManager:
                 self.logger.warning(f"Could not import calculated metrics inventory module: {e}")
                 if not quiet:
                     print(ConsoleColors.warning("  Warning: Calculated metrics module not available"))
-            except (RuntimeError, AttributeError, ValueError, TypeError) as e:
+            except RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS as e:
                 self.logger.warning(f"Failed to fetch calculated metrics inventory: {e}")
                 if not quiet:
                     print(ConsoleColors.warning(f"  Warning: Could not fetch calculated metrics: {e}"))
@@ -169,7 +170,7 @@ class SnapshotManager:
                 self.logger.warning(f"Could not import segments inventory module: {e}")
                 if not quiet:
                     print(ConsoleColors.warning("  Warning: Segments module not available"))
-            except (RuntimeError, AttributeError, ValueError, TypeError) as e:
+            except RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS as e:
                 self.logger.warning(f"Failed to fetch segments inventory: {e}")
                 if not quiet:
                     print(ConsoleColors.warning(f"  Warning: Could not fetch segments: {e}"))

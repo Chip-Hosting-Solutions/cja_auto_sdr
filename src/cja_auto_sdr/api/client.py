@@ -13,6 +13,7 @@ import cjapy
 from cja_auto_sdr.api.resilience import make_api_call_with_retry
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.core.credentials import CredentialResolver
+from cja_auto_sdr.core.error_policies import RECOVERABLE_CONNECTION_TEST_EXCEPTIONS
 from cja_auto_sdr.core.exceptions import (
     CredentialSourceError,
     ProfileConfigError,
@@ -235,7 +236,7 @@ def initialize_cja(
                 )
             else:
                 logger.warning("API connection test returned None - connection may be unstable")
-        except (RuntimeError, AttributeError, KeyError, TypeError) as test_error:
+        except RECOVERABLE_CONNECTION_TEST_EXCEPTIONS as test_error:
             logger.warning(f"Could not verify connection with test call: {test_error!s}")
             logger.warning("Proceeding anyway - errors may occur during data fetching")
 

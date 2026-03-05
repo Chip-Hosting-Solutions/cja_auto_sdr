@@ -318,6 +318,19 @@ class TestCreateSnapshot:
             assert "Warning" in captured.out
             assert "API failure" in captured.out
 
+    def test_calc_metrics_transport_exception_non_fatal(self, manager, capsys):
+        """Optional calculated metrics transport errors should not abort snapshot creation."""
+        cja = self._mock_cja(metrics_df=None, dimensions_df=None)
+
+        with patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder") as mock_builder_cls:
+            mock_builder_cls.return_value.build.side_effect = OSError("connection reset by peer")
+            snapshot = manager.create_snapshot(cja, "dv_test", quiet=False, include_calculated_metrics=True)
+            captured = capsys.readouterr()
+
+        assert snapshot.calculated_metrics_inventory is None
+        assert "Warning" in captured.out
+        assert "connection reset by peer" in captured.out
+
     def test_segments_import_error(self, manager, capsys):
         """Lines 168-170: ImportError when loading segments module."""
         import builtins
@@ -347,6 +360,19 @@ class TestCreateSnapshot:
             captured = capsys.readouterr()
             assert "Warning" in captured.out
             assert "Segment fail" in captured.out
+
+    def test_segments_transport_exception_non_fatal(self, manager, capsys):
+        """Optional segments transport errors should not abort snapshot creation."""
+        cja = self._mock_cja(metrics_df=None, dimensions_df=None)
+
+        with patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder") as mock_builder_cls:
+            mock_builder_cls.return_value.build.side_effect = OSError("segments api timeout")
+            snapshot = manager.create_snapshot(cja, "dv_test", quiet=False, include_segments=True)
+            captured = capsys.readouterr()
+
+        assert snapshot.segments_inventory is None
+        assert "Warning" in captured.out
+        assert "segments api timeout" in captured.out
 
     def test_calc_metrics_quiet_suppresses_output(self, manager, capsys):
         """Lines 147-154 with quiet=True: warnings still print but success messages don't."""
