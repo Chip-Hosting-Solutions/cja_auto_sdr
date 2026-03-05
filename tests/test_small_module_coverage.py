@@ -57,7 +57,7 @@ class TestSafeFormatException:
     def test_format_exception_error_returns_error_marker(self):
         """Line 132-133: formatException raises internally."""
         bad_exc_info = (ValueError, ValueError("boom"), None)
-        with patch.object(logging.Formatter, "formatException", side_effect=RuntimeError("fmt error")):
+        with patch.object(logging.Formatter, "formatException", side_effect=TypeError("fmt error")):
             result = _safe_format_exception(bad_exc_info)
         assert result == "<exception-format-error>"
 

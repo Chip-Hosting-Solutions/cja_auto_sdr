@@ -92,7 +92,7 @@ class TestSafeStr:
     def test_unprintable_object(self):
         class Bad:
             def __str__(self):
-                raise RuntimeError("boom")
+                raise TypeError("boom")
 
         assert _safe_str(Bad()) == "<unprintable>"
 

@@ -107,14 +107,14 @@ def _normalize_field_name(name: str) -> str:
 def _safe_str(value: object) -> str:
     try:
         return str(value)
-    except Exception:
+    except AttributeError, TypeError:
         return "<unprintable>"
 
 
 def _safe_record_message(record: logging.LogRecord) -> str:
     try:
         return record.getMessage()
-    except Exception:
+    except AttributeError, TypeError, ValueError:
         # Keep logging resilient when message formatting fails (bad placeholders or broken __str__).
         return f"{_safe_str(getattr(record, 'msg', ''))} [log-message-format-error]"
 
@@ -131,7 +131,7 @@ def _safe_format_exception(exc_info: object) -> str:
     try:
         if isinstance(exc_info, tuple) and len(exc_info) == 3:
             return logging.Formatter().formatException(exc_info)
-    except Exception:
+    except AttributeError, TypeError, ValueError:
         return "<exception-format-error>"
     return "<exception-unavailable>"
 
@@ -560,7 +560,7 @@ def setup_logging(
         )
         try:
             dep_versions = _startup_dependency_versions_for_logging()
-        except Exception:
+        except Exception:  # Intentional: Multiple metadata backends can raise heterogeneous parse/IO errors
             dep_versions = dict.fromkeys(_CORE_DEPENDENCIES, "?")
             logger.debug("Failed to resolve dependency versions for startup logging", exc_info=True)
         dep_summary = ", ".join(f"{pkg}={ver}" for pkg, ver in dep_versions.items())

@@ -397,7 +397,7 @@ class TestLoggingSetup:
 
         class _BadStr:
             def __str__(self):
-                raise RuntimeError("boom")
+                raise TypeError("boom")
 
         filter_ = SensitiveDataFilter()
         record = logging.LogRecord(

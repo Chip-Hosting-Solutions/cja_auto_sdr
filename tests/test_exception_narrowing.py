@@ -9,12 +9,12 @@ These tests enforce a strict CLI boundary contract:
 import logging
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pandas as pd
 import pytest
 
 from cja_auto_sdr import generator
 from cja_auto_sdr.api.quality import DataQualityChecker
 from cja_auto_sdr.core.exceptions import ConfigurationError
+from cja_auto_sdr.core.logging import _safe_format_exception, _safe_record_message, _safe_str
 from cja_auto_sdr.generator import (
     _require_accessible_dataview,
     validate_data_view,
@@ -420,8 +420,6 @@ class TestDataQualityExceptionNarrowing:
 # ---------------------------------------------------------------------------
 # core/logging.py helper narrowing
 # ---------------------------------------------------------------------------
-
-from cja_auto_sdr.core.logging import _safe_str, _safe_record_message, _safe_format_exception
 
 
 class TestLoggingHelperExceptionNarrowing:
