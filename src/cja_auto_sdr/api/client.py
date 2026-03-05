@@ -34,7 +34,7 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
             logger.debug(".env file found and loaded")
         else:
             logger.debug(".env file not found (python-dotenv available but no .env file)")
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.debug(f"Failed to load .env via python-dotenv: {e}")
 
 
@@ -235,7 +235,7 @@ def initialize_cja(
                 )
             else:
                 logger.warning("API connection test returned None - connection may be unstable")
-        except Exception as test_error:
+        except (RuntimeError, AttributeError, KeyError, TypeError) as test_error:
             logger.warning(f"Could not verify connection with test call: {test_error!s}")
             logger.warning("Proceeding anyway - errors may occur during data fetching")
 
@@ -276,7 +276,7 @@ def initialize_cja(
         logger.critical("Please check file permissions")
         return None
 
-    except Exception as e:
+    except Exception as e:  # Intentional: Top-level init boundary; credentials, config, and API subsystems can all fail with heterogeneous errors
         logger.critical("=" * BANNER_WIDTH)
         logger.critical("CJA INITIALIZATION FAILED")
         logger.critical("=" * BANNER_WIDTH)

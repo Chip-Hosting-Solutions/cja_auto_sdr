@@ -427,7 +427,7 @@ class TestInitializeCjaConnectionTest:
 
         mock_cja = Mock()
         mock_cjapy.CJA.return_value = mock_cja
-        mock_api_call.side_effect = Exception("Connection failed")
+        mock_api_call.side_effect = RuntimeError("Connection failed")
 
         result = initialize_cja(mock_config_file, mock_logger)
 
