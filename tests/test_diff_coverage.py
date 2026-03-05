@@ -571,7 +571,7 @@ class TestGitCommitSnapshotEdgeCases:
     @patch("cja_auto_sdr.diff.git._snapshot_pathspecs_for_data_view", return_value=["snap_dv_x"])
     @patch("cja_auto_sdr.diff.git.subprocess.run")
     def test_generic_exception(self, mock_run, mock_pathspecs, mock_is_git, tmp_path):
-        mock_run.side_effect = RuntimeError("unexpected git problem")
+        mock_run.side_effect = subprocess.SubprocessError("unexpected git problem")
         ok, msg = git_commit_snapshot(
             snapshot_dir=tmp_path,
             data_view_id="dv_x",
@@ -705,7 +705,7 @@ class TestGitInitSnapshotRepo:
     @patch("cja_auto_sdr.diff.git.is_git_repository", return_value=False)
     @patch("cja_auto_sdr.diff.git.subprocess.run")
     def test_generic_exception_in_init(self, mock_run, mock_is_git, tmp_path):
-        mock_run.side_effect = RuntimeError("disk full")
+        mock_run.side_effect = OSError("disk full")
         ok, msg = git_init_snapshot_repo(tmp_path / "repo_explode")
         assert ok is False
         assert "Initialization failed" in msg
