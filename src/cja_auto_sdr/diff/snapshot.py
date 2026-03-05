@@ -148,7 +148,7 @@ class SnapshotManager:
                 self.logger.warning(f"Could not import calculated metrics inventory module: {e}")
                 if not quiet:
                     print(ConsoleColors.warning("  Warning: Calculated metrics module not available"))
-            except Exception as e:
+            except (RuntimeError, AttributeError, ValueError, TypeError) as e:
                 self.logger.warning(f"Failed to fetch calculated metrics inventory: {e}")
                 if not quiet:
                     print(ConsoleColors.warning(f"  Warning: Could not fetch calculated metrics: {e}"))
@@ -169,7 +169,7 @@ class SnapshotManager:
                 self.logger.warning(f"Could not import segments inventory module: {e}")
                 if not quiet:
                     print(ConsoleColors.warning("  Warning: Segments module not available"))
-            except Exception as e:
+            except (RuntimeError, AttributeError, ValueError, TypeError) as e:
                 self.logger.warning(f"Failed to fetch segments inventory: {e}")
                 if not quiet:
                     print(ConsoleColors.warning(f"  Warning: Could not fetch segments: {e}"))
