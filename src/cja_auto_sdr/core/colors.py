@@ -260,14 +260,14 @@ def open_file_in_default_app(file_path: str | Path) -> bool:
         else:  # Linux and others
             subprocess.run(["xdg-open", file_path], check=True)
         return True
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         logger.debug(f"Failed to open file with default app: {file_path} - {e}")
         # Fallback to webbrowser for HTML files
         if file_path.endswith(".html"):
             try:
                 webbrowser.open(f"file://{os.path.abspath(file_path)}")
                 return True
-            except Exception as e2:
+            except OSError as e2:
                 logger.debug(f"Fallback webbrowser.open also failed: {e2}")
         return False
 
