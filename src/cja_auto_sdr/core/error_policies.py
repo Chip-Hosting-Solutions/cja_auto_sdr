@@ -12,6 +12,9 @@ RECOVERABLE_BEST_EFFORT_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
 # Best-effort API connectivity checks during initialization.
 RECOVERABLE_CONNECTION_TEST_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_BEST_EFFORT_EXCEPTIONS
 
+# Optional dotenv bootstrap should never abort initialization.
+RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_BEST_EFFORT_EXCEPTIONS
+
 # Best-effort optional inventory enrichment in snapshot and summary flows.
 RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_BEST_EFFORT_EXCEPTIONS
 

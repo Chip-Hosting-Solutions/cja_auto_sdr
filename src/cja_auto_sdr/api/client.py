@@ -13,7 +13,10 @@ import cjapy
 from cja_auto_sdr.api.resilience import make_api_call_with_retry
 from cja_auto_sdr.core.constants import BANNER_WIDTH
 from cja_auto_sdr.core.credentials import CredentialResolver
-from cja_auto_sdr.core.error_policies import RECOVERABLE_CONNECTION_TEST_EXCEPTIONS
+from cja_auto_sdr.core.error_policies import (
+    RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
+    RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS,
+)
 from cja_auto_sdr.core.exceptions import (
     CredentialSourceError,
     ProfileConfigError,
@@ -28,6 +31,9 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
     except ImportError:
         logger.debug("python-dotenv not installed (.env files will not be auto-loaded)")
         return
+    except RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS as e:
+        logger.debug(f"Failed to import python-dotenv for .env auto-loading: {e}")
+        return
 
     try:
         dotenv_loaded = load_dotenv()
@@ -35,7 +41,7 @@ def _bootstrap_dotenv(logger: logging.Logger) -> None:
             logger.debug(".env file found and loaded")
         else:
             logger.debug(".env file not found (python-dotenv available but no .env file)")
-    except (OSError, ValueError) as e:
+    except RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS as e:
         logger.debug(f"Failed to load .env via python-dotenv: {e}")
 
 

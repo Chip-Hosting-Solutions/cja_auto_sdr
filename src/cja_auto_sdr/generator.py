@@ -8620,7 +8620,9 @@ def _fetch_dataview_lookup_payload(cja: Any, data_view_id: str) -> Any:
     """Call getDataView and normalize inaccessible lookup failures to not_found."""
     try:
         return cja.getDataView(data_view_id)
-    except (APIError, RuntimeError, AttributeError, KeyError, TypeError) as lookup_error:
+    except Exception as lookup_error:
+        # Classification is centralized in core.discovery_exceptions and supports
+        # nested/wrapped transport errors across diverse exception types.
         if _is_inaccessible_dataview_lookup_error(lookup_error):
             raise DiscoveryNotFoundError(f"Data view '{data_view_id}' not found") from lookup_error
         raise

@@ -166,6 +166,16 @@ class TestRequireAccessibleDataviewExceptionNarrowing:
         with pytest.raises(generator.DiscoveryNotFoundError, match="Data view 'dv_test' not found"):
             _require_accessible_dataview(mock_cja, "dv_test")
 
+    def test_os_error_with_404_metadata_maps_to_not_found(self):
+        """OSError wrappers carrying lookup metadata must normalize to not_found."""
+        mock_cja = MagicMock()
+        lookup_error = OSError("wrapped lookup failure")
+        lookup_error.response = {"error": {"statusCode": "404"}}  # type: ignore[attr-defined]
+        mock_cja.getDataView.side_effect = lookup_error
+
+        with pytest.raises(generator.DiscoveryNotFoundError, match="Data view 'dv_test' not found"):
+            _require_accessible_dataview(mock_cja, "dv_test")
+
 
 # ===========================================================================
 # Group A: process_inventory_summary  (fallback -> (RuntimeError, AttributeError))
