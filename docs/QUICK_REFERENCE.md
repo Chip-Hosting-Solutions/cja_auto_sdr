@@ -6,11 +6,11 @@ Single-page command cheat sheet for CJA SDR Generator v3.3.6.
 
 | Mode | Purpose | Output |
 |------|---------|--------|
-| **SDR Generation** | Document a data view's dimensions, metrics, and calculated metrics | Excel, CSV, JSON, HTML, Markdown reports |
-| **Diff Comparison** | Compare two data views or snapshots to identify changes | Side-by-side comparison showing added, removed, and modified components |
-| **Org-Wide Analysis** | Analyze component usage across all data views in an organization | Distribution reports, similarity matrix, governance recommendations |
-| **Discovery** | List data views, connections, and datasets in your CJA org | Console table, JSON, or CSV output |
-| **Discovery Inspection** | Drill into a data view's metrics, dimensions, segments, and calculated metrics | Console table, JSON, or CSV output |
+| **SDR Generation** | Document a data view's dimensions, metrics, and calculated metrics | Excel (default), CSV, JSON, HTML, Markdown |
+| **Diff Comparison** | Compare two data views or snapshots to identify changes | Console (default), Excel, CSV, JSON, HTML, Markdown |
+| **Org-Wide Analysis** | Analyze component usage across all data views in an organization | Console (default), Excel, CSV, JSON, HTML, Markdown |
+| **Discovery** | List data views, connections, and datasets in your CJA org | Console (default), CSV, JSON |
+| **Discovery Inspection** | Drill into a data view's metrics, dimensions, segments, and calculated metrics | Console (default), CSV, JSON |
 
 **SDR Generation** creates a Solution Design Reference—a comprehensive inventory of all components in a data view. Use this for documentation, audits, and onboarding.
 
