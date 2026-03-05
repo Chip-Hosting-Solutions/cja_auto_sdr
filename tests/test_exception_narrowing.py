@@ -7,11 +7,13 @@ These tests enforce a strict CLI boundary contract:
 """
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pandas as pd
 import pytest
 
 from cja_auto_sdr import generator
+from cja_auto_sdr.api.quality import DataQualityChecker
 from cja_auto_sdr.core.exceptions import ConfigurationError
 from cja_auto_sdr.generator import (
     _require_accessible_dataview,
@@ -305,3 +307,111 @@ class TestComponentCountRetryExceptionBoundary:
         """BaseException subclasses must still propagate through the helper."""
         with pytest.raises(KeyboardInterrupt):
             self._run_count_with_retry_side_effect(KeyboardInterrupt())
+
+
+# ===========================================================================
+# Group C: DataQualityChecker — narrowed handlers in api/quality.py
+# ===========================================================================
+
+
+class TestDataQualityExceptionNarrowing:
+    """Verify narrowed except clauses in DataQualityChecker methods."""
+
+    def _make_checker(self) -> DataQualityChecker:
+        return DataQualityChecker(logger=_make_logger())
+
+    def _mock_df_raising_on_empty(self, exc_type: type[Exception]) -> MagicMock:
+        """Return a MagicMock whose .empty property raises *exc_type*."""
+        df = MagicMock()
+        type(df).empty = PropertyMock(side_effect=exc_type("boom"))
+        return df
+
+    # -- check_duplicates: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_duplicates_catches_key_error(self):
+        """KeyError on DataFrame access is caught by check_duplicates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(KeyError)
+        checker.check_duplicates(df, "Metrics")  # should not raise
+
+    def test_check_duplicates_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_duplicates tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_duplicates(df, "Metrics")
+
+    # -- check_required_fields: TypeError, AttributeError --
+
+    def test_check_required_fields_catches_type_error(self):
+        """TypeError on DataFrame access is caught by check_required_fields."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(TypeError)
+        checker.check_required_fields(df, "Metrics", ["name"])  # should not raise
+
+    def test_check_required_fields_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_required_fields tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_required_fields(df, "Metrics", ["name"])
+
+    # -- check_null_values: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_null_values_catches_attribute_error(self):
+        """AttributeError on DataFrame access is caught by check_null_values."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(AttributeError)
+        checker.check_null_values(df, "Metrics", ["name"])  # should not raise
+
+    def test_check_null_values_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_null_values tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_null_values(df, "Metrics", ["name"])
+
+    # -- check_missing_descriptions: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_missing_descriptions_catches_value_error(self):
+        """ValueError on DataFrame access is caught by check_missing_descriptions."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(ValueError)
+        checker.check_missing_descriptions(df, "Dimensions")  # should not raise
+
+    def test_check_missing_descriptions_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_missing_descriptions tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_missing_descriptions(df, "Dimensions")
+
+    # -- check_empty_dataframe: AttributeError, TypeError --
+
+    def test_check_empty_dataframe_catches_attribute_error(self):
+        """AttributeError on DataFrame access is caught by check_empty_dataframe."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(AttributeError)
+        checker.check_empty_dataframe(df, "Metrics")  # should not raise
+
+    def test_check_empty_dataframe_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_empty_dataframe tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_empty_dataframe(df, "Metrics")
+
+    # -- check_id_validity: KeyError, TypeError, AttributeError, ValueError --
+
+    def test_check_id_validity_catches_type_error(self):
+        """TypeError on DataFrame access is caught by check_id_validity."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(TypeError)
+        checker.check_id_validity(df, "Dimensions")  # should not raise
+
+    def test_check_id_validity_propagates_runtime_error(self):
+        """RuntimeError is NOT in check_id_validity tuple -> propagates."""
+        checker = self._make_checker()
+        df = self._mock_df_raising_on_empty(RuntimeError)
+        with pytest.raises(RuntimeError, match="boom"):
+            checker.check_id_validity(df, "Dimensions")
