@@ -415,3 +415,147 @@ class TestDataQualityExceptionNarrowing:
         df = self._mock_df_raising_on_empty(RuntimeError)
         with pytest.raises(RuntimeError, match="boom"):
             checker.check_id_validity(df, "Dimensions")
+
+
+# ---------------------------------------------------------------------------
+# core/logging.py helper narrowing
+# ---------------------------------------------------------------------------
+
+from cja_auto_sdr.core.logging import _safe_str, _safe_record_message, _safe_format_exception
+
+
+class TestLoggingHelperExceptionNarrowing:
+    """Verify narrowed except tuples in _safe_str, _safe_record_message, _safe_format_exception."""
+
+    # -- _safe_str --------------------------------------------------------
+
+    def test_safe_str_catches_type_error(self):
+        """TypeError from __str__ is caught -> '<unprintable>'."""
+
+        class BadStr:
+            def __str__(self):
+                raise TypeError("boom")
+
+        assert _safe_str(BadStr()) == "<unprintable>"
+
+    def test_safe_str_catches_attribute_error(self):
+        """AttributeError from __str__ is caught -> '<unprintable>'."""
+
+        class BadStr:
+            def __str__(self):
+                raise AttributeError("boom")
+
+        assert _safe_str(BadStr()) == "<unprintable>"
+
+    def test_safe_str_propagates_runtime_error(self):
+        """RuntimeError is NOT in the narrowed tuple -> propagates."""
+
+        class BadStr:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            _safe_str(BadStr())
+
+    # -- _safe_record_message ---------------------------------------------
+
+    def test_safe_record_message_catches_type_error(self):
+        """TypeError during getMessage() is caught gracefully."""
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="%d",
+            args=("not-a-number",),
+            exc_info=None,
+        )
+        result = _safe_record_message(record)
+        assert isinstance(result, str)
+
+    def test_safe_record_message_propagates_runtime_error(self):
+        """RuntimeError from getMessage() is NOT caught -> propagates."""
+        record = MagicMock(spec=logging.LogRecord)
+        record.getMessage.side_effect = RuntimeError("boom")
+        with pytest.raises(RuntimeError, match="boom"):
+            _safe_record_message(record)
+
+    # -- _safe_format_exception -------------------------------------------
+
+    def test_safe_format_exception_catches_type_error(self):
+        """Malformed exc_info tuple that triggers TypeError -> error string."""
+        result = _safe_format_exception((None, None, None))
+        assert isinstance(result, str)
+
+    def test_safe_format_exception_non_tuple_returns_unavailable(self):
+        """Non-tuple input -> '<exception-unavailable>'."""
+        assert _safe_format_exception("not-a-tuple") == "<exception-unavailable>"
+
+
+# ===========================================================================
+# Group D: LockInfo.from_dict — narrowed (KeyError, TypeError, ValueError, OverflowError)
+# ===========================================================================
+
+
+class TestLockBackendsExceptionNarrowing:
+    """Verify narrowed except clauses in LockInfo.from_dict."""
+
+    def test_from_dict_catches_key_error(self):
+        """Empty dict triggers KeyError in modern parse -> returns None."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        result = LockInfo.from_dict({})
+        assert result is None
+
+    def test_from_dict_catches_type_error(self):
+        """Dict with None pid triggers TypeError in int() coercion -> returns None."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        result = LockInfo.from_dict(
+            {
+                "lock_id": "abc",
+                "pid": None,
+                "host": "localhost",
+                "started_at": "2024-01-01T00:00:00+00:00",
+            }
+        )
+        assert result is None
+
+    def test_from_dict_valid_dict_succeeds(self):
+        """Valid dict round-trips through from_dict successfully."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        info = LockInfo(
+            lock_id="test-123",
+            pid=12345,
+            host="myhost",
+            owner="tester",
+            started_at="2024-01-01T00:00:00+00:00",
+            updated_at="2024-01-01T00:00:00+00:00",
+            backend="fcntl",
+            version=1,
+        )
+        restored = LockInfo.from_dict(info.to_dict())
+        assert restored is not None
+        assert restored.pid == 12345
+        assert restored.lock_id == "test-123"
+        assert restored.host == "myhost"
+
+    def test_from_dict_narrowing_preserves_happy_path(self):
+        """Narrowed handlers do not break the normal code path."""
+        from cja_auto_sdr.core.locks.backends import LockInfo
+
+        data = {
+            "lock_id": "round-trip",
+            "pid": 99,
+            "host": "h",
+            "owner": "o",
+            "started_at": "2024-06-01T12:00:00+00:00",
+            "updated_at": "2024-06-01T12:00:00+00:00",
+            "backend": "lease",
+            "version": 1,
+        }
+        result = LockInfo.from_dict(data)
+        assert result is not None
+        assert result.pid == 99
+        assert result.backend == "lease"

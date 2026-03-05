@@ -71,7 +71,7 @@ def _write_info_path(path: Path, info: LockInfo) -> None:
         payload = (json.dumps(info.to_dict(), sort_keys=True) + "\n").encode("utf-8")
         _write_all(fd, payload)
         os.fsync(fd)
-    except Exception:
+    except OSError, TypeError, ValueError:
         with contextlib.suppress(OSError):
             os.close(fd)
         with contextlib.suppress(OSError):
@@ -189,14 +189,14 @@ class LockInfo:
     def from_dict(cls, data: dict[str, Any]) -> LockInfo | None:
         try:
             modern = cls._from_modern_dict(data)
-        except Exception as e:
+        except (KeyError, TypeError, ValueError, OverflowError) as e:
             _logger.debug("Modern lock info parse failed: %s", e)
             modern = None
         if modern is not None:
             return modern
         try:
             return cls._from_legacy_dict(data)
-        except Exception as e:
+        except (KeyError, TypeError, ValueError, OverflowError) as e:
             _logger.debug("Legacy lock info parse failed: %s", e)
             return None
 
