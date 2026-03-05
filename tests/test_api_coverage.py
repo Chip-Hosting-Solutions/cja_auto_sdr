@@ -62,7 +62,7 @@ class TestValidationCacheGenerateCacheKeyException:
         logger = _make_logger()
         cache = ValidationCache(max_size=10, logger=logger)
         df = _sample_df()
-        with patch("cja_auto_sdr.api.cache.pd.util.hash_pandas_object", side_effect=RuntimeError("boom")):
+        with patch("cja_auto_sdr.api.cache.pd.util.hash_pandas_object", side_effect=TypeError("boom")):
             key = cache._generate_cache_key(df, "Metrics", ["id"], ["name"])
         assert key.startswith("error:")
 
