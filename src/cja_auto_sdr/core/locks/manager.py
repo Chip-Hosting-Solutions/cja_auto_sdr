@@ -217,7 +217,9 @@ class LockManager:
             return
         try:
             writer(handle, lock_info)
-        except Exception:
+        except (
+            Exception
+        ):  # Intentional: Best-effort tombstone write; backend method resolved via getattr with unknown failure modes
             # Best effort only; release path remains authoritative.
             return
 

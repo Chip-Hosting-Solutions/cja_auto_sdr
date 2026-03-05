@@ -160,7 +160,7 @@ def auto_detect_workers(num_data_views: int = 1, total_components: int = 0) -> i
     # Get CPU count, default to 4 if detection fails
     try:
         cpu_count = os.cpu_count() or 4
-    except Exception:
+    except Exception:  # Intentional: CPU detection can fail on exotic platforms; safe fallback to 4 cores
         cpu_count = 4
 
     # Base workers on CPU count (leave some headroom for system)

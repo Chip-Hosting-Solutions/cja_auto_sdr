@@ -424,7 +424,7 @@ class SegmentsInventoryBuilder:
 
             self.logger.info(f"Segments inventory built: {inventory.total_segments} segments")
 
-        except Exception:
+        except Exception:  # Intentional: Orchestrator boundary; logs full traceback and re-raises for caller handling
             self.logger.exception(f"Error fetching segments for data view {data_view_id}")
             raise
 
