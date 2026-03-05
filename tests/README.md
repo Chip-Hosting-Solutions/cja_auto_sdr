@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,353 comprehensive tests**
+**Total: 5,375 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -113,7 +113,7 @@ tests/
 | `test_calculated_metrics_inventory.py` | 285 | Calculated metrics inventory feature |
 | `test_git_integration.py` | 36 | Git integration, snapshot management, inventory snapshots |
 | `test_output_formats.py` | 37 | CSV, JSON, HTML, Markdown output generation |
-| `test_cja_initialization.py` | 46 | CJA connection and configuration validation |
+| `test_cja_initialization.py` | 48 | CJA connection and configuration validation |
 | `test_utils.py` | 50 | Utility functions and helpers |
 | `test_excel_formatting.py` | 25 | Excel sheet formatting and styling |
 | `test_parallel_api_fetcher.py` | 34 | Parallel API data fetching |
@@ -142,14 +142,14 @@ tests/
 | `test_main_entry_points.py` | 21 | main() and _main_impl() entry points, dispatch, run_state, run summary |
 | `test_quality_policy_and_run_summary.py` | 67 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| `test_api_client.py` | 25 | API client exception paths and error handling |
+| `test_api_client.py` | 27 | API client exception paths and error handling |
 | `test_config_validation.py` | 55 | Configuration validation logic |
 | `test_credentials.py` | 67 | Credential resolution and source selection |
 | `test_perf.py` | 7 | Performance utilities (cache eviction, statistics) |
-| `test_snapshot.py` | 72 | Diff snapshot creation and comparison |
-| `test_colors.py` | 121 | Console color formatting, themes, TTY detection |
+| `test_snapshot.py` | 74 | Diff snapshot creation and comparison |
+| `test_colors.py` | 122 | Console color formatting, themes, TTY detection |
 | `test_exceptions.py` | 64 | Custom exception classes construction and formatting |
-| `test_logging_redaction.py` | 149 | Logging, sensitive data redaction, JSON formatter |
+| `test_logging_redaction.py` | 158 | Logging, sensitive data redaction, JSON formatter |
 | `test_config_dataclasses.py` | 88 | Config dataclasses and constants functions |
 | `test_lock_manager.py` | 48 | Lock manager acquire/release/heartbeat lifecycle |
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
@@ -179,15 +179,15 @@ tests/
 | `test_org_writer_coverage.py` | 98 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
 | `test_backwards_compat.py` | 34 | Backwards compatibility tests |
-| `test_exception_contracts.py` | 13 | Exception boundary contract tests |
+| `test_exception_contracts.py` | 17 | Exception boundary contract tests |
 | `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
-| `test_exception_narrowing.py` | 49 | Exception narrowing boundary tests |
+| `test_exception_narrowing.py` | 50 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,353** | **Collected via pytest --collect-only** |
+| **Total** | **5,375** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,353 tests total)
+- [x] Comprehensive test coverage (5,375 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 175 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
