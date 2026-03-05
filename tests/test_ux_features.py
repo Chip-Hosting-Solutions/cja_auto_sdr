@@ -70,7 +70,7 @@ class TestOpenFlag:
         assert result is True
         mock_startfile.assert_called_once_with("C:\\path\\to\\file.xlsx")
 
-    @patch("subprocess.run", side_effect=Exception("Command failed"))
+    @patch("subprocess.run", side_effect=OSError("Command failed"))
     @patch("platform.system", return_value="Darwin")
     def test_open_file_failure(self, mock_platform, mock_subprocess):
         """Test graceful handling when file opening fails"""
@@ -78,7 +78,7 @@ class TestOpenFlag:
         assert result is False
 
     @patch("webbrowser.open")
-    @patch("subprocess.run", side_effect=Exception("Command failed"))
+    @patch("subprocess.run", side_effect=OSError("Command failed"))
     @patch("platform.system", return_value="Linux")
     def test_open_html_fallback_to_webbrowser(self, mock_platform, mock_subprocess, mock_webbrowser):
         """Test HTML files fall back to webbrowser on failure"""

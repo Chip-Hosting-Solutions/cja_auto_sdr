@@ -652,7 +652,7 @@ class TestValidateConfigOnlyDependenciesStep:
         from cja_auto_sdr.generator import validate_config_only
 
         def all_broken(pkg):
-            raise RuntimeError(f"metadata backend unavailable for {pkg}")
+            raise OSError(f"metadata backend unavailable for {pkg}")
 
         with patch("cja_auto_sdr.generator.importlib.metadata.version", side_effect=all_broken):
             result = validate_config_only()

@@ -363,6 +363,6 @@ def validate_config_file(config_file: str | Path, logger: logging.Logger) -> boo
         logger.error(f"Permission denied reading config file: {e}")
         logger.error("Check file permissions for the configuration file")
         return False
-    except OSError as e:
+    except (OSError, AttributeError, TypeError, ValueError) as e:
         logger.error(f"Unexpected error validating config file ({type(e).__name__}): {e!s}")
         return False

@@ -549,7 +549,7 @@ class TestOpenFile:
         result = open_file_in_default_app("/tmp/report.xlsx")
         assert result is False
 
-    @patch("webbrowser.open", side_effect=Exception("browser error"))
+    @patch("webbrowser.open", side_effect=OSError("browser error"))
     @patch("subprocess.run", side_effect=OSError("no such command"))
     @patch("platform.system", return_value="Darwin")
     def test_html_fallback_also_fails(self, _mock_platform, _mock_run, _mock_wb):
