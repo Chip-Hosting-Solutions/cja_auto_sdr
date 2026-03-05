@@ -433,7 +433,7 @@ class TestDataQualityExceptionNarrowing:
 
 
 class TestLoggingHelperExceptionNarrowing:
-    """Verify narrowed except tuples in _safe_str, _safe_record_message, _safe_format_exception."""
+    """Verify logging helper best-effort boundaries remain non-fatal."""
 
     # -- _safe_str --------------------------------------------------------
 
@@ -455,15 +455,14 @@ class TestLoggingHelperExceptionNarrowing:
 
         assert _safe_str(BadStr()) == "<unprintable>"
 
-    def test_safe_str_propagates_runtime_error(self):
-        """RuntimeError is NOT in the narrowed tuple -> propagates."""
+    def test_safe_str_catches_runtime_error(self):
+        """RuntimeError should not escape logging stringification helpers."""
 
         class BadStr:
             def __str__(self):
                 raise RuntimeError("boom")
 
-        with pytest.raises(RuntimeError, match="boom"):
-            _safe_str(BadStr())
+        assert _safe_str(BadStr()) == "<unprintable>"
 
     # -- _safe_record_message ---------------------------------------------
 
@@ -481,12 +480,13 @@ class TestLoggingHelperExceptionNarrowing:
         result = _safe_record_message(record)
         assert isinstance(result, str)
 
-    def test_safe_record_message_propagates_runtime_error(self):
-        """RuntimeError from getMessage() is NOT caught -> propagates."""
+    def test_safe_record_message_catches_runtime_error(self):
+        """RuntimeError from getMessage() should not escape logging helpers."""
         record = MagicMock(spec=logging.LogRecord)
         record.getMessage.side_effect = RuntimeError("boom")
-        with pytest.raises(RuntimeError, match="boom"):
-            _safe_record_message(record)
+        record.msg = "msg-template"
+        result = _safe_record_message(record)
+        assert result.endswith("[log-message-format-error]")
 
     # -- _safe_format_exception -------------------------------------------
 

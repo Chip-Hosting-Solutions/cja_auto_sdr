@@ -28,6 +28,7 @@ from cja_auto_sdr.core.logging import (
     _redact_captured_value,
     _redact_message,
     _redact_value,
+    _safe_record_message,
     _safe_str,
     _unwrap_logger,
     flush_logging_handlers,
@@ -95,6 +96,50 @@ class TestSafeStr:
                 raise TypeError("boom")
 
         assert _safe_str(Bad()) == "<unprintable>"
+
+    def test_unprintable_object_value_error(self):
+        class Bad:
+            def __str__(self):
+                raise ValueError("boom")
+
+        assert _safe_str(Bad()) == "<unprintable>"
+
+    def test_unprintable_object_runtime_error(self):
+        class Bad:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        assert _safe_str(Bad()) == "<unprintable>"
+
+
+# ---------------------------------------------------------------------------
+# _safe_record_message
+# ---------------------------------------------------------------------------
+class TestSafeRecordMessage:
+    def test_missing_mapping_placeholder_key_falls_back(self):
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="%(user)s logged in",
+            args=({"id": "u123"},),
+            exc_info=None,
+        )
+
+        message = _safe_record_message(record)
+
+        assert message.endswith("[log-message-format-error]")
+        assert "%(user)s logged in" in message
+
+    def test_runtime_error_from_get_message_falls_back(self):
+        record = MagicMock(spec=logging.LogRecord)
+        record.getMessage.side_effect = RuntimeError("boom")
+        record.msg = "token=%s"
+
+        message = _safe_record_message(record)
+
+        assert message.endswith("[log-message-format-error]")
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +446,27 @@ class TestSensitiveDataFilter:
         f.filter(record)
         assert "tok_abc" not in str(record.__dict__["request_headers"])
 
+    def test_mapping_placeholder_key_error_does_not_raise(self):
+        f = SensitiveDataFilter()
+        record = self._make_record(msg="%(user)s token=%(token)s", args=({"token": "abc123"},))
+
+        assert f.filter(record) is True
+        assert record.args == ()
+        assert "[log-message-format-error]" in record.msg
+
+    def test_value_error_during_message_stringify_does_not_raise(self):
+        class _BadStr:
+            def __str__(self):
+                raise ValueError("boom")
+
+        f = SensitiveDataFilter()
+        record = self._make_record(msg=_BadStr())
+
+        assert f.filter(record) is True
+        assert record.args == ()
+        assert "<unprintable>" in record.msg
+        assert "[log-message-format-error]" in record.msg
+
 
 # ---------------------------------------------------------------------------
 # JSONFormatter
@@ -501,6 +567,31 @@ class TestJSONFormatter:
         record.__dict__["custom_field"] = "custom_value"
         parsed = json.loads(fmt.format(record))
         assert parsed.get("custom_field") == "custom_value"
+
+    def test_message_runtime_error_is_non_fatal(self):
+        fmt = JSONFormatter()
+        record = self._make_record(msg="hello")
+        record.getMessage = MagicMock(side_effect=RuntimeError("boom"))
+
+        parsed = json.loads(fmt.format(record))
+        assert "[log-message-format-error]" in parsed["message"]
+
+    def test_non_string_extra_key_is_normalized(self):
+        fmt = JSONFormatter()
+        record = self._make_record(msg="hello")
+        record.extra_fields = {("tuple", "key"): "value"}
+
+        parsed = json.loads(fmt.format(record))
+        assert "('tuple', 'key')" in parsed
+        assert parsed["('tuple', 'key')"] == "value"
+
+    def test_formatter_fallback_entry_on_unexpected_error(self):
+        fmt = JSONFormatter()
+        record = self._make_record(msg="hello")
+        record.created = "bad-timestamp"
+
+        parsed = json.loads(fmt.format(record))
+        assert parsed["message"] == "[log-format-error]"
 
 
 # ---------------------------------------------------------------------------

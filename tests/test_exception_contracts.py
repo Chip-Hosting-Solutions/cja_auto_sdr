@@ -13,6 +13,7 @@ from cja_auto_sdr.core.error_policies import (
     RECOVERABLE_OPEN_FILE_EXCEPTIONS,
     RECOVERABLE_OPTIONAL_ENRICHMENT_EXCEPTIONS,
 )
+from cja_auto_sdr.core.logging import RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS
 from cja_auto_sdr.org.models import OrgReportConfig
 
 
@@ -50,6 +51,11 @@ def test_optional_enrichment_exception_policy_keeps_generic_fallback() -> None:
 def test_open_file_exception_policy_keeps_generic_fallback() -> None:
     """open_file_in_default_app must preserve its bool contract for unexpected failures."""
     assert Exception in RECOVERABLE_OPEN_FILE_EXCEPTIONS
+
+
+def test_logging_boundary_exception_policy_keeps_generic_fallback() -> None:
+    """Logging safety helpers must remain non-fatal for unexpected runtime errors."""
+    assert Exception in RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS
 
 
 @pytest.mark.parametrize("summary_mode", [True, False])

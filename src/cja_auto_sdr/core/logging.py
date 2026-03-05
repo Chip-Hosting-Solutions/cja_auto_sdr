@@ -14,6 +14,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from cja_auto_sdr.core.constants import LOG_FILE_BACKUP_COUNT, LOG_FILE_MAX_BYTES
+from cja_auto_sdr.core.error_policies import RECOVERABLE_BEST_EFFORT_EXCEPTIONS
 from cja_auto_sdr.core.version import __version__
 
 _LOG_RECORD_RESERVED_FIELDS = set(logging.makeLogRecord({}).__dict__.keys()) | {"message", "asctime", "extra_fields"}
@@ -52,6 +53,9 @@ _SENSITIVE_COMPACT_FIELD_NAMES = {
     "privatekey",
 }
 _REDACTED_VALUE = "[REDACTED]"
+_LOG_MESSAGE_FORMAT_ERROR = "[log-message-format-error]"
+_LOG_REDACTION_ERROR = "[log-redaction-error]"
+_LOG_FORMAT_ERROR = "[log-format-error]"
 _SENSITIVE_KEY_REGEX = (
     r"client[_-]?secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|api[_-]?key|apikey|"
     r"auth[_-]?header|private[_-]?key|password|passwd|pwd|secret|token"
@@ -97,6 +101,9 @@ _SENSITIVE_UNQUOTED_KEY_VALUE_PATTERN = re.compile(
     """,
 )
 
+# Intentional: logging sanitization is a best-effort boundary and must not abort CLI execution.
+RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERABLE_BEST_EFFORT_EXCEPTIONS
+
 
 def _normalize_field_name(name: str) -> str:
     separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name.strip())
@@ -107,16 +114,16 @@ def _normalize_field_name(name: str) -> str:
 def _safe_str(value: object) -> str:
     try:
         return str(value)
-    except AttributeError, TypeError:
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
         return "<unprintable>"
 
 
 def _safe_record_message(record: logging.LogRecord) -> str:
     try:
         return record.getMessage()
-    except AttributeError, TypeError, ValueError:
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
         # Keep logging resilient when message formatting fails (bad placeholders or broken __str__).
-        return f"{_safe_str(getattr(record, 'msg', ''))} [log-message-format-error]"
+        return f"{_safe_str(getattr(record, 'msg', ''))} {_LOG_MESSAGE_FORMAT_ERROR}"
 
 
 def _is_record_redacted(record: logging.LogRecord) -> bool:
@@ -131,7 +138,7 @@ def _safe_format_exception(exc_info: object) -> str:
     try:
         if isinstance(exc_info, tuple) and len(exc_info) == 3:
             return logging.Formatter().formatException(exc_info)
-    except AttributeError, TypeError, ValueError:
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
         return "<exception-format-error>"
     return "<exception-unavailable>"
 
@@ -246,6 +253,60 @@ def _redact_extra_fields(extra_fields: dict[str, object]) -> dict[str, object]:
     return redacted
 
 
+def _safe_redact_message(message: str) -> str:
+    try:
+        return _redact_message(message)
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+        return _LOG_REDACTION_ERROR
+
+
+def _safe_redact_value(value: object, fallback: object = _LOG_REDACTION_ERROR) -> object:
+    try:
+        return _redact_value(value)
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+        return fallback
+
+
+def _safe_redact_extra_fields(extra_fields: dict[str, object]) -> dict[str, object]:
+    try:
+        return _redact_extra_fields(extra_fields)
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+        return {
+            key: _REDACTED_VALUE if _is_sensitive_field(_safe_str(key)) else _LOG_REDACTION_ERROR
+            for key in extra_fields
+        }
+
+
+def _normalize_json_extra_fields(extra_fields: dict[object, object]) -> dict[str, object]:
+    normalized: dict[str, object] = {}
+    for key, value in extra_fields.items():
+        normalized[_safe_str(key)] = value
+    return normalized
+
+
+def _json_formatter_fallback_entry(record: logging.LogRecord) -> dict[str, object]:
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "level": _safe_str(getattr(record, "levelname", "ERROR")),
+        "logger": _safe_str(getattr(record, "name", __name__)),
+        "message": _LOG_FORMAT_ERROR,
+    }
+
+
+def _safe_json_dumps(payload: dict[str, object]) -> str:
+    try:
+        return json.dumps(payload, default=_safe_str)
+    except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+        return json.dumps(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "level": "ERROR",
+                "logger": __name__,
+                "message": _LOG_FORMAT_ERROR,
+            },
+        )
+
+
 class SensitiveDataFilter(logging.Filter):
     """Best-effort redaction for sensitive values in log records."""
 
@@ -253,28 +314,32 @@ class SensitiveDataFilter(logging.Filter):
         if _is_record_redacted(record):
             return True
 
-        record.msg = _redact_message(_safe_record_message(record))
-        record.args = ()
+        try:
+            record.msg = _safe_redact_message(_safe_record_message(record))
+            record.args = ()
 
-        if record.exc_info:
-            exception_text = _redact_message(_safe_format_exception(record.exc_info))
-            _mark_record_exception_redacted(record, exception_text)
+            if record.exc_info:
+                exception_text = _safe_redact_message(_safe_format_exception(record.exc_info))
+                _mark_record_exception_redacted(record, exception_text)
 
-        record_extra_fields = getattr(record, "extra_fields", None)
-        if isinstance(record_extra_fields, dict):
-            with contextlib.suppress(Exception):
-                record.extra_fields = _redact_extra_fields(record_extra_fields)
+            record_extra_fields = getattr(record, "extra_fields", None)
+            if isinstance(record_extra_fields, dict):
+                record.extra_fields = _safe_redact_extra_fields(record_extra_fields)
 
-        for key, value in list(record.__dict__.items()):
-            if _is_reserved_or_private_record_key(key):
-                continue
-            key_name = _safe_str(key)
-            if _is_sensitive_field(key_name):
-                record.__dict__[key] = _REDACTED_VALUE
-                continue
-            with contextlib.suppress(Exception):
-                record.__dict__[key] = _redact_value(value)
-        _mark_record_redacted(record)
+            for key, value in list(record.__dict__.items()):
+                if _is_reserved_or_private_record_key(key):
+                    continue
+                key_name = _safe_str(key)
+                if _is_sensitive_field(key_name):
+                    record.__dict__[key] = _REDACTED_VALUE
+                    continue
+                record.__dict__[key] = _safe_redact_value(value)
+            _mark_record_redacted(record)
+        except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+            with contextlib.suppress(*RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS):
+                record.msg = _LOG_REDACTION_ERROR
+                record.args = ()
+                _mark_record_redacted(record)
         return True
 
 
@@ -288,53 +353,57 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
-        already_redacted = _is_record_redacted(record)
-        message = _safe_record_message(record)
-        if not already_redacted:
-            message = _redact_message(message)
-        exception_text = _get_marked_exception_text(record)
+        try:
+            already_redacted = _is_record_redacted(record)
+            message = _safe_record_message(record)
+            if not already_redacted:
+                message = _safe_redact_message(message)
+            exception_text = _get_marked_exception_text(record)
 
-        log_entry = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": message,
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
-            "process": record.process,
-            "process_name": record.processName,
-            "thread": record.thread,
-            "thread_name": record.threadName,
-        }
+            log_entry = {
+                "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": message,
+                "module": record.module,
+                "function": record.funcName,
+                "line": record.lineno,
+                "process": record.process,
+                "process_name": record.processName,
+                "thread": record.thread,
+                "thread_name": record.threadName,
+            }
 
-        # Add exception info if present
-        if record.exc_info:
-            if exception_text is None:
-                exception_text = _redact_message(_safe_format_exception(record.exc_info))
+            # Add exception info if present
+            if record.exc_info:
+                if exception_text is None:
+                    exception_text = _safe_redact_message(_safe_format_exception(record.exc_info))
+                    if already_redacted:
+                        _mark_record_exception_redacted(record, exception_text)
+                log_entry["exception"] = exception_text
+
+            # Add any explicit extra fields passed to the logger.
+            extra_fields: dict[object, object] = {}
+            record_extra_fields = getattr(record, "extra_fields", None)
+            if isinstance(record_extra_fields, dict):
+                extra_fields.update(record_extra_fields)
+
+            # Also include custom LogRecord attributes set via logging's `extra`.
+            for key, value in record.__dict__.items():
+                if _is_reserved_or_private_record_key(key):
+                    continue
+                extra_fields.setdefault(key, value)
+
+            if extra_fields:
+                normalized_extra_fields = _normalize_json_extra_fields(extra_fields)
                 if already_redacted:
-                    _mark_record_exception_redacted(record, exception_text)
-            log_entry["exception"] = exception_text
+                    log_entry.update(normalized_extra_fields)
+                else:
+                    log_entry.update(_safe_redact_extra_fields(normalized_extra_fields))
 
-        # Add any explicit extra fields passed to the logger.
-        extra_fields = {}
-        record_extra_fields = getattr(record, "extra_fields", None)
-        if isinstance(record_extra_fields, dict):
-            extra_fields.update(record_extra_fields)
-
-        # Also include custom LogRecord attributes set via logging's `extra`.
-        for key, value in record.__dict__.items():
-            if _is_reserved_or_private_record_key(key):
-                continue
-            extra_fields.setdefault(key, value)
-
-        if extra_fields:
-            if already_redacted:
-                log_entry.update(extra_fields)
-            else:
-                log_entry.update(_redact_extra_fields(extra_fields))
-
-        return json.dumps(log_entry, default=str)
+            return _safe_json_dumps(log_entry)
+        except RECOVERABLE_LOGGING_BOUNDARY_EXCEPTIONS:
+            return _safe_json_dumps(_json_formatter_fallback_entry(record))
 
 
 # Module-level tracking to prevent duplicate logger initialization
