@@ -8620,7 +8620,9 @@ def _fetch_dataview_lookup_payload(cja: Any, data_view_id: str) -> Any:
     """Call getDataView and normalize inaccessible lookup failures to not_found."""
     try:
         return cja.getDataView(data_view_id)
-    except Exception as lookup_error:  # Intentional: wrapped client/transport lookup failures vary; re-raise non-404/403 cases
+    except (
+        Exception
+    ) as lookup_error:  # Intentional: wrapped client/transport lookup failures vary; re-raise non-404/403 cases
         # Classification is centralized in core.discovery_exceptions and supports
         # nested/wrapped transport errors across diverse exception types.
         if _is_inaccessible_dataview_lookup_error(lookup_error):
