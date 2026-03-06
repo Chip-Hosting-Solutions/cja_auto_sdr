@@ -916,9 +916,7 @@ def _run_data_quality_validation(
         if skip_validation:
             status_detail = "Skipped (--skip-validation)"
         else:
-            status_detail = (
-                "Skipped (data quality validation is not part of the requested output contract)"
-            )
+            status_detail = "Skipped (data quality validation is not part of the requested output contract)"
         logger.info("=" * BANNER_WIDTH)
         if skip_validation:
             logger.info("Skipping data quality validation (--skip-validation)")
@@ -6422,7 +6420,20 @@ def process_single_dataview(
                 set(empty_required_component_endpoints) == STANDARD_COMPONENT_ENDPOINTS
                 and required_component_endpoints == STANDARD_COMPONENT_ENDPOINTS
             )
-            if allow_partial_for_sdr:
+            standard_sdr_allows_sparse_components = (
+                required_component_endpoints == STANDARD_COMPONENT_ENDPOINTS
+                and not quality_report_only
+                and not include_derived_inventory
+                and not inventory_only
+                and not metrics_only
+                and not dimensions_only
+            )
+            if standard_sdr_allows_sparse_components and not missing_all_standard_components:
+                logger.warning(
+                    "Standard SDR component payload was empty for one section; continuing with available data: %s",
+                    empty_required_components,
+                )
+            elif allow_partial_for_sdr:
                 logger.warning(
                     "Required component payloads were empty, but continuing due to --allow-partial (exploratory mode): %s",
                     empty_required_components,
