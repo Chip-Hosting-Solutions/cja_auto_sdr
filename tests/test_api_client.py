@@ -141,8 +141,8 @@ class TestConfigFromEnvCleanup:
 
     @patch("cja_auto_sdr.api.client.cjapy")
     def test_configures_cjapy_directly(self, mock_cjapy, mock_logger):
-        """Direct configuration should call cjapy.configure without temp files."""
-        credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
+        """Direct configuration should normalize spaced scopes before cjapy.configure."""
+        credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y", "scopes": "openid, AdobeID"}
         expected_secret = credentials["secret"]
         _config_from_env(credentials, mock_logger)
 
@@ -150,7 +150,7 @@ class TestConfigFromEnvCleanup:
             org_id="test@AdobeOrg",
             client_id="x",
             secret=expected_secret,
-            scopes=None,
+            scopes="openid,AdobeID",
         )
 
     @patch("cja_auto_sdr.api.client.cjapy")
@@ -160,6 +160,27 @@ class TestConfigFromEnvCleanup:
         mock_gettempdir.return_value = str(tmp_path)
         credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
         stale_file = tmp_path / "cja_env_config_stale.json"
+        stale_file.write_text("{}", encoding="utf-8")
+        os.utime(stale_file, (time.time() - 7200, time.time() - 7200))
+
+        _config_from_env(credentials, mock_logger)
+
+        assert not stale_file.exists()
+        assert any("Removed 1 stale temp credential file" in str(call) for call in mock_logger.debug.call_args_list)
+
+    @patch("cja_auto_sdr.api.client.cjapy")
+    @patch("cja_auto_sdr.api.client.tempfile.gettempdir")
+    def test_legacy_profile_temp_configs_removed_during_config(
+        self,
+        mock_gettempdir,
+        mock_cjapy,
+        mock_logger,
+        tmp_path,
+    ):
+        """Profile-test temp files left behind by older releases should also be cleaned up."""
+        mock_gettempdir.return_value = str(tmp_path)
+        credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y"}
+        stale_file = tmp_path / "cja_profile_test_stale.json"
         stale_file.write_text("{}", encoding="utf-8")
         os.utime(stale_file, (time.time() - 7200, time.time() - 7200))
 

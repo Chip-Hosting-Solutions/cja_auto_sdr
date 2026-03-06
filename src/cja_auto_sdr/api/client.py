@@ -21,7 +21,7 @@ from cja_auto_sdr.core.exceptions import (
     ProfileNotFoundError,
 )
 
-_LEGACY_TEMP_CONFIG_PREFIX = "cja_env_config_"
+_LEGACY_TEMP_CONFIG_PREFIXES = ("cja_env_config_", "cja_profile_test_")
 _LEGACY_TEMP_CONFIG_SUFFIX = ".json"
 _LEGACY_TEMP_CONFIG_MAX_AGE_SECONDS = 3600.0
 
@@ -53,7 +53,9 @@ def _cleanup_stale_temp_configs(logger: logging.Logger) -> None:
     now = time.time()
 
     try:
-        candidates = temp_dir.glob(f"{_LEGACY_TEMP_CONFIG_PREFIX}*{_LEGACY_TEMP_CONFIG_SUFFIX}")
+        candidates = set()
+        for prefix in _LEGACY_TEMP_CONFIG_PREFIXES:
+            candidates.update(temp_dir.glob(f"{prefix}*{_LEGACY_TEMP_CONFIG_SUFFIX}"))
     except OSError as e:
         logger.debug(f"Failed to scan temp directory for stale config files: {e}")
         return
@@ -76,6 +78,13 @@ def _cleanup_stale_temp_configs(logger: logging.Logger) -> None:
         logger.debug(f"Removed {removed} stale temp credential file(s) from previous runs")
 
 
+def _normalize_scopes_for_configure(scopes: str | None) -> str | None:
+    """Match the historic importConfigFile scope normalization for direct configuration."""
+    if not isinstance(scopes, str):
+        return scopes
+    return scopes.replace(" ", "")
+
+
 def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
     """
     Configure cjapy directly from in-memory OAuth credentials.
@@ -94,7 +103,7 @@ def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
         org_id=credentials.get("org_id"),
         client_id=credentials.get("client_id"),
         secret=credentials.get("secret"),
-        scopes=credentials.get("scopes"),
+        scopes=_normalize_scopes_for_configure(credentials.get("scopes")),
     )
     logger.debug("Configured cjapy directly from in-memory credentials")
 
