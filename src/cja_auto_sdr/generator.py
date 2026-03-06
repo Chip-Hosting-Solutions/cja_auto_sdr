@@ -1454,6 +1454,31 @@ def _dispatch_prevalidation_mode(
     _handle_completion_prevalidation(completion_shell, run_state=run_state)
 
 
+def _sync_run_summary_cli_metadata(
+    run_state: dict[str, Any] | None,
+    args: argparse.Namespace,
+    *,
+    inferred_mode: RunMode | None = None,
+) -> None:
+    """Synchronize run-summary metadata derived directly from parsed CLI args.
+
+    Keep this centralized so early exits (validation/policy) still emit
+    consistent telemetry values such as allow_partial.
+    """
+    if run_state is None:
+        return
+
+    if inferred_mode is not None:
+        run_state["mode"] = inferred_mode.value
+    run_state["profile"] = getattr(args, "profile", None)
+    run_state["config_file"] = getattr(args, "config_file", None)
+    run_state["output_format"] = getattr(args, "format", None)
+    run_state["output_dir"] = getattr(args, "output_dir", ".")
+    run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
+    run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+    run_state["allow_partial"] = bool(getattr(args, "allow_partial", False))
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Compatibility wrapper that returns the run mode as a string value."""
     return _infer_run_mode_enum(args).value
@@ -14818,14 +14843,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
     inferred_mode = _infer_run_mode_enum(args)
-    if run_state is not None:
-        run_state["mode"] = inferred_mode.value
-        run_state["profile"] = getattr(args, "profile", None)
-        run_state["config_file"] = getattr(args, "config_file", None)
-        run_state["output_format"] = getattr(args, "format", None)
-        run_state["output_dir"] = getattr(args, "output_dir", ".")
-        run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
-        run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+    _sync_run_summary_cli_metadata(run_state, args, inferred_mode=inferred_mode)
 
     # Dispatch early command modes before unrelated validation. Use inferred
     # mode so dispatch precedence cannot diverge from run-mode classification.
@@ -14941,9 +14959,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             args.format = inferred_format
             if not args.quiet:
                 print(f"Auto-detected format '{inferred_format}' from output file extension")
-    if run_state is not None:
-        run_state["output_format"] = getattr(args, "format", None)
-        run_state["allow_partial"] = bool(getattr(args, "allow_partial", False))
+    _sync_run_summary_cli_metadata(run_state, args)
 
     # Set color theme for diff output (accessible accessibility)
     color_theme = getattr(args, "color_theme", "default")
@@ -16836,7 +16852,7 @@ def main():
         "config_file": None,
         "output_format": None,
         "quality_policy": None,
-        "allow_partial": False,
+        "allow_partial": _cli_option_specified("--allow-partial"),
     }
     exit_code = 0
 

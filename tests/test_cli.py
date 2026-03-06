@@ -4310,6 +4310,58 @@ class TestRunSummaryOutput:
         assert payload["mode"] == "profile_management"
         assert payload["status"] == "error"
 
+    def test_run_summary_non_sdr_allow_partial_validation_preserves_flag(self, tmp_path):
+        """Early non-SDR validation errors should preserve allow_partial telemetry."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_non_sdr_allow_partial_error.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "--list-dataviews",
+                "--allow-partial",
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "discovery"
+        assert payload["status"] == "error"
+        assert payload["allow_partial"] is True
+
+    def test_run_summary_argparse_error_preserves_allow_partial_flag(self, tmp_path):
+        """Argparse failures should still preserve allow_partial telemetry from argv."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_argparse_allow_partial_error.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "--allow-partial",
+                "--definitely-invalid-flag",
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 2
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "unknown"
+        assert payload["status"] == "error"
+        assert payload["allow_partial"] is True
+
     def test_run_summary_missing_value_does_not_write_flag_named_file(self, tmp_path, monkeypatch):
         """Malformed --run-summary-json should not treat the next flag as an output path."""
         from cja_auto_sdr.generator import main
