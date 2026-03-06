@@ -12,6 +12,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from cja_auto_sdr.api.fetch import EndpointFetchStatus
 from cja_auto_sdr.generator import (
     ProcessingConfig,
     ProcessingResult,
@@ -389,9 +390,14 @@ class TestProcessSingleDataviewFailures:
         lookup_data = dict(sample_dataview_info, id="dv_partial")
         mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
         mock_fetcher.get_fetch_statuses.return_value = {
-            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics api down"},
-            "dimensions": {"status": "success"},
-            "dataview": {"status": "success"},
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics api down",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
         }
         mock_fetcher_class.return_value = mock_fetcher
 
@@ -427,9 +433,14 @@ class TestProcessSingleDataviewFailures:
         lookup_data = dict(sample_dataview_info, id="dv_partial")
         mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, pd.DataFrame(), lookup_data)
         mock_fetcher.get_fetch_statuses.return_value = {
-            "metrics": {"status": "success"},
-            "dimensions": {"status": "failed", "reason": "exception", "error_message": "dimensions api down"},
-            "dataview": {"status": "success"},
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions api down",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
         }
         mock_fetcher_class.return_value = mock_fetcher
 
@@ -472,9 +483,19 @@ class TestProcessSingleDataviewFailures:
         lookup_data = dict(sample_dataview_info, id="dv_inventory")
         mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), lookup_data)
         mock_fetcher.get_fetch_statuses.return_value = {
-            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics timeout"},
-            "dimensions": {"status": "failed", "reason": "exception", "error_message": "dimensions timeout"},
-            "dataview": {"status": "success"},
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions timeout",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
         }
         mock_fetcher_class.return_value = mock_fetcher
 
@@ -543,9 +564,19 @@ class TestProcessSingleDataviewFailures:
         lookup_data = dict(sample_dataview_info, id="dv_inventory")
         mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), lookup_data)
         mock_fetcher.get_fetch_statuses.return_value = {
-            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics timeout"},
-            "dimensions": {"status": "failed", "reason": "exception", "error_message": "dimensions timeout"},
-            "dataview": {"status": "success"},
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions timeout",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
         }
         mock_fetcher_class.return_value = mock_fetcher
 
@@ -612,9 +643,14 @@ class TestProcessSingleDataviewFailures:
         lookup_data = dict(sample_dataview_info, id="dv_inventory")
         mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
         mock_fetcher.get_fetch_statuses.return_value = {
-            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics timeout"},
-            "dimensions": {"status": "success"},
-            "dataview": {"status": "success"},
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
         }
         mock_fetcher_class.return_value = mock_fetcher
 

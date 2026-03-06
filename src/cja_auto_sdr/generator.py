@@ -785,9 +785,11 @@ RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERA
 # Optional git snapshot re-fetch runs after successful SDR generation and must
 # not terminate the command. Keep broad to preserve graceful degradation.
 RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
-# Data quality validation failures should stop SDR generation so downstream
-# automation never treats incomplete validation as a successful audit run.
-RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Data quality validation runs at a fail-closed boundary for SDR generation.
+# Catch broad Exception here to return a controlled failed ProcessingResult.
+VALIDATION_CATCH_BOUNDARY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Backwards-compatible alias for external imports that referenced the old name.
+RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = VALIDATION_CATCH_BOUNDARY_EXCEPTIONS
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
 RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
@@ -924,7 +926,7 @@ def _run_data_quality_validation(
             dq_issues=dq_issues,
             severity_counts=severity_counts,
         )
-    except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
+    except VALIDATION_CATCH_BOUNDARY_EXCEPTIONS as e:
         _log_validation_failure(logger, error=e)
         return DataQualityValidationResult(
             data_quality_df=_empty_data_quality_dataframe(),
@@ -2584,7 +2586,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
 
 # ==================== OPTIMIZED API DATA FETCHING (moved to api/fetch.py) ====================
-from cja_auto_sdr.api.fetch import ParallelAPIFetcher
+from cja_auto_sdr.api.fetch import EndpointFetchStatus, ParallelAPIFetcher
 
 # ==================== DATA QUALITY VALIDATION (moved to api/quality.py) ====================
 from cja_auto_sdr.api.quality import DataQualityChecker
@@ -5753,7 +5755,7 @@ def process_inventory_summary(
             recoverable_exceptions=RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS,
         )
 
-        # Fetch calculated metrics inventory
+    # Fetch calculated metrics inventory
     if include_calculated:
 
         def _build_calculated_inventory_summary() -> Any:
@@ -6028,7 +6030,7 @@ def process_single_dataview(
                 f"avg response: {tuner_stats['average_response_ms']:.0f}ms",
             )
 
-        fetch_statuses: dict[str, Any] = {}
+        fetch_statuses: dict[str, EndpointFetchStatus] = {}
         get_fetch_statuses = getattr(fetcher, "get_fetch_statuses", None)
         if callable(get_fetch_statuses):
             raw_fetch_statuses = get_fetch_statuses()
@@ -6040,14 +6042,9 @@ def process_single_dataview(
         nonblocking_component_failures: list[str] = []
         for endpoint in ("metrics", "dimensions"):
             status = fetch_statuses.get(endpoint)
-            if isinstance(status, dict):
-                endpoint_status = status.get("status")
-                endpoint_reason = str(status.get("reason", ""))
-                endpoint_error = str(status.get("error_message", ""))
-            else:
-                endpoint_status = getattr(status, "status", None)
-                endpoint_reason = str(getattr(status, "reason", ""))
-                endpoint_error = str(getattr(status, "error_message", ""))
+            endpoint_status = getattr(status, "status", None)
+            endpoint_reason = str(getattr(status, "reason", ""))
+            endpoint_error = str(getattr(status, "error_message", ""))
 
             if endpoint_status == "failed":
                 detail = endpoint_error or endpoint_reason or "unknown API failure"
