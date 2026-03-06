@@ -122,11 +122,23 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--name-match MODE` | Data view name matching mode: `exact` (default), `insensitive` (case-insensitive), or `fuzzy` (nearest match) | exact |
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--quality-report FORMAT` | Generate standalone quality issues report only (`json` or `csv`) without SDR files. SDR mode only; cannot be combined with `--skip-validation` | - |
+| `--allow-partial` | Opt-in exploratory SDR mode that allows partial output when required component fetches or validation runtime fail. Disabled by default; not supported with `--quality-report` or `--fail-on-quality` | False |
 | `--quality-policy PATH` | Load quality defaults from JSON file (`fail_on_quality`, `quality_report`, `max_issues`). Explicit CLI flags override policy values | - |
 
 > **Quality Gate & Report Constraints:** `--fail-on-quality` and `--quality-report` are only supported in SDR generation mode and cannot be combined with `--skip-validation`.
 >
 > **Quality Report CSV Stability:** `--quality-report csv` always emits a header row, even when no issues are found.
+
+### Fail-Closed Matrix
+
+| Scenario | SDR (default) | SDR + `--allow-partial` | `--quality-report` | `--inventory-only` (no derived) | `--inventory-only --include-derived` |
+|--------|----------------|--------------------------|--------------------|----------------------------------|--------------------------------------|
+| Required component fetch failure (`metrics`/`dimensions`) | Block | Continue (exploratory) | Block | Non-blocking if section not emitted | Continue (exploratory) / block by default |
+| Required components both empty | Block | Continue (exploratory) | Block | Non-blocking if section not emitted | Continue (exploratory) / block by default |
+| Data-quality validation runtime failure | Block | Continue (exploratory) | Block | Validation skipped when not emitted | Validation skipped when not emitted |
+| Invalid data view lookup payload | Block | Block | Block | Block | Block |
+
+> **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, and top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts for alerting.
 
 **Format Availability by Mode:**
 

@@ -454,6 +454,63 @@ class TestProcessSingleDataviewFailures:
         assert "component fetch failed" in result.error_message.lower()
         assert "dimensions api down" in result.error_message.lower()
 
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_allow_partial_continues_on_required_component_fetch_failure(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """--allow-partial should permit exploratory SDR output after required component fetch failures."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+        mock_write_json.return_value = f"{temp_output_dir}/partial.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            allow_partial=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        mock_write_json.assert_called_once()
+
     @patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder")
     @patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder")
     @patch("cja_auto_sdr.generator.write_csv_output")
@@ -1458,6 +1515,57 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
+    def test_allow_partial_continues_when_validation_runtime_errors(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """--allow-partial should continue SDR generation when validation runtime fails."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_write_json.return_value = f"{temp_output_dir}/partial_validation.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            allow_partial=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        assert result.dq_issues_count == 0
+        assert result.dq_severity_counts == {}
+        mock_write_json.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
     def test_sdr_generation_fails_when_issue_dataframe_payload_is_not_dataframe(
         self,
         mock_write_json,
@@ -1589,6 +1697,50 @@ class TestProcessSingleDataviewMaxIssues:
         assert result.success is False
         assert "Data quality validation failed" in result.error_message
         assert "threadpool failure" in result.error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_allow_partial_does_not_override_quality_report_fail_closed_validation(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality-report mode must remain fail-closed even if --allow-partial is enabled."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+            allow_partial=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")

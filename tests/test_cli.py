@@ -327,6 +327,13 @@ class TestUXImprovements:
             args = parse_arguments()
             assert args.quality_report == "json"
 
+    def test_allow_partial_flag(self):
+        """Test parsing with --allow-partial flag."""
+        test_args = ["cja_sdr_generator.py", "--allow-partial", "dv_12345"]
+        with patch.object(sys, "argv", test_args):
+            args = parse_arguments()
+            assert args.allow_partial is True
+
     def test_run_summary_json_flag(self):
         """Test parsing with --run-summary-json flag."""
         test_args = ["cja_sdr_generator.py", "--run-summary-json", "run_summary.json", "dv_12345"]
@@ -1119,11 +1126,31 @@ class TestQualityGateAndReport:
 
         assert exc_info.value.code == 1
 
+    def test_allow_partial_rejects_quality_report_mode(self):
+        """Exploratory partial mode should not be combined with standalone quality-report mode."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--quality-report", "json", "--allow-partial"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
     def test_fail_on_quality_rejects_skip_validation(self):
         """Quality gate should reject --skip-validation to avoid silent policy bypass."""
         from cja_auto_sdr.generator import main
 
         with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--fail-on-quality", "HIGH", "--skip-validation"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+
+    def test_allow_partial_rejects_fail_on_quality(self):
+        """Exploratory partial mode should not be combined with strict fail-on-quality policy gates."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--fail-on-quality", "HIGH", "--allow-partial"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -1147,6 +1174,18 @@ class TestQualityGateAndReport:
         from cja_auto_sdr.generator import main
 
         with patch.object(sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--fail-on-quality", "HIGH"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        mock_handle_diff.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.handle_diff_command")
+    def test_allow_partial_rejects_non_sdr_diff_mode(self, mock_handle_diff):
+        """--allow-partial should fail fast in non-SDR modes."""
+        from cja_auto_sdr.generator import main
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "--diff", "dv_a", "dv_b", "--allow-partial"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -3530,10 +3569,12 @@ class TestRunSummaryOutput:
             "profile",
             "config_file",
             "output_format",
+            "allow_partial",
             "command",
             "inputs",
             "results",
             "result_counts",
+            "failure_rollups",
             "quality_gate_failed",
             "quality_policy",
             "details",
@@ -3550,6 +3591,7 @@ class TestRunSummaryOutput:
         assert payload["profile"] is None or isinstance(payload["profile"], str)
         assert payload["config_file"] is None or isinstance(payload["config_file"], str)
         assert payload["output_format"] is None or isinstance(payload["output_format"], str)
+        assert isinstance(payload["allow_partial"], bool)
 
         command = payload["command"]
         assert isinstance(command, dict)
@@ -3582,6 +3624,8 @@ class TestRunSummaryOutput:
             "dq_severity_counts",
             "output_file",
             "error_message",
+            "failure_code",
+            "failure_reason",
             "file_size_bytes",
             "segments_count",
             "segments_high_complexity",
@@ -3598,6 +3642,13 @@ class TestRunSummaryOutput:
             assert isinstance(result["success"], bool)
             assert isinstance(result["duration_seconds"], (int, float))
             assert isinstance(result["dq_severity_counts"], dict)
+            assert isinstance(result["failure_code"], str)
+            assert isinstance(result["failure_reason"], str)
+
+        failure_rollups = payload["failure_rollups"]
+        assert isinstance(failure_rollups, dict)
+        assert isinstance(failure_rollups.get("by_code"), dict)
+        assert isinstance(failure_rollups.get("by_reason"), dict)
 
         assert isinstance(payload["quality_gate_failed"], bool)
 
@@ -3675,6 +3726,38 @@ class TestRunSummaryOutput:
         assert payload["exit_code"] == 2
         assert payload["status"] == "policy_exit"
         assert payload["quality_gate_failed"] is True
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_includes_stable_failure_identity(self, mock_resolve, mock_process, tmp_path):
+        """Failed SDR results should expose stable failure code/reason and rollups."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=False,
+            duration=0.2,
+            error_message="Component fetch failed: metrics: timeout",
+            failure_code="COMPONENT_FETCH_FAILED",
+            failure_reason="required_endpoints_failed:metrics",
+        )
+
+        summary_file = tmp_path / "run_summary_failure_identity.json"
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--run-summary-json", str(summary_file)]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["status"] == "error"
+        assert payload["result_counts"]["failed"] == 1
+        assert payload["results"][0]["failure_code"] == "COMPONENT_FETCH_FAILED"
+        assert payload["results"][0]["failure_reason"] == "required_endpoints_failed:metrics"
+        assert payload["failure_rollups"]["by_code"] == {"COMPONENT_FETCH_FAILED": 1}
+        assert payload["failure_rollups"]["by_reason"] == {"required_endpoints_failed:metrics": 1}
 
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_written_for_discovery_mode(self, mock_list_dataviews, tmp_path):
