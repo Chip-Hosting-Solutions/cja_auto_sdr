@@ -16,20 +16,21 @@ from cja_auto_sdr.generator import _build_processing_execution_policy
         "skip_validation",
         "expected_required_components",
         "expected_inventory_omits_standard",
+        "expected_embedded_metadata",
         "expected_validation_required",
         "expected_run_validation",
     ),
     [
-        ("excel", False, False, False, False, False, False, {"metrics", "dimensions"}, False, True, True),
-        ("excel", False, False, True, False, False, False, {"metrics"}, False, True, True),
-        ("excel", False, False, False, True, False, False, {"dimensions"}, False, True, True),
-        ("json", True, False, False, False, False, False, set(), True, False, False),
-        ("html", True, False, False, False, False, False, set(), True, False, False),
-        ("markdown", True, False, False, False, False, False, set(), True, False, False),
-        ("all", True, False, False, False, False, False, set(), True, False, False),
-        ("json", True, True, False, False, False, False, {"metrics", "dimensions"}, True, False, False),
-        ("json", False, False, False, False, True, False, {"metrics", "dimensions"}, False, True, True),
-        ("json", False, False, False, False, True, True, {"metrics", "dimensions"}, False, True, False),
+        ("excel", False, False, False, False, False, False, {"metrics", "dimensions"}, False, False, True, True),
+        ("excel", False, False, True, False, False, False, {"metrics"}, False, False, True, True),
+        ("excel", False, False, False, True, False, False, {"dimensions"}, False, False, True, True),
+        ("json", True, False, False, False, False, False, set(), True, True, False, False),
+        ("html", True, False, False, False, False, False, set(), True, True, False, False),
+        ("markdown", True, False, False, False, False, False, set(), True, True, False, False),
+        ("all", True, False, False, False, False, False, set(), True, True, False, False),
+        ("json", True, True, False, False, False, False, {"metrics", "dimensions"}, True, True, False, False),
+        ("json", False, False, False, False, True, False, {"metrics", "dimensions"}, False, True, True, True),
+        ("json", False, False, False, False, True, True, {"metrics", "dimensions"}, False, True, True, False),
     ],
 )
 def test_build_processing_execution_policy_matrix(
@@ -42,6 +43,7 @@ def test_build_processing_execution_policy_matrix(
     skip_validation,
     expected_required_components,
     expected_inventory_omits_standard,
+    expected_embedded_metadata,
     expected_validation_required,
     expected_run_validation,
 ):
@@ -57,5 +59,6 @@ def test_build_processing_execution_policy_matrix(
 
     assert policy.required_component_endpoints == frozenset(expected_required_components)
     assert policy.inventory_only_omits_standard_sections is expected_inventory_omits_standard
+    assert policy.emits_embedded_metadata is expected_embedded_metadata
     assert policy.validation_required_for_output is expected_validation_required
     assert policy.run_data_quality_validation is expected_run_validation

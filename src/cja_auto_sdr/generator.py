@@ -467,6 +467,7 @@ class ProcessingExecutionPolicy:
 
     requested_formats: frozenset[str]
     inventory_only_omits_standard_sections: bool
+    emits_embedded_metadata: bool
     required_component_endpoints: frozenset[str]
     validation_required_for_output: bool
     run_data_quality_validation: bool
@@ -479,6 +480,8 @@ class DataQualityValidationResult:
     data_quality_df: pd.DataFrame
     dq_issues: list[ValidationIssue] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
+    status: str = "completed"
+    status_detail: str = ""
     failed: bool = False
     error_message: str = ""
 
@@ -910,6 +913,12 @@ def _run_data_quality_validation(
 ) -> DataQualityValidationResult:
     """Execute validation and issue extraction with fail-closed semantics."""
     if not execution_policy.run_data_quality_validation:
+        if skip_validation:
+            status_detail = "Skipped (--skip-validation)"
+        else:
+            status_detail = (
+                "Skipped (data quality validation is not part of the requested output contract)"
+            )
         logger.info("=" * BANNER_WIDTH)
         if skip_validation:
             logger.info("Skipping data quality validation (--skip-validation)")
@@ -919,7 +928,11 @@ def _run_data_quality_validation(
                 ", ".join(sorted(execution_policy.requested_formats)),
             )
         logger.info("=" * BANNER_WIDTH)
-        return DataQualityValidationResult(data_quality_df=_empty_data_quality_dataframe())
+        return DataQualityValidationResult(
+            data_quality_df=_empty_data_quality_dataframe(),
+            status="skipped",
+            status_detail=status_detail,
+        )
 
     logger.info("=" * BANNER_WIDTH)
     logger.info("Starting data quality validation (optimized)")
@@ -972,11 +985,15 @@ def _run_data_quality_validation(
             data_quality_df=data_quality_df,
             dq_issues=dq_issues,
             severity_counts=severity_counts,
+            status="completed",
+            status_detail="Completed",
         )
     except VALIDATION_CATCH_BOUNDARY_EXCEPTIONS as e:
         _log_validation_failure(logger, error=e)
         return DataQualityValidationResult(
             data_quality_df=_empty_data_quality_dataframe(),
+            status="failed",
+            status_detail=f"Failed ({e})",
             failed=True,
             error_message=str(e),
         )
@@ -994,6 +1011,7 @@ def _resolve_requested_output_formats(output_format: str) -> frozenset[str]:
 
 
 STANDARD_COMPONENT_ENDPOINTS: frozenset[str] = frozenset({"metrics", "dimensions"})
+EMBEDDED_METADATA_FORMATS: frozenset[str] = frozenset({"json", "html", "markdown"})
 
 
 def _should_emit_standard_sdr_sections(*, inventory_only: bool) -> bool:
@@ -1051,6 +1069,7 @@ def _build_processing_execution_policy(
     requested_formats = _resolve_requested_output_formats(output_format)
     emits_standard_sdr_sections = _should_emit_standard_sdr_sections(inventory_only=inventory_only)
     inventory_only_omits_standard_sections = not emits_standard_sdr_sections
+    emits_embedded_metadata = bool(requested_formats & EMBEDDED_METADATA_FORMATS)
 
     required_component_endpoints = _resolve_required_component_endpoints(
         inventory_only=inventory_only,
@@ -1066,10 +1085,73 @@ def _build_processing_execution_policy(
     return ProcessingExecutionPolicy(
         requested_formats=requested_formats,
         inventory_only_omits_standard_sections=inventory_only_omits_standard_sections,
+        emits_embedded_metadata=emits_embedded_metadata,
         required_component_endpoints=required_component_endpoints,
         validation_required_for_output=validation_required_for_output,
         run_data_quality_validation=run_data_quality_validation,
     )
+
+
+def _resolve_empty_required_component_endpoints(
+    *,
+    required_component_endpoints: Collection[str],
+    metrics: pd.DataFrame,
+    dimensions: pd.DataFrame,
+    fetch_statuses: Mapping[str, Any],
+) -> list[str]:
+    """Return required component endpoints whose fetched payloads are empty."""
+    component_frames = {
+        "metrics": metrics,
+        "dimensions": dimensions,
+    }
+    empty_required_components: list[str] = []
+    for endpoint in sorted(required_component_endpoints):
+        status = fetch_statuses.get(endpoint)
+        if str(getattr(status, "status", "")).lower() == "failed":
+            continue
+        frame = component_frames.get(endpoint)
+        if isinstance(frame, pd.DataFrame) and frame.empty:
+            empty_required_components.append(endpoint)
+    return empty_required_components
+
+
+def _resolve_component_metadata_values(
+    *,
+    endpoint: str,
+    dataframe: pd.DataFrame,
+    breakdown: list[str],
+    fetch_statuses: Mapping[str, Any],
+) -> tuple[int | str, str]:
+    """Build truthful metadata values for a component count and breakdown."""
+    status = fetch_statuses.get(endpoint)
+    endpoint_status = str(getattr(status, "status", "")).lower()
+    failure_detail = str(getattr(status, "error_message", "")) or str(getattr(status, "reason", ""))
+    if endpoint_status == "failed":
+        unavailable_detail = f"Unavailable ({endpoint} fetch failed"
+        if failure_detail:
+            unavailable_detail += f": {failure_detail}"
+        unavailable_detail += ")"
+        return unavailable_detail, unavailable_detail
+
+    component_label = endpoint.replace("_", " ")
+    empty_message = f"No {component_label} found"
+    return len(dataframe), "\n".join(breakdown) if breakdown else empty_message
+
+
+def _resolve_validation_metadata_values(
+    *,
+    validation_status: str,
+    validation_status_detail: str,
+    dq_issues: Collection[Mapping[str, Any]],
+    severity_counts: Mapping[str, int],
+) -> tuple[str, int | str, str]:
+    """Build truthful metadata values for validation status and issue summary."""
+    if validation_status == "completed":
+        dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
+        return "Completed", len(dq_issues), "\n".join(dq_summary) if dq_summary else "No issues"
+    if validation_status == "failed":
+        return "Failed", "Unavailable", validation_status_detail or "Validation failed"
+    return "Skipped", "Not run", validation_status_detail or "Validation skipped"
 
 
 def _run_optional_inventory_step[T](
@@ -6181,8 +6263,9 @@ def process_single_dataview(
         )
 
     logger.debug(
-        "Execution policy: formats=%s, required_components=%s, validation_required=%s, run_validation=%s",
+        "Execution policy: formats=%s, embedded_metadata=%s, required_components=%s, validation_required=%s, run_validation=%s",
         sorted(execution_policy.requested_formats),
+        execution_policy.emits_embedded_metadata,
         sorted(execution_policy.required_component_endpoints),
         execution_policy.validation_required_for_output,
         execution_policy.run_data_quality_validation,
@@ -6326,42 +6409,70 @@ def process_single_dataview(
                     failure_reason=f"required_endpoints_failed:{','.join(failed_endpoints)}",
                 )
 
-        # Check if we have any required standard component data to process
-        if required_component_endpoints and metrics.empty and dimensions.empty:
+        empty_required_component_endpoints = _resolve_empty_required_component_endpoints(
+            required_component_endpoints=required_component_endpoints,
+            metrics=metrics,
+            dimensions=dimensions,
+            fetch_statuses=fetch_statuses,
+        )
+        if empty_required_component_endpoints:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            empty_required_components = ", ".join(empty_required_component_endpoints)
+            missing_all_standard_components = (
+                set(empty_required_component_endpoints) == STANDARD_COMPONENT_ENDPOINTS
+                and required_component_endpoints == STANDARD_COMPONENT_ENDPOINTS
+            )
             if allow_partial_for_sdr:
                 logger.warning(
-                    "No metrics or dimensions were fetched, but continuing due to --allow-partial (exploratory mode).",
+                    "Required component payloads were empty, but continuing due to --allow-partial (exploratory mode): %s",
+                    empty_required_components,
                 )
-                if "required_components_empty" not in partial_reasons:
-                    partial_reasons.append("required_components_empty")
+                partial_reason = f"required_endpoints_empty:{','.join(empty_required_component_endpoints)}"
+                if missing_all_standard_components:
+                    partial_reason = "required_components_empty"
+                if partial_reason not in partial_reasons:
+                    partial_reasons.append(partial_reason)
             else:
-                logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
-                logger.critical("Possible causes:")
-                logger.critical("  1. Data view has no metrics or dimensions configured")
-                logger.critical("  2. Your API credentials lack permission to read components")
-                logger.critical("  3. The data view is newly created and not yet populated")
-                logger.critical("  4. API rate limiting or temporary service issue")
-                logger.critical("")
-                logger.critical("Troubleshooting steps:")
-                logger.critical("  - Verify the data view has components in the CJA UI")
-                logger.critical("  - Check your OAuth scopes include component read permissions")
-                logger.critical("  - Try running with --list-dataviews to verify access")
+                if missing_all_standard_components:
+                    logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
+                    logger.critical("Possible causes:")
+                    logger.critical("  1. Data view has no metrics or dimensions configured")
+                    logger.critical("  2. Your API credentials lack permission to read components")
+                    logger.critical("  3. The data view is newly created and not yet populated")
+                    logger.critical("  4. API rate limiting or temporary service issue")
+                    logger.critical("")
+                    logger.critical("Troubleshooting steps:")
+                    logger.critical("  - Verify the data view has components in the CJA UI")
+                    logger.critical("  - Check your OAuth scopes include component read permissions")
+                    logger.critical("  - Try running with --list-dataviews to verify access")
+                else:
+                    logger.critical(
+                        "Required component payloads were empty for requested output sections: %s",
+                        empty_required_components,
+                    )
                 logger.info("=" * BANNER_WIDTH)
                 logger.info("EXECUTION FAILED")
                 logger.info("=" * BANNER_WIDTH)
                 logger.info(f"Data View: {dv_name} ({data_view_id})")
-                logger.info("Error: No metrics or dimensions found")
+                if missing_all_standard_components:
+                    logger.info("Error: No metrics or dimensions found")
+                else:
+                    logger.info(f"Error: Required component payloads were empty: {empty_required_components}")
                 logger.info(f"Duration: {time.time() - start_time:.2f}s")
                 logger.info("=" * BANNER_WIDTH)
                 # Flush handlers to ensure log is written
                 flush_logging_handlers(logger)
+                failure_reason = f"required_endpoints_empty:{','.join(empty_required_component_endpoints)}"
+                error_message = f"Required component payloads were empty: {empty_required_components}"
+                if missing_all_standard_components:
+                    failure_reason = "required_components_empty"
+                    error_message = "No metrics or dimensions found - data view may be empty or inaccessible"
                 return _finalize_result(
                     data_view_name=dv_name,
                     success=False,
-                    error_message="No metrics or dimensions found - data view may be empty or inaccessible",
+                    error_message=error_message,
                     failure_code=FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY,
-                    failure_reason="required_components_empty",
+                    failure_reason=failure_reason,
                 )
 
         logger.info("Data fetch operations completed successfully")
@@ -6385,6 +6496,8 @@ def process_single_dataview(
         data_quality_df = validation_result.data_quality_df
         dq_issues = validation_result.dq_issues
         severity_counts = validation_result.severity_counts
+        validation_status = validation_result.status
+        validation_status_detail = validation_result.status_detail
         validation_failed = validation_result.failed
         validation_error_message = validation_result.error_message
 
@@ -6625,9 +6738,24 @@ def process_single_dataview(
             local_tz = datetime.now(UTC).astimezone().tzinfo
             current_time = datetime.now(local_tz)
             formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-
-            # Count data quality issues by severity
-            dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
+            metrics_count_value, metrics_breakdown_value = _resolve_component_metadata_values(
+                endpoint="metrics",
+                dataframe=metrics,
+                breakdown=metric_summary,
+                fetch_statuses=fetch_statuses,
+            )
+            dimensions_count_value, dimensions_breakdown_value = _resolve_component_metadata_values(
+                endpoint="dimensions",
+                dataframe=dimensions,
+                breakdown=dimension_summary,
+                fetch_statuses=fetch_statuses,
+            )
+            validation_status_value, dq_issues_value, dq_summary_value = _resolve_validation_metadata_values(
+                validation_status=validation_status,
+                validation_status_detail=validation_status_detail,
+                dq_issues=dq_issues,
+                severity_counts=severity_counts,
+            )
 
             # Build base metadata properties
             metadata_properties = [
@@ -6638,6 +6766,7 @@ def process_single_dataview(
                 "Metrics Breakdown",
                 "Total Dimensions",
                 "Dimensions Breakdown",
+                "Data Quality Validation Status",
                 "Data Quality Issues",
                 "Data Quality Summary",
             ]
@@ -6645,12 +6774,13 @@ def process_single_dataview(
                 formatted_timestamp,
                 data_view_id,
                 lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
-                len(metrics),
-                "\n".join(metric_summary) if metric_summary else "No metrics found",
-                len(dimensions),
-                "\n".join(dimension_summary) if dimension_summary else "No dimensions found",
-                len(dq_issues),
-                "\n".join(dq_summary) if dq_summary else "No issues",
+                metrics_count_value,
+                metrics_breakdown_value,
+                dimensions_count_value,
+                dimensions_breakdown_value,
+                validation_status_value,
+                dq_issues_value,
+                dq_summary_value,
             ]
 
             # Add inventory statistics if any inventory was generated
@@ -6834,11 +6964,9 @@ def process_single_dataview(
             )
 
         # Prepare metadata dictionary for JSON/HTML
-        metadata_dict = (
-            metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
-            if not metadata_df.empty
-            else {}
-        )
+        metadata_dict = {}
+        if execution_policy.emits_embedded_metadata and not metadata_df.empty:
+            metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
 
         # Base filename without extension
         base_filename = output_path.stem if isinstance(output_path, Path) else Path(output_path).stem
@@ -6962,9 +7090,13 @@ def process_single_dataview(
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Metrics: {len(metrics)}")
             logger.info(f"Dimensions: {len(dimensions)}")
-            logger.info(f"Data Quality Issues: {len(dq_issues)}")
+            logger.info(f"Data Quality Validation: {validation_status.title()}")
+            if validation_status == "completed":
+                logger.info(f"Data Quality Issues: {len(dq_issues)}")
+            else:
+                logger.info(f"Data Quality Issues: {validation_status_detail}")
 
-            if dq_issues:
+            if validation_status == "completed" and dq_issues:
                 logger.info("Data Quality Issues by Severity:")
                 for severity, count in severity_counts.items():
                     logger.info(f"  {severity}: {count}")

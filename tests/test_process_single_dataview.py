@@ -728,11 +728,17 @@ class TestProcessSingleDataviewFailures:
         mock_dq_checker_class.assert_not_called()
         mock_write_json.assert_called_once()
         data_dict = mock_write_json.call_args[0][0]
+        metadata_dict = mock_write_json.call_args[0][1]
         assert "Metrics" not in data_dict
         assert "Dimensions" not in data_dict
         assert "Data Quality" not in data_dict
         assert "Calculated Metrics" in data_dict
         assert "Segments" in data_dict
+        assert metadata_dict["Data Quality Validation Status"] == "Skipped"
+        assert metadata_dict["Data Quality Issues"] == "Not run"
+        assert "Skipped" in metadata_dict["Data Quality Summary"]
+        assert str(metadata_dict["Total Metrics"]).startswith("Unavailable (metrics fetch failed")
+        assert str(metadata_dict["Total Dimensions"]).startswith("Unavailable (dimensions fetch failed")
 
     @patch("cja_auto_sdr.generator.write_csv_output")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
@@ -785,6 +791,99 @@ class TestProcessSingleDataviewFailures:
         assert "metrics timeout" in result.error_message.lower()
         mock_dq_checker_class.assert_not_called()
         mock_write_csv.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_metrics_only_fails_when_required_metrics_payload_is_empty(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Metrics-only output must fail closed when the required metrics payload is empty."""
+        mock_logger = Mock()
+        mock_logger.handlers = []
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_metrics_only")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_metrics_only",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            metrics_only=True,
+        )
+
+        assert result.success is False
+        assert result.failure_reason == "required_endpoints_empty:metrics"
+        assert "required component payloads were empty: metrics" in result.error_message.lower()
+        mock_dq_checker_class.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_skip_validation_json_marks_metadata_as_skipped(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Embedded metadata must report skipped validation explicitly when --skip-validation is used."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_skip_validation")
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+        mock_write_json.return_value = f"{temp_output_dir}/skipped_validation.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_skip_validation",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            skip_validation=True,
+        )
+
+        assert result.success is True
+        mock_dq_checker_class.assert_not_called()
+        mock_write_json.assert_called_once()
+        metadata_dict = mock_write_json.call_args[0][1]
+        assert metadata_dict["Data Quality Validation Status"] == "Skipped"
+        assert metadata_dict["Data Quality Issues"] == "Not run"
+        assert metadata_dict["Data Quality Summary"] == "Skipped (--skip-validation)"
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
