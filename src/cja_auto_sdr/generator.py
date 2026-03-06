@@ -414,6 +414,17 @@ class BatchConfig:
 
 
 @dataclass(frozen=True)
+class ProcessingExecutionPolicy:
+    """Derived execution policy for fetch/validation fail-closed behavior."""
+
+    requested_formats: frozenset[str]
+    inventory_only_omits_standard_sections: bool
+    required_component_endpoints: frozenset[str]
+    validation_required_for_output: bool
+    run_data_quality_validation: bool
+
+
+@dataclass(frozen=True)
 class DiffConfig:
     """Configuration bundle for live data view diff comparisons."""
 
@@ -788,6 +799,57 @@ def _log_validation_failure(logger: Any, *, error: Exception) -> None:
     logger.error(_format_error_msg("during data quality validation", error=error))
     logger.info("Aborting SDR generation because data quality validation did not complete")
     logger.debug(f"Validation failure details: {error!r}")
+
+
+def _resolve_requested_output_formats(output_format: str) -> frozenset[str]:
+    """Resolve output aliases into concrete format names."""
+    if output_format == "all":
+        return frozenset({"excel", "csv", "json", "html", "markdown"})
+    if output_format in FORMAT_ALIASES:
+        return frozenset(str(fmt) for fmt in FORMAT_ALIASES[output_format])
+    return frozenset({output_format})
+
+
+def _build_processing_execution_policy(
+    *,
+    output_format: str,
+    inventory_only: bool,
+    include_derived_inventory: bool,
+    metrics_only: bool,
+    dimensions_only: bool,
+    quality_report_only: bool,
+    skip_validation: bool,
+) -> ProcessingExecutionPolicy:
+    """Determine which fetch/validation failures must be fail-closed for this run."""
+    requested_formats = _resolve_requested_output_formats(output_format)
+    inventory_only_omits_standard_sections = inventory_only and requested_formats.issubset({"excel", "csv"})
+
+    required_component_endpoints: set[str] = set()
+    if quality_report_only:
+        required_component_endpoints.update({"metrics", "dimensions"})
+    elif include_derived_inventory or (inventory_only and not inventory_only_omits_standard_sections):
+        # Derived inventory and non-tabular inventory-only formats still consume
+        # standard component payloads.
+        required_component_endpoints.update({"metrics", "dimensions"})
+    elif not inventory_only:
+        if metrics_only and dimensions_only:
+            required_component_endpoints.update({"metrics", "dimensions"})
+        else:
+            if not dimensions_only:
+                required_component_endpoints.add("metrics")
+            if not metrics_only:
+                required_component_endpoints.add("dimensions")
+
+    validation_required_for_output = quality_report_only or not inventory_only or not inventory_only_omits_standard_sections
+    run_data_quality_validation = validation_required_for_output and not skip_validation
+
+    return ProcessingExecutionPolicy(
+        requested_formats=requested_formats,
+        inventory_only_omits_standard_sections=inventory_only_omits_standard_sections,
+        required_component_endpoints=frozenset(required_component_endpoints),
+        validation_required_for_output=validation_required_for_output,
+        run_data_quality_validation=run_data_quality_validation,
+    )
 
 
 def _run_optional_inventory_step[T](
@@ -5707,6 +5769,22 @@ def process_single_dataview(
     run_mode = "batch_worker" if batch_id else "single"
     logger = with_log_context(base_logger, run_mode=run_mode, data_view_id=data_view_id, batch_id=batch_id)
     perf_tracker = PerformanceTracker(logger)
+    execution_policy = _build_processing_execution_policy(
+        output_format=output_format,
+        inventory_only=inventory_only,
+        include_derived_inventory=include_derived_inventory,
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+        quality_report_only=quality_report_only,
+        skip_validation=skip_validation,
+    )
+    logger.debug(
+        "Execution policy: formats=%s, required_components=%s, validation_required=%s, run_validation=%s",
+        sorted(execution_policy.requested_formats),
+        sorted(execution_policy.required_component_endpoints),
+        execution_policy.validation_required_for_output,
+        execution_policy.run_data_quality_validation,
+    )
 
     try:
         # Initialize CJA
@@ -5788,7 +5866,9 @@ def process_single_dataview(
             if isinstance(raw_fetch_statuses, dict):
                 fetch_statuses = raw_fetch_statuses
 
+        required_component_endpoints = execution_policy.required_component_endpoints
         component_failures: list[str] = []
+        nonblocking_component_failures: list[str] = []
         for endpoint in ("metrics", "dimensions"):
             status = fetch_statuses.get(endpoint)
             if isinstance(status, dict):
@@ -5802,7 +5882,17 @@ def process_single_dataview(
 
             if endpoint_status == "failed":
                 detail = endpoint_error or endpoint_reason or "unknown API failure"
-                component_failures.append(f"{endpoint}: {detail}")
+                failure_message = f"{endpoint}: {detail}"
+                if endpoint in required_component_endpoints:
+                    component_failures.append(failure_message)
+                else:
+                    nonblocking_component_failures.append(failure_message)
+
+        if nonblocking_component_failures:
+            logger.warning(
+                "Non-blocking component fetch failures for unrequested sections: %s",
+                "; ".join(nonblocking_component_failures),
+            )
 
         if component_failures:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
@@ -5827,8 +5917,8 @@ def process_single_dataview(
                 error_message=f"Component fetch failed: {'; '.join(component_failures)}",
             )
 
-        # Check if we have any data to process
-        if metrics.empty and dimensions.empty:
+        # Check if we have any required standard component data to process
+        if required_component_endpoints and metrics.empty and dimensions.empty:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
             logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
             logger.critical("Possible causes:")
@@ -5866,9 +5956,15 @@ def process_single_dataview(
         dq_checker: DataQualityChecker | None = None
         validation_failed = False
         validation_error_message = ""
-        if skip_validation:
+        if not execution_policy.run_data_quality_validation:
             logger.info("=" * BANNER_WIDTH)
-            logger.info("Skipping data quality validation (--skip-validation)")
+            if skip_validation:
+                logger.info("Skipping data quality validation (--skip-validation)")
+            else:
+                logger.info(
+                    "Skipping data quality validation (not emitted for inventory-only %s output)",
+                    ", ".join(sorted(execution_policy.requested_formats)),
+                )
             logger.info("=" * BANNER_WIDTH)
             data_quality_df = pd.DataFrame(columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"])
         else:
@@ -5936,7 +6032,7 @@ def process_single_dataview(
                 dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
                 severity_counts = count_quality_issues_by_severity(dq_issues)
 
-        if validation_failed:
+        if validation_failed and execution_policy.validation_required_for_output:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
             logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION FAILED")

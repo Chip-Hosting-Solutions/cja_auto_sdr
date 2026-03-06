@@ -443,6 +443,124 @@ class TestProcessSingleDataviewFailures:
         assert "component fetch failed" in result.error_message.lower()
         assert "dimensions api down" in result.error_message.lower()
 
+    @patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder")
+    @patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder")
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_inventory_only_csv_calculated_segments_skips_irrelevant_fetch_and_validation(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_csv,
+        mock_calculated_builder_class,
+        mock_segments_builder_class,
+        mock_config_file,
+        temp_output_dir,
+        sample_dataview_info,
+    ):
+        """Inventory-only CSV should not fail on metrics/dimensions fetch or validation paths it does not emit."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_inventory")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics timeout"},
+            "dimensions": {"status": "failed", "reason": "exception", "error_message": "dimensions timeout"},
+            "dataview": {"status": "success"},
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_write_csv.return_value = f"{temp_output_dir}/inventory_csv"
+
+        calculated_inventory = Mock()
+        calculated_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "cm1", "name": "Calc 1"}])
+        calculated_inventory.get_summary.return_value = {"total_calculated_metrics": 1, "complexity": {}}
+        calculated_builder = Mock()
+        calculated_builder.build.return_value = calculated_inventory
+        mock_calculated_builder_class.return_value = calculated_builder
+
+        segments_inventory = Mock()
+        segments_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "seg1", "name": "Segment 1"}])
+        segments_inventory.get_summary.return_value = {"total_segments": 1, "complexity": {}}
+        segments_builder = Mock()
+        segments_builder.build.return_value = segments_inventory
+        mock_segments_builder_class.return_value = segments_builder
+
+        result = process_single_dataview(
+            data_view_id="dv_inventory",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="csv",
+            inventory_only=True,
+            include_calculated_metrics=True,
+            include_segments_inventory=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        mock_dq_checker_class.assert_not_called()
+        mock_write_csv.assert_called_once()
+        data_dict = mock_write_csv.call_args[0][0]
+        assert "Metrics" not in data_dict
+        assert "Dimensions" not in data_dict
+        assert "Calculated Metrics" in data_dict
+        assert "Segments" in data_dict
+
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_inventory_only_csv_with_derived_inventory_still_fails_on_component_fetch(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_csv,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Derived inventory depends on component payloads and must remain fail-closed."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_inventory")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": {"status": "failed", "reason": "exception", "error_message": "metrics timeout"},
+            "dimensions": {"status": "success"},
+            "dataview": {"status": "success"},
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_inventory",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="csv",
+            inventory_only=True,
+            include_derived_inventory=True,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "metrics timeout" in result.error_message.lower()
+        mock_dq_checker_class.assert_not_called()
+        mock_write_csv.assert_not_called()
+
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
