@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,426 comprehensive tests**
+**Total: 5,436 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -104,7 +104,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 175 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 419 | Command-line interface and argument parsing |
+| `test_cli.py` | 421 | Command-line interface and argument parsing |
 | `test_profiles.py` | 76 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -123,7 +123,7 @@ tests/
 | `test_retry.py` | 25 | Retry with exponential backoff |
 | `test_batch_processor.py` | 26 | Batch processing of multiple data views |
 | `test_validation_cache.py` | 24 | Validation result caching |
-| `test_process_single_dataview.py` | 38 | End-to-end single data view processing |
+| `test_process_single_dataview.py` | 39 | End-to-end single data view processing |
 | `test_optimized_validation.py` | 16 | Optimized data quality validation |
 | `test_name_resolution.py` | 24 | Data view name to ID resolution |
 | `test_shared_cache.py` | 22 | Shared validation cache |
@@ -140,7 +140,7 @@ tests/
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 21 | main() and _main_impl() entry points, dispatch, run_state, run summary |
-| `test_quality_policy_and_run_summary.py` | 77 | Quality policy functions and run summary/status inference |
+| `test_quality_policy_and_run_summary.py` | 84 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
 | `test_api_client.py` | 28 | API client exception paths and error handling |
 | `test_config_validation.py` | 55 | Configuration validation logic |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 50 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,426** | **Collected via pytest --collect-only** |
+| **Total** | **5,436** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +591,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,426 tests total)
+- [x] Comprehensive test coverage (5,436 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 175 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 76 tests
