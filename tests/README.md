@@ -94,7 +94,7 @@ tests/
 └── README.md                        # This file
 ```
 
-**Total: 5,436 comprehensive tests**
+**Total: 5,442 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -105,7 +105,7 @@ tests/
 | `test_org_report.py` | 175 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
 | `test_cli.py` | 421 | Command-line interface and argument parsing |
-| `test_profiles.py` | 76 | Multi-organization profile support |
+| `test_profiles.py` | 77 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
 | `test_segments_inventory.py` | 48 | Segments inventory feature |
@@ -140,11 +140,11 @@ tests/
 | `test_output_content_validation.py` | 26 | Output format content validation (CSV, JSON, HTML, Excel, Markdown roundtrip) |
 | `test_malformed_api_responses.py` | 20 | Negative tests for malformed/unexpected API responses |
 | `test_main_entry_points.py` | 21 | main() and _main_impl() entry points, dispatch, run_state, run summary |
-| `test_quality_policy_and_run_summary.py` | 84 | Quality policy functions and run summary/status inference |
+| `test_quality_policy_and_run_summary.py` | 85 | Quality policy functions and run summary/status inference |
 | `test_e2e_integration.py` | 16 | End-to-end integration tests with real pipeline, mocked API boundary |
-| `test_api_client.py` | 28 | API client exception paths and error handling |
+| `test_api_client.py` | 29 | API client exception paths and error handling |
 | `test_config_validation.py` | 55 | Configuration validation logic |
-| `test_credentials.py` | 67 | Credential resolution and source selection |
+| `test_credentials.py` | 70 | Credential resolution and source selection |
 | `test_perf.py` | 7 | Performance utilities (cache eviction, statistics) |
 | `test_snapshot.py` | 74 | Diff snapshot creation and comparison |
 | `test_colors.py` | 122 | Console color formatting, themes, TTY detection |
@@ -187,7 +187,7 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 50 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,436** | **Collected via pytest --collect-only** |
+| **Total** | **5,442** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,10 +591,10 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,436 tests total)
+- [x] Comprehensive test coverage (5,442 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 175 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
-- [x] Profile management tests (test_profiles.py) - 76 tests
+- [x] Profile management tests (test_profiles.py) - 77 tests
 - [x] API worker auto-tuning tests (test_api_tuning.py) - 23 tests
 - [x] Circuit breaker pattern tests (test_circuit_breaker.py) - 22 tests
 - [x] Shared validation cache tests (test_shared_cache.py) - 22 tests
