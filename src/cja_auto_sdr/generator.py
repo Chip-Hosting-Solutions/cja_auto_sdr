@@ -834,8 +834,7 @@ def _collect_data_quality_results(
     data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
     if not isinstance(data_quality_df, pd.DataFrame):
         raise TypeError(
-            "Data quality checker returned non-DataFrame payload "
-            f"({type(data_quality_df).__name__})",
+            f"Data quality checker returned non-DataFrame payload ({type(data_quality_df).__name__})",
         )
 
     dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
@@ -5763,9 +5762,7 @@ def process_inventory_summary(
             builder = CalculatedMetricsInventoryBuilder(logger=logger)
             calculated = builder.build(cja, data_view_id, dv_name)
             if not quiet:
-                print(
-                    ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}")
-                )
+                print(ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}"))
             return calculated
 
         calculated_inventory = _run_optional_inventory_step(

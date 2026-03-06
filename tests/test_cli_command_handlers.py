@@ -277,7 +277,11 @@ class TestProcessInventorySummary:
         mock_builder_cls.return_value.build.side_effect = ConnectionError("calc transport down")
         with patch.dict(
             "sys.modules",
-            {"cja_auto_sdr.inventory.calculated_metrics": MagicMock(CalculatedMetricsInventoryBuilder=mock_builder_cls)},
+            {
+                "cja_auto_sdr.inventory.calculated_metrics": MagicMock(
+                    CalculatedMetricsInventoryBuilder=mock_builder_cls
+                )
+            },
         ):
             result = process_inventory_summary("dv_test123", include_calculated=True)
 

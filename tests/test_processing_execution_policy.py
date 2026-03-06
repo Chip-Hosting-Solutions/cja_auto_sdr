@@ -59,4 +59,3 @@ def test_build_processing_execution_policy_matrix(
     assert policy.inventory_only_omits_standard_sections is expected_inventory_omits_standard
     assert policy.validation_required_for_output is expected_validation_required
     assert policy.run_data_quality_validation is expected_run_validation
-
