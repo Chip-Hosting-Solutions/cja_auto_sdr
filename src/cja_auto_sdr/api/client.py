@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import cjapy
@@ -29,6 +29,7 @@ from cja_auto_sdr.core.exceptions import (
 _LEGACY_TEMP_CONFIG_PREFIXES = ("cja_env_config_", "cja_profile_test_")
 _LEGACY_TEMP_CONFIG_SUFFIX = ".json"
 _LEGACY_TEMP_CONFIG_MAX_AGE_SECONDS = 3600.0
+CredentialConfigValue = str | Sequence[str] | None
 
 
 def _bootstrap_dotenv(logger: logging.Logger) -> None:
@@ -83,7 +84,7 @@ def _cleanup_stale_temp_configs(logger: logging.Logger) -> None:
         logger.debug(f"Removed {removed} stale temp credential file(s) from previous runs")
 
 
-def _build_cjapy_config_kwargs(credentials: Mapping[str, object]) -> dict[str, str | None]:
+def _build_cjapy_config_kwargs(credentials: Mapping[str, CredentialConfigValue]) -> dict[str, str | None]:
     """Normalize credential payloads to the string contract expected by ``cjapy.configure``."""
     scopes = normalize_scopes_value(credentials.get("scopes"), compact=True)
     return {
@@ -161,7 +162,7 @@ def configure_cjapy(
         # Configure cjapy with the resolved credentials
         # Source format from resolver: "profile:name", "environment", "config:filename"
         if source.startswith("profile:") or source == "environment":
-            # Profile or environment credentials need temp file for cjapy
+            # Profile or environment credentials use the direct in-memory cjapy path.
             _config_from_env(credentials, logger)
         else:
             # Config file can be imported directly
@@ -253,7 +254,7 @@ def initialize_cja(
             logger.info(f"Loading CJA configuration from {config_file}...")
             cjapy.importConfigFile(config_file)
         else:
-            # Profile or environment - use temp config file
+            # Profile or environment credentials go through direct in-memory configuration.
             logger.info(f"Loading CJA configuration from {source}...")
             _config_from_env(credentials, logger)
 

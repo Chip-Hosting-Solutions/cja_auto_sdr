@@ -1648,18 +1648,14 @@ def _build_processing_result(
     partial_output: bool | None = None,
     **kwargs: Any,
 ) -> ProcessingResult:
-    """Construct ProcessingResult objects with normalized partial-run context."""
-    effective_partial_output, normalized_partial_reasons = _normalize_partial_state(
-        partial_output,
-        partial_reasons,
-    )
+    """Construct ProcessingResult objects and defer partial-state normalization to ``ProcessingResult``."""
     return ProcessingResult(
         data_view_id=data_view_id,
         data_view_name=data_view_name,
         success=success,
         duration=duration,
-        partial_output=effective_partial_output,
-        partial_reasons=normalized_partial_reasons,
+        partial_output=partial_output,
+        partial_reasons=list(partial_reasons) if partial_reasons is not None else [],
         **kwargs,
     )
 
@@ -1721,10 +1717,6 @@ def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     """Serialize ProcessingResult into run summary shape."""
     failure_code, failure_reason = _normalize_failure_identity(result)
-    partial_output, partial_reasons = _normalize_partial_state(
-        result.partial_output,
-        result.partial_reasons,
-    )
     return {
         "data_view_id": result.data_view_id,
         "data_view_name": result.data_view_name,
@@ -1738,8 +1730,8 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "error_message": result.error_message,
         "failure_code": failure_code,
         "failure_reason": failure_reason,
-        "partial_output": partial_output,
-        "partial_reasons": partial_reasons,
+        "partial_output": result.partial_output,
+        "partial_reasons": result.partial_reasons,
         "file_size_bytes": result.file_size_bytes,
         "segments_count": result.segments_count,
         "segments_high_complexity": result.segments_high_complexity,
