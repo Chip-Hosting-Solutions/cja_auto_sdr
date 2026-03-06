@@ -275,6 +275,20 @@ FAILURE_CODE_OUTPUT_WRITE_FAILED = "OUTPUT_WRITE_FAILED"
 FAILURE_CODE_BATCH_WORKER_EXCEPTION = "BATCH_WORKER_EXCEPTION"
 FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR = "UNEXPECTED_RUNTIME_ERROR"
 FAILURE_CODE_UNCLASSIFIED_FAILURE = "UNCLASSIFIED_FAILURE"
+FAILURE_CODE_REGISTRY: tuple[str, ...] = (
+    FAILURE_CODE_CJA_INIT_FAILED,
+    FAILURE_CODE_DATAVIEW_LOOKUP_INVALID,
+    FAILURE_CODE_COMPONENT_FETCH_FAILED,
+    FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY,
+    FAILURE_CODE_DQ_VALIDATION_RUNTIME_FAILED,
+    FAILURE_CODE_OUTPUT_PERMISSION_DENIED,
+    FAILURE_CODE_OUTPUT_WRITE_FAILED,
+    FAILURE_CODE_BATCH_WORKER_EXCEPTION,
+    FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR,
+    FAILURE_CODE_UNCLASSIFIED_FAILURE,
+)
+
+RUN_SUMMARY_SCHEMA_VERSION = "1.1"
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
 # cja_auto_sdr.core and are imported above.
@@ -305,6 +319,8 @@ class ProcessingResult:
     error_message: str = ""
     failure_code: str = ""
     failure_reason: str = ""
+    partial_output: bool = False
+    partial_reasons: list[str] = field(default_factory=list)
     file_size_bytes: int = 0
     # Inventory statistics (populated when inventory options are used)
     segments_count: int = 0
@@ -752,7 +768,14 @@ QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
     "Issue",
     "Details",
 )
-QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset({"fail_on_quality", "quality_report", "max_issues"})
+QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset(
+    {
+        "fail_on_quality",
+        "quality_report",
+        "max_issues",
+        "allow_partial",
+    },
+)
 
 # Recoverable API/runtime failures that should surface as user-facing command
 # errors (not uncaught tracebacks). Keep this centralized to avoid accidental
@@ -1128,6 +1151,13 @@ def _parse_non_negative_policy_int(value: Any, *, key: str) -> int:
     return value
 
 
+def _parse_boolean_policy_flag(value: Any, *, key: str) -> bool:
+    """Validate a quality policy boolean field."""
+    if not isinstance(value, bool):
+        raise ValueError(f"quality policy '{key}' must be a boolean")
+    return value
+
+
 def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
     """Load and validate quality policy JSON file."""
     policy_path = Path(policy_file).expanduser()
@@ -1171,6 +1201,17 @@ def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
             key="max_issues",
         )
 
+    if "allow_partial" in normalized_payload:
+        normalized_policy["allow_partial"] = _parse_boolean_policy_flag(
+            normalized_payload["allow_partial"],
+            key="allow_partial",
+        )
+
+    if normalized_policy.get("allow_partial", False) and (
+        "fail_on_quality" in normalized_policy or "quality_report" in normalized_policy
+    ):
+        raise ValueError("quality policy 'allow_partial' cannot be combined with fail_on_quality or quality_report")
+
     return normalized_policy
 
 
@@ -1181,18 +1222,27 @@ def apply_quality_policy_defaults(
 ) -> dict[str, Any]:
     """Apply quality policy values only when the corresponding CLI flags were not explicitly set."""
     applied: dict[str, Any] = {}
+    fail_on_quality_cli = _cli_option_specified("--fail-on-quality", argv)
+    quality_report_cli = _cli_option_specified("--quality-report", argv)
+    max_issues_cli = _cli_option_specified("--max-issues", argv)
+    allow_partial_cli = _cli_option_specified("--allow-partial", argv)
 
-    if "fail_on_quality" in policy and not _cli_option_specified("--fail-on-quality", argv):
+    # Honor explicit CLI mutually-exclusive quality-mode choices first.
+    if "fail_on_quality" in policy and not fail_on_quality_cli and not allow_partial_cli:
         args.fail_on_quality = policy["fail_on_quality"]
         applied["fail_on_quality"] = policy["fail_on_quality"]
 
-    if "quality_report" in policy and not _cli_option_specified("--quality-report", argv):
+    if "quality_report" in policy and not quality_report_cli and not allow_partial_cli:
         args.quality_report = policy["quality_report"]
         applied["quality_report"] = policy["quality_report"]
 
-    if "max_issues" in policy and not _cli_option_specified("--max-issues", argv):
+    if "max_issues" in policy and not max_issues_cli:
         args.max_issues = policy["max_issues"]
         applied["max_issues"] = policy["max_issues"]
+
+    if "allow_partial" in policy and not allow_partial_cli and not fail_on_quality_cli and not quality_report_cli:
+        args.allow_partial = policy["allow_partial"]
+        applied["allow_partial"] = policy["allow_partial"]
 
     return applied
 
@@ -1533,9 +1583,20 @@ def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str
     }
 
 
+def _normalized_partial_reasons(result: ProcessingResult) -> list[str]:
+    """Return stable, de-duplicated partial reasons for run-summary serialization."""
+    normalized: list[str] = []
+    for raw_reason in result.partial_reasons:
+        reason = str(raw_reason).strip()
+        if reason and reason not in normalized:
+            normalized.append(reason)
+    return normalized
+
+
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     """Serialize ProcessingResult into run summary shape."""
     failure_code, failure_reason = _normalize_failure_identity(result)
+    partial_reasons = _normalized_partial_reasons(result)
     return {
         "data_view_id": result.data_view_id,
         "data_view_name": result.data_view_name,
@@ -1549,6 +1610,8 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "error_message": result.error_message,
         "failure_code": failure_code,
         "failure_reason": failure_reason,
+        "partial_output": bool(result.partial_output and result.success),
+        "partial_reasons": partial_reasons,
         "file_size_bytes": result.file_size_bytes,
         "segments_count": result.segments_count,
         "segments_high_complexity": result.segments_high_complexity,
@@ -6048,6 +6111,7 @@ def process_single_dataview(
         skip_validation=skip_validation,
     )
     allow_partial_for_sdr = allow_partial and not quality_report_only
+    partial_reasons: list[str] = []
     logger.debug(
         "Execution policy: formats=%s, required_components=%s, validation_required=%s, run_validation=%s",
         sorted(execution_policy.requested_formats),
@@ -6171,6 +6235,10 @@ def process_single_dataview(
                 )
                 for failure in component_failures:
                     logger.warning(f"  - {failure}")
+                failed_endpoints = sorted({part.split(":", 1)[0].strip() for part in component_failures if part})
+                component_partial_reason = f"required_endpoints_failed:{','.join(failed_endpoints)}"
+                if component_partial_reason not in partial_reasons:
+                    partial_reasons.append(component_partial_reason)
             else:
                 logger.critical("Component fetch failed. Refusing to generate a partial SDR.")
                 for failure in component_failures:
@@ -6203,6 +6271,8 @@ def process_single_dataview(
                 logger.warning(
                     "No metrics or dimensions were fetched, but continuing due to --allow-partial (exploratory mode).",
                 )
+                if "required_components_empty" not in partial_reasons:
+                    partial_reasons.append("required_components_empty")
             else:
                 logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
                 logger.critical("Possible causes:")
@@ -6268,6 +6338,8 @@ def process_single_dataview(
                 data_quality_df = _empty_data_quality_dataframe()
                 dq_issues = []
                 severity_counts = {}
+                if "data_quality_validation_runtime_failed" not in partial_reasons:
+                    partial_reasons.append("data_quality_validation_runtime_failed")
             else:
                 logger.info("=" * BANNER_WIDTH)
                 logger.info("EXECUTION FAILED")
@@ -6305,6 +6377,8 @@ def process_single_dataview(
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
                 error_message="",
+                partial_output=bool(partial_reasons),
+                partial_reasons=partial_reasons,
             )
 
         # Optional inventory builds (parallelized when 2+ are enabled)
@@ -6908,6 +6982,8 @@ def process_single_dataview(
                 calculated_metrics_high_complexity=calculated_metrics_high_complexity,
                 derived_fields_count=derived_fields_count,
                 derived_fields_high_complexity=derived_fields_high_complexity,
+                partial_output=bool(partial_reasons),
+                partial_reasons=partial_reasons,
             )
 
         except PermissionError as e:
@@ -16881,7 +16957,7 @@ def main():
             failure_count = len(serialized_results) - success_count
             failure_rollups = _build_failure_rollups(serialized_results)
             summary_payload = {
-                "summary_version": "1.0",
+                "summary_version": RUN_SUMMARY_SCHEMA_VERSION,
                 "tool_version": __version__,
                 "environment": _collect_environment_info(),
                 "started_at": summary_start,

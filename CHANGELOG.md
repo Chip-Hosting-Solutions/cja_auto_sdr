@@ -18,9 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Per-endpoint fetch outcome tracking**: `ParallelAPIFetcher` now records explicit success/empty/failed statuses for metrics, dimensions, and dataview lookups so callers can distinguish empty results from fetch failures.
 - **In-memory cjapy configuration**: env/profile credentials now configure `cjapy` directly, and startup performs best-effort cleanup of stale temp credential files left by older releases.
+- **Run summary schema contract**: `summary_version` is now `1.1`; result entries include additive `partial_output` and `partial_reasons` fields for `--allow-partial` observability.
+- **Quality policy defaults**: policy files now support optional `allow_partial` (boolean, default `false`) with explicit CLI flags retaining precedence.
 
 ### Added
 - **Regression coverage for fail-closed behavior**: Added tests covering partial fetch failure aborts, validation-runtime aborts, direct `cjapy` credential configuration, stale temp-file cleanup, and in-repo inventory summary imports.
+- **Failure code registry doc**: added `docs/FAILURE_CODES.md` as the public registry for stable run-summary `failure_code` values.
 
 ## [3.3.7] - 2026-03-05
 

@@ -262,7 +262,7 @@ class TestCompletionFastPath:
         assert int(exc_info.value.code) == 0
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
-        assert payload["summary_version"] == "1.0"
+        assert payload["summary_version"] == "1.1"
         assert payload["exit_code"] == 0
         assert payload["command"]["argv"] == argv
         assert "register-python-argcomplete" in captured.err

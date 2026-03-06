@@ -123,7 +123,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--quality-report FORMAT` | Generate standalone quality issues report only (`json` or `csv`) without SDR files. SDR mode only; cannot be combined with `--skip-validation` | - |
 | `--allow-partial` | Opt-in exploratory SDR mode that allows partial output when required component fetches or validation runtime fail. Disabled by default; not supported with `--quality-report` or `--fail-on-quality` | False |
-| `--quality-policy PATH` | Load quality defaults from JSON file (`fail_on_quality`, `quality_report`, `max_issues`). Explicit CLI flags override policy values | - |
+| `--quality-policy PATH` | Load quality defaults from JSON file (`fail_on_quality`, `quality_report`, `max_issues`, `allow_partial`). Explicit CLI flags override policy values | - |
 
 > **Quality Gate & Report Constraints:** `--fail-on-quality` and `--quality-report` are only supported in SDR generation mode and cannot be combined with `--skip-validation`.
 >
@@ -138,7 +138,11 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Data-quality validation runtime failure | Block | Continue (exploratory) | Block | Validation skipped when not emitted | Validation skipped when not emitted |
 | Invalid data view lookup payload | Block | Block | Block | Block | Block |
 
-> **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, and top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts for alerting.
+> **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
+>
+> **Run summary contract (v1.1):** `summary_version` is currently `1.1`. Consumers should treat unknown keys as additive/forward-compatible and only rely on documented stable fields.
+>
+> **Failure code registry:** Stable `failure_code` values are documented in [FAILURE_CODES.md](FAILURE_CODES.md).
 
 **Format Availability by Mode:**
 

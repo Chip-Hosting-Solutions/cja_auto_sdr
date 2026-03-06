@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -1367,6 +1367,35 @@ class TestQualityGateAndReport:
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_quality_policy_can_enable_allow_partial(self, mock_resolve, mock_process, tmp_path):
+        """Quality policy should support allow_partial as an opt-in default."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(json.dumps({"allow_partial": True}), encoding="utf-8")
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path)],
+        ):
+            main()
+
+        assert mock_process.call_args.kwargs["allow_partial"] is True
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
     def test_cli_fail_on_quality_overrides_quality_policy(self, mock_resolve, mock_process, tmp_path):
         """Explicit --fail-on-quality should override policy defaults."""
         from cja_auto_sdr.generator import ProcessingResult, main
@@ -1391,6 +1420,35 @@ class TestQualityGateAndReport:
             ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path), "--fail-on-quality", "CRITICAL"],
         ):
             main()
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_cli_fail_on_quality_prevents_policy_allow_partial_default(self, mock_resolve, mock_process, tmp_path):
+        """Explicit fail-on-quality should prevent policy allow_partial from being applied."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        policy_path = tmp_path / "quality_policy.json"
+        policy_path.write_text(json.dumps({"allow_partial": True}), encoding="utf-8")
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.1,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cja_auto_sdr", "dv_test", "--quality-policy", str(policy_path), "--fail-on-quality", "HIGH"],
+        ):
+            main()
+
+        assert mock_process.call_args.kwargs["allow_partial"] is False
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
@@ -3580,7 +3638,7 @@ class TestRunSummaryOutput:
             "details",
         }
         assert required_keys.issubset(payload)
-        assert payload["summary_version"] == "1.0"
+        assert payload["summary_version"] == "1.1"
         assert isinstance(payload["tool_version"], str)
         assert isinstance(payload["started_at"], str)
         assert isinstance(payload["ended_at"], str)
@@ -3626,6 +3684,8 @@ class TestRunSummaryOutput:
             "error_message",
             "failure_code",
             "failure_reason",
+            "partial_output",
+            "partial_reasons",
             "file_size_bytes",
             "segments_count",
             "segments_high_complexity",
@@ -3644,6 +3704,9 @@ class TestRunSummaryOutput:
             assert isinstance(result["dq_severity_counts"], dict)
             assert isinstance(result["failure_code"], str)
             assert isinstance(result["failure_reason"], str)
+            assert isinstance(result["partial_output"], bool)
+            assert isinstance(result["partial_reasons"], list)
+            assert all(isinstance(reason, str) for reason in result["partial_reasons"])
 
         failure_rollups = payload["failure_rollups"]
         assert isinstance(failure_rollups, dict)
@@ -3758,6 +3821,149 @@ class TestRunSummaryOutput:
         assert payload["results"][0]["failure_reason"] == "required_endpoints_failed:metrics"
         assert payload["failure_rollups"]["by_code"] == {"COMPONENT_FETCH_FAILED": 1}
         assert payload["failure_rollups"]["by_reason"] == {"required_endpoints_failed:metrics": 1}
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_includes_partial_output_fields(self, mock_resolve, mock_process, tmp_path):
+        """Allow-partial SDR outputs should surface partial_output and partial_reasons per result."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.2,
+            partial_output=True,
+            partial_reasons=[
+                "required_endpoints_failed:metrics",
+                "data_quality_validation_runtime_failed",
+            ],
+        )
+
+        summary_file = tmp_path / "run_summary_partial_output.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "dv_test",
+                "--allow-partial",
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["allow_partial"] is True
+        assert payload["results"][0]["partial_output"] is True
+        assert payload["results"][0]["partial_reasons"] == [
+            "required_endpoints_failed:metrics",
+            "data_quality_validation_runtime_failed",
+        ]
+
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.BatchProcessor.print_summary")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_run_summary_batch_failure_rollups_mixed_results_under_concurrent_completion(
+        self,
+        mock_tqdm,
+        mock_executor_cls,
+        _mock_print_summary,
+        mock_resolve,
+        tmp_path,
+    ):
+        """Batch-mode run summary should aggregate failure_rollups with mixed out-of-order future completion."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_ok", "dv_fetch_fail", "dv_validation_fail"], {})
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        future_ok = Mock()
+        future_fetch_fail = Mock()
+        future_validation_fail = Mock()
+
+        future_ok.result.return_value = ProcessingResult(
+            data_view_id="dv_ok",
+            data_view_name="Healthy View",
+            success=True,
+            duration=0.2,
+            dq_issues_count=1,
+            dq_issues=[{"Severity": "HIGH", "Issue": "threshold"}],
+            dq_severity_counts={"HIGH": 1},
+        )
+        future_fetch_fail.result.return_value = ProcessingResult(
+            data_view_id="dv_fetch_fail",
+            data_view_name="Fetch Fail View",
+            success=False,
+            duration=0.3,
+            error_message="Component fetch failed: metrics: timeout",
+            failure_code="COMPONENT_FETCH_FAILED",
+            failure_reason="required_endpoints_failed:metrics",
+        )
+        future_validation_fail.result.return_value = ProcessingResult(
+            data_view_id="dv_validation_fail",
+            data_view_name="Validation Fail View",
+            success=False,
+            duration=0.3,
+            error_message="Data quality validation failed: threadpool failure",
+            failure_code="DQ_VALIDATION_RUNTIME_FAILED",
+            failure_reason="data_quality_validation_runtime_failed",
+        )
+
+        mock_executor = MagicMock()
+        mock_executor.__enter__ = Mock(return_value=mock_executor)
+        mock_executor.__exit__ = Mock(return_value=False)
+        mock_executor.submit.side_effect = [future_ok, future_fetch_fail, future_validation_fail]
+        mock_executor_cls.return_value = mock_executor
+
+        summary_file = tmp_path / "run_summary_batch_rollups.json"
+        with (
+            patch(
+                "cja_auto_sdr.generator.as_completed",
+                return_value=[future_validation_fail, future_ok, future_fetch_fail],
+            ),
+            patch("cja_auto_sdr.generator.setup_logging", return_value=Mock()),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cja_auto_sdr",
+                    "dv_ok",
+                    "dv_fetch_fail",
+                    "dv_validation_fail",
+                    "--batch",
+                    "--workers",
+                    "2",
+                    "--continue-on-error",
+                    "--fail-on-quality",
+                    "HIGH",
+                    "--run-summary-json",
+                    str(summary_file),
+                ],
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["result_counts"]["failed"] == 2
+        assert payload["failure_rollups"]["by_code"] == {
+            "COMPONENT_FETCH_FAILED": 1,
+            "DQ_VALIDATION_RUNTIME_FAILED": 1,
+        }
+        assert payload["failure_rollups"]["by_reason"] == {
+            "data_quality_validation_runtime_failed": 1,
+            "required_endpoints_failed:metrics": 1,
+        }
 
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_written_for_discovery_mode(self, mock_list_dataviews, tmp_path):

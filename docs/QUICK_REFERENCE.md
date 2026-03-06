@@ -326,7 +326,7 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (requires validation; incompatible with `--skip-validation`) | SDR only |
 | `--quality-report FORMAT` | Generate standalone quality issues report (`json` or `csv`) without SDR files (requires validation; incompatible with `--skip-validation`) | SDR only |
 | `--allow-partial` | Opt-in exploratory SDR mode: continue on required component fetch or validation runtime failures (not supported with `--quality-report` or `--fail-on-quality`) | SDR only |
-| `--quality-policy PATH` | Load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`); explicit CLI flags take precedence | SDR only |
+| `--quality-policy PATH` | Load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`, `allow_partial`); explicit CLI flags take precedence | SDR only |
 | `--run-summary-json PATH` | Write machine-readable run summary JSON; use `-` for stdout | All modes |
 | `--name-match MODE` | Data view name matching: `exact` (default), `insensitive`, or `fuzzy` | All modes |
 | `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
@@ -349,7 +349,9 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | Data-quality validation runtime failure | Block | Continue | Block | Validation skipped when not emitted | Validation skipped when not emitted |
 | Invalid data view lookup payload | Block | Block | Block | Block | Block |
 
-> Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, plus aggregate `failure_rollups` for alerting.
+> Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, aggregate `failure_rollups`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
+>
+> Run summary contract is currently `summary_version: "1.1"` and follows additive forward compatibility (ignore unknown keys).
 
 ### Diff-Specific Options
 
