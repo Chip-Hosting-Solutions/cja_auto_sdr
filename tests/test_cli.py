@@ -348,6 +348,15 @@ class TestUXImprovements:
             args = parse_arguments()
             assert args.quality_policy == "quality_policy.json"
 
+    def test_quality_policy_help_lists_allow_partial_key(self):
+        """Quality policy help should advertise the current supported key set."""
+        parser = parse_arguments(return_parser=True, enable_autocomplete=False)
+        help_text = " ".join(parser.format_help().split())
+
+        assert (
+            "supported keys: fail_on_quality, quality_report, max_issues, allow_partial" in help_text
+        )
+
     def test_profile_import_flags(self):
         """Test parsing with --profile-import and --profile-overwrite flags."""
         test_args = [

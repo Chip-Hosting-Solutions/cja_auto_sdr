@@ -594,7 +594,8 @@ Requirements:
         "--quality-policy",
         type=str,
         metavar="PATH",
-        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, max_issues). "
+        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, "
+        "max_issues, allow_partial). "
         "Explicit CLI flags take precedence.",
     )
 

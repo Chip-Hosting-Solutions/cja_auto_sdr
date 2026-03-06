@@ -22,6 +22,7 @@ from cja_auto_sdr.generator import (
     _coerce_run_mode,
     _collect_environment_info,
     _infer_run_status,
+    _normalize_failure_identity,
     _normalize_exit_code,
     aggregate_quality_issues,
     apply_quality_policy_defaults,
@@ -433,6 +434,34 @@ class TestFailureCodeRegistry:
         documented_codes = set(re.findall(r"`([A-Z_]+)`", content))
         undocumented = sorted(set(FAILURE_CODE_REGISTRY) - documented_codes)
         assert undocumented == []
+
+
+class TestFailureIdentityNormalization:
+    @pytest.mark.parametrize(
+        ("error_message", "expected_code"),
+        [
+            ("Component fetch failed: metrics: timeout", "COMPONENT_FETCH_FAILED"),
+            ("Data quality validation failed: worker exception", "DQ_VALIDATION_RUNTIME_FAILED"),
+            ("Data view validation failed", "DATAVIEW_LOOKUP_INVALID"),
+            ("No metrics or dimensions found - data view may be empty or inaccessible", "REQUIRED_COMPONENTS_EMPTY"),
+            ("CJA initialization failed", "CJA_INIT_FAILED"),
+            ("Permission denied: /tmp/report.xlsx", "OUTPUT_PERMISSION_DENIED"),
+            ("Completely unknown legacy failure", "UNCLASSIFIED_FAILURE"),
+        ],
+    )
+    def test_legacy_messages_map_to_stable_codes(self, error_message, expected_code):
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=False,
+            duration=0.0,
+            error_message=error_message,
+        )
+
+        failure_code, failure_reason = _normalize_failure_identity(result)
+
+        assert failure_code == expected_code
+        assert failure_reason == expected_code.lower()
 
 
 # ==================== _coerce_run_mode ====================
