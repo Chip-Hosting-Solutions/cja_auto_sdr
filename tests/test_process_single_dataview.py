@@ -1421,6 +1421,98 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_sdr_generation_fails_when_issue_dataframe_payload_is_not_dataframe(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Non-DataFrame issue payloads should fail closed in SDR mode."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.return_value = {"invalid": "payload"}
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+        )
+
+        assert result.success is False
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "non-dataframe payload" in result.error_message.lower()
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
+        mock_write_json.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_sdr_generation_fails_when_issue_dataframe_extraction_raises(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Issue dataframe extraction failures should fail closed in SDR mode."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.side_effect = RuntimeError("issue dataframe extraction failed")
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+        )
+
+        assert result.success is False
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "issue dataframe extraction failed" in result.error_message.lower()
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
+        mock_write_json.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_fails_when_validation_runtime_errors(
         self,
         mock_dq_checker_class,
@@ -1508,6 +1600,49 @@ class TestProcessSingleDataviewMaxIssues:
         assert result.success is False
         assert "Data quality validation failed" in result.error_message
         assert "unexpected validation failure" in result.error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_quality_report_only_fails_when_issue_dataframe_extraction_raises(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality-report mode should fail if issue dataframe extraction raises."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.side_effect = RuntimeError("issue dataframe extraction failed")
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
+        assert "issue dataframe extraction failed" in result.error_message
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
 
 
 class TestProcessingResultDataclass:

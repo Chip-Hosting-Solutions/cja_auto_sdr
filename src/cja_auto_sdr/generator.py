@@ -255,6 +255,14 @@ class OutputWriter(Protocol):
 
 # Type alias for validation issues
 ValidationIssue = dict[str, Any]
+DATA_QUALITY_COLUMNS: tuple[str, ...] = (
+    "Severity",
+    "Category",
+    "Type",
+    "Item Name",
+    "Issue",
+    "Details",
+)
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
 # cja_auto_sdr.core and are imported above.
@@ -422,6 +430,17 @@ class ProcessingExecutionPolicy:
     required_component_endpoints: frozenset[str]
     validation_required_for_output: bool
     run_data_quality_validation: bool
+
+
+@dataclass(frozen=True)
+class DataQualityValidationResult:
+    """Structured data-quality validation outcome for single-data-view processing."""
+
+    data_quality_df: pd.DataFrame
+    dq_issues: list[ValidationIssue] = field(default_factory=list)
+    severity_counts: dict[str, int] = field(default_factory=dict)
+    failed: bool = False
+    error_message: str = ""
 
 
 @dataclass(frozen=True)
@@ -799,6 +818,122 @@ def _log_validation_failure(logger: Any, *, error: Exception) -> None:
     logger.error(_format_error_msg("during data quality validation", error=error))
     logger.info("Aborting SDR generation because data quality validation did not complete")
     logger.debug(f"Validation failure details: {error!r}")
+
+
+def _empty_data_quality_dataframe() -> pd.DataFrame:
+    """Return an empty, schema-consistent data-quality dataframe."""
+    return pd.DataFrame(columns=list(DATA_QUALITY_COLUMNS))
+
+
+def _collect_data_quality_results(
+    *,
+    dq_checker: Any,
+    max_issues: int,
+) -> tuple[pd.DataFrame, list[ValidationIssue], dict[str, int]]:
+    """Collect data-quality dataframe payloads with defensive shape/type checks."""
+    data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
+    if not isinstance(data_quality_df, pd.DataFrame):
+        raise TypeError(
+            "Data quality checker returned non-DataFrame payload "
+            f"({type(data_quality_df).__name__})",
+        )
+
+    dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
+    severity_counts = count_quality_issues_by_severity(dq_issues)
+    return data_quality_df, dq_issues, severity_counts
+
+
+def _run_data_quality_validation(
+    *,
+    logger: Any,
+    perf_tracker: Any,
+    metrics: pd.DataFrame,
+    dimensions: pd.DataFrame,
+    quiet: bool,
+    production_mode: bool,
+    shared_cache: Any,
+    enable_cache: bool,
+    cache_size: int,
+    cache_ttl: int,
+    clear_cache: bool,
+    max_issues: int,
+    skip_validation: bool,
+    execution_policy: ProcessingExecutionPolicy,
+) -> DataQualityValidationResult:
+    """Execute validation and issue extraction with fail-closed semantics."""
+    if not execution_policy.run_data_quality_validation:
+        logger.info("=" * BANNER_WIDTH)
+        if skip_validation:
+            logger.info("Skipping data quality validation (--skip-validation)")
+        else:
+            logger.info(
+                "Skipping data quality validation (not emitted for inventory-only %s output)",
+                ", ".join(sorted(execution_policy.requested_formats)),
+            )
+        logger.info("=" * BANNER_WIDTH)
+        return DataQualityValidationResult(data_quality_df=_empty_data_quality_dataframe())
+
+    logger.info("=" * BANNER_WIDTH)
+    logger.info("Starting data quality validation (optimized)")
+    logger.info("=" * BANNER_WIDTH)
+
+    perf_tracker.start("Data Quality Validation")
+    try:
+        # Create validation cache if enabled.
+        # Use shared cache if provided (from batch processing), otherwise create local cache.
+        validation_cache = None
+        if shared_cache is not None:
+            validation_cache = shared_cache
+            logger.info("Using shared validation cache from batch processor")
+        elif enable_cache:
+            validation_cache = ValidationCache(max_size=cache_size, ttl_seconds=cache_ttl, logger=logger)
+            if clear_cache:
+                validation_cache.clear()
+                logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+            else:
+                logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+
+        dq_checker = DataQualityChecker(
+            logger,
+            validation_cache=validation_cache,
+            quiet=quiet,
+            log_high_severity_issues=not production_mode,
+        )
+
+        # Run parallel data quality checks (10-15% faster than sequential).
+        logger.info("Running parallel data quality checks...")
+        dq_checker.check_all_parallel(
+            metrics_df=metrics,
+            dimensions_df=dimensions,
+            metrics_required_fields=VALIDATION_SCHEMA["required_metric_fields"],
+            dimensions_required_fields=VALIDATION_SCHEMA["required_dimension_fields"],
+            critical_fields=VALIDATION_SCHEMA["critical_fields"],
+            max_workers=DEFAULT_VALIDATION_WORKERS,
+        )
+        dq_checker.log_summary()
+
+        # Log cache statistics if cache was used.
+        if validation_cache is not None:
+            perf_tracker.add_cache_statistics(validation_cache)
+
+        data_quality_df, dq_issues, severity_counts = _collect_data_quality_results(
+            dq_checker=dq_checker,
+            max_issues=max_issues,
+        )
+        return DataQualityValidationResult(
+            data_quality_df=data_quality_df,
+            dq_issues=dq_issues,
+            severity_counts=severity_counts,
+        )
+    except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
+        _log_validation_failure(logger, error=e)
+        return DataQualityValidationResult(
+            data_quality_df=_empty_data_quality_dataframe(),
+            failed=True,
+            error_message=str(e),
+        )
+    finally:
+        perf_tracker.end("Data Quality Validation")
 
 
 def _resolve_requested_output_formats(output_format: str) -> frozenset[str]:
@@ -5987,87 +6122,27 @@ def process_single_dataview(
 
         logger.info("Data fetch operations completed successfully")
 
-        # Data quality validation (skip if --skip-validation flag is set)
-        dq_issues: list[dict[str, Any]] = []
-        severity_counts: dict[str, int] = {}
-        dq_checker: DataQualityChecker | None = None
-        validation_failed = False
-        validation_error_message = ""
-        if not execution_policy.run_data_quality_validation:
-            logger.info("=" * BANNER_WIDTH)
-            if skip_validation:
-                logger.info("Skipping data quality validation (--skip-validation)")
-            else:
-                logger.info(
-                    "Skipping data quality validation (not emitted for inventory-only %s output)",
-                    ", ".join(sorted(execution_policy.requested_formats)),
-                )
-            logger.info("=" * BANNER_WIDTH)
-            data_quality_df = pd.DataFrame(columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"])
-        else:
-            logger.info("=" * BANNER_WIDTH)
-            logger.info("Starting data quality validation (optimized)")
-            logger.info("=" * BANNER_WIDTH)
-
-            # Start performance tracking for data quality validation
-            perf_tracker.start("Data Quality Validation")
-
-            # Create validation cache if enabled
-            # Use shared cache if provided (from batch processing), otherwise create local cache
-            validation_cache = None
-            if shared_cache is not None:
-                validation_cache = shared_cache
-                logger.info("Using shared validation cache from batch processor")
-            elif enable_cache:
-                validation_cache = ValidationCache(max_size=cache_size, ttl_seconds=cache_ttl, logger=logger)
-                if clear_cache:
-                    validation_cache.clear()
-                    logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
-                else:
-                    logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
-
-            dq_checker = DataQualityChecker(
-                logger,
-                validation_cache=validation_cache,
-                quiet=quiet,
-                log_high_severity_issues=not production_mode,
-            )
-
-            # Run parallel data quality checks (10-15% faster than sequential)
-            logger.info("Running parallel data quality checks...")
-
-            try:
-                # Parallel validation for metrics and dimensions (10-15% faster)
-                dq_checker.check_all_parallel(
-                    metrics_df=metrics,
-                    dimensions_df=dimensions,
-                    metrics_required_fields=VALIDATION_SCHEMA["required_metric_fields"],
-                    dimensions_required_fields=VALIDATION_SCHEMA["required_dimension_fields"],
-                    critical_fields=VALIDATION_SCHEMA["critical_fields"],
-                    max_workers=DEFAULT_VALIDATION_WORKERS,
-                )
-
-                # Log aggregated summary instead of individual issue count
-                dq_checker.log_summary()
-
-                # Log cache statistics if cache was used
-                if validation_cache is not None:
-                    perf_tracker.add_cache_statistics(validation_cache)
-
-                # End performance tracking
-                perf_tracker.end("Data Quality Validation")
-
-            except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
-                _log_validation_failure(logger, error=e)
-                perf_tracker.end("Data Quality Validation")
-                validation_failed = True
-                validation_error_message = str(e)
-
-            # Get data quality issues dataframe (limited if max_issues > 0)
-            with contextlib.suppress(Exception):
-                data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
-                dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
-                severity_counts = count_quality_issues_by_severity(dq_issues)
+        validation_result = _run_data_quality_validation(
+            logger=logger,
+            perf_tracker=perf_tracker,
+            metrics=metrics,
+            dimensions=dimensions,
+            quiet=quiet,
+            production_mode=production_mode,
+            shared_cache=shared_cache,
+            enable_cache=enable_cache,
+            cache_size=cache_size,
+            cache_ttl=cache_ttl,
+            clear_cache=clear_cache,
+            max_issues=max_issues,
+            skip_validation=skip_validation,
+            execution_policy=execution_policy,
+        )
+        data_quality_df = validation_result.data_quality_df
+        dq_issues = validation_result.dq_issues
+        severity_counts = validation_result.severity_counts
+        validation_failed = validation_result.failed
+        validation_error_message = validation_result.error_message
 
         if validation_failed and execution_policy.validation_required_for_output:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
