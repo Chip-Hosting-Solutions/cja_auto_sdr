@@ -4,13 +4,18 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import cjapy
 
 from cja_auto_sdr.api.resilience import make_api_call_with_retry
 from cja_auto_sdr.core.constants import BANNER_WIDTH
-from cja_auto_sdr.core.credentials import CredentialResolver
+from cja_auto_sdr.core.credentials import (
+    CredentialResolver,
+    normalize_credential_value,
+    normalize_scopes_value,
+)
 from cja_auto_sdr.core.error_policies import (
     RECOVERABLE_CONNECTION_TEST_EXCEPTIONS,
     RECOVERABLE_DOTENV_BOOTSTRAP_EXCEPTIONS,
@@ -78,11 +83,15 @@ def _cleanup_stale_temp_configs(logger: logging.Logger) -> None:
         logger.debug(f"Removed {removed} stale temp credential file(s) from previous runs")
 
 
-def _normalize_scopes_for_configure(scopes: str | None) -> str | None:
-    """Match the historic importConfigFile scope normalization for direct configuration."""
-    if not isinstance(scopes, str):
-        return scopes
-    return scopes.replace(" ", "")
+def _build_cjapy_config_kwargs(credentials: Mapping[str, object]) -> dict[str, str | None]:
+    """Normalize credential payloads to the string contract expected by ``cjapy.configure``."""
+    scopes = normalize_scopes_value(credentials.get("scopes"), compact=True)
+    return {
+        "org_id": normalize_credential_value(credentials.get("org_id")) or None,
+        "client_id": normalize_credential_value(credentials.get("client_id")) or None,
+        "secret": normalize_credential_value(credentials.get("secret")) or None,
+        "scopes": scopes or None,
+    }
 
 
 def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
@@ -99,12 +108,7 @@ def _config_from_env(credentials: dict[str, str], logger: logging.Logger):
         logger: Logger instance
     """
     _cleanup_stale_temp_configs(logger)
-    cjapy.configure(
-        org_id=credentials.get("org_id"),
-        client_id=credentials.get("client_id"),
-        secret=credentials.get("secret"),
-        scopes=_normalize_scopes_for_configure(credentials.get("scopes")),
-    )
+    cjapy.configure(**_build_cjapy_config_kwargs(credentials))
     logger.debug("Configured cjapy directly from in-memory credentials")
 
 

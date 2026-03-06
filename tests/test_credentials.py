@@ -20,6 +20,7 @@ from cja_auto_sdr.core.credentials import (
     filter_credentials,
     load_credentials_from_env,
     normalize_credential_value,
+    normalize_scopes_value,
     validate_env_credentials,
 )
 from cja_auto_sdr.core.exceptions import (
@@ -78,6 +79,18 @@ class TestNormalizeCredentialValue:
 # ==================== filter_credentials ====================
 
 
+class TestNormalizeScopesValue:
+    """Test scopes-specific normalization helpers."""
+
+    def test_list_values_become_comma_delimited_string(self):
+        assert normalize_scopes_value(["openid", "AdobeID"]) == "openid,AdobeID"
+
+    def test_compact_mode_normalizes_delimiters_for_cjapy(self):
+        assert normalize_scopes_value("openid, AdobeID read_organizations", compact=True) == (
+            "openid,AdobeID,read_organizations"
+        )
+
+
 class TestFilterCredentials:
     """Test filter_credentials function."""
 
@@ -126,6 +139,15 @@ class TestFilterCredentials:
         }
         result = filter_credentials(raw)
         assert len(result) == 5
+
+    def test_normalizes_list_valued_scopes(self):
+        """List-valued JSON scopes should be preserved as a usable string."""
+        raw = {
+            "org_id": "o",
+            "scopes": ["openid", "AdobeID"],
+        }
+        result = filter_credentials(raw)
+        assert result["scopes"] == "openid,AdobeID"
 
 
 # ==================== CredentialLoader base class ====================

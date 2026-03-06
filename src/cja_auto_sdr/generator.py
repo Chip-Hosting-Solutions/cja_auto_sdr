@@ -332,9 +332,10 @@ class ProcessingResult:
 
     def __post_init__(self) -> None:
         """Normalize partial-run observability fields for all result producers."""
-        self.partial_reasons = _normalize_partial_reason_values(self.partial_reasons)
-        if self.partial_reasons:
-            self.partial_output = True
+        self.partial_output, self.partial_reasons = _normalize_partial_state(
+            self.partial_output,
+            self.partial_reasons,
+        )
 
     @property
     def file_size_formatted(self) -> str:
@@ -1547,6 +1548,16 @@ def _normalize_partial_reason_values(partial_reasons: Iterable[str] | None) -> l
     return normalized
 
 
+def _normalize_partial_state(
+    partial_output: bool | None,
+    partial_reasons: Iterable[str] | None,
+) -> tuple[bool, list[str]]:
+    """Normalize partial-run state once for all producers and serializers."""
+    normalized_partial_reasons = _normalize_partial_reason_values(partial_reasons)
+    normalized_partial_output = bool(partial_output) or bool(normalized_partial_reasons)
+    return normalized_partial_output, normalized_partial_reasons
+
+
 def _build_processing_result(
     *,
     data_view_id: str,
@@ -1558,10 +1569,10 @@ def _build_processing_result(
     **kwargs: Any,
 ) -> ProcessingResult:
     """Construct ProcessingResult objects with normalized partial-run context."""
-    normalized_partial_reasons = _normalize_partial_reason_values(partial_reasons)
-    effective_partial_output = bool(partial_output)
-    if normalized_partial_reasons:
-        effective_partial_output = True
+    effective_partial_output, normalized_partial_reasons = _normalize_partial_state(
+        partial_output,
+        partial_reasons,
+    )
     return ProcessingResult(
         data_view_id=data_view_id,
         data_view_name=data_view_name,
@@ -1627,15 +1638,13 @@ def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str
     }
 
 
-def _normalized_partial_reasons(result: ProcessingResult) -> list[str]:
-    """Return stable, de-duplicated partial reasons for run-summary serialization."""
-    return _normalize_partial_reason_values(result.partial_reasons)
-
-
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     """Serialize ProcessingResult into run summary shape."""
     failure_code, failure_reason = _normalize_failure_identity(result)
-    partial_reasons = _normalized_partial_reasons(result)
+    partial_output, partial_reasons = _normalize_partial_state(
+        result.partial_output,
+        result.partial_reasons,
+    )
     return {
         "data_view_id": result.data_view_id,
         "data_view_name": result.data_view_name,
@@ -1649,7 +1658,7 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "error_message": result.error_message,
         "failure_code": failure_code,
         "failure_reason": failure_reason,
-        "partial_output": bool(result.partial_output and result.success),
+        "partial_output": partial_output,
         "partial_reasons": partial_reasons,
         "file_size_bytes": result.file_size_bytes,
         "segments_count": result.segments_count,
@@ -1930,7 +1939,7 @@ def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
         with open(config_file) as f:
             config = json.load(f)
         if isinstance(config, dict):
-            return {k: str(v).strip() for k, v in config.items() if v}
+            return filter_credentials(config)
         return None
     # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
     except OSError, json.JSONDecodeError:
@@ -1974,7 +1983,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
     except OSError, UnicodeDecodeError:
         return None
 
-    return credentials or None
+    filtered_credentials = filter_credentials(credentials)
+    return filtered_credentials or None
 
 
 def load_profile_credentials(profile_name: str, logger: logging.Logger) -> dict[str, str] | None:

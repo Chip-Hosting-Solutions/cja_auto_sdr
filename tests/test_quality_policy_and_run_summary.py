@@ -24,6 +24,7 @@ from cja_auto_sdr.generator import (
     _infer_run_status,
     _normalize_exit_code,
     _normalize_failure_identity,
+    _processing_result_to_summary,
     aggregate_quality_issues,
     apply_quality_policy_defaults,
     count_quality_issues_by_severity,
@@ -462,6 +463,26 @@ class TestFailureIdentityNormalization:
 
         assert failure_code == expected_code
         assert failure_reason == expected_code.lower()
+
+
+class TestPartialRunSummaryNormalization:
+    def test_failed_partial_result_preserves_partial_output_signal(self):
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=False,
+            duration=0.0,
+            partial_output=True,
+            partial_reasons=["required_endpoints_failed:metrics"],
+            error_message="Permission denied: /tmp/report.xlsx",
+        )
+
+        summary = _processing_result_to_summary(result)
+
+        assert summary["success"] is False
+        assert summary["partial_output"] is True
+        assert summary["partial_reasons"] == ["required_endpoints_failed:metrics"]
+        assert summary["failure_code"] == "OUTPUT_PERMISSION_DENIED"
 
 
 # ==================== _coerce_run_mode ====================

@@ -170,6 +170,16 @@ class TestLoadProfileConfigJson:
         result = load_profile_config_json(tmp_path)
         assert result["org_id"] == "test@AdobeOrg"
 
+    def test_normalizes_list_scopes(self, tmp_path):
+        """List-valued scopes in profile JSON should stay usable for cjapy.configure."""
+        config = {"org_id": "test@AdobeOrg", "scopes": ["openid", "AdobeID"]}
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(config))
+
+        result = load_profile_config_json(tmp_path)
+        assert result is not None
+        assert result["scopes"] == "openid,AdobeID"
+
 
 class TestLoadProfileDotenv:
     """Test loading credentials from .env file"""

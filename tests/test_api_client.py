@@ -154,6 +154,20 @@ class TestConfigFromEnvCleanup:
         )
 
     @patch("cja_auto_sdr.api.client.cjapy")
+    def test_configures_cjapy_with_list_valued_scopes(self, mock_cjapy, mock_logger):
+        """List-valued scopes from profile/config JSON should be adapted for cjapy.configure."""
+        credentials = {"org_id": "test@AdobeOrg", "client_id": "x", "secret": "y", "scopes": ["openid", "AdobeID"]}
+
+        _config_from_env(credentials, mock_logger)
+
+        mock_cjapy.configure.assert_called_once_with(
+            org_id="test@AdobeOrg",
+            client_id="x",
+            secret="y",
+            scopes="openid,AdobeID",
+        )
+
+    @patch("cja_auto_sdr.api.client.cjapy")
     @patch("cja_auto_sdr.api.client.tempfile.gettempdir")
     def test_stale_temp_configs_removed_during_config(self, mock_gettempdir, mock_cjapy, mock_logger, tmp_path):
         """Old temp credential files from prior versions should be cleaned up."""
