@@ -18,7 +18,7 @@ import textwrap
 import threading
 import time
 import uuid
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -329,6 +329,12 @@ class ProcessingResult:
     calculated_metrics_high_complexity: int = 0
     derived_fields_count: int = 0
     derived_fields_high_complexity: int = 0
+
+    def __post_init__(self) -> None:
+        """Normalize partial-run observability fields for all result producers."""
+        self.partial_reasons = _normalize_partial_reason_values(self.partial_reasons)
+        if self.partial_reasons:
+            self.partial_output = True
 
     @property
     def file_size_formatted(self) -> str:
@@ -1529,6 +1535,44 @@ def _sync_run_summary_cli_metadata(
     run_state["allow_partial"] = bool(getattr(args, "allow_partial", False))
 
 
+def _normalize_partial_reason_values(partial_reasons: Iterable[str] | None) -> list[str]:
+    """Return stable, de-duplicated partial reasons."""
+    normalized: list[str] = []
+    if partial_reasons is None:
+        return normalized
+    for raw_reason in partial_reasons:
+        reason = str(raw_reason).strip()
+        if reason and reason not in normalized:
+            normalized.append(reason)
+    return normalized
+
+
+def _build_processing_result(
+    *,
+    data_view_id: str,
+    data_view_name: str,
+    success: bool,
+    duration: float,
+    partial_reasons: Iterable[str] | None = None,
+    partial_output: bool | None = None,
+    **kwargs: Any,
+) -> ProcessingResult:
+    """Construct ProcessingResult objects with normalized partial-run context."""
+    normalized_partial_reasons = _normalize_partial_reason_values(partial_reasons)
+    effective_partial_output = bool(partial_output)
+    if normalized_partial_reasons:
+        effective_partial_output = True
+    return ProcessingResult(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        success=success,
+        duration=duration,
+        partial_output=effective_partial_output,
+        partial_reasons=normalized_partial_reasons,
+        **kwargs,
+    )
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Compatibility wrapper that returns the run mode as a string value."""
     return _infer_run_mode_enum(args).value
@@ -1585,12 +1629,7 @@ def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str
 
 def _normalized_partial_reasons(result: ProcessingResult) -> list[str]:
     """Return stable, de-duplicated partial reasons for run-summary serialization."""
-    normalized: list[str] = []
-    for raw_reason in result.partial_reasons:
-        reason = str(raw_reason).strip()
-        if reason and reason not in normalized:
-            normalized.append(reason)
-    return normalized
+    return _normalize_partial_reason_values(result.partial_reasons)
 
 
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
@@ -6112,6 +6151,25 @@ def process_single_dataview(
     )
     allow_partial_for_sdr = allow_partial and not quality_report_only
     partial_reasons: list[str] = []
+
+    def _finalize_result(
+        *,
+        data_view_name: str,
+        success: bool,
+        duration: float | None = None,
+        partial_reasons_override: Iterable[str] | None = None,
+        **kwargs: Any,
+    ) -> ProcessingResult:
+        """Build terminal results with the current partial-run context attached."""
+        return _build_processing_result(
+            data_view_id=data_view_id,
+            data_view_name=data_view_name,
+            success=success,
+            duration=time.time() - start_time if duration is None else duration,
+            partial_reasons=partial_reasons if partial_reasons_override is None else partial_reasons_override,
+            **kwargs,
+        )
+
     logger.debug(
         "Execution policy: formats=%s, required_components=%s, validation_required=%s, run_validation=%s",
         sorted(execution_policy.requested_formats),
@@ -6124,11 +6182,9 @@ def process_single_dataview(
         # Initialize CJA
         cja = initialize_cja(config_file, logger, profile=profile)
         if cja is None:
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name="Unknown",
                 success=False,
-                duration=time.time() - start_time,
                 error_message="CJA initialization failed",
                 failure_code=FAILURE_CODE_CJA_INIT_FAILED,
                 failure_reason="cja_initialization_failed",
@@ -6177,11 +6233,9 @@ def process_single_dataview(
                 "Lookup payload rejected: raw_type=%s",
                 lookup_raw_type,
             )
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name="Unknown",
                 success=False,
-                duration=time.time() - start_time,
                 error_message="Data view validation failed",
                 failure_code=FAILURE_CODE_DATAVIEW_LOOKUP_INVALID,
                 failure_reason=f"lookup_payload_invalid:{lookup_failure_reason}",
@@ -6252,11 +6306,9 @@ def process_single_dataview(
                 logger.info("=" * BANNER_WIDTH)
                 flush_logging_handlers(logger)
                 failed_endpoints = sorted({part.split(":", 1)[0].strip() for part in component_failures if part})
-                return ProcessingResult(
-                    data_view_id=data_view_id,
+                return _finalize_result(
                     data_view_name=dv_name,
                     success=False,
-                    duration=time.time() - start_time,
                     metrics_count=len(metrics),
                     dimensions_count=len(dimensions),
                     error_message=f"Component fetch failed: {'; '.join(component_failures)}",
@@ -6294,11 +6346,9 @@ def process_single_dataview(
                 logger.info("=" * BANNER_WIDTH)
                 # Flush handlers to ensure log is written
                 flush_logging_handlers(logger)
-                return ProcessingResult(
-                    data_view_id=data_view_id,
+                return _finalize_result(
                     data_view_name=dv_name,
                     success=False,
-                    duration=time.time() - start_time,
                     error_message="No metrics or dimensions found - data view may be empty or inaccessible",
                     failure_code=FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY,
                     failure_reason="required_components_empty",
@@ -6349,11 +6399,9 @@ def process_single_dataview(
                 logger.info(f"Duration: {time.time() - start_time:.2f}s")
                 logger.info("=" * BANNER_WIDTH)
                 flush_logging_handlers(logger)
-                return ProcessingResult(
-                    data_view_id=data_view_id,
+                return _finalize_result(
                     data_view_name=dv_name,
                     success=False,
-                    duration=time.time() - start_time,
                     metrics_count=len(metrics),
                     dimensions_count=len(dimensions),
                     dq_issues_count=len(dq_issues),
@@ -6366,19 +6414,15 @@ def process_single_dataview(
 
         if quality_report_only:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=True,
-                duration=time.time() - start_time,
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_issues),
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
                 error_message="",
-                partial_output=bool(partial_reasons),
-                partial_reasons=partial_reasons,
             )
 
         # Optional inventory builds (parallelized when 2+ are enabled)
@@ -6964,8 +7008,7 @@ def process_single_dataview(
                 derived_fields_count = derived_summary.get("total_derived_fields", 0)
                 derived_fields_high_complexity = derived_summary.get("complexity", {}).get("high_complexity_count", 0)
 
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=True,
                 duration=duration,
@@ -6982,8 +7025,6 @@ def process_single_dataview(
                 calculated_metrics_high_complexity=calculated_metrics_high_complexity,
                 derived_fields_count=derived_fields_count,
                 derived_fields_high_complexity=derived_fields_high_complexity,
-                partial_output=bool(partial_reasons),
-                partial_reasons=partial_reasons,
             )
 
         except PermissionError as e:
@@ -6997,11 +7038,9 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             flush_logging_handlers(logger)
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=False,
-                duration=time.time() - start_time,
                 error_message=f"Permission denied: {e!s}",
                 failure_code=FAILURE_CODE_OUTPUT_PERMISSION_DENIED,
                 failure_reason="output_permission_denied",
@@ -7017,11 +7056,9 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             flush_logging_handlers(logger)
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=False,
-                duration=time.time() - start_time,
                 error_message=str(e),
                 failure_code=FAILURE_CODE_OUTPUT_WRITE_FAILED,
                 failure_reason=f"output_write_failed:{type(e).__name__}",
@@ -7038,11 +7075,9 @@ def process_single_dataview(
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
         logger.info("=" * BANNER_WIDTH)
         flush_logging_handlers(logger)
-        return ProcessingResult(
-            data_view_id=data_view_id,
+        return _finalize_result(
             data_view_name="Unknown",
             success=False,
-            duration=time.time() - start_time,
             error_message=str(e),
             failure_code=FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR,
             failure_reason=f"unexpected_runtime_error:{type(e).__name__}",
@@ -14942,6 +14977,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         # shared policy files usable across non-SDR commands.
         if inferred_mode == RunMode.SDR:
             applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
+            _sync_run_summary_cli_metadata(run_state, args, inferred_mode=inferred_mode)
         if run_state is not None and isinstance(run_state.get("quality_policy"), dict):
             run_state["quality_policy"]["applied"] = applied_quality_policy
 

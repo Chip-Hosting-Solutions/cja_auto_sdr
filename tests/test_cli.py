@@ -4506,6 +4506,40 @@ class TestRunSummaryOutput:
         assert payload["quality_policy"]["path"] == str(missing_policy)
         assert payload["quality_policy"]["applied"] == {}
 
+    def test_run_summary_policy_applied_allow_partial_survives_early_validation_exit(self, tmp_path):
+        """Policy-mutated allow_partial should be synced before later CLI validation exits."""
+        from cja_auto_sdr.generator import main
+
+        summary_file = tmp_path / "run_summary_policy_allow_partial_validation_error.json"
+        policy_file = tmp_path / "quality_policy.json"
+        policy_file.write_text(json.dumps({"allow_partial": True}), encoding="utf-8")
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cja_auto_sdr",
+                "dv_test",
+                "--quality-policy",
+                str(policy_file),
+                "--workers",
+                "0",
+                "--run-summary-json",
+                str(summary_file),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["mode"] == "sdr"
+        assert payload["status"] == "error"
+        assert payload["allow_partial"] is True
+        assert payload["quality_policy"]["path"] == str(policy_file)
+        assert payload["quality_policy"]["applied"] == {"allow_partial": True}
+
     def test_run_summary_profile_overwrite_validation_error_mode(self, tmp_path):
         """Profile overwrite validation failures should still be classified as profile_management mode."""
         from cja_auto_sdr.generator import main
