@@ -810,6 +810,50 @@ def _resolve_requested_output_formats(output_format: str) -> frozenset[str]:
     return frozenset({output_format})
 
 
+STANDARD_COMPONENT_ENDPOINTS: frozenset[str] = frozenset({"metrics", "dimensions"})
+
+
+def _should_emit_standard_sdr_sections(*, inventory_only: bool) -> bool:
+    """Return whether this run emits standard SDR sections (metadata/quality/components)."""
+    # Inventory-only mode always excludes standard SDR sections from output payloads.
+    return not inventory_only
+
+
+def _resolve_standard_component_requirements(*, metrics_only: bool, dimensions_only: bool) -> frozenset[str]:
+    """Resolve required standard component endpoints for non-inventory-only SDR runs."""
+    if metrics_only and dimensions_only:
+        return STANDARD_COMPONENT_ENDPOINTS
+
+    required_component_endpoints: set[str] = set()
+    if not dimensions_only:
+        required_component_endpoints.add("metrics")
+    if not metrics_only:
+        required_component_endpoints.add("dimensions")
+    return frozenset(required_component_endpoints)
+
+
+def _resolve_required_component_endpoints(
+    *,
+    inventory_only: bool,
+    include_derived_inventory: bool,
+    metrics_only: bool,
+    dimensions_only: bool,
+    quality_report_only: bool,
+) -> frozenset[str]:
+    """Resolve component endpoints that must fail-closed for this run."""
+    if quality_report_only:
+        return STANDARD_COMPONENT_ENDPOINTS
+    if include_derived_inventory:
+        # Derived inventory always depends on both component payloads.
+        return STANDARD_COMPONENT_ENDPOINTS
+    if not _should_emit_standard_sdr_sections(inventory_only=inventory_only):
+        return frozenset()
+    return _resolve_standard_component_requirements(
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+    )
+
+
 def _build_processing_execution_policy(
     *,
     output_format: str,
@@ -822,31 +866,24 @@ def _build_processing_execution_policy(
 ) -> ProcessingExecutionPolicy:
     """Determine which fetch/validation failures must be fail-closed for this run."""
     requested_formats = _resolve_requested_output_formats(output_format)
-    inventory_only_omits_standard_sections = inventory_only and requested_formats.issubset({"excel", "csv"})
+    emits_standard_sdr_sections = _should_emit_standard_sdr_sections(inventory_only=inventory_only)
+    inventory_only_omits_standard_sections = not emits_standard_sdr_sections
 
-    required_component_endpoints: set[str] = set()
-    if quality_report_only:
-        required_component_endpoints.update({"metrics", "dimensions"})
-    elif include_derived_inventory or (inventory_only and not inventory_only_omits_standard_sections):
-        # Derived inventory and non-tabular inventory-only formats still consume
-        # standard component payloads.
-        required_component_endpoints.update({"metrics", "dimensions"})
-    elif not inventory_only:
-        if metrics_only and dimensions_only:
-            required_component_endpoints.update({"metrics", "dimensions"})
-        else:
-            if not dimensions_only:
-                required_component_endpoints.add("metrics")
-            if not metrics_only:
-                required_component_endpoints.add("dimensions")
+    required_component_endpoints = _resolve_required_component_endpoints(
+        inventory_only=inventory_only,
+        include_derived_inventory=include_derived_inventory,
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+        quality_report_only=quality_report_only,
+    )
 
-    validation_required_for_output = quality_report_only or not inventory_only or not inventory_only_omits_standard_sections
+    validation_required_for_output = quality_report_only or emits_standard_sdr_sections
     run_data_quality_validation = validation_required_for_output and not skip_validation
 
     return ProcessingExecutionPolicy(
         requested_formats=requested_formats,
         inventory_only_omits_standard_sections=inventory_only_omits_standard_sections,
-        required_component_endpoints=frozenset(required_component_endpoints),
+        required_component_endpoints=required_component_endpoints,
         validation_required_for_output=validation_required_for_output,
         run_data_quality_validation=run_data_quality_validation,
     )
@@ -6419,8 +6456,9 @@ def process_single_dataview(
         logger.info("=" * BANNER_WIDTH)
 
         # Prepare data dictionary for all formats
-        # In inventory-only mode, skip standard SDR sheets
-        if inventory_only:
+        # Keep standard section emission aligned with execution-policy decisions.
+        emits_standard_sdr_sections = not execution_policy.inventory_only_omits_standard_sections
+        if not emits_standard_sdr_sections:
             data_dict = {}
         else:
             data_dict = {
@@ -6499,8 +6537,8 @@ def process_single_dataview(
                         # Write sheets in order, with Data Quality first for visibility
                         sheets_to_write = []
 
-                        # Skip standard sheets in inventory-only mode
-                        if not inventory_only:
+                        # Skip standard sheets when output policy omits them.
+                        if emits_standard_sdr_sections:
                             sheets_to_write.extend(
                                 [
                                     (metadata_df, "Metadata"),
