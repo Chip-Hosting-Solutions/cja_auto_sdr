@@ -316,6 +316,7 @@ class ProcessingResult:
     dq_issues: list[ValidationIssue] = field(default_factory=list)
     dq_severity_counts: dict[str, int] = field(default_factory=dict)
     output_file: str = ""
+    output_files: list[str] = field(default_factory=list)
     error_message: str = ""
     failure_code: str = ""
     failure_reason: str = ""
@@ -331,7 +332,11 @@ class ProcessingResult:
     derived_fields_high_complexity: int = 0
 
     def __post_init__(self) -> None:
-        """Normalize partial-run observability fields for all result producers."""
+        """Normalize output and partial-run observability fields for all result producers."""
+        self.output_file, self.output_files = _normalize_output_artifact_state(
+            self.output_file,
+            self.output_files,
+        )
         self.partial_output, self.partial_reasons = _normalize_partial_state(
             self.partial_output,
             self.partial_reasons,
@@ -341,6 +346,11 @@ class ProcessingResult:
     def file_size_formatted(self) -> str:
         """Return human-readable file size (e.g., '1.5 MB', '256 KB')."""
         return format_file_size(self.file_size_bytes)
+
+    @property
+    def emitted_output_files(self) -> list[str]:
+        """Return the normalized emitted artifact list."""
+        return list(self.output_files)
 
     @property
     def has_inventory(self) -> bool:
@@ -1152,6 +1162,161 @@ def _resolve_validation_metadata_values(
     return "Skipped", "Not run", validation_status_detail or "Validation skipped"
 
 
+def _build_sdr_metadata_dataframe(
+    *,
+    data_view_id: str,
+    lookup_data: Mapping[str, Any] | None,
+    metrics: pd.DataFrame,
+    dimensions: pd.DataFrame,
+    fetch_statuses: Mapping[str, Any],
+    validation_status: str,
+    validation_status_detail: str,
+    dq_issues: Collection[Mapping[str, Any]],
+    severity_counts: Mapping[str, int],
+    partial_reasons: Iterable[str] | None,
+    segments_inventory_obj: Any,
+    calculated_inventory_obj: Any,
+    derived_inventory_obj: Any,
+) -> pd.DataFrame:
+    """Build the metadata DataFrame for SDR artifacts."""
+    metric_types = metrics["type"].value_counts().to_dict() if not metrics.empty and "type" in metrics.columns else {}
+    metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
+
+    dimension_types = dimensions["type"].value_counts().to_dict() if not dimensions.empty and "type" in dimensions.columns else {}
+    dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
+
+    local_tz = datetime.now(UTC).astimezone().tzinfo
+    current_time = datetime.now(local_tz)
+    formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    metrics_count_value, metrics_breakdown_value = _resolve_component_metadata_values(
+        endpoint="metrics",
+        dataframe=metrics,
+        breakdown=metric_summary,
+        fetch_statuses=fetch_statuses,
+    )
+    dimensions_count_value, dimensions_breakdown_value = _resolve_component_metadata_values(
+        endpoint="dimensions",
+        dataframe=dimensions,
+        breakdown=dimension_summary,
+        fetch_statuses=fetch_statuses,
+    )
+    validation_status_value, dq_issues_value, dq_summary_value = _resolve_validation_metadata_values(
+        validation_status=validation_status,
+        validation_status_detail=validation_status_detail,
+        dq_issues=dq_issues,
+        severity_counts=severity_counts,
+    )
+
+    metadata_properties = [
+        "Generated Date & timestamp and timezone",
+        "Data View ID",
+        "Data View Name",
+        "Total Metrics",
+        "Metrics Breakdown",
+        "Total Dimensions",
+        "Dimensions Breakdown",
+        "Data Quality Validation Status",
+        "Data Quality Issues",
+        "Data Quality Summary",
+    ]
+    metadata_values = [
+        formatted_timestamp,
+        data_view_id,
+        lookup_data.get("name", "Unknown") if isinstance(lookup_data, Mapping) else "Unknown",
+        metrics_count_value,
+        metrics_breakdown_value,
+        dimensions_count_value,
+        dimensions_breakdown_value,
+        validation_status_value,
+        dq_issues_value,
+        dq_summary_value,
+    ]
+
+    normalized_partial_output, normalized_partial_reasons = _normalize_partial_state(False, partial_reasons)
+    if normalized_partial_output:
+        metadata_properties.extend(["Partial Output", "Partial Reasons"])
+        metadata_values.extend(["Yes", ", ".join(normalized_partial_reasons)])
+
+    if segments_inventory_obj or calculated_inventory_obj or derived_inventory_obj:
+        metadata_properties.append("--- Inventory Statistics ---")
+        metadata_values.append("")
+
+    if segments_inventory_obj:
+        seg_summary = segments_inventory_obj.get_summary()
+        seg_count = seg_summary.get("total_segments", 0)
+        seg_complexity = seg_summary.get("complexity", {})
+        seg_high = seg_complexity.get("high_complexity_count", 0)
+        seg_elevated = seg_complexity.get("elevated_complexity_count", 0)
+        seg_avg = seg_complexity.get("average", 0)
+        seg_max = seg_complexity.get("max", 0)
+        metadata_properties.extend(
+            [
+                "Segments Count",
+                "Segments Complexity (Avg / Max)",
+                "Segments High Complexity (≥75)",
+                "Segments Elevated Complexity (50-74)",
+            ],
+        )
+        metadata_values.extend([seg_count, f"{seg_avg:.1f} / {seg_max:.1f}", seg_high, seg_elevated])
+
+    if calculated_inventory_obj:
+        calc_summary = calculated_inventory_obj.get_summary()
+        calc_count = calc_summary.get("total_calculated_metrics", 0)
+        calc_complexity = calc_summary.get("complexity", {})
+        calc_high = calc_complexity.get("high_complexity_count", 0)
+        calc_elevated = calc_complexity.get("elevated_complexity_count", 0)
+        calc_avg = calc_complexity.get("average", 0)
+        calc_max = calc_complexity.get("max", 0)
+        metadata_properties.extend(
+            [
+                "Calculated Metrics Count",
+                "Calculated Metrics Complexity (Avg / Max)",
+                "Calculated Metrics High Complexity (≥75)",
+                "Calculated Metrics Elevated Complexity (50-74)",
+            ],
+        )
+        metadata_values.extend([calc_count, f"{calc_avg:.1f} / {calc_max:.1f}", calc_high, calc_elevated])
+
+    if derived_inventory_obj:
+        derived_summary = derived_inventory_obj.get_summary()
+        derived_count = derived_summary.get("total_derived_fields", 0)
+        derived_metrics = derived_summary.get("metrics_count", 0)
+        derived_dimensions = derived_summary.get("dimensions_count", 0)
+        derived_complexity = derived_summary.get("complexity", {})
+        derived_high = derived_complexity.get("high_complexity_count", 0)
+        derived_elevated = derived_complexity.get("elevated_complexity_count", 0)
+        derived_avg = derived_complexity.get("average", 0)
+        derived_max = derived_complexity.get("max", 0)
+        metadata_properties.extend(
+            [
+                "Derived Fields Count",
+                "Derived Fields Breakdown",
+                "Derived Fields Complexity (Avg / Max)",
+                "Derived Fields High Complexity (≥75)",
+                "Derived Fields Elevated Complexity (50-74)",
+            ],
+        )
+        metadata_values.extend(
+            [
+                derived_count,
+                f"Metrics: {derived_metrics}, Dimensions: {derived_dimensions}",
+                f"{derived_avg:.1f} / {derived_max:.1f}",
+                derived_high,
+                derived_elevated,
+            ],
+        )
+
+    return pd.DataFrame({"Property": metadata_properties, "Value": metadata_values})
+
+
+def _metadata_dataframe_to_dict(metadata_df: pd.DataFrame) -> dict[str, Any]:
+    """Convert metadata DataFrame into embedded metadata dict form."""
+    if metadata_df.empty:
+        return {}
+    return metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
+
+
 def _run_optional_inventory_step[T](
     *,
     logger: Any,
@@ -1628,6 +1793,33 @@ def _normalize_partial_reason_values(partial_reasons: Iterable[str] | None) -> l
     return normalized
 
 
+def _normalize_output_artifact_values(output_files: Iterable[str] | None) -> list[str]:
+    """Return stable, de-duplicated emitted artifact paths."""
+    normalized: list[str] = []
+    if output_files is None:
+        return normalized
+    for raw_path in output_files:
+        path = str(raw_path).strip()
+        if path and path not in normalized:
+            normalized.append(path)
+    return normalized
+
+
+def _normalize_output_artifact_state(
+    output_file: str | None,
+    output_files: Iterable[str] | None,
+) -> tuple[str, list[str]]:
+    """Normalize primary output file and emitted artifact list together."""
+    normalized_output_files = _normalize_output_artifact_values(output_files)
+    primary_output = str(output_file or "").strip()
+    if primary_output:
+        if primary_output not in normalized_output_files:
+            normalized_output_files.insert(0, primary_output)
+    elif normalized_output_files:
+        primary_output = normalized_output_files[0]
+    return primary_output, normalized_output_files
+
+
 def _normalize_partial_state(
     partial_output: bool | None,
     partial_reasons: Iterable[str] | None,
@@ -1714,6 +1906,18 @@ def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str
     }
 
 
+def _result_output_paths(result: Any) -> list[str]:
+    """Extract normalized emitted artifact paths from a result-like object."""
+    if isinstance(result, dict):
+        output_file = result.get("output_file")
+        output_files = result.get("output_files")
+    else:
+        output_file = getattr(result, "output_file", "")
+        output_files = getattr(result, "output_files", None)
+    _primary_output, normalized_output_files = _normalize_output_artifact_state(output_file, output_files)
+    return normalized_output_files
+
+
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     """Serialize ProcessingResult into run summary shape."""
     failure_code, failure_reason = _normalize_failure_identity(result)
@@ -1727,6 +1931,7 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "dq_issues_count": result.dq_issues_count,
         "dq_severity_counts": result.dq_severity_counts,
         "output_file": result.output_file,
+        "output_files": result.emitted_output_files,
         "error_message": result.error_message,
         "failure_code": failure_code,
         "failure_reason": failure_reason,
@@ -1759,6 +1964,50 @@ def _collect_environment_info() -> dict[str, Any]:
         "platform": sys.platform,
         "platform_version": platform.platform(),
         "dependencies": deps,
+    }
+
+
+def _build_run_summary_payload(
+    *,
+    run_state: Mapping[str, Any],
+    exit_code: int,
+    summary_start: str,
+    summary_start_perf: float,
+) -> dict[str, Any]:
+    """Build the machine-readable run summary payload."""
+    serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]
+    success_count = sum(1 for r in serialized_results if r.get("success"))
+    failure_count = len(serialized_results) - success_count
+    return {
+        "summary_version": RUN_SUMMARY_SCHEMA_VERSION,
+        "tool_version": __version__,
+        "environment": _collect_environment_info(),
+        "started_at": summary_start,
+        "ended_at": datetime.now(UTC).isoformat(),
+        "duration_seconds": round(time.time() - summary_start_perf, 3),
+        "exit_code": exit_code,
+        "status": _infer_run_status(exit_code, run_state),
+        "mode": run_state.get("mode", "unknown"),
+        "profile": run_state.get("profile"),
+        "config_file": run_state.get("config_file"),
+        "output_format": run_state.get("output_format"),
+        "allow_partial": bool(run_state.get("allow_partial", False)),
+        "command": {"argv": list(sys.argv), "cwd": str(Path.cwd())},
+        "inputs": {
+            "data_view_inputs": run_state.get("data_view_inputs", []),
+            "resolved_data_views": run_state.get("resolved_data_views", []),
+        },
+        "results": serialized_results,
+        "result_counts": {
+            "total": len(serialized_results),
+            "successful": success_count,
+            "failed": failure_count,
+            "quality_issues": int(run_state.get("quality_issues_count", 0) or 0),
+        },
+        "failure_rollups": _build_failure_rollups(serialized_results),
+        "quality_gate_failed": bool(run_state.get("quality_gate_failed", False)),
+        "quality_policy": run_state.get("quality_policy"),
+        "details": run_state.get("details", {}),
     }
 
 
@@ -6725,142 +6974,21 @@ def process_single_dataview(
         try:
             # Enhanced metadata creation
             logger.info("Creating metadata summary...")
-            metric_types = (
-                metrics["type"].value_counts().to_dict() if not metrics.empty and "type" in metrics.columns else {}
-            )
-            metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
-
-            dimension_types = (
-                dimensions["type"].value_counts().to_dict()
-                if not dimensions.empty and "type" in dimensions.columns
-                else {}
-            )
-            dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
-
-            # Get current timezone and formatted timestamp
-            local_tz = datetime.now(UTC).astimezone().tzinfo
-            current_time = datetime.now(local_tz)
-            formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-            metrics_count_value, metrics_breakdown_value = _resolve_component_metadata_values(
-                endpoint="metrics",
-                dataframe=metrics,
-                breakdown=metric_summary,
+            metadata_df = _build_sdr_metadata_dataframe(
+                data_view_id=data_view_id,
+                lookup_data=lookup_data,
+                metrics=metrics,
+                dimensions=dimensions,
                 fetch_statuses=fetch_statuses,
-            )
-            dimensions_count_value, dimensions_breakdown_value = _resolve_component_metadata_values(
-                endpoint="dimensions",
-                dataframe=dimensions,
-                breakdown=dimension_summary,
-                fetch_statuses=fetch_statuses,
-            )
-            validation_status_value, dq_issues_value, dq_summary_value = _resolve_validation_metadata_values(
                 validation_status=validation_status,
                 validation_status_detail=validation_status_detail,
                 dq_issues=dq_issues,
                 severity_counts=severity_counts,
+                partial_reasons=partial_reasons,
+                segments_inventory_obj=segments_inventory_obj,
+                calculated_inventory_obj=calculated_inventory_obj,
+                derived_inventory_obj=derived_inventory_obj,
             )
-
-            # Build base metadata properties
-            metadata_properties = [
-                "Generated Date & timestamp and timezone",
-                "Data View ID",
-                "Data View Name",
-                "Total Metrics",
-                "Metrics Breakdown",
-                "Total Dimensions",
-                "Dimensions Breakdown",
-                "Data Quality Validation Status",
-                "Data Quality Issues",
-                "Data Quality Summary",
-            ]
-            metadata_values = [
-                formatted_timestamp,
-                data_view_id,
-                lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
-                metrics_count_value,
-                metrics_breakdown_value,
-                dimensions_count_value,
-                dimensions_breakdown_value,
-                validation_status_value,
-                dq_issues_value,
-                dq_summary_value,
-            ]
-
-            # Add inventory statistics if any inventory was generated
-            if segments_inventory_obj or calculated_inventory_obj or derived_inventory_obj:
-                metadata_properties.append("--- Inventory Statistics ---")
-                metadata_values.append("")
-
-            if segments_inventory_obj:
-                seg_summary = segments_inventory_obj.get_summary()
-                seg_count = seg_summary.get("total_segments", 0)
-                seg_complexity = seg_summary.get("complexity", {})
-                seg_high = seg_complexity.get("high_complexity_count", 0)
-                seg_elevated = seg_complexity.get("elevated_complexity_count", 0)
-                seg_avg = seg_complexity.get("average", 0)
-                seg_max = seg_complexity.get("max", 0)
-
-                metadata_properties.extend(
-                    [
-                        "Segments Count",
-                        "Segments Complexity (Avg / Max)",
-                        "Segments High Complexity (≥75)",
-                        "Segments Elevated Complexity (50-74)",
-                    ],
-                )
-                metadata_values.extend([seg_count, f"{seg_avg:.1f} / {seg_max:.1f}", seg_high, seg_elevated])
-
-            if calculated_inventory_obj:
-                calc_summary = calculated_inventory_obj.get_summary()
-                calc_count = calc_summary.get("total_calculated_metrics", 0)
-                calc_complexity = calc_summary.get("complexity", {})
-                calc_high = calc_complexity.get("high_complexity_count", 0)
-                calc_elevated = calc_complexity.get("elevated_complexity_count", 0)
-                calc_avg = calc_complexity.get("average", 0)
-                calc_max = calc_complexity.get("max", 0)
-
-                metadata_properties.extend(
-                    [
-                        "Calculated Metrics Count",
-                        "Calculated Metrics Complexity (Avg / Max)",
-                        "Calculated Metrics High Complexity (≥75)",
-                        "Calculated Metrics Elevated Complexity (50-74)",
-                    ],
-                )
-                metadata_values.extend([calc_count, f"{calc_avg:.1f} / {calc_max:.1f}", calc_high, calc_elevated])
-
-            if derived_inventory_obj:
-                derived_summary = derived_inventory_obj.get_summary()
-                derived_count = derived_summary.get("total_derived_fields", 0)
-                derived_metrics = derived_summary.get("metrics_count", 0)
-                derived_dimensions = derived_summary.get("dimensions_count", 0)
-                derived_complexity = derived_summary.get("complexity", {})
-                derived_high = derived_complexity.get("high_complexity_count", 0)
-                derived_elevated = derived_complexity.get("elevated_complexity_count", 0)
-                derived_avg = derived_complexity.get("average", 0)
-                derived_max = derived_complexity.get("max", 0)
-
-                metadata_properties.extend(
-                    [
-                        "Derived Fields Count",
-                        "Derived Fields Breakdown",
-                        "Derived Fields Complexity (Avg / Max)",
-                        "Derived Fields High Complexity (≥75)",
-                        "Derived Fields Elevated Complexity (50-74)",
-                    ],
-                )
-                metadata_values.extend(
-                    [
-                        derived_count,
-                        f"Metrics: {derived_metrics}, Dimensions: {derived_dimensions}",
-                        f"{derived_avg:.1f} / {derived_max:.1f}",
-                        derived_high,
-                        derived_elevated,
-                    ],
-                )
-
-            # Create enhanced metadata DataFrame
-            metadata_df = pd.DataFrame({"Property": metadata_properties, "Value": metadata_values})
             logger.info("Metadata created successfully")
         except (KeyError, TypeError, ValueError) as e:
             logger.error(_format_error_msg("creating metadata", error=e))
@@ -6969,7 +7097,7 @@ def process_single_dataview(
         # Prepare metadata dictionary for JSON/HTML
         metadata_dict = {}
         if execution_policy.emits_embedded_metadata and not metadata_df.empty:
-            metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
+            metadata_dict = _metadata_dataframe_to_dict(metadata_df)
 
         # Base filename without extension
         base_filename = output_path.stem if isinstance(output_path, Path) else Path(output_path).stem
@@ -7086,6 +7214,8 @@ def process_single_dataview(
             else:
                 logger.info(f"✓ SDR generation complete! File saved as: {output_files[0]}")
 
+            primary_output_file, normalized_output_files = _normalize_output_artifact_state("", output_files)
+
             # Final summary
             logger.info("=" * BANNER_WIDTH)
             logger.info("EXECUTION SUMMARY")
@@ -7104,7 +7234,12 @@ def process_single_dataview(
                 for severity, count in severity_counts.items():
                     logger.info(f"  {severity}: {count}")
 
-            logger.info(f"Output file: {output_path}")
+            if len(normalized_output_files) > 1:
+                logger.info("Output files:")
+                for file_path in normalized_output_files:
+                    logger.info(f"  • {file_path}")
+            else:
+                logger.info(f"Output file: {primary_output_file}")
             logger.info("=" * BANNER_WIDTH)
 
             logger.info("Script execution completed successfully")
@@ -7162,7 +7297,8 @@ def process_single_dataview(
                 dq_issues_count=len(dq_issues),
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
-                output_file=str(output_path),
+                output_file=primary_output_file,
+                output_files=normalized_output_files,
                 file_size_bytes=total_size,
                 segments_count=segments_count,
                 segments_high_complexity=segments_high_complexity,
@@ -16837,10 +16973,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         if getattr(args, "open", False) and results.get("successful") and not quality_report_only:
             files_to_open = []
             for success_info in results["successful"]:
-                if isinstance(success_info, dict) and success_info.get("output_file"):
-                    files_to_open.append(success_info["output_file"])
-                elif hasattr(success_info, "output_file") and success_info.output_file:
-                    files_to_open.append(success_info.output_file)
+                files_to_open.extend(_result_output_paths(success_info))
 
             if files_to_open:
                 print()
@@ -16903,7 +17036,12 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 print(f"  Data Quality Issues: {result.dq_issues_count}")
             else:
                 print(ConsoleColors.success(f"SUCCESS: SDR generated for {result.data_view_name}"))
-                print(f"  Output: {result.output_file}")
+                if len(result.emitted_output_files) > 1:
+                    print(f"  Outputs: {len(result.emitted_output_files)} files")
+                    for file_path in result.emitted_output_files:
+                        print(f"    - {file_path}")
+                else:
+                    print(f"  Output: {result.output_file}")
                 print(f"  Size: {result.file_size_formatted}")
                 print(f"  Metrics: {result.metrics_count}, Dimensions: {result.dimensions_count}")
                 if result.dq_issues_count > 0:
@@ -17015,11 +17153,15 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                         print(ConsoleColors.error(f"  Git commit failed: {commit_result}"))
 
                 # Handle --open flag for single mode
-                if getattr(args, "open", False) and result.output_file:
+                if getattr(args, "open", False) and result.emitted_output_files:
                     print()
-                    print("Opening file...")
-                    if not open_file_in_default_app(result.output_file):
-                        print(ConsoleColors.warning(f"  Could not open: {result.output_file}"))
+                    if len(result.emitted_output_files) == 1:
+                        print("Opening file...")
+                    else:
+                        print(f"Opening {len(result.emitted_output_files)} file(s)...")
+                    for file_path in result.emitted_output_files:
+                        if not open_file_in_default_app(file_path):
+                            print(ConsoleColors.warning(f"  Could not open: {file_path}"))
         else:
             print(ConsoleColors.error(f"FAILED: {result.error_message}"))
             overall_failure = True
@@ -17133,41 +17275,12 @@ def main():
     finally:
         run_summary_output = run_state.get("run_summary_output")
         if run_summary_output:
-            serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]
-            success_count = sum(1 for r in serialized_results if r.get("success"))
-            failure_count = len(serialized_results) - success_count
-            failure_rollups = _build_failure_rollups(serialized_results)
-            summary_payload = {
-                "summary_version": RUN_SUMMARY_SCHEMA_VERSION,
-                "tool_version": __version__,
-                "environment": _collect_environment_info(),
-                "started_at": summary_start,
-                "ended_at": datetime.now(UTC).isoformat(),
-                "duration_seconds": round(time.time() - summary_start_perf, 3),
-                "exit_code": exit_code,
-                "status": _infer_run_status(exit_code, run_state),
-                "mode": run_state.get("mode", "unknown"),
-                "profile": run_state.get("profile"),
-                "config_file": run_state.get("config_file"),
-                "output_format": run_state.get("output_format"),
-                "allow_partial": bool(run_state.get("allow_partial", False)),
-                "command": {"argv": list(sys.argv), "cwd": str(Path.cwd())},
-                "inputs": {
-                    "data_view_inputs": run_state.get("data_view_inputs", []),
-                    "resolved_data_views": run_state.get("resolved_data_views", []),
-                },
-                "results": serialized_results,
-                "result_counts": {
-                    "total": len(serialized_results),
-                    "successful": success_count,
-                    "failed": failure_count,
-                    "quality_issues": int(run_state.get("quality_issues_count", 0) or 0),
-                },
-                "failure_rollups": failure_rollups,
-                "quality_gate_failed": bool(run_state.get("quality_gate_failed", False)),
-                "quality_policy": run_state.get("quality_policy"),
-                "details": run_state.get("details", {}),
-            }
+            summary_payload = _build_run_summary_payload(
+                run_state=run_state,
+                exit_code=exit_code,
+                summary_start=summary_start,
+                summary_start_perf=summary_start_perf,
+            )
             output_dir = run_state.get("output_dir") or "."
             try:
                 write_run_summary_output(summary_payload, run_summary_output, output_dir=output_dir)

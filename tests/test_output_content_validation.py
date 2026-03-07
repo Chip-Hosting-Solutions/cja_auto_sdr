@@ -226,6 +226,23 @@ class TestJSONContentValidation:
         assert data["metadata"]["Data View ID"] == "dv_content_test"
         assert data["metadata"]["Tool Version"] == "3.3.8"
 
+    def test_json_metadata_preserves_partial_markers(self, tmp_path, rich_data_dict, rich_metadata_dict):
+        logger = logging.getLogger("json_test")
+        metadata = dict(
+            rich_metadata_dict,
+            **{
+                "Partial Output": "Yes",
+                "Partial Reasons": "required_endpoints_failed:metrics",
+            },
+        )
+        path = write_json_output(rich_data_dict, metadata, "test_partial", str(tmp_path), logger)
+
+        with open(path) as f:
+            data = json.load(f)
+
+        assert data["metadata"]["Partial Output"] == "Yes"
+        assert data["metadata"]["Partial Reasons"] == "required_endpoints_failed:metrics"
+
 
 # ===================================================================
 # HTML content validation
@@ -290,6 +307,23 @@ class TestHTMLContentValidation:
         assert "Metrics" in content
         assert "Dimensions" in content
         assert "Data Quality" in content
+
+    def test_html_metadata_includes_partial_markers(self, tmp_path, rich_data_dict, rich_metadata_dict):
+        logger = logging.getLogger("html_test")
+        metadata = dict(
+            rich_metadata_dict,
+            **{
+                "Partial Output": "Yes",
+                "Partial Reasons": "required_endpoints_failed:metrics",
+            },
+        )
+        path = write_html_output(rich_data_dict, metadata, "test_partial", str(tmp_path), logger)
+
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+
+        assert "Partial Output:" in content
+        assert "required_endpoints_failed:metrics" in content
 
 
 # ===================================================================
@@ -403,6 +437,23 @@ class TestMarkdownContentValidation:
 
         # Pipe inside cell values should be escaped
         assert "\\|" in content
+
+    def test_markdown_metadata_includes_partial_markers(self, tmp_path, rich_data_dict, rich_metadata_dict):
+        logger = logging.getLogger("md_test")
+        metadata = dict(
+            rich_metadata_dict,
+            **{
+                "Partial Output": "Yes",
+                "Partial Reasons": "required_endpoints_failed:metrics",
+            },
+        )
+        path = write_markdown_output(rich_data_dict, metadata, "test_partial", str(tmp_path), logger)
+
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+
+        assert "**Partial Output:** Yes" in content
+        assert "**Partial Reasons:** required_endpoints_failed:metrics" in content
 
 
 # ===================================================================

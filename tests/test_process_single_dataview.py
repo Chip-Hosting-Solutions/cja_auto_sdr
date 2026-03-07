@@ -510,6 +510,78 @@ class TestProcessSingleDataviewFailures:
         assert result.success is True
         assert result.error_message == ""
         mock_write_json.assert_called_once()
+        metadata_dict = mock_write_json.call_args.args[1]
+        assert metadata_dict["Partial Output"] == "Yes"
+        assert metadata_dict["Partial Reasons"] == "required_endpoints_failed:metrics"
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_allow_partial_excel_metadata_marks_partial_output(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Partial exploratory Excel outputs should identify themselves in metadata."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_writer = MagicMock()
+        mock_excel_writer.return_value.__enter__ = Mock(return_value=mock_writer)
+        mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            allow_partial=True,
+        )
+
+        assert result.success is True
+        metadata_dfs = [
+            call.args[1]
+            for call in mock_apply_formatting.call_args_list
+            if len(call.args) >= 3 and call.args[2] == "Metadata"
+        ]
+        assert metadata_dfs
+        metadata_df = metadata_dfs[0]
+        metadata_map = dict(zip(metadata_df["Property"], metadata_df["Value"], strict=False))
+        assert metadata_map["Partial Output"] == "Yes"
+        assert metadata_map["Partial Reasons"] == "required_endpoints_failed:metrics"
 
     @patch("cja_auto_sdr.generator.write_json_output")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
@@ -1088,6 +1160,8 @@ class TestProcessSingleDataviewOutputFormats:
         )
 
         assert result.success is True
+        assert result.output_file == f"{temp_output_dir}/test_csv"
+        assert result.output_files == [f"{temp_output_dir}/test_csv"]
         mock_write_csv.assert_called_once()
 
     @patch("cja_auto_sdr.generator.setup_logging")
@@ -1135,6 +1209,8 @@ class TestProcessSingleDataviewOutputFormats:
         )
 
         assert result.success is True
+        assert result.output_file == f"{temp_output_dir}/test.json"
+        assert result.output_files == [f"{temp_output_dir}/test.json"]
         mock_write_json.assert_called_once()
 
     @patch("cja_auto_sdr.generator.setup_logging")
@@ -1182,6 +1258,8 @@ class TestProcessSingleDataviewOutputFormats:
         )
 
         assert result.success is True
+        assert result.output_file == f"{temp_output_dir}/test.html"
+        assert result.output_files == [f"{temp_output_dir}/test.html"]
         mock_write_html.assert_called_once()
 
     @patch("cja_auto_sdr.generator.setup_logging")
@@ -1229,6 +1307,82 @@ class TestProcessSingleDataviewOutputFormats:
         )
 
         assert result.success is True
+        assert result.output_file == f"{temp_output_dir}/test.md"
+        assert result.output_files == [f"{temp_output_dir}/test.md"]
+        mock_write_md.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_markdown_output")
+    @patch("cja_auto_sdr.generator.write_html_output")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    @patch("cja_auto_sdr.generator.apply_excel_formatting")
+    @patch("pandas.ExcelWriter")
+    def test_all_output_format_tracks_all_emitted_artifacts(
+        self,
+        mock_excel_writer,
+        mock_apply_formatting,
+        mock_write_csv,
+        mock_write_json,
+        mock_write_html,
+        mock_write_md,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Test multi-format runs keep primary and full artifact lists aligned."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_writer = MagicMock()
+        mock_excel_writer.return_value.__enter__ = Mock(return_value=mock_writer)
+        mock_excel_writer.return_value.__exit__ = Mock(return_value=False)
+
+        csv_output = f"{temp_output_dir}/test_csv"
+        json_output = f"{temp_output_dir}/test.json"
+        html_output = f"{temp_output_dir}/test.html"
+        markdown_output = f"{temp_output_dir}/test.md"
+        mock_write_csv.return_value = csv_output
+        mock_write_json.return_value = json_output
+        mock_write_html.return_value = html_output
+        mock_write_md.return_value = markdown_output
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="all",
+        )
+
+        expected_excel = f"{temp_output_dir}/CJA_DataView_{sample_dataview_info['name']}_dv_test_12345_SDR.xlsx"
+        assert result.success is True
+        assert result.output_file == expected_excel
+        assert result.output_files == [expected_excel, csv_output, json_output, html_output, markdown_output]
+        mock_write_csv.assert_called_once()
+        mock_write_json.assert_called_once()
+        mock_write_html.assert_called_once()
         mock_write_md.assert_called_once()
 
 
@@ -2013,6 +2167,7 @@ class TestProcessingResultDataclass:
         assert result.metrics_count == 100
         assert result.dimensions_count == 50
         assert result.dq_issues_count == 5
+        assert result.output_files == ["/path/to/file.xlsx"]
 
     def test_processing_result_failure(self):
         """Test ProcessingResult for failed processing"""
@@ -2024,8 +2179,21 @@ class TestProcessingResultDataclass:
             error_message="Connection failed",
         )
 
-        assert result.success is False
-        assert result.error_message == "Connection failed"
+        assert result.output_file == ""
+        assert result.output_files == []
+
+    def test_processing_result_normalizes_multi_artifact_state(self):
+        """Test additive multi-artifact state normalization."""
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test",
+            success=True,
+            duration=1.0,
+            output_files=["/tmp/report.xlsx", "/tmp/report.json", "/tmp/report.xlsx"],
+        )
+
+        assert result.output_file == "/tmp/report.xlsx"
+        assert result.output_files == ["/tmp/report.xlsx", "/tmp/report.json"]
 
     def test_processing_result_file_size_formatted(self):
         """Test file_size_formatted property"""

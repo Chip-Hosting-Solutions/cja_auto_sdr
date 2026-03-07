@@ -3688,6 +3688,7 @@ class TestRunSummaryOutput:
             "dq_issues_count",
             "dq_severity_counts",
             "output_file",
+            "output_files",
             "error_message",
             "failure_code",
             "failure_reason",
@@ -3709,6 +3710,9 @@ class TestRunSummaryOutput:
             assert isinstance(result["success"], bool)
             assert isinstance(result["duration_seconds"], (int, float))
             assert isinstance(result["dq_severity_counts"], dict)
+            assert isinstance(result["output_file"], str)
+            assert isinstance(result["output_files"], list)
+            assert all(isinstance(path, str) for path in result["output_files"])
             assert isinstance(result["failure_code"], str)
             assert isinstance(result["failure_reason"], str)
             assert isinstance(result["partial_output"], bool)
@@ -3763,6 +3767,73 @@ class TestRunSummaryOutput:
         assert payload["result_counts"]["total"] == 1
         assert payload["result_counts"]["successful"] == 1
         assert payload["results"][0]["data_view_id"] == "dv_test"
+        assert payload["results"][0]["output_file"] == "report.xlsx"
+        assert payload["results"][0]["output_files"] == ["report.xlsx"]
+
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_run_summary_serializes_additive_output_files(self, mock_resolve, mock_process, tmp_path):
+        """Run summary should carry additive multi-artifact output data."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.25,
+            metrics_count=10,
+            dimensions_count=12,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+            output_file="report.xlsx",
+            output_files=["report.xlsx", "report.json", "report.html"],
+            file_size_bytes=2048,
+        )
+
+        summary_file = tmp_path / "run_summary_outputs.json"
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--run-summary-json", str(summary_file)]):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["results"][0]["output_file"] == "report.xlsx"
+        assert payload["results"][0]["output_files"] == ["report.xlsx", "report.json", "report.html"]
+
+
+class TestOpenOutputArtifacts(TestRunSummaryOutput):
+    """Tests for opening normalized emitted artifact paths."""
+
+    @patch("cja_auto_sdr.generator.open_file_in_default_app")
+    @patch("cja_auto_sdr.generator.process_single_dataview")
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    def test_single_mode_open_uses_all_emitted_output_files(self, mock_resolve, mock_process, mock_open):
+        """Single-mode --open should consume additive output_files when present."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_test"], {})
+        mock_process.return_value = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=True,
+            duration=0.25,
+            metrics_count=10,
+            dimensions_count=12,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+            output_file="report.xlsx",
+            output_files=["report.xlsx", "report.json", "report.html"],
+            file_size_bytes=2048,
+        )
+        mock_open.return_value = True
+
+        with patch.object(sys, "argv", ["cja_auto_sdr", "dv_test", "--open", "--format", "all"]):
+            main()
+
+        assert mock_open.call_count == 3
+        assert [call.args[0] for call in mock_open.call_args_list] == ["report.xlsx", "report.json", "report.html"]
 
     @patch("cja_auto_sdr.generator.process_single_dataview")
     @patch("cja_auto_sdr.generator.resolve_data_view_names")
