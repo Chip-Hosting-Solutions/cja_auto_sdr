@@ -1182,7 +1182,9 @@ def _build_sdr_metadata_dataframe(
     metric_types = metrics["type"].value_counts().to_dict() if not metrics.empty and "type" in metrics.columns else {}
     metric_summary = [f"{type_}: {count}" for type_, count in metric_types.items()]
 
-    dimension_types = dimensions["type"].value_counts().to_dict() if not dimensions.empty and "type" in dimensions.columns else {}
+    dimension_types = (
+        dimensions["type"].value_counts().to_dict() if not dimensions.empty and "type" in dimensions.columns else {}
+    )
     dimension_summary = [f"{type_}: {count}" for type_, count in dimension_types.items()]
 
     local_tz = datetime.now(UTC).astimezone().tzinfo
