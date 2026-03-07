@@ -24,7 +24,9 @@ from cja_auto_sdr.generator import (
     _infer_run_status,
     _normalize_exit_code,
     _normalize_failure_identity,
+    _normalize_output_artifact_state,
     _processing_result_to_summary,
+    _result_output_paths,
     aggregate_quality_issues,
     apply_quality_policy_defaults,
     count_quality_issues_by_severity,
@@ -483,6 +485,27 @@ class TestPartialRunSummaryNormalization:
         assert summary["partial_output"] is True
         assert summary["partial_reasons"] == ["required_endpoints_failed:metrics"]
         assert summary["failure_code"] == "OUTPUT_PERMISSION_DENIED"
+
+
+class TestOutputArtifactNormalization:
+    def test_normalize_output_artifact_state_dedupes_and_orders_primary_first(self):
+        primary_output, output_files = _normalize_output_artifact_state(
+            "report.html",
+            ["report.json", "report.html", "report.json", "  ", "report.xlsx"],
+        )
+
+        assert primary_output == "report.html"
+        assert output_files == ["report.html", "report.json", "report.xlsx"]
+
+    def test_result_output_paths_preserves_primary_artifact_order(self):
+        result_paths = _result_output_paths(
+            {
+                "output_file": "report.xlsx",
+                "output_files": ["report.json", "report.xlsx", "report.html", "report.json"],
+            },
+        )
+
+        assert result_paths == ["report.xlsx", "report.json", "report.html"]
 
 
 # ==================== _coerce_run_mode ====================

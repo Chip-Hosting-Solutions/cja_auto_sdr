@@ -140,6 +140,8 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 
 > **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts, additive `output_files` alongside compatibility `output_file`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
 >
+> **Artifact compatibility:** When `output_files` is present, `output_file` remains the primary artifact for backward compatibility and is listed first in the emitted artifact order.
+>
 > **Run summary contract (v1.1):** `summary_version` is currently `1.1`. Consumers should treat unknown keys as additive/forward-compatible and only rely on documented stable fields.
 >
 > **Failure code registry:** Stable `failure_code` values are documented in [FAILURE_CODES.md](FAILURE_CODES.md).

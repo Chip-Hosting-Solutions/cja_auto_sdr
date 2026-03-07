@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -3801,6 +3802,60 @@ class TestRunSummaryOutput:
         assert payload["results"][0]["output_file"] == "report.xlsx"
         assert payload["results"][0]["output_files"] == ["report.xlsx", "report.json", "report.html"]
 
+    def test_run_summary_all_format_subprocess_preserves_output_files(self, tmp_path):
+        """E2E: subprocess run-summary contract should preserve additive output_files for --format all."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summary_file = tmp_path / "run_summary_all_subprocess.json"
+        script = textwrap.dedent(
+            f"""
+            import sys
+            from unittest.mock import patch
+
+            from cja_auto_sdr.generator import ProcessingResult, main
+
+            summary_file = {str(summary_file)!r}
+            result = ProcessingResult(
+                data_view_id="dv_test",
+                data_view_name="Test View",
+                success=True,
+                duration=0.25,
+                metrics_count=10,
+                dimensions_count=12,
+                dq_issues_count=0,
+                dq_issues=[],
+                dq_severity_counts={{}},
+                output_file="report.xlsx",
+                output_files=["report.xlsx", "report.json", "report.html"],
+                file_size_bytes=2048,
+            )
+
+            with (
+                patch("cja_auto_sdr.generator.resolve_data_view_names", return_value=(["dv_test"], {{}})),
+                patch("cja_auto_sdr.generator.process_single_dataview", return_value=result),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["cja_auto_sdr", "dv_test", "--format", "all", "--run-summary-json", summary_file],
+                ),
+            ):
+                main()
+            """,
+        )
+
+        result = subprocess.run(
+            ["uv", "run", "python", "-c", script],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        assert payload["output_format"] == "all"
+        assert payload["results"][0]["output_file"] == "report.xlsx"
+        assert payload["results"][0]["output_files"] == ["report.xlsx", "report.json", "report.html"]
+
 
 class TestOpenOutputArtifacts(TestRunSummaryOutput):
     """Tests for opening normalized emitted artifact paths."""
@@ -4042,6 +4097,89 @@ class TestOpenOutputArtifacts(TestRunSummaryOutput):
             "data_quality_validation_runtime_failed": 1,
             "required_endpoints_failed:metrics": 1,
         }
+
+    @patch("cja_auto_sdr.generator.resolve_data_view_names")
+    @patch("cja_auto_sdr.generator.BatchProcessor.print_summary")
+    @patch("cja_auto_sdr.generator.ProcessPoolExecutor")
+    @patch("cja_auto_sdr.generator.tqdm")
+    def test_run_summary_batch_mixed_results_preserves_success_output_files(
+        self,
+        mock_tqdm,
+        mock_executor_cls,
+        _mock_print_summary,
+        mock_resolve,
+        tmp_path,
+    ):
+        """Batch-mode run summary should preserve additive output_files for successful entries even when failures exist."""
+        from cja_auto_sdr.generator import ProcessingResult, main
+
+        mock_resolve.return_value = (["dv_ok", "dv_fail"], {})
+
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        future_ok = Mock()
+        future_fail = Mock()
+
+        future_ok.result.return_value = ProcessingResult(
+            data_view_id="dv_ok",
+            data_view_name="Healthy View",
+            success=True,
+            duration=0.2,
+            metrics_count=10,
+            dimensions_count=12,
+            dq_issues_count=0,
+            dq_issues=[],
+            dq_severity_counts={},
+            output_file="ok.xlsx",
+            output_files=["ok.json", "ok.xlsx", "ok.html", "ok.json"],
+            file_size_bytes=2048,
+        )
+        future_fail.result.return_value = ProcessingResult(
+            data_view_id="dv_fail",
+            data_view_name="Fail View",
+            success=False,
+            duration=0.3,
+            error_message="Component fetch failed: metrics: timeout",
+            failure_code="COMPONENT_FETCH_FAILED",
+            failure_reason="required_endpoints_failed:metrics",
+        )
+
+        mock_executor = MagicMock()
+        mock_executor.__enter__ = Mock(return_value=mock_executor)
+        mock_executor.__exit__ = Mock(return_value=False)
+        mock_executor.submit.side_effect = [future_ok, future_fail]
+        mock_executor_cls.return_value = mock_executor
+
+        summary_file = tmp_path / "run_summary_batch_outputs.json"
+        with (
+            patch("cja_auto_sdr.generator.as_completed", return_value=[future_fail, future_ok]),
+            patch("cja_auto_sdr.generator.setup_logging", return_value=Mock()),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cja_auto_sdr",
+                    "dv_ok",
+                    "dv_fail",
+                    "--batch",
+                    "--workers",
+                    "2",
+                    "--continue-on-error",
+                    "--run-summary-json",
+                    str(summary_file),
+                ],
+            ),
+        ):
+            main()
+
+        payload = json.loads(summary_file.read_text())
+        self._assert_run_summary_schema(payload)
+        results_by_id = {result["data_view_id"]: result for result in payload["results"]}
+        assert results_by_id["dv_ok"]["output_file"] == "ok.xlsx"
+        assert results_by_id["dv_ok"]["output_files"] == ["ok.xlsx", "ok.json", "ok.html"]
+        assert results_by_id["dv_fail"]["output_files"] == []
 
     @patch("cja_auto_sdr.generator.list_dataviews")
     def test_run_summary_written_for_discovery_mode(self, mock_list_dataviews, tmp_path):

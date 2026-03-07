@@ -351,6 +351,8 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 
 > Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, aggregate `failure_rollups`, additive `output_files` alongside compatibility `output_file`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
 >
+> When `output_files` is present, `output_file` remains the primary artifact for backward compatibility and appears first in emitted artifact order.
+>
 > Run summary contract is currently `summary_version: "1.1"` and follows additive forward compatibility (ignore unknown keys).
 
 ### Diff-Specific Options

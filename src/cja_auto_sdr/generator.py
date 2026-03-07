@@ -1815,7 +1815,12 @@ def _normalize_output_artifact_state(
     normalized_output_files = _normalize_output_artifact_values(output_files)
     primary_output = str(output_file or "").strip()
     if primary_output:
-        if primary_output not in normalized_output_files:
+        if primary_output in normalized_output_files:
+            normalized_output_files = [
+                primary_output,
+                *[path for path in normalized_output_files if path != primary_output],
+            ]
+        else:
             normalized_output_files.insert(0, primary_output)
     elif normalized_output_files:
         primary_output = normalized_output_files[0]
