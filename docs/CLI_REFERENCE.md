@@ -138,7 +138,7 @@ cja-auto-sdr [OPTIONS] DATA_VIEW_ID_OR_NAME [...]
 | Data-quality validation runtime failure | Block | Continue (exploratory) | Block | Validation skipped when not emitted | Validation skipped when not emitted |
 | Invalid data view lookup payload | Block | Block | Block | Block | Block |
 
-> **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
+> **Run summary observability:** Failed SDR results include stable `failure_code` and `failure_reason` fields, top-level `failure_rollups.by_code` / `failure_rollups.by_reason` counts, additive `output_files` alongside compatibility `output_file`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
 >
 > **Run summary contract (v1.1):** `summary_version` is currently `1.1`. Consumers should treat unknown keys as additive/forward-compatible and only rely on documented stable fields.
 >

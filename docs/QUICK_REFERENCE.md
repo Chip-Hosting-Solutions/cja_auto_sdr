@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.3.8.
+Single-page command cheat sheet for CJA SDR Generator v3.3.9.
 
 ## Four Main Modes
 
@@ -349,7 +349,7 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | Data-quality validation runtime failure | Block | Continue | Block | Validation skipped when not emitted | Validation skipped when not emitted |
 | Invalid data view lookup payload | Block | Block | Block | Block | Block |
 
-> Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, aggregate `failure_rollups`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
+> Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, aggregate `failure_rollups`, additive `output_files` alongside compatibility `output_file`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
 >
 > Run summary contract is currently `summary_version: "1.1"` and follows additive forward compatibility (ignore unknown keys).
 

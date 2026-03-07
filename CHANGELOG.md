@@ -7,6 +7,21 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.9] - 2026-03-06
+
+### Fixed
+- **Normalized SDR artifact reporting**: single-format SDR runs now return the actual emitted artifact path for CSV, JSON, HTML, and Markdown instead of a synthesized Excel-style filename.
+- **Multi-artifact open behavior**: `--format all` and other multi-artifact SDR runs now preserve the full emitted artifact list and `--open` consumes that normalized contract instead of a guessed primary path.
+- **Partial artifact visibility**: exploratory `--allow-partial` SDRs now embed `Partial Output` and `Partial Reasons` markers directly in generated Excel, JSON, HTML, and Markdown metadata.
+
+### Changed
+- **Additive run summary artifact contract**: run-summary result entries now include additive `output_files` alongside the compatibility `output_file` field, while keeping `summary_version` at `1.1`.
+- **Output/result finalization hardening**: SDR output-path selection, run-summary serialization, and batch result propagation now share normalized helper paths to reduce drift without changing CLI mode behavior.
+- **CI script quality baseline**: CI-executed utility scripts remain under Ruff coverage in the main lint workflow, aligning repository quality gates with executed automation paths.
+
+### Added
+- **Artifact contract regressions**: expanded tests for single-format output selection, multi-artifact run summaries, `--open` handling, partial metadata propagation, and batch artifact reporting.
+
 ## [3.3.8] - 2026-03-05
 
 ### Fixed
