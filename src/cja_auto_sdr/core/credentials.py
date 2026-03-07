@@ -3,7 +3,9 @@
 import json
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,42 @@ def normalize_credential_value(value: Any) -> str:
     return s
 
 
+_SCOPES_TOKEN_SPLIT_RE = re.compile(r"[\s,]+")
+
+
+def _normalize_scope_tokens(value: Any) -> list[str]:
+    """Return normalized scope tokens from string or iterable inputs."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        normalized = normalize_credential_value(value)
+        return [token for token in _SCOPES_TOKEN_SPLIT_RE.split(normalized) if token]
+
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray, dict)):
+        tokens: list[str] = []
+        for item in value:
+            tokens.extend(_normalize_scope_tokens(item))
+        return tokens
+
+    normalized = normalize_credential_value(value)
+    return [normalized] if normalized else []
+
+
+def normalize_scopes_value(value: Any, *, compact: bool = False) -> str:
+    """Normalize the scopes field while preserving legacy string formatting by default."""
+    if isinstance(value, str) and not compact:
+        return normalize_credential_value(value)
+    return ",".join(_normalize_scope_tokens(value))
+
+
+def normalize_credential_field(name: str, value: Any) -> str:
+    """Normalize a credential field according to its expected cjapy contract."""
+    if name == "scopes":
+        return normalize_scopes_value(value)
+    return normalize_credential_value(value)
+
+
 def filter_credentials(credentials: dict[str, Any]) -> dict[str, str]:
     """Filter and normalize credentials to known fields only.
 
@@ -49,7 +87,14 @@ def filter_credentials(credentials: dict[str, Any]) -> dict[str, str]:
     Returns:
         Filtered dictionary with only known credential fields, normalized values
     """
-    return {k: normalize_credential_value(v) for k, v in credentials.items() if k in CREDENTIAL_FIELDS["all"] and v}
+    normalized: dict[str, str] = {}
+    for key, value in credentials.items():
+        if key not in CREDENTIAL_FIELDS["all"] or not value:
+            continue
+        normalized_value = normalize_credential_field(key, value)
+        if normalized_value:
+            normalized[key] = normalized_value
+    return normalized
 
 
 # ==================== CREDENTIAL LOADERS ====================
@@ -373,7 +418,7 @@ def load_credentials_from_env() -> dict[str, str] | None:
     Returns:
         Dictionary with credentials if any env vars are set, None otherwise
     """
-    credentials = {}
+    credentials: dict[str, str] = {}
     for config_key, env_var in ENV_VAR_MAPPING.items():
         value = os.environ.get(env_var)
         if value and value.strip():
@@ -383,7 +428,7 @@ def load_credentials_from_env() -> dict[str, str] | None:
     if not credentials:
         return None
 
-    return credentials
+    return filter_credentials(credentials) or None
 
 
 def validate_env_credentials(credentials: dict[str, str], logger: logging.Logger) -> bool:

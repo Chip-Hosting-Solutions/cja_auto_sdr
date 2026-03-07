@@ -584,10 +584,18 @@ Requirements:
     )
 
     parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Opt-in exploratory mode: allow partial SDR output when component fetches or validation runtime fail. "
+        "Default is strict fail-closed behavior.",
+    )
+
+    parser.add_argument(
         "--quality-policy",
         type=str,
         metavar="PATH",
-        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, max_issues). "
+        help="Load quality defaults from JSON file (supported keys: fail_on_quality, quality_report, "
+        "max_issues, allow_partial). "
         "Explicit CLI flags take precedence.",
     )
 

@@ -224,6 +224,7 @@ class TestWorkerArgs:
         assert wa.shared_cache is None
         assert wa.inventory_only is False
         assert wa.inventory_order is None
+        assert wa.allow_partial is False
 
     def test_custom_values(self):
         """Custom values are stored correctly."""

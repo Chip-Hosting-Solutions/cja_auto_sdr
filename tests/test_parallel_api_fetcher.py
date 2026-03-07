@@ -189,6 +189,11 @@ class TestParallelAPIFetcherFetchAllData:
         mock_perf_tracker.start.assert_called_once_with("Parallel API Fetch")
         mock_perf_tracker.end.assert_called_once_with("Parallel API Fetch")
 
+        statuses = fetcher.get_fetch_statuses()
+        assert statuses["metrics"].status == "success"
+        assert statuses["dimensions"].status == "success"
+        assert statuses["dataview"].status == "success"
+
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     @patch("cja_auto_sdr.api.fetch.tqdm")
     def test_fetch_all_data_empty_metrics(
@@ -223,6 +228,46 @@ class TestParallelAPIFetcherFetchAllData:
         assert metrics.empty
         assert not dimensions.empty
         assert dataview == sample_dataview_info
+        assert fetcher.get_fetch_statuses()["metrics"].status == "empty"
+
+    @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
+    @patch("cja_auto_sdr.api.fetch.tqdm")
+    def test_fetch_all_data_records_failed_endpoint_status(
+        self,
+        mock_tqdm,
+        mock_api_call,
+        mock_cja,
+        mock_logger,
+        mock_perf_tracker,
+        sample_dimensions_data,
+        sample_dataview_info,
+    ):
+        """Endpoint failures should be tracked separately from empty responses."""
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value.__enter__ = Mock(return_value=mock_pbar)
+        mock_tqdm.return_value.__exit__ = Mock(return_value=False)
+
+        def api_side_effect(func, *args, **kwargs):
+            if "getMetrics" in kwargs.get("operation_name", ""):
+                raise RuntimeError("metrics transport down")
+            if "getDimensions" in kwargs.get("operation_name", ""):
+                return sample_dimensions_data
+            if "getDataView" in kwargs.get("operation_name", ""):
+                return sample_dataview_info
+            return None
+
+        mock_api_call.side_effect = api_side_effect
+
+        fetcher = ParallelAPIFetcher(mock_cja, mock_logger, mock_perf_tracker)
+        metrics, dimensions, dataview = fetcher.fetch_all_data("dv_test_12345")
+
+        assert metrics.empty
+        assert not dimensions.empty
+        assert dataview == sample_dataview_info
+        statuses = fetcher.get_fetch_statuses()
+        assert statuses["metrics"].status == "failed"
+        assert "metrics transport down" in statuses["metrics"].error_message
+        assert statuses["dimensions"].status == "success"
 
     @patch("cja_auto_sdr.api.fetch.make_api_call_with_retry")
     @patch("cja_auto_sdr.api.fetch.tqdm")

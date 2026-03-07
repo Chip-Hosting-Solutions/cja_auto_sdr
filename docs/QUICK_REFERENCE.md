@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.3.7.
+Single-page command cheat sheet for CJA SDR Generator v3.3.8.
 
 ## Four Main Modes
 
@@ -325,7 +325,8 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 | `--continue-on-error` | Don't stop on failures in batch mode | SDR only |
 | `--fail-on-quality SEVERITY` | Exit with code 2 when quality issues at or above severity are found (requires validation; incompatible with `--skip-validation`) | SDR only |
 | `--quality-report FORMAT` | Generate standalone quality issues report (`json` or `csv`) without SDR files (requires validation; incompatible with `--skip-validation`) | SDR only |
-| `--quality-policy PATH` | Load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`); explicit CLI flags take precedence | SDR only |
+| `--allow-partial` | Opt-in exploratory SDR mode: continue on required component fetch or validation runtime failures (not supported with `--quality-report` or `--fail-on-quality`) | SDR only |
+| `--quality-policy PATH` | Load quality defaults from JSON (`fail_on_quality`, `quality_report`, `max_issues`, `allow_partial`); explicit CLI flags take precedence | SDR only |
 | `--run-summary-json PATH` | Write machine-readable run summary JSON; use `-` for stdout | All modes |
 | `--name-match MODE` | Data view name matching: `exact` (default), `insensitive`, or `fuzzy` | All modes |
 | `--include-segments` | Add segments inventory sheet/section | SDR + Snapshot Diff |
@@ -338,6 +339,19 @@ cja_auto_sdr --list-dataviews  # Uses client-a
 > **Note:** `--include-derived` is for SDR generation only. Derived fields are already included in the standard metrics/dimensions output, so changes are captured in the Metrics/Dimensions diff.
 >
 > **Snapshot/Diff inventory:** `--include-all-inventory` automatically enables `--include-segments` and `--include-calculated`, and excludes `--include-derived`.
+
+### Fail-Closed Matrix
+
+| Scenario | SDR (default) | SDR + `--allow-partial` | `--quality-report` | `--inventory-only` (no derived) | `--inventory-only --include-derived` |
+|--------|----------------|--------------------------|--------------------|----------------------------------|--------------------------------------|
+| Required component fetch failure (`metrics`/`dimensions`) | Block | Continue | Block | Non-blocking if section not emitted | Continue / block by default |
+| Required components both empty | Block | Continue | Block | Non-blocking if section not emitted | Continue / block by default |
+| Data-quality validation runtime failure | Block | Continue | Block | Validation skipped when not emitted | Validation skipped when not emitted |
+| Invalid data view lookup payload | Block | Block | Block | Block | Block |
+
+> Failed SDR results in `--run-summary-json` include stable `failure_code` / `failure_reason`, aggregate `failure_rollups`, and per-result `partial_output` / `partial_reasons` for `--allow-partial` runs.
+>
+> Run summary contract is currently `summary_version: "1.1"` and follows additive forward compatibility (ignore unknown keys).
 
 ### Diff-Specific Options
 

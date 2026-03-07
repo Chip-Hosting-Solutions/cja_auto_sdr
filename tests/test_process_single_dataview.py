@@ -12,6 +12,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from cja_auto_sdr.api.fetch import EndpointFetchStatus
 from cja_auto_sdr.generator import (
     ProcessingConfig,
     ProcessingResult,
@@ -366,6 +367,523 @@ class TestProcessSingleDataviewFailures:
 
         assert result.success is False
         assert "validation failed" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_metrics_fetch_failure_aborts_partial_sdr(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Metrics transport failures should fail the run instead of generating a partial SDR."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics api down",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "metrics api down" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_dimensions_fetch_failure_aborts_partial_sdr(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dataview_info,
+    ):
+        """Dimensions transport failures should fail the run instead of generating a partial SDR."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, pd.DataFrame(), lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions api down",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "dimensions api down" in result.error_message.lower()
+
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_allow_partial_continues_on_required_component_fetch_failure(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """--allow-partial should permit exploratory SDR output after required component fetch failures."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+        mock_write_json.return_value = f"{temp_output_dir}/partial.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            allow_partial=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        mock_write_json.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    def test_allow_partial_preserves_context_when_output_write_fails(
+        self,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Late output failures should retain the earlier partial-run context."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_partial")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_write_json.side_effect = PermissionError("file is locked")
+
+        result = process_single_dataview(
+            data_view_id="dv_partial",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            allow_partial=True,
+        )
+
+        assert result.success is False
+        assert result.failure_reason == "output_permission_denied"
+        assert result.partial_output is True
+        assert result.partial_reasons == ["required_endpoints_failed:metrics"]
+        assert "Permission denied" in result.error_message
+
+    @patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder")
+    @patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder")
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_inventory_only_csv_calculated_segments_skips_irrelevant_fetch_and_validation(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_csv,
+        mock_calculated_builder_class,
+        mock_segments_builder_class,
+        mock_config_file,
+        temp_output_dir,
+        sample_dataview_info,
+    ):
+        """Inventory-only CSV should not fail on metrics/dimensions fetch or validation paths it does not emit."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_inventory")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions timeout",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_write_csv.return_value = f"{temp_output_dir}/inventory_csv"
+
+        calculated_inventory = Mock()
+        calculated_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "cm1", "name": "Calc 1"}])
+        calculated_inventory.get_summary.return_value = {"total_calculated_metrics": 1, "complexity": {}}
+        calculated_builder = Mock()
+        calculated_builder.build.return_value = calculated_inventory
+        mock_calculated_builder_class.return_value = calculated_builder
+
+        segments_inventory = Mock()
+        segments_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "seg1", "name": "Segment 1"}])
+        segments_inventory.get_summary.return_value = {"total_segments": 1, "complexity": {}}
+        segments_builder = Mock()
+        segments_builder.build.return_value = segments_inventory
+        mock_segments_builder_class.return_value = segments_builder
+
+        result = process_single_dataview(
+            data_view_id="dv_inventory",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="csv",
+            inventory_only=True,
+            include_calculated_metrics=True,
+            include_segments_inventory=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        mock_dq_checker_class.assert_not_called()
+        mock_write_csv.assert_called_once()
+        data_dict = mock_write_csv.call_args[0][0]
+        assert "Metrics" not in data_dict
+        assert "Dimensions" not in data_dict
+        assert "Calculated Metrics" in data_dict
+        assert "Segments" in data_dict
+
+    @patch("cja_auto_sdr.inventory.segments.SegmentsInventoryBuilder")
+    @patch("cja_auto_sdr.inventory.calculated_metrics.CalculatedMetricsInventoryBuilder")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_inventory_only_json_calculated_segments_skips_irrelevant_fetch_and_validation(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_calculated_builder_class,
+        mock_segments_builder_class,
+        mock_config_file,
+        temp_output_dir,
+        sample_dataview_info,
+    ):
+        """Inventory-only JSON should not fail-closed on metrics/dimensions transport failures."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_inventory")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), pd.DataFrame(), lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(
+                endpoint="dimensions",
+                status="failed",
+                reason="exception",
+                error_message="dimensions timeout",
+            ),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_write_json.return_value = f"{temp_output_dir}/inventory.json"
+
+        calculated_inventory = Mock()
+        calculated_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "cm1", "name": "Calc 1"}])
+        calculated_inventory.get_summary.return_value = {"total_calculated_metrics": 1, "complexity": {}}
+        calculated_builder = Mock()
+        calculated_builder.build.return_value = calculated_inventory
+        mock_calculated_builder_class.return_value = calculated_builder
+
+        segments_inventory = Mock()
+        segments_inventory.get_dataframe.return_value = pd.DataFrame([{"id": "seg1", "name": "Segment 1"}])
+        segments_inventory.get_summary.return_value = {"total_segments": 1, "complexity": {}}
+        segments_builder = Mock()
+        segments_builder.build.return_value = segments_inventory
+        mock_segments_builder_class.return_value = segments_builder
+
+        result = process_single_dataview(
+            data_view_id="dv_inventory",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            inventory_only=True,
+            include_calculated_metrics=True,
+            include_segments_inventory=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        mock_dq_checker_class.assert_not_called()
+        mock_write_json.assert_called_once()
+        data_dict = mock_write_json.call_args[0][0]
+        metadata_dict = mock_write_json.call_args[0][1]
+        assert "Metrics" not in data_dict
+        assert "Dimensions" not in data_dict
+        assert "Data Quality" not in data_dict
+        assert "Calculated Metrics" in data_dict
+        assert "Segments" in data_dict
+        assert metadata_dict["Data Quality Validation Status"] == "Skipped"
+        assert metadata_dict["Data Quality Issues"] == "Not run"
+        assert "Skipped" in metadata_dict["Data Quality Summary"]
+        assert str(metadata_dict["Total Metrics"]).startswith("Unavailable (metrics fetch failed")
+        assert str(metadata_dict["Total Dimensions"]).startswith("Unavailable (dimensions fetch failed")
+
+    @patch("cja_auto_sdr.generator.write_csv_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_inventory_only_csv_with_derived_inventory_still_fails_on_component_fetch(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_csv,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Derived inventory depends on component payloads and must remain fail-closed."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_inventory")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(
+                endpoint="metrics",
+                status="failed",
+                reason="exception",
+                error_message="metrics timeout",
+            ),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_inventory",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="csv",
+            inventory_only=True,
+            include_derived_inventory=True,
+        )
+
+        assert result.success is False
+        assert "component fetch failed" in result.error_message.lower()
+        assert "metrics timeout" in result.error_message.lower()
+        mock_dq_checker_class.assert_not_called()
+        mock_write_csv.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_metrics_only_fails_when_required_metrics_payload_is_empty(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_config_file,
+        temp_output_dir,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Metrics-only output must fail closed when the required metrics payload is empty."""
+        mock_logger = Mock()
+        mock_logger.handlers = []
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_metrics_only")
+        mock_fetcher.fetch_all_data.return_value = (pd.DataFrame(), sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+
+        result = process_single_dataview(
+            data_view_id="dv_metrics_only",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            metrics_only=True,
+        )
+
+        assert result.success is False
+        assert result.failure_reason == "required_endpoints_empty:metrics"
+        assert "required component payloads were empty: metrics" in result.error_message.lower()
+        mock_dq_checker_class.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.write_json_output")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.setup_logging")
+    def test_skip_validation_json_marks_metadata_as_skipped(
+        self,
+        mock_setup_logging,
+        mock_init_cja,
+        mock_fetcher_class,
+        mock_dq_checker_class,
+        mock_write_json,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Embedded metadata must report skipped validation explicitly when --skip-validation is used."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        lookup_data = dict(sample_dataview_info, id="dv_skip_validation")
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, lookup_data)
+        mock_fetcher.get_fetch_statuses.return_value = {
+            "metrics": EndpointFetchStatus(endpoint="metrics", status="success"),
+            "dimensions": EndpointFetchStatus(endpoint="dimensions", status="success"),
+            "dataview": EndpointFetchStatus(endpoint="dataview", status="success"),
+        }
+        mock_fetcher_class.return_value = mock_fetcher
+        mock_write_json.return_value = f"{temp_output_dir}/skipped_validation.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_skip_validation",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            skip_validation=True,
+        )
+
+        assert result.success is True
+        mock_dq_checker_class.assert_not_called()
+        mock_write_json.assert_called_once()
+        metadata_dict = mock_write_json.call_args[0][1]
+        assert metadata_dict["Data Quality Validation Status"] == "Skipped"
+        assert metadata_dict["Data Quality Issues"] == "Not run"
+        assert metadata_dict["Data Quality Summary"] == "Skipped (--skip-validation)"
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -750,6 +1268,15 @@ class TestProcessSingleDataviewCaching:
         mock_fetcher_class.return_value = mock_fetcher
 
         mock_cache = Mock()
+        mock_cache.get_statistics.return_value = {
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
+            "size": 0,
+            "max_size": 500,
+            "evictions": 0,
+            "total_requests": 0,
+        }
         mock_cache_class.return_value = mock_cache
 
         mock_dq_checker = Mock()
@@ -808,6 +1335,15 @@ class TestProcessSingleDataviewCaching:
         mock_fetcher_class.return_value = mock_fetcher
 
         mock_cache = Mock()
+        mock_cache.get_statistics.return_value = {
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
+            "size": 0,
+            "max_size": 1000,
+            "evictions": 0,
+            "total_requests": 0,
+        }
         mock_cache_class.return_value = mock_cache
 
         mock_dq_checker = Mock()
@@ -1082,7 +1618,7 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
     @patch("cja_auto_sdr.generator.write_json_output")
-    def test_sdr_generation_continues_on_unexpected_validation_runtime_error(
+    def test_sdr_generation_fails_on_unexpected_validation_runtime_error(
         self,
         mock_write_json,
         mock_dq_checker_class,
@@ -1095,7 +1631,7 @@ class TestProcessSingleDataviewMaxIssues:
         sample_dimensions_df,
         sample_dataview_info,
     ):
-        """Unexpected validation runtime errors should be non-fatal for SDR generation."""
+        """Unexpected validation runtime errors should fail the SDR run."""
         mock_logger = Mock()
         mock_setup_logging.return_value = mock_logger
         mock_cja = Mock()
@@ -1122,14 +1658,159 @@ class TestProcessSingleDataviewMaxIssues:
             output_format="json",
         )
 
-        assert result.success is True
+        assert result.success is False
         assert result.dq_issues_count == 0
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "threadpool failure" in result.error_message.lower()
         assert any(
-            "Continuing with SDR generation despite validation errors" in str(call.args[0])
+            "Aborting SDR generation because data quality validation did not complete" in str(call.args[0])
             for call in mock_logger.info.call_args_list
             if call.args
         )
+        mock_write_json.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_allow_partial_continues_when_validation_runtime_errors(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """--allow-partial should continue SDR generation when validation runtime fails."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        mock_write_json.return_value = f"{temp_output_dir}/partial_validation.json"
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+            allow_partial=True,
+        )
+
+        assert result.success is True
+        assert result.error_message == ""
+        assert result.dq_issues_count == 0
+        assert result.dq_severity_counts == {}
         mock_write_json.assert_called_once()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_sdr_generation_fails_when_issue_dataframe_payload_is_not_dataframe(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Non-DataFrame issue payloads should fail closed in SDR mode."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.return_value = {"invalid": "payload"}
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+        )
+
+        assert result.success is False
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "non-dataframe payload" in result.error_message.lower()
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
+        mock_write_json.assert_not_called()
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    @patch("cja_auto_sdr.generator.write_json_output")
+    def test_sdr_generation_fails_when_issue_dataframe_extraction_raises(
+        self,
+        mock_write_json,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Issue dataframe extraction failures should fail closed in SDR mode."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.side_effect = RuntimeError("issue dataframe extraction failed")
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            output_format="json",
+        )
+
+        assert result.success is False
+        assert "data quality validation failed" in result.error_message.lower()
+        assert "issue dataframe extraction failed" in result.error_message.lower()
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
+        mock_write_json.assert_not_called()
 
     @patch("cja_auto_sdr.generator.setup_logging")
     @patch("cja_auto_sdr.generator.initialize_cja")
@@ -1180,6 +1861,50 @@ class TestProcessSingleDataviewMaxIssues:
     @patch("cja_auto_sdr.generator.initialize_cja")
     @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
     @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_allow_partial_does_not_override_quality_report_fail_closed_validation(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality-report mode must remain fail-closed even if --allow-partial is enabled."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_init_cja.return_value = Mock()
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = []
+        mock_dq_checker.check_all_parallel.side_effect = RuntimeError("threadpool failure")
+        mock_dq_checker.get_issues_dataframe.return_value = pd.DataFrame(
+            columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"],
+        )
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+            allow_partial=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
     def test_quality_report_only_fails_when_validation_errors(
         self,
         mock_dq_checker_class,
@@ -1222,6 +1947,49 @@ class TestProcessSingleDataviewMaxIssues:
         assert result.success is False
         assert "Data quality validation failed" in result.error_message
         assert "unexpected validation failure" in result.error_message
+
+    @patch("cja_auto_sdr.generator.setup_logging")
+    @patch("cja_auto_sdr.generator.initialize_cja")
+    @patch("cja_auto_sdr.generator.ParallelAPIFetcher")
+    @patch("cja_auto_sdr.generator.DataQualityChecker")
+    def test_quality_report_only_fails_when_issue_dataframe_extraction_raises(
+        self,
+        mock_dq_checker_class,
+        mock_fetcher_class,
+        mock_init_cja,
+        mock_setup_logging,
+        mock_config_file,
+        temp_output_dir,
+        sample_metrics_df,
+        sample_dimensions_df,
+        sample_dataview_info,
+    ):
+        """Quality-report mode should fail if issue dataframe extraction raises."""
+        mock_logger = Mock()
+        mock_setup_logging.return_value = mock_logger
+        mock_cja = Mock()
+        mock_init_cja.return_value = mock_cja
+
+        mock_fetcher = Mock()
+        mock_fetcher.fetch_all_data.return_value = (sample_metrics_df, sample_dimensions_df, sample_dataview_info)
+        mock_fetcher_class.return_value = mock_fetcher
+
+        mock_dq_checker = Mock()
+        mock_dq_checker.issues = [{"Severity": "HIGH", "Issue": "Malformed issue payload"}]
+        mock_dq_checker.get_issues_dataframe.side_effect = RuntimeError("issue dataframe extraction failed")
+        mock_dq_checker_class.return_value = mock_dq_checker
+
+        result = process_single_dataview(
+            data_view_id="dv_test_12345",
+            config_file=mock_config_file,
+            output_dir=temp_output_dir,
+            quality_report_only=True,
+        )
+
+        assert result.success is False
+        assert "Data quality validation failed" in result.error_message
+        assert "issue dataframe extraction failed" in result.error_message
+        mock_dq_checker.get_issues_dataframe.assert_called_once_with(max_issues=0)
 
 
 class TestProcessingResultDataclass:

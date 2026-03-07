@@ -9,17 +9,22 @@ _coerce_run_mode.
 import argparse
 import importlib.metadata
 import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from cja_auto_sdr.generator import (
+    FAILURE_CODE_REGISTRY,
     ProcessingResult,
     RunMode,
     _coerce_run_mode,
     _collect_environment_info,
     _infer_run_status,
     _normalize_exit_code,
+    _normalize_failure_identity,
+    _processing_result_to_summary,
     aggregate_quality_issues,
     apply_quality_policy_defaults,
     count_quality_issues_by_severity,
@@ -245,6 +250,28 @@ class TestLoadQualityPolicy:
         with pytest.raises(ValueError, match="must be >= 0"):
             load_quality_policy(policy_file)
 
+    def test_allow_partial_boolean(self, tmp_path):
+        policy = {"allow_partial": True}
+        policy_file = tmp_path / "policy.json"
+        policy_file.write_text(json.dumps(policy))
+        result = load_quality_policy(policy_file)
+        assert result["allow_partial"] is True
+
+    @pytest.mark.parametrize("invalid_allow_partial", [1, "true", None])
+    def test_allow_partial_invalid_type_rejected(self, invalid_allow_partial, tmp_path):
+        policy = {"allow_partial": invalid_allow_partial}
+        policy_file = tmp_path / "policy.json"
+        policy_file.write_text(json.dumps(policy))
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_quality_policy(policy_file)
+
+    def test_allow_partial_incompatible_with_quality_gate_keys_rejected(self, tmp_path):
+        policy = {"allow_partial": True, "fail_on_quality": "HIGH"}
+        policy_file = tmp_path / "policy.json"
+        policy_file.write_text(json.dumps(policy))
+        with pytest.raises(ValueError, match="cannot be combined with fail_on_quality or quality_report"):
+            load_quality_policy(policy_file)
+
     def test_empty_fail_on_quality_rejected(self, tmp_path):
         policy = {"fail_on_quality": ""}
         policy_file = tmp_path / "policy.json"
@@ -258,16 +285,22 @@ class TestLoadQualityPolicy:
 
 class TestApplyQualityPolicyDefaults:
     def test_applies_defaults_when_not_specified(self):
-        args = argparse.Namespace(fail_on_quality=None, quality_report=None, max_issues=None)
-        policy = {"fail_on_quality": "MEDIUM", "quality_report": "csv", "max_issues": 50}
+        args = argparse.Namespace(fail_on_quality=None, quality_report=None, max_issues=None, allow_partial=False)
+        policy = {"fail_on_quality": "MEDIUM", "quality_report": "csv", "max_issues": 50, "allow_partial": False}
         applied = apply_quality_policy_defaults(args, policy, argv=["cja_auto_sdr", "dv_123"])
         assert args.fail_on_quality == "MEDIUM"
         assert args.quality_report == "csv"
         assert args.max_issues == 50
-        assert applied == {"fail_on_quality": "MEDIUM", "quality_report": "csv", "max_issues": 50}
+        assert args.allow_partial is False
+        assert applied == {
+            "fail_on_quality": "MEDIUM",
+            "quality_report": "csv",
+            "max_issues": 50,
+            "allow_partial": False,
+        }
 
     def test_cli_flag_overrides_policy(self):
-        args = argparse.Namespace(fail_on_quality="HIGH", quality_report=None)
+        args = argparse.Namespace(fail_on_quality="HIGH", quality_report=None, allow_partial=False)
         policy = {"fail_on_quality": "LOW"}
         applied = apply_quality_policy_defaults(
             args,
@@ -281,6 +314,36 @@ class TestApplyQualityPolicyDefaults:
     def test_empty_policy(self):
         args = argparse.Namespace(fail_on_quality=None)
         applied = apply_quality_policy_defaults(args, {}, argv=[])
+        assert applied == {}
+
+    def test_allow_partial_applied_when_not_specified(self):
+        args = argparse.Namespace(fail_on_quality=None, quality_report=None, max_issues=0, allow_partial=False)
+        policy = {"allow_partial": True}
+        applied = apply_quality_policy_defaults(args, policy, argv=["cja_auto_sdr", "dv_123"])
+        assert args.allow_partial is True
+        assert applied == {"allow_partial": True}
+
+    def test_allow_partial_policy_not_applied_when_cli_fail_on_quality_specified(self):
+        args = argparse.Namespace(fail_on_quality="HIGH", quality_report=None, max_issues=0, allow_partial=False)
+        policy = {"allow_partial": True}
+        applied = apply_quality_policy_defaults(
+            args,
+            policy,
+            argv=["cja_auto_sdr", "--fail-on-quality", "HIGH", "dv_123"],
+        )
+        assert args.allow_partial is False
+        assert applied == {}
+
+    def test_quality_defaults_not_applied_when_allow_partial_cli_specified(self):
+        args = argparse.Namespace(fail_on_quality=None, quality_report=None, max_issues=0, allow_partial=True)
+        policy = {"fail_on_quality": "MEDIUM", "quality_report": "csv"}
+        applied = apply_quality_policy_defaults(
+            args,
+            policy,
+            argv=["cja_auto_sdr", "--allow-partial", "dv_123"],
+        )
+        assert args.fail_on_quality is None
+        assert args.quality_report is None
         assert applied == {}
 
 
@@ -358,6 +421,68 @@ class TestInferRunStatus:
             "details": {"operation_success": False},
         }
         assert _infer_run_status(2, run_state) == "error"
+
+
+class TestFailureCodeRegistry:
+    def test_registry_is_unique_and_stable_shape(self):
+        assert isinstance(FAILURE_CODE_REGISTRY, tuple)
+        assert all(isinstance(code, str) and code for code in FAILURE_CODE_REGISTRY)
+        assert len(set(FAILURE_CODE_REGISTRY)) == len(FAILURE_CODE_REGISTRY)
+
+    def test_failure_code_docs_cover_registry(self):
+        docs_path = Path(__file__).resolve().parents[1] / "docs" / "FAILURE_CODES.md"
+        content = docs_path.read_text(encoding="utf-8")
+        documented_codes = set(re.findall(r"`([A-Z_]+)`", content))
+        undocumented = sorted(set(FAILURE_CODE_REGISTRY) - documented_codes)
+        assert undocumented == []
+
+
+class TestFailureIdentityNormalization:
+    @pytest.mark.parametrize(
+        ("error_message", "expected_code"),
+        [
+            ("Component fetch failed: metrics: timeout", "COMPONENT_FETCH_FAILED"),
+            ("Data quality validation failed: worker exception", "DQ_VALIDATION_RUNTIME_FAILED"),
+            ("Data view validation failed", "DATAVIEW_LOOKUP_INVALID"),
+            ("No metrics or dimensions found - data view may be empty or inaccessible", "REQUIRED_COMPONENTS_EMPTY"),
+            ("CJA initialization failed", "CJA_INIT_FAILED"),
+            ("Permission denied: /tmp/report.xlsx", "OUTPUT_PERMISSION_DENIED"),
+            ("Completely unknown legacy failure", "UNCLASSIFIED_FAILURE"),
+        ],
+    )
+    def test_legacy_messages_map_to_stable_codes(self, error_message, expected_code):
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=False,
+            duration=0.0,
+            error_message=error_message,
+        )
+
+        failure_code, failure_reason = _normalize_failure_identity(result)
+
+        assert failure_code == expected_code
+        assert failure_reason == expected_code.lower()
+
+
+class TestPartialRunSummaryNormalization:
+    def test_failed_partial_result_preserves_partial_output_signal(self):
+        result = ProcessingResult(
+            data_view_id="dv_test",
+            data_view_name="Test View",
+            success=False,
+            duration=0.0,
+            partial_output=True,
+            partial_reasons=["required_endpoints_failed:metrics"],
+            error_message="Permission denied: /tmp/report.xlsx",
+        )
+
+        summary = _processing_result_to_summary(result)
+
+        assert summary["success"] is False
+        assert summary["partial_output"] is True
+        assert summary["partial_reasons"] == ["required_endpoints_failed:metrics"]
+        assert summary["failure_code"] == "OUTPUT_PERMISSION_DENIED"
 
 
 # ==================== _coerce_run_mode ====================

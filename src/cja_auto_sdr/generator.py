@@ -14,12 +14,11 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import threading
 import time
 import uuid
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -256,6 +255,40 @@ class OutputWriter(Protocol):
 
 # Type alias for validation issues
 ValidationIssue = dict[str, Any]
+DATA_QUALITY_COLUMNS: tuple[str, ...] = (
+    "Severity",
+    "Category",
+    "Type",
+    "Item Name",
+    "Issue",
+    "Details",
+)
+
+# Stable failure identity values used in ProcessingResult and run summaries.
+FAILURE_CODE_CJA_INIT_FAILED = "CJA_INIT_FAILED"
+FAILURE_CODE_DATAVIEW_LOOKUP_INVALID = "DATAVIEW_LOOKUP_INVALID"
+FAILURE_CODE_COMPONENT_FETCH_FAILED = "COMPONENT_FETCH_FAILED"
+FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY = "REQUIRED_COMPONENTS_EMPTY"
+FAILURE_CODE_DQ_VALIDATION_RUNTIME_FAILED = "DQ_VALIDATION_RUNTIME_FAILED"
+FAILURE_CODE_OUTPUT_PERMISSION_DENIED = "OUTPUT_PERMISSION_DENIED"
+FAILURE_CODE_OUTPUT_WRITE_FAILED = "OUTPUT_WRITE_FAILED"
+FAILURE_CODE_BATCH_WORKER_EXCEPTION = "BATCH_WORKER_EXCEPTION"
+FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR = "UNEXPECTED_RUNTIME_ERROR"
+FAILURE_CODE_UNCLASSIFIED_FAILURE = "UNCLASSIFIED_FAILURE"
+FAILURE_CODE_REGISTRY: tuple[str, ...] = (
+    FAILURE_CODE_CJA_INIT_FAILED,
+    FAILURE_CODE_DATAVIEW_LOOKUP_INVALID,
+    FAILURE_CODE_COMPONENT_FETCH_FAILED,
+    FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY,
+    FAILURE_CODE_DQ_VALIDATION_RUNTIME_FAILED,
+    FAILURE_CODE_OUTPUT_PERMISSION_DENIED,
+    FAILURE_CODE_OUTPUT_WRITE_FAILED,
+    FAILURE_CODE_BATCH_WORKER_EXCEPTION,
+    FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR,
+    FAILURE_CODE_UNCLASSIFIED_FAILURE,
+)
+
+RUN_SUMMARY_SCHEMA_VERSION = "1.1"
 
 # Note: Constants, error formatting, and ConsoleColors have been moved to
 # cja_auto_sdr.core and are imported above.
@@ -284,6 +317,10 @@ class ProcessingResult:
     dq_severity_counts: dict[str, int] = field(default_factory=dict)
     output_file: str = ""
     error_message: str = ""
+    failure_code: str = ""
+    failure_reason: str = ""
+    partial_output: bool = False
+    partial_reasons: list[str] = field(default_factory=list)
     file_size_bytes: int = 0
     # Inventory statistics (populated when inventory options are used)
     segments_count: int = 0
@@ -292,6 +329,13 @@ class ProcessingResult:
     calculated_metrics_high_complexity: int = 0
     derived_fields_count: int = 0
     derived_fields_high_complexity: int = 0
+
+    def __post_init__(self) -> None:
+        """Normalize partial-run observability fields for all result producers."""
+        self.partial_output, self.partial_reasons = _normalize_partial_state(
+            self.partial_output,
+            self.partial_reasons,
+        )
 
     @property
     def file_size_formatted(self) -> str:
@@ -343,6 +387,7 @@ class WorkerArgs:
     inventory_only: bool = False
     inventory_order: list[str] | None = None
     quality_report_only: bool = False
+    allow_partial: bool = False
     production_mode: bool = False
     batch_id: str | None = None
 
@@ -376,6 +421,7 @@ class ProcessingConfig:
     inventory_only: bool = False
     inventory_order: list[str] | None = None
     quality_report_only: bool = False
+    allow_partial: bool = False
     production_mode: bool = False
     batch_id: str | None = None
 
@@ -411,7 +457,33 @@ class BatchConfig:
     inventory_only: bool = False
     inventory_order: list[str] | None = None
     quality_report_only: bool = False
+    allow_partial: bool = False
     production_mode: bool = False
+
+
+@dataclass(frozen=True)
+class ProcessingExecutionPolicy:
+    """Derived execution policy for fetch/validation fail-closed behavior."""
+
+    requested_formats: frozenset[str]
+    inventory_only_omits_standard_sections: bool
+    emits_embedded_metadata: bool
+    required_component_endpoints: frozenset[str]
+    validation_required_for_output: bool
+    run_data_quality_validation: bool
+
+
+@dataclass(frozen=True)
+class DataQualityValidationResult:
+    """Structured data-quality validation outcome for single-data-view processing."""
+
+    data_quality_df: pd.DataFrame
+    dq_issues: list[ValidationIssue] = field(default_factory=list)
+    severity_counts: dict[str, int] = field(default_factory=dict)
+    status: str = "completed"
+    status_detail: str = ""
+    failed: bool = False
+    error_message: str = ""
 
 
 @dataclass(frozen=True)
@@ -706,7 +778,14 @@ QUALITY_REPORT_PREFERRED_COLUMNS: tuple[str, ...] = (
     "Issue",
     "Details",
 )
-QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset({"fail_on_quality", "quality_report", "max_issues"})
+QUALITY_POLICY_ALLOWED_KEYS: frozenset[str] = frozenset(
+    {
+        "fail_on_quality",
+        "quality_report",
+        "max_issues",
+        "allow_partial",
+    },
+)
 
 # Recoverable API/runtime failures that should surface as user-facing command
 # errors (not uncaught tracebacks). Keep this centralized to avoid accidental
@@ -756,11 +835,11 @@ RECOVERABLE_INVENTORY_SUMMARY_EXCEPTIONS: tuple[type[Exception], ...] = RECOVERA
 # Optional git snapshot re-fetch runs after successful SDR generation and must
 # not terminate the command. Keep broad to preserve graceful degradation.
 RECOVERABLE_GIT_SNAPSHOT_REFETCH_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
-# Data quality validation is intentionally best-effort for SDR generation:
-# validator/runtime/threadpool failures should not abort report generation.
-# Quality-report mode still surfaces this as a failed result via
-# `validation_failed` state in process_single_dataview().
-RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Data quality validation runs at a fail-closed boundary for SDR generation.
+# Catch broad Exception here to return a controlled failed ProcessingResult.
+VALIDATION_CATCH_BOUNDARY_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
+# Backwards-compatible alias for external imports that referenced the old name.
+RECOVERABLE_VALIDATION_EXCEPTIONS: tuple[type[Exception], ...] = VALIDATION_CATCH_BOUNDARY_EXCEPTIONS
 # Per-item stats collection must be fully resilient: one broken DV must never
 # abort the stats command. Intentionally broad.
 RECOVERABLE_STATS_ROW_EXCEPTIONS: tuple[type[Exception], ...] = (Exception,)
@@ -787,10 +866,290 @@ def _log_optional_inventory_failure(
 
 
 def _log_validation_failure(logger: Any, *, error: Exception) -> None:
-    """Log non-fatal validation failures consistently."""
+    """Log fatal validation failures consistently."""
     logger.error(_format_error_msg("during data quality validation", error=error))
-    logger.info("Continuing with SDR generation despite validation errors")
+    logger.info("Aborting SDR generation because data quality validation did not complete")
     logger.debug(f"Validation failure details: {error!r}")
+
+
+def _empty_data_quality_dataframe() -> pd.DataFrame:
+    """Return an empty, schema-consistent data-quality dataframe."""
+    return pd.DataFrame(columns=list(DATA_QUALITY_COLUMNS))
+
+
+def _collect_data_quality_results(
+    *,
+    dq_checker: Any,
+    max_issues: int,
+) -> tuple[pd.DataFrame, list[ValidationIssue], dict[str, int]]:
+    """Collect data-quality dataframe payloads with defensive shape/type checks."""
+    data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
+    if not isinstance(data_quality_df, pd.DataFrame):
+        raise TypeError(
+            f"Data quality checker returned non-DataFrame payload ({type(data_quality_df).__name__})",
+        )
+
+    dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
+    severity_counts = count_quality_issues_by_severity(dq_issues)
+    return data_quality_df, dq_issues, severity_counts
+
+
+def _run_data_quality_validation(
+    *,
+    logger: Any,
+    perf_tracker: Any,
+    metrics: pd.DataFrame,
+    dimensions: pd.DataFrame,
+    quiet: bool,
+    production_mode: bool,
+    shared_cache: Any,
+    enable_cache: bool,
+    cache_size: int,
+    cache_ttl: int,
+    clear_cache: bool,
+    max_issues: int,
+    skip_validation: bool,
+    execution_policy: ProcessingExecutionPolicy,
+) -> DataQualityValidationResult:
+    """Execute validation and issue extraction with fail-closed semantics."""
+    if not execution_policy.run_data_quality_validation:
+        if skip_validation:
+            status_detail = "Skipped (--skip-validation)"
+        else:
+            status_detail = "Skipped (data quality validation is not part of the requested output contract)"
+        logger.info("=" * BANNER_WIDTH)
+        if skip_validation:
+            logger.info("Skipping data quality validation (--skip-validation)")
+        else:
+            logger.info(
+                "Skipping data quality validation (not emitted for inventory-only %s output)",
+                ", ".join(sorted(execution_policy.requested_formats)),
+            )
+        logger.info("=" * BANNER_WIDTH)
+        return DataQualityValidationResult(
+            data_quality_df=_empty_data_quality_dataframe(),
+            status="skipped",
+            status_detail=status_detail,
+        )
+
+    logger.info("=" * BANNER_WIDTH)
+    logger.info("Starting data quality validation (optimized)")
+    logger.info("=" * BANNER_WIDTH)
+
+    perf_tracker.start("Data Quality Validation")
+    try:
+        # Create validation cache if enabled.
+        # Use shared cache if provided (from batch processing), otherwise create local cache.
+        validation_cache = None
+        if shared_cache is not None:
+            validation_cache = shared_cache
+            logger.info("Using shared validation cache from batch processor")
+        elif enable_cache:
+            validation_cache = ValidationCache(max_size=cache_size, ttl_seconds=cache_ttl, logger=logger)
+            if clear_cache:
+                validation_cache.clear()
+                logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+            else:
+                logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
+
+        dq_checker = DataQualityChecker(
+            logger,
+            validation_cache=validation_cache,
+            quiet=quiet,
+            log_high_severity_issues=not production_mode,
+        )
+
+        # Run parallel data quality checks (10-15% faster than sequential).
+        logger.info("Running parallel data quality checks...")
+        dq_checker.check_all_parallel(
+            metrics_df=metrics,
+            dimensions_df=dimensions,
+            metrics_required_fields=VALIDATION_SCHEMA["required_metric_fields"],
+            dimensions_required_fields=VALIDATION_SCHEMA["required_dimension_fields"],
+            critical_fields=VALIDATION_SCHEMA["critical_fields"],
+            max_workers=DEFAULT_VALIDATION_WORKERS,
+        )
+        dq_checker.log_summary()
+
+        # Log cache statistics if cache was used.
+        if validation_cache is not None:
+            perf_tracker.add_cache_statistics(validation_cache)
+
+        data_quality_df, dq_issues, severity_counts = _collect_data_quality_results(
+            dq_checker=dq_checker,
+            max_issues=max_issues,
+        )
+        return DataQualityValidationResult(
+            data_quality_df=data_quality_df,
+            dq_issues=dq_issues,
+            severity_counts=severity_counts,
+            status="completed",
+            status_detail="Completed",
+        )
+    except VALIDATION_CATCH_BOUNDARY_EXCEPTIONS as e:
+        _log_validation_failure(logger, error=e)
+        return DataQualityValidationResult(
+            data_quality_df=_empty_data_quality_dataframe(),
+            status="failed",
+            status_detail=f"Failed ({e})",
+            failed=True,
+            error_message=str(e),
+        )
+    finally:
+        perf_tracker.end("Data Quality Validation")
+
+
+def _resolve_requested_output_formats(output_format: str) -> frozenset[str]:
+    """Resolve output aliases into concrete format names."""
+    if output_format == "all":
+        return frozenset({"excel", "csv", "json", "html", "markdown"})
+    if output_format in FORMAT_ALIASES:
+        return frozenset(str(fmt) for fmt in FORMAT_ALIASES[output_format])
+    return frozenset({output_format})
+
+
+STANDARD_COMPONENT_ENDPOINTS: frozenset[str] = frozenset({"metrics", "dimensions"})
+EMBEDDED_METADATA_FORMATS: frozenset[str] = frozenset({"json", "html", "markdown"})
+
+
+def _should_emit_standard_sdr_sections(*, inventory_only: bool) -> bool:
+    """Return whether this run emits standard SDR sections (metadata/quality/components)."""
+    # Inventory-only mode always excludes standard SDR sections from output payloads.
+    return not inventory_only
+
+
+def _resolve_standard_component_requirements(*, metrics_only: bool, dimensions_only: bool) -> frozenset[str]:
+    """Resolve required standard component endpoints for non-inventory-only SDR runs."""
+    if metrics_only and dimensions_only:
+        return STANDARD_COMPONENT_ENDPOINTS
+
+    required_component_endpoints: set[str] = set()
+    if not dimensions_only:
+        required_component_endpoints.add("metrics")
+    if not metrics_only:
+        required_component_endpoints.add("dimensions")
+    return frozenset(required_component_endpoints)
+
+
+def _resolve_required_component_endpoints(
+    *,
+    inventory_only: bool,
+    include_derived_inventory: bool,
+    metrics_only: bool,
+    dimensions_only: bool,
+    quality_report_only: bool,
+) -> frozenset[str]:
+    """Resolve component endpoints that must fail-closed for this run."""
+    if quality_report_only:
+        return STANDARD_COMPONENT_ENDPOINTS
+    if include_derived_inventory:
+        # Derived inventory always depends on both component payloads.
+        return STANDARD_COMPONENT_ENDPOINTS
+    if not _should_emit_standard_sdr_sections(inventory_only=inventory_only):
+        return frozenset()
+    return _resolve_standard_component_requirements(
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+    )
+
+
+def _build_processing_execution_policy(
+    *,
+    output_format: str,
+    inventory_only: bool,
+    include_derived_inventory: bool,
+    metrics_only: bool,
+    dimensions_only: bool,
+    quality_report_only: bool,
+    skip_validation: bool,
+) -> ProcessingExecutionPolicy:
+    """Determine which fetch/validation failures must be fail-closed for this run."""
+    requested_formats = _resolve_requested_output_formats(output_format)
+    emits_standard_sdr_sections = _should_emit_standard_sdr_sections(inventory_only=inventory_only)
+    inventory_only_omits_standard_sections = not emits_standard_sdr_sections
+    emits_embedded_metadata = bool(requested_formats & EMBEDDED_METADATA_FORMATS)
+
+    required_component_endpoints = _resolve_required_component_endpoints(
+        inventory_only=inventory_only,
+        include_derived_inventory=include_derived_inventory,
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+        quality_report_only=quality_report_only,
+    )
+
+    validation_required_for_output = quality_report_only or emits_standard_sdr_sections
+    run_data_quality_validation = validation_required_for_output and not skip_validation
+
+    return ProcessingExecutionPolicy(
+        requested_formats=requested_formats,
+        inventory_only_omits_standard_sections=inventory_only_omits_standard_sections,
+        emits_embedded_metadata=emits_embedded_metadata,
+        required_component_endpoints=required_component_endpoints,
+        validation_required_for_output=validation_required_for_output,
+        run_data_quality_validation=run_data_quality_validation,
+    )
+
+
+def _resolve_empty_required_component_endpoints(
+    *,
+    required_component_endpoints: Collection[str],
+    metrics: pd.DataFrame,
+    dimensions: pd.DataFrame,
+    fetch_statuses: Mapping[str, Any],
+) -> list[str]:
+    """Return required component endpoints whose fetched payloads are empty."""
+    component_frames = {
+        "metrics": metrics,
+        "dimensions": dimensions,
+    }
+    empty_required_components: list[str] = []
+    for endpoint in sorted(required_component_endpoints):
+        status = fetch_statuses.get(endpoint)
+        if str(getattr(status, "status", "")).lower() == "failed":
+            continue
+        frame = component_frames.get(endpoint)
+        if isinstance(frame, pd.DataFrame) and frame.empty:
+            empty_required_components.append(endpoint)
+    return empty_required_components
+
+
+def _resolve_component_metadata_values(
+    *,
+    endpoint: str,
+    dataframe: pd.DataFrame,
+    breakdown: list[str],
+    fetch_statuses: Mapping[str, Any],
+) -> tuple[int | str, str]:
+    """Build truthful metadata values for a component count and breakdown."""
+    status = fetch_statuses.get(endpoint)
+    endpoint_status = str(getattr(status, "status", "")).lower()
+    failure_detail = str(getattr(status, "error_message", "")) or str(getattr(status, "reason", ""))
+    if endpoint_status == "failed":
+        unavailable_detail = f"Unavailable ({endpoint} fetch failed"
+        if failure_detail:
+            unavailable_detail += f": {failure_detail}"
+        unavailable_detail += ")"
+        return unavailable_detail, unavailable_detail
+
+    component_label = endpoint.replace("_", " ")
+    empty_message = f"No {component_label} found"
+    return len(dataframe), "\n".join(breakdown) if breakdown else empty_message
+
+
+def _resolve_validation_metadata_values(
+    *,
+    validation_status: str,
+    validation_status_detail: str,
+    dq_issues: Collection[Mapping[str, Any]],
+    severity_counts: Mapping[str, int],
+) -> tuple[str, int | str, str]:
+    """Build truthful metadata values for validation status and issue summary."""
+    if validation_status == "completed":
+        dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
+        return "Completed", len(dq_issues), "\n".join(dq_summary) if dq_summary else "No issues"
+    if validation_status == "failed":
+        return "Failed", "Unavailable", validation_status_detail or "Validation failed"
+    return "Skipped", "Not run", validation_status_detail or "Validation skipped"
 
 
 def _run_optional_inventory_step[T](
@@ -879,6 +1238,13 @@ def _parse_non_negative_policy_int(value: Any, *, key: str) -> int:
     return value
 
 
+def _parse_boolean_policy_flag(value: Any, *, key: str) -> bool:
+    """Validate a quality policy boolean field."""
+    if not isinstance(value, bool):
+        raise ValueError(f"quality policy '{key}' must be a boolean")
+    return value
+
+
 def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
     """Load and validate quality policy JSON file."""
     policy_path = Path(policy_file).expanduser()
@@ -922,6 +1288,17 @@ def load_quality_policy(policy_file: str | Path) -> dict[str, Any]:
             key="max_issues",
         )
 
+    if "allow_partial" in normalized_payload:
+        normalized_policy["allow_partial"] = _parse_boolean_policy_flag(
+            normalized_payload["allow_partial"],
+            key="allow_partial",
+        )
+
+    if normalized_policy.get("allow_partial", False) and (
+        "fail_on_quality" in normalized_policy or "quality_report" in normalized_policy
+    ):
+        raise ValueError("quality policy 'allow_partial' cannot be combined with fail_on_quality or quality_report")
+
     return normalized_policy
 
 
@@ -932,18 +1309,27 @@ def apply_quality_policy_defaults(
 ) -> dict[str, Any]:
     """Apply quality policy values only when the corresponding CLI flags were not explicitly set."""
     applied: dict[str, Any] = {}
+    fail_on_quality_cli = _cli_option_specified("--fail-on-quality", argv)
+    quality_report_cli = _cli_option_specified("--quality-report", argv)
+    max_issues_cli = _cli_option_specified("--max-issues", argv)
+    allow_partial_cli = _cli_option_specified("--allow-partial", argv)
 
-    if "fail_on_quality" in policy and not _cli_option_specified("--fail-on-quality", argv):
+    # Honor explicit CLI mutually-exclusive quality-mode choices first.
+    if "fail_on_quality" in policy and not fail_on_quality_cli and not allow_partial_cli:
         args.fail_on_quality = policy["fail_on_quality"]
         applied["fail_on_quality"] = policy["fail_on_quality"]
 
-    if "quality_report" in policy and not _cli_option_specified("--quality-report", argv):
+    if "quality_report" in policy and not quality_report_cli and not allow_partial_cli:
         args.quality_report = policy["quality_report"]
         applied["quality_report"] = policy["quality_report"]
 
-    if "max_issues" in policy and not _cli_option_specified("--max-issues", argv):
+    if "max_issues" in policy and not max_issues_cli:
         args.max_issues = policy["max_issues"]
         applied["max_issues"] = policy["max_issues"]
+
+    if "allow_partial" in policy and not allow_partial_cli and not fail_on_quality_cli and not quality_report_cli:
+        args.allow_partial = policy["allow_partial"]
+        applied["allow_partial"] = policy["allow_partial"]
 
     return applied
 
@@ -1205,13 +1591,132 @@ def _dispatch_prevalidation_mode(
     _handle_completion_prevalidation(completion_shell, run_state=run_state)
 
 
+def _sync_run_summary_cli_metadata(
+    run_state: dict[str, Any] | None,
+    args: argparse.Namespace,
+    *,
+    inferred_mode: RunMode | None = None,
+) -> None:
+    """Synchronize run-summary metadata derived directly from parsed CLI args.
+
+    Keep this centralized so early exits (validation/policy) still emit
+    consistent telemetry values such as allow_partial.
+    """
+    if run_state is None:
+        return
+
+    if inferred_mode is not None:
+        run_state["mode"] = inferred_mode.value
+    run_state["profile"] = getattr(args, "profile", None)
+    run_state["config_file"] = getattr(args, "config_file", None)
+    run_state["output_format"] = getattr(args, "format", None)
+    run_state["output_dir"] = getattr(args, "output_dir", ".")
+    run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
+    run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+    run_state["allow_partial"] = bool(getattr(args, "allow_partial", False))
+
+
+def _normalize_partial_reason_values(partial_reasons: Iterable[str] | None) -> list[str]:
+    """Return stable, de-duplicated partial reasons."""
+    normalized: list[str] = []
+    if partial_reasons is None:
+        return normalized
+    for raw_reason in partial_reasons:
+        reason = str(raw_reason).strip()
+        if reason and reason not in normalized:
+            normalized.append(reason)
+    return normalized
+
+
+def _normalize_partial_state(
+    partial_output: bool | None,
+    partial_reasons: Iterable[str] | None,
+) -> tuple[bool, list[str]]:
+    """Normalize partial-run state once for all producers and serializers."""
+    normalized_partial_reasons = _normalize_partial_reason_values(partial_reasons)
+    normalized_partial_output = bool(partial_output) or bool(normalized_partial_reasons)
+    return normalized_partial_output, normalized_partial_reasons
+
+
+def _build_processing_result(
+    *,
+    data_view_id: str,
+    data_view_name: str,
+    success: bool,
+    duration: float,
+    partial_reasons: Iterable[str] | None = None,
+    partial_output: bool | None = None,
+    **kwargs: Any,
+) -> ProcessingResult:
+    """Construct ProcessingResult objects and defer partial-state normalization to ``ProcessingResult``."""
+    return ProcessingResult(
+        data_view_id=data_view_id,
+        data_view_name=data_view_name,
+        success=success,
+        duration=duration,
+        partial_output=partial_output,
+        partial_reasons=list(partial_reasons) if partial_reasons is not None else [],
+        **kwargs,
+    )
+
+
 def _infer_run_mode(args: argparse.Namespace) -> str:
     """Compatibility wrapper that returns the run mode as a string value."""
     return _infer_run_mode_enum(args).value
 
 
+def _fallback_failure_code_from_message(error_message: str) -> str:
+    """Infer a stable failure code from legacy free-text messages."""
+    normalized = error_message.lower()
+    if "component fetch failed" in normalized:
+        return FAILURE_CODE_COMPONENT_FETCH_FAILED
+    if "data quality validation failed" in normalized:
+        return FAILURE_CODE_DQ_VALIDATION_RUNTIME_FAILED
+    if "data view validation failed" in normalized:
+        return FAILURE_CODE_DATAVIEW_LOOKUP_INVALID
+    if "no metrics or dimensions found" in normalized:
+        return FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY
+    if "initialization failed" in normalized:
+        return FAILURE_CODE_CJA_INIT_FAILED
+    if "permission denied" in normalized:
+        return FAILURE_CODE_OUTPUT_PERMISSION_DENIED
+    return FAILURE_CODE_UNCLASSIFIED_FAILURE
+
+
+def _normalize_failure_identity(result: ProcessingResult) -> tuple[str, str]:
+    """Return stable failure code/reason for run-summary serialization."""
+    if result.success:
+        return "", ""
+
+    code = result.failure_code.strip()
+    reason = result.failure_reason.strip()
+    if not code:
+        code = _fallback_failure_code_from_message(result.error_message)
+    if not reason:
+        reason = code.lower()
+    return code, reason
+
+
+def _build_failure_rollups(serialized_results: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Aggregate failed-result counts by stable code and reason."""
+    by_code: dict[str, int] = {}
+    by_reason: dict[str, int] = {}
+    for result in serialized_results:
+        if bool(result.get("success")):
+            continue
+        code = str(result.get("failure_code") or FAILURE_CODE_UNCLASSIFIED_FAILURE)
+        reason = str(result.get("failure_reason") or code.lower())
+        by_code[code] = by_code.get(code, 0) + 1
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+    return {
+        "by_code": dict(sorted(by_code.items())),
+        "by_reason": dict(sorted(by_reason.items())),
+    }
+
+
 def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
     """Serialize ProcessingResult into run summary shape."""
+    failure_code, failure_reason = _normalize_failure_identity(result)
     return {
         "data_view_id": result.data_view_id,
         "data_view_name": result.data_view_name,
@@ -1223,6 +1728,10 @@ def _processing_result_to_summary(result: ProcessingResult) -> dict[str, Any]:
         "dq_severity_counts": result.dq_severity_counts,
         "output_file": result.output_file,
         "error_message": result.error_message,
+        "failure_code": failure_code,
+        "failure_reason": failure_reason,
+        "partial_output": result.partial_output,
+        "partial_reasons": result.partial_reasons,
         "file_size_bytes": result.file_size_bytes,
         "segments_count": result.segments_count,
         "segments_high_complexity": result.segments_high_complexity,
@@ -1502,7 +2011,7 @@ def load_profile_config_json(profile_path: Path) -> dict[str, str] | None:
         with open(config_file) as f:
             config = json.load(f)
         if isinstance(config, dict):
-            return {k: str(v).strip() for k, v in config.items() if v}
+            return filter_credentials(config)
         return None
     # PEP 758 (Python 3.14+): `except A, B:` is equivalent to `except (A, B):`.
     except OSError, json.JSONDecodeError:
@@ -1546,7 +2055,8 @@ def load_profile_dotenv(profile_path: Path) -> dict[str, str] | None:
     except OSError, UnicodeDecodeError:
         return None
 
-    return credentials or None
+    filtered_credentials = filter_credentials(credentials)
+    return filtered_credentials or None
 
 
 def load_profile_credentials(profile_name: str, logger: logging.Logger) -> dict[str, str] | None:
@@ -2149,37 +2659,23 @@ def test_profile(profile_name: str) -> bool:
     print("3. Testing API connectivity...")
 
     try:
-        # Create temp config file with restrictive permissions
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".json",
-            delete=False,
-            prefix="cja_profile_test_",
-        ) as temp_config:
-            os.chmod(temp_config.name, 0o600)
-            json.dump(credentials, temp_config)
+        _config_from_env(credentials, logger)
+        cja = cjapy.CJA()
+        dataviews = cja.getDataViews()
 
-        try:
-            cjapy.importConfigFile(temp_config.name)
-            cja = cjapy.CJA()
-            dataviews = cja.getDataViews()
-
-            if dataviews is not None:
-                count = len(dataviews) if hasattr(dataviews, "__len__") else 0
-                print("   API connection: SUCCESS")
-                print(f"   Data views accessible: {count}")
-                print()
-                print("Profile test: PASSED")
-                print()
-                return True
-            print("   API connection: OK (no data views found)")
+        if dataviews is not None:
+            count = len(dataviews) if hasattr(dataviews, "__len__") else 0
+            print("   API connection: SUCCESS")
+            print(f"   Data views accessible: {count}")
             print()
             print("Profile test: PASSED")
             print()
             return True
-
-        finally:
-            os.unlink(temp_config.name)
+        print("   API connection: OK (no data views found)")
+        print()
+        print("Profile test: PASSED")
+        print()
+        return True
 
     except RECOVERABLE_CONFIG_API_EXCEPTIONS as e:  # cjapy API/bootstrap calls
         print(ConsoleColors.error("   API connection: FAILED"), file=sys.stderr)
@@ -2368,7 +2864,7 @@ def validate_data_view(cja: cjapy.CJA, data_view_id: str, logger: logging.Logger
 
 
 # ==================== OPTIMIZED API DATA FETCHING (moved to api/fetch.py) ====================
-from cja_auto_sdr.api.fetch import ParallelAPIFetcher
+from cja_auto_sdr.api.fetch import EndpointFetchStatus, ParallelAPIFetcher
 
 # ==================== DATA QUALITY VALIDATION (moved to api/quality.py) ====================
 from cja_auto_sdr.api.quality import DataQualityChecker
@@ -5541,15 +6037,13 @@ def process_inventory_summary(
     if include_calculated:
 
         def _build_calculated_inventory_summary() -> Any:
-            from cja_calculated_metrics_inventory import CalculatedMetricsInventoryBuilder  # pragma: no cover
+            from cja_auto_sdr.inventory.calculated_metrics import CalculatedMetricsInventoryBuilder
 
-            builder = CalculatedMetricsInventoryBuilder(logger=logger)  # pragma: no cover
-            calculated = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
-            if not quiet:  # pragma: no cover
-                print(
-                    ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}")
-                )  # pragma: no cover
-            return calculated  # pragma: no cover
+            builder = CalculatedMetricsInventoryBuilder(logger=logger)
+            calculated = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Calculated metrics: {calculated.total_calculated_metrics}"))
+            return calculated
 
         calculated_inventory = _run_optional_inventory_step(
             logger=logger,
@@ -5563,13 +6057,13 @@ def process_inventory_summary(
     if include_segments:
 
         def _build_segments_inventory_summary() -> Any:
-            from cja_segments_inventory import SegmentsInventoryBuilder  # pragma: no cover
+            from cja_auto_sdr.inventory.segments import SegmentsInventoryBuilder
 
-            builder = SegmentsInventoryBuilder(logger=logger)  # pragma: no cover
-            segments = builder.build(cja, data_view_id, dv_name)  # pragma: no cover
-            if not quiet:  # pragma: no cover
-                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))  # pragma: no cover
-            return segments  # pragma: no cover
+            builder = SegmentsInventoryBuilder(logger=logger)
+            segments = builder.build(cja, data_view_id, dv_name)
+            if not quiet:
+                print(ConsoleColors.dim(f"  Segments: {segments.total_segments}"))
+            return segments
 
         segments_inventory = _run_optional_inventory_step(
             logger=logger,
@@ -5623,6 +6117,7 @@ def process_single_dataview(
     inventory_only: bool = False,
     inventory_order: list[str] | None = None,
     quality_report_only: bool = False,
+    allow_partial: bool = False,
     production_mode: bool = False,
     batch_id: str | None = None,
     processing_config: ProcessingConfig | None = None,
@@ -5651,6 +6146,7 @@ def process_single_dataview(
         inventory_only: Output only inventory sheets, skip standard SDR content (default: False)
         inventory_order: Order of inventory sheets as they appear in CLI (default: ['derived', 'calculated', 'segments'])
         quality_report_only: Validate and return quality issues without generating SDR files (default: False)
+        allow_partial: Opt-in exploratory mode to continue on selected fail-closed boundaries (default: False)
         production_mode: Reduce per-issue warning log volume for production runs (default: False)
         batch_id: Optional batch correlation ID for structured logging context (default: None)
 
@@ -5685,6 +6181,7 @@ def process_single_dataview(
             inventory_only=inventory_only,
             inventory_order=inventory_order,
             quality_report_only=quality_report_only,
+            allow_partial=allow_partial,
             production_mode=production_mode,
             batch_id=batch_id,
         )
@@ -5714,6 +6211,7 @@ def process_single_dataview(
     inventory_only = processing_config.inventory_only
     inventory_order = processing_config.inventory_order
     quality_report_only = processing_config.quality_report_only
+    allow_partial = processing_config.allow_partial
     production_mode = processing_config.production_mode
     batch_id = processing_config.batch_id
 
@@ -5724,17 +6222,55 @@ def process_single_dataview(
     run_mode = "batch_worker" if batch_id else "single"
     logger = with_log_context(base_logger, run_mode=run_mode, data_view_id=data_view_id, batch_id=batch_id)
     perf_tracker = PerformanceTracker(logger)
+    execution_policy = _build_processing_execution_policy(
+        output_format=output_format,
+        inventory_only=inventory_only,
+        include_derived_inventory=include_derived_inventory,
+        metrics_only=metrics_only,
+        dimensions_only=dimensions_only,
+        quality_report_only=quality_report_only,
+        skip_validation=skip_validation,
+    )
+    allow_partial_for_sdr = allow_partial and not quality_report_only
+    partial_reasons: list[str] = []
+
+    def _finalize_result(
+        *,
+        data_view_name: str,
+        success: bool,
+        duration: float | None = None,
+        partial_reasons_override: Iterable[str] | None = None,
+        **kwargs: Any,
+    ) -> ProcessingResult:
+        """Build terminal results with the current partial-run context attached."""
+        return _build_processing_result(
+            data_view_id=data_view_id,
+            data_view_name=data_view_name,
+            success=success,
+            duration=time.time() - start_time if duration is None else duration,
+            partial_reasons=partial_reasons if partial_reasons_override is None else partial_reasons_override,
+            **kwargs,
+        )
+
+    logger.debug(
+        "Execution policy: formats=%s, embedded_metadata=%s, required_components=%s, validation_required=%s, run_validation=%s",
+        sorted(execution_policy.requested_formats),
+        execution_policy.emits_embedded_metadata,
+        sorted(execution_policy.required_component_endpoints),
+        execution_policy.validation_required_for_output,
+        execution_policy.run_data_quality_validation,
+    )
 
     try:
         # Initialize CJA
         cja = initialize_cja(config_file, logger, profile=profile)
         if cja is None:
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name="Unknown",
                 success=False,
-                duration=time.time() - start_time,
                 error_message="CJA initialization failed",
+                failure_code=FAILURE_CODE_CJA_INIT_FAILED,
+                failure_reason="cja_initialization_failed",
             )
 
         logger.info("✓ CJA connection established successfully")
@@ -5780,12 +6316,12 @@ def process_single_dataview(
                 "Lookup payload rejected: raw_type=%s",
                 lookup_raw_type,
             )
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name="Unknown",
                 success=False,
-                duration=time.time() - start_time,
                 error_message="Data view validation failed",
+                failure_code=FAILURE_CODE_DATAVIEW_LOOKUP_INVALID,
+                failure_reason=f"lookup_payload_invalid:{lookup_failure_reason}",
             )
         logger.info("✓ Data view validated and fetched successfully")
 
@@ -5798,129 +6334,221 @@ def process_single_dataview(
                 f"avg response: {tuner_stats['average_response_ms']:.0f}ms",
             )
 
-        # Check if we have any data to process
-        if metrics.empty and dimensions.empty:
-            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
-            logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
-            logger.critical("Possible causes:")
-            logger.critical("  1. Data view has no metrics or dimensions configured")
-            logger.critical("  2. Your API credentials lack permission to read components")
-            logger.critical("  3. The data view is newly created and not yet populated")
-            logger.critical("  4. API rate limiting or temporary service issue")
-            logger.critical("")
-            logger.critical("Troubleshooting steps:")
-            logger.critical("  - Verify the data view has components in the CJA UI")
-            logger.critical("  - Check your OAuth scopes include component read permissions")
-            logger.critical("  - Try running with --list-dataviews to verify access")
-            logger.info("=" * BANNER_WIDTH)
-            logger.info("EXECUTION FAILED")
-            logger.info("=" * BANNER_WIDTH)
-            logger.info(f"Data View: {dv_name} ({data_view_id})")
-            logger.info("Error: No metrics or dimensions found")
-            logger.info(f"Duration: {time.time() - start_time:.2f}s")
-            logger.info("=" * BANNER_WIDTH)
-            # Flush handlers to ensure log is written
-            flush_logging_handlers(logger)
-            return ProcessingResult(
-                data_view_id=data_view_id,
-                data_view_name=dv_name,
-                success=False,
-                duration=time.time() - start_time,
-                error_message="No metrics or dimensions found - data view may be empty or inaccessible",
+        fetch_statuses: dict[str, EndpointFetchStatus] = {}
+        get_fetch_statuses = getattr(fetcher, "get_fetch_statuses", None)
+        if callable(get_fetch_statuses):
+            raw_fetch_statuses = get_fetch_statuses()
+            if isinstance(raw_fetch_statuses, dict):
+                fetch_statuses = raw_fetch_statuses
+
+        required_component_endpoints = execution_policy.required_component_endpoints
+        component_failures: list[str] = []
+        nonblocking_component_failures: list[str] = []
+        for endpoint in ("metrics", "dimensions"):
+            status = fetch_statuses.get(endpoint)
+            endpoint_status = getattr(status, "status", None)
+            endpoint_reason = str(getattr(status, "reason", ""))
+            endpoint_error = str(getattr(status, "error_message", ""))
+
+            if endpoint_status == "failed":
+                detail = endpoint_error or endpoint_reason or "unknown API failure"
+                failure_message = f"{endpoint}: {detail}"
+                if endpoint in required_component_endpoints:
+                    component_failures.append(failure_message)
+                else:
+                    nonblocking_component_failures.append(failure_message)
+
+        if nonblocking_component_failures:
+            logger.warning(
+                "Non-blocking component fetch failures for unrequested sections: %s",
+                "; ".join(nonblocking_component_failures),
             )
+
+        if component_failures:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            if allow_partial_for_sdr:
+                logger.warning(
+                    "Component fetch failed for required sections, but continuing due to --allow-partial (exploratory mode).",
+                )
+                for failure in component_failures:
+                    logger.warning(f"  - {failure}")
+                failed_endpoints = sorted({part.split(":", 1)[0].strip() for part in component_failures if part})
+                component_partial_reason = f"required_endpoints_failed:{','.join(failed_endpoints)}"
+                if component_partial_reason not in partial_reasons:
+                    partial_reasons.append(component_partial_reason)
+            else:
+                logger.critical("Component fetch failed. Refusing to generate a partial SDR.")
+                for failure in component_failures:
+                    logger.critical(f"  - {failure}")
+                logger.info("=" * BANNER_WIDTH)
+                logger.info("EXECUTION FAILED")
+                logger.info("=" * BANNER_WIDTH)
+                logger.info(f"Data View: {dv_name} ({data_view_id})")
+                logger.info("Error: Component fetch failed")
+                logger.info(f"Duration: {time.time() - start_time:.2f}s")
+                logger.info("=" * BANNER_WIDTH)
+                flush_logging_handlers(logger)
+                failed_endpoints = sorted({part.split(":", 1)[0].strip() for part in component_failures if part})
+                return _finalize_result(
+                    data_view_name=dv_name,
+                    success=False,
+                    metrics_count=len(metrics),
+                    dimensions_count=len(dimensions),
+                    error_message=f"Component fetch failed: {'; '.join(component_failures)}",
+                    failure_code=FAILURE_CODE_COMPONENT_FETCH_FAILED,
+                    failure_reason=f"required_endpoints_failed:{','.join(failed_endpoints)}",
+                )
+
+        empty_required_component_endpoints = _resolve_empty_required_component_endpoints(
+            required_component_endpoints=required_component_endpoints,
+            metrics=metrics,
+            dimensions=dimensions,
+            fetch_statuses=fetch_statuses,
+        )
+        if empty_required_component_endpoints:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            empty_required_components = ", ".join(empty_required_component_endpoints)
+            missing_all_standard_components = (
+                set(empty_required_component_endpoints) == STANDARD_COMPONENT_ENDPOINTS
+                and required_component_endpoints == STANDARD_COMPONENT_ENDPOINTS
+            )
+            standard_sdr_allows_sparse_components = (
+                required_component_endpoints == STANDARD_COMPONENT_ENDPOINTS
+                and not quality_report_only
+                and not include_derived_inventory
+                and not inventory_only
+                and not metrics_only
+                and not dimensions_only
+            )
+            if standard_sdr_allows_sparse_components and not missing_all_standard_components:
+                logger.warning(
+                    "Standard SDR component payload was empty for one section; continuing with available data: %s",
+                    empty_required_components,
+                )
+            elif allow_partial_for_sdr:
+                logger.warning(
+                    "Required component payloads were empty, but continuing due to --allow-partial (exploratory mode): %s",
+                    empty_required_components,
+                )
+                partial_reason = f"required_endpoints_empty:{','.join(empty_required_component_endpoints)}"
+                if missing_all_standard_components:
+                    partial_reason = "required_components_empty"
+                if partial_reason not in partial_reasons:
+                    partial_reasons.append(partial_reason)
+            else:
+                if missing_all_standard_components:
+                    logger.critical("No metrics or dimensions fetched. Cannot generate SDR.")
+                    logger.critical("Possible causes:")
+                    logger.critical("  1. Data view has no metrics or dimensions configured")
+                    logger.critical("  2. Your API credentials lack permission to read components")
+                    logger.critical("  3. The data view is newly created and not yet populated")
+                    logger.critical("  4. API rate limiting or temporary service issue")
+                    logger.critical("")
+                    logger.critical("Troubleshooting steps:")
+                    logger.critical("  - Verify the data view has components in the CJA UI")
+                    logger.critical("  - Check your OAuth scopes include component read permissions")
+                    logger.critical("  - Try running with --list-dataviews to verify access")
+                else:
+                    logger.critical(
+                        "Required component payloads were empty for requested output sections: %s",
+                        empty_required_components,
+                    )
+                logger.info("=" * BANNER_WIDTH)
+                logger.info("EXECUTION FAILED")
+                logger.info("=" * BANNER_WIDTH)
+                logger.info(f"Data View: {dv_name} ({data_view_id})")
+                if missing_all_standard_components:
+                    logger.info("Error: No metrics or dimensions found")
+                else:
+                    logger.info(f"Error: Required component payloads were empty: {empty_required_components}")
+                logger.info(f"Duration: {time.time() - start_time:.2f}s")
+                logger.info("=" * BANNER_WIDTH)
+                # Flush handlers to ensure log is written
+                flush_logging_handlers(logger)
+                failure_reason = f"required_endpoints_empty:{','.join(empty_required_component_endpoints)}"
+                error_message = f"Required component payloads were empty: {empty_required_components}"
+                if missing_all_standard_components:
+                    failure_reason = "required_components_empty"
+                    error_message = "No metrics or dimensions found - data view may be empty or inaccessible"
+                return _finalize_result(
+                    data_view_name=dv_name,
+                    success=False,
+                    error_message=error_message,
+                    failure_code=FAILURE_CODE_REQUIRED_COMPONENTS_EMPTY,
+                    failure_reason=failure_reason,
+                )
 
         logger.info("Data fetch operations completed successfully")
 
-        # Data quality validation (skip if --skip-validation flag is set)
-        dq_issues: list[dict[str, Any]] = []
-        severity_counts: dict[str, int] = {}
-        dq_checker: DataQualityChecker | None = None
-        validation_failed = False
-        validation_error_message = ""
-        if skip_validation:
-            logger.info("=" * BANNER_WIDTH)
-            logger.info("Skipping data quality validation (--skip-validation)")
-            logger.info("=" * BANNER_WIDTH)
-            data_quality_df = pd.DataFrame(columns=["Severity", "Category", "Type", "Item Name", "Issue", "Details"])
-        else:
-            logger.info("=" * BANNER_WIDTH)
-            logger.info("Starting data quality validation (optimized)")
-            logger.info("=" * BANNER_WIDTH)
+        validation_result = _run_data_quality_validation(
+            logger=logger,
+            perf_tracker=perf_tracker,
+            metrics=metrics,
+            dimensions=dimensions,
+            quiet=quiet,
+            production_mode=production_mode,
+            shared_cache=shared_cache,
+            enable_cache=enable_cache,
+            cache_size=cache_size,
+            cache_ttl=cache_ttl,
+            clear_cache=clear_cache,
+            max_issues=max_issues,
+            skip_validation=skip_validation,
+            execution_policy=execution_policy,
+        )
+        data_quality_df = validation_result.data_quality_df
+        dq_issues = validation_result.dq_issues
+        severity_counts = validation_result.severity_counts
+        validation_status = validation_result.status
+        validation_status_detail = validation_result.status_detail
+        validation_failed = validation_result.failed
+        validation_error_message = validation_result.error_message
 
-            # Start performance tracking for data quality validation
-            perf_tracker.start("Data Quality Validation")
-
-            # Create validation cache if enabled
-            # Use shared cache if provided (from batch processing), otherwise create local cache
-            validation_cache = None
-            if shared_cache is not None:
-                validation_cache = shared_cache
-                logger.info("Using shared validation cache from batch processor")
-            elif enable_cache:
-                validation_cache = ValidationCache(max_size=cache_size, ttl_seconds=cache_ttl, logger=logger)
-                if clear_cache:
-                    validation_cache.clear()
-                    logger.info(f"Validation cache cleared and enabled (max_size={cache_size}, ttl={cache_ttl}s)")
-                else:
-                    logger.info(f"Validation cache enabled (max_size={cache_size}, ttl={cache_ttl}s)")
-
-            dq_checker = DataQualityChecker(
-                logger,
-                validation_cache=validation_cache,
-                quiet=quiet,
-                log_high_severity_issues=not production_mode,
-            )
-
-            # Run parallel data quality checks (10-15% faster than sequential)
-            logger.info("Running parallel data quality checks...")
-
-            try:
-                # Parallel validation for metrics and dimensions (10-15% faster)
-                dq_checker.check_all_parallel(
-                    metrics_df=metrics,
-                    dimensions_df=dimensions,
-                    metrics_required_fields=VALIDATION_SCHEMA["required_metric_fields"],
-                    dimensions_required_fields=VALIDATION_SCHEMA["required_dimension_fields"],
-                    critical_fields=VALIDATION_SCHEMA["critical_fields"],
-                    max_workers=DEFAULT_VALIDATION_WORKERS,
+        if validation_failed and execution_policy.validation_required_for_output:
+            dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
+            if allow_partial_for_sdr:
+                logger.warning(
+                    "Data quality validation failed at runtime, but continuing due to --allow-partial (exploratory mode).",
                 )
-
-                # Log aggregated summary instead of individual issue count
-                dq_checker.log_summary()
-
-                # Log cache statistics if cache was used
-                if validation_cache is not None:
-                    perf_tracker.add_cache_statistics(validation_cache)
-
-                # End performance tracking
-                perf_tracker.end("Data Quality Validation")
-
-            except RECOVERABLE_VALIDATION_EXCEPTIONS as e:
-                _log_validation_failure(logger, error=e)
-                perf_tracker.end("Data Quality Validation")
-                validation_failed = True
-                validation_error_message = str(e)
-
-            # Get data quality issues dataframe (limited if max_issues > 0)
-            data_quality_df = dq_checker.get_issues_dataframe(max_issues=max_issues)
-            dq_issues = data_quality_df.to_dict(orient="records") if dq_checker.issues else []
-            severity_counts = count_quality_issues_by_severity(dq_issues)
+                logger.warning("Validation error: %s", validation_error_message or "unknown")
+                data_quality_df = _empty_data_quality_dataframe()
+                dq_issues = []
+                severity_counts = {}
+                if "data_quality_validation_runtime_failed" not in partial_reasons:
+                    partial_reasons.append("data_quality_validation_runtime_failed")
+            else:
+                logger.info("=" * BANNER_WIDTH)
+                logger.info("EXECUTION FAILED")
+                logger.info("=" * BANNER_WIDTH)
+                logger.info(f"Data View: {dv_name} ({data_view_id})")
+                logger.info("Error: Data quality validation failed")
+                logger.info(f"Duration: {time.time() - start_time:.2f}s")
+                logger.info("=" * BANNER_WIDTH)
+                flush_logging_handlers(logger)
+                return _finalize_result(
+                    data_view_name=dv_name,
+                    success=False,
+                    metrics_count=len(metrics),
+                    dimensions_count=len(dimensions),
+                    dq_issues_count=len(dq_issues),
+                    dq_issues=dq_issues,
+                    dq_severity_counts=severity_counts,
+                    error_message=f"Data quality validation failed: {validation_error_message}",
+                    failure_code=FAILURE_CODE_DQ_VALIDATION_RUNTIME_FAILED,
+                    failure_reason="data_quality_validation_runtime_failed",
+                )
 
         if quality_report_only:
             dv_name = lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown"
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
-                success=not validation_failed,
-                duration=time.time() - start_time,
+                success=True,
                 metrics_count=len(metrics),
                 dimensions_count=len(dimensions),
                 dq_issues_count=len(dq_issues),
                 dq_issues=dq_issues,
                 dq_severity_counts=severity_counts,
-                error_message=(
-                    f"Data quality validation failed: {validation_error_message}" if validation_failed else ""
-                ),
+                error_message="",
             )
 
         # Optional inventory builds (parallelized when 2+ are enabled)
@@ -6113,9 +6741,24 @@ def process_single_dataview(
             local_tz = datetime.now(UTC).astimezone().tzinfo
             current_time = datetime.now(local_tz)
             formatted_timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-
-            # Count data quality issues by severity
-            dq_summary = [f"{sev}: {count}" for sev, count in severity_counts.items()]
+            metrics_count_value, metrics_breakdown_value = _resolve_component_metadata_values(
+                endpoint="metrics",
+                dataframe=metrics,
+                breakdown=metric_summary,
+                fetch_statuses=fetch_statuses,
+            )
+            dimensions_count_value, dimensions_breakdown_value = _resolve_component_metadata_values(
+                endpoint="dimensions",
+                dataframe=dimensions,
+                breakdown=dimension_summary,
+                fetch_statuses=fetch_statuses,
+            )
+            validation_status_value, dq_issues_value, dq_summary_value = _resolve_validation_metadata_values(
+                validation_status=validation_status,
+                validation_status_detail=validation_status_detail,
+                dq_issues=dq_issues,
+                severity_counts=severity_counts,
+            )
 
             # Build base metadata properties
             metadata_properties = [
@@ -6126,6 +6769,7 @@ def process_single_dataview(
                 "Metrics Breakdown",
                 "Total Dimensions",
                 "Dimensions Breakdown",
+                "Data Quality Validation Status",
                 "Data Quality Issues",
                 "Data Quality Summary",
             ]
@@ -6133,12 +6777,13 @@ def process_single_dataview(
                 formatted_timestamp,
                 data_view_id,
                 lookup_data.get("name", "Unknown") if isinstance(lookup_data, dict) else "Unknown",
-                len(metrics),
-                "\n".join(metric_summary) if metric_summary else "No metrics found",
-                len(dimensions),
-                "\n".join(dimension_summary) if dimension_summary else "No dimensions found",
-                len(dq_issues),
-                "\n".join(dq_summary) if dq_summary else "No issues",
+                metrics_count_value,
+                metrics_breakdown_value,
+                dimensions_count_value,
+                dimensions_breakdown_value,
+                validation_status_value,
+                dq_issues_value,
+                dq_summary_value,
             ]
 
             # Add inventory statistics if any inventory was generated
@@ -6272,8 +6917,9 @@ def process_single_dataview(
         logger.info("=" * BANNER_WIDTH)
 
         # Prepare data dictionary for all formats
-        # In inventory-only mode, skip standard SDR sheets
-        if inventory_only:
+        # Keep standard section emission aligned with execution-policy decisions.
+        emits_standard_sdr_sections = not execution_policy.inventory_only_omits_standard_sections
+        if not emits_standard_sdr_sections:
             data_dict = {}
         else:
             data_dict = {
@@ -6321,11 +6967,9 @@ def process_single_dataview(
             )
 
         # Prepare metadata dictionary for JSON/HTML
-        metadata_dict = (
-            metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
-            if not metadata_df.empty
-            else {}
-        )
+        metadata_dict = {}
+        if execution_policy.emits_embedded_metadata and not metadata_df.empty:
+            metadata_dict = metadata_df.set_index(metadata_df.columns[0])[metadata_df.columns[1]].to_dict()
 
         # Base filename without extension
         base_filename = output_path.stem if isinstance(output_path, Path) else Path(output_path).stem
@@ -6352,8 +6996,8 @@ def process_single_dataview(
                         # Write sheets in order, with Data Quality first for visibility
                         sheets_to_write = []
 
-                        # Skip standard sheets in inventory-only mode
-                        if not inventory_only:
+                        # Skip standard sheets when output policy omits them.
+                        if emits_standard_sdr_sections:
                             sheets_to_write.extend(
                                 [
                                     (metadata_df, "Metadata"),
@@ -6449,9 +7093,13 @@ def process_single_dataview(
             logger.info(f"Data View: {dv_name} ({data_view_id})")
             logger.info(f"Metrics: {len(metrics)}")
             logger.info(f"Dimensions: {len(dimensions)}")
-            logger.info(f"Data Quality Issues: {len(dq_issues)}")
+            logger.info(f"Data Quality Validation: {validation_status.title()}")
+            if validation_status == "completed":
+                logger.info(f"Data Quality Issues: {len(dq_issues)}")
+            else:
+                logger.info(f"Data Quality Issues: {validation_status_detail}")
 
-            if dq_issues:
+            if validation_status == "completed" and dq_issues:
                 logger.info("Data Quality Issues by Severity:")
                 for severity, count in severity_counts.items():
                     logger.info(f"  {severity}: {count}")
@@ -6505,8 +7153,7 @@ def process_single_dataview(
                 derived_fields_count = derived_summary.get("total_derived_fields", 0)
                 derived_fields_high_complexity = derived_summary.get("complexity", {}).get("high_complexity_count", 0)
 
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=True,
                 duration=duration,
@@ -6536,12 +7183,12 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             flush_logging_handlers(logger)
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=False,
-                duration=time.time() - start_time,
                 error_message=f"Permission denied: {e!s}",
+                failure_code=FAILURE_CODE_OUTPUT_PERMISSION_DENIED,
+                failure_reason="output_permission_denied",
             )
         except (OSError, KeyError, TypeError, ValueError) as e:
             logger.critical(f"Failed to generate output file: {e!s}")
@@ -6554,12 +7201,12 @@ def process_single_dataview(
             logger.info(f"Duration: {time.time() - start_time:.2f}s")
             logger.info("=" * BANNER_WIDTH)
             flush_logging_handlers(logger)
-            return ProcessingResult(
-                data_view_id=data_view_id,
+            return _finalize_result(
                 data_view_name=dv_name,
                 success=False,
-                duration=time.time() - start_time,
                 error_message=str(e),
+                failure_code=FAILURE_CODE_OUTPUT_WRITE_FAILED,
+                failure_reason=f"output_write_failed:{type(e).__name__}",
             )
 
     except Exception as e:  # Intentional: top-level processing boundary for API + runtime errors
@@ -6573,12 +7220,12 @@ def process_single_dataview(
         logger.info(f"Duration: {time.time() - start_time:.2f}s")
         logger.info("=" * BANNER_WIDTH)
         flush_logging_handlers(logger)
-        return ProcessingResult(
-            data_view_id=data_view_id,
+        return _finalize_result(
             data_view_name="Unknown",
             success=False,
-            duration=time.time() - start_time,
             error_message=str(e),
+            failure_code=FAILURE_CODE_UNEXPECTED_RUNTIME_ERROR,
+            failure_reason=f"unexpected_runtime_error:{type(e).__name__}",
         )
 
 
@@ -6625,6 +7272,7 @@ def process_single_dataview_worker(args: WorkerArgs) -> ProcessingResult:
             inventory_only=args.inventory_only,
             inventory_order=args.inventory_order,
             quality_report_only=args.quality_report_only,
+            allow_partial=args.allow_partial,
             production_mode=args.production_mode,
             batch_id=args.batch_id,
         ),
@@ -6695,6 +7343,7 @@ class BatchProcessor:
         inventory_only: bool = False,
         inventory_order: list[str] | None = None,
         quality_report_only: bool = False,
+        allow_partial: bool = False,
         production_mode: bool = False,
         batch_config: BatchConfig | None = None,
     ):
@@ -6727,6 +7376,7 @@ class BatchProcessor:
                 inventory_only=inventory_only,
                 inventory_order=inventory_order,
                 quality_report_only=quality_report_only,
+                allow_partial=allow_partial,
                 production_mode=production_mode,
             )
 
@@ -6757,6 +7407,7 @@ class BatchProcessor:
         self.inventory_only = batch_config.inventory_only
         self.inventory_order = batch_config.inventory_order
         self.quality_report_only = batch_config.quality_report_only
+        self.allow_partial = batch_config.allow_partial
         self.production_mode = batch_config.production_mode
         self.batch_id = str(uuid.uuid4())[:8]  # Short correlation ID for log tracing
         base_logger = setup_logging(batch_mode=True, log_level=self.log_level, log_format=self.log_format)
@@ -6836,6 +7487,7 @@ class BatchProcessor:
                 inventory_only=self.inventory_only,
                 inventory_order=self.inventory_order,
                 quality_report_only=self.quality_report_only,
+                allow_partial=self.allow_partial,
                 production_mode=self.production_mode,
                 batch_id=self.batch_id,
             )
@@ -6900,6 +7552,8 @@ class BatchProcessor:
                                     success=False,
                                     duration=0,
                                     error_message=str(e),
+                                    failure_code=FAILURE_CODE_BATCH_WORKER_EXCEPTION,
+                                    failure_reason=f"batch_worker_exception:{type(e).__name__}",
                                 ),
                             )
 
@@ -14445,14 +15099,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     # Parse arguments (will show error and help if no data views provided)
     args = parse_arguments()
     inferred_mode = _infer_run_mode_enum(args)
-    if run_state is not None:
-        run_state["mode"] = inferred_mode.value
-        run_state["profile"] = getattr(args, "profile", None)
-        run_state["config_file"] = getattr(args, "config_file", None)
-        run_state["output_format"] = getattr(args, "format", None)
-        run_state["output_dir"] = getattr(args, "output_dir", ".")
-        run_state["data_view_inputs"] = list(getattr(args, "data_views", []))
-        run_state["run_summary_output"] = getattr(args, "run_summary_json", run_state.get("run_summary_output"))
+    _sync_run_summary_cli_metadata(run_state, args, inferred_mode=inferred_mode)
 
     # Dispatch early command modes before unrelated validation. Use inferred
     # mode so dispatch precedence cannot diverge from run-mode classification.
@@ -14475,6 +15122,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         # shared policy files usable across non-SDR commands.
         if inferred_mode == RunMode.SDR:
             applied_quality_policy = apply_quality_policy_defaults(args, quality_policy)
+            _sync_run_summary_cli_metadata(run_state, args, inferred_mode=inferred_mode)
         if run_state is not None and isinstance(run_state.get("quality_policy"), dict):
             run_state["quality_policy"]["applied"] = applied_quality_policy
 
@@ -14519,6 +15167,8 @@ def _main_impl(run_state: dict[str, Any] | None = None):
     keep_since_specified = _cli_option_specified("--keep-since")
 
     non_sdr_mode = inferred_mode != RunMode.SDR
+    if getattr(args, "allow_partial", False) and non_sdr_mode:
+        _exit_error("--allow-partial is only supported in SDR generation mode")
     if getattr(args, "fail_on_quality", None) and non_sdr_mode:
         _exit_error("--fail-on-quality is only supported in SDR generation mode")
 
@@ -14534,6 +15184,10 @@ def _main_impl(run_state: dict[str, Any] | None = None):
         _exit_error("--quality-report cannot be used with --skip-validation")
     if getattr(args, "quality_report", None) and non_sdr_mode:
         _exit_error("--quality-report is only supported in SDR generation mode")
+    if getattr(args, "allow_partial", False) and getattr(args, "quality_report", None):
+        _exit_error("--allow-partial cannot be used with --quality-report")
+    if getattr(args, "allow_partial", False) and getattr(args, "fail_on_quality", None):
+        _exit_error("--allow-partial cannot be used with --fail-on-quality")
 
     if getattr(args, "list_snapshots", False) and getattr(args, "prune_snapshots", False):
         _exit_error("Use either --list-snapshots or --prune-snapshots, not both")
@@ -14562,8 +15216,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             args.format = inferred_format
             if not args.quiet:
                 print(f"Auto-detected format '{inferred_format}' from output file extension")
-    if run_state is not None:
-        run_state["output_format"] = getattr(args, "format", None)
+    _sync_run_summary_cli_metadata(run_state, args)
 
     # Set color theme for diff output (accessible accessibility)
     color_theme = getattr(args, "color_theme", "default")
@@ -16089,6 +16742,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
                 inventory_only=False,
                 inventory_order=None,
                 quality_report_only=True,
+                allow_partial=getattr(args, "allow_partial", False),
                 production_mode=args.production,
             )
             quality_report_results.append(result)
@@ -16166,6 +16820,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order or None,
             quality_report_only=quality_report_only,
+            allow_partial=getattr(args, "allow_partial", False),
             production_mode=args.production,
         )
 
@@ -16232,6 +16887,7 @@ def _main_impl(run_state: dict[str, Any] | None = None):
             inventory_only=getattr(args, "inventory_only", False),
             inventory_order=inventory_order or None,
             quality_report_only=quality_report_only,
+            allow_partial=getattr(args, "allow_partial", False),
             production_mode=args.production,
         )
         processed_results = [result]
@@ -16453,6 +17109,7 @@ def main():
         "config_file": None,
         "output_format": None,
         "quality_policy": None,
+        "allow_partial": _cli_option_specified("--allow-partial"),
     }
     exit_code = 0
 
@@ -16479,8 +17136,9 @@ def main():
             serialized_results = [_processing_result_to_summary(r) for r in run_state.get("processed_results", [])]
             success_count = sum(1 for r in serialized_results if r.get("success"))
             failure_count = len(serialized_results) - success_count
+            failure_rollups = _build_failure_rollups(serialized_results)
             summary_payload = {
-                "summary_version": "1.0",
+                "summary_version": RUN_SUMMARY_SCHEMA_VERSION,
                 "tool_version": __version__,
                 "environment": _collect_environment_info(),
                 "started_at": summary_start,
@@ -16492,6 +17150,7 @@ def main():
                 "profile": run_state.get("profile"),
                 "config_file": run_state.get("config_file"),
                 "output_format": run_state.get("output_format"),
+                "allow_partial": bool(run_state.get("allow_partial", False)),
                 "command": {"argv": list(sys.argv), "cwd": str(Path.cwd())},
                 "inputs": {
                     "data_view_inputs": run_state.get("data_view_inputs", []),
@@ -16504,6 +17163,7 @@ def main():
                     "failed": failure_count,
                     "quality_issues": int(run_state.get("quality_issues_count", 0) or 0),
                 },
+                "failure_rollups": failure_rollups,
                 "quality_gate_failed": bool(run_state.get("quality_gate_failed", False)),
                 "quality_policy": run_state.get("quality_policy"),
                 "details": run_state.get("details", {}),

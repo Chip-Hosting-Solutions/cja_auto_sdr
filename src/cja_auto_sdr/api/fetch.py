@@ -1,10 +1,11 @@
 """Parallel API data fetching for CJA Auto SDR."""
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 import cjapy
@@ -20,6 +21,17 @@ from cja_auto_sdr.core.perf import PerformanceTracker
 
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
 API_FETCH_TASK_COUNT = 3  # metrics + dimensions + dataview
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointFetchStatus:
+    """Outcome metadata for a single API endpoint fetch."""
+
+    endpoint: str
+    status: str
+    reason: str = ""
+    error_message: str = ""
+    item_count: int | None = None
 
 
 class ParallelAPIFetcher:
@@ -53,6 +65,9 @@ class ParallelAPIFetcher:
         self.max_workers = max_workers
         self.quiet = quiet
         self.circuit_breaker = circuit_breaker
+        self._fetch_status_lock = threading.Lock()
+        self._last_fetch_statuses: dict[str, EndpointFetchStatus] = {}
+        self._reset_fetch_statuses()
 
         # Initialize API tuner if config provided
         self.tuner: APIWorkerTuner | None = None
@@ -73,6 +88,36 @@ class ParallelAPIFetcher:
             # Use tuner's worker count as effective max
             self.max_workers = self.tuner.current_workers
 
+    def _reset_fetch_statuses(self) -> None:
+        with self._fetch_status_lock:
+            self._last_fetch_statuses = {
+                endpoint: EndpointFetchStatus(endpoint=endpoint, status="pending")
+                for endpoint in ("metrics", "dimensions", "dataview")
+            }
+
+    def _record_fetch_status(
+        self,
+        endpoint: str,
+        status: str,
+        *,
+        reason: str = "",
+        error_message: str = "",
+        item_count: int | None = None,
+    ) -> None:
+        with self._fetch_status_lock:
+            self._last_fetch_statuses[endpoint] = EndpointFetchStatus(
+                endpoint=endpoint,
+                status=status,
+                reason=reason,
+                error_message=error_message,
+                item_count=item_count,
+            )
+
+    def get_fetch_statuses(self) -> dict[str, EndpointFetchStatus]:
+        """Return the most recent per-endpoint fetch outcomes."""
+        with self._fetch_status_lock:
+            return dict(self._last_fetch_statuses)
+
     def fetch_all_data(self, data_view_id: str) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         """
         Fetch metrics, dimensions, and data view info in parallel
@@ -82,6 +127,7 @@ class ParallelAPIFetcher:
         """
         self.logger.info("Starting parallel data fetch operations...")
         self.perf_tracker.start("Parallel API Fetch")
+        self._reset_fetch_statuses()
 
         results = {"metrics": None, "dimensions": None, "dataview": None}
 
@@ -112,10 +158,26 @@ class ParallelAPIFetcher:
                     task_name = future_to_name[future]
                     try:
                         results[task_name] = future.result()
-                        pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
-                        self.logger.info(f"\u2713 {task_name.capitalize()} fetch completed")
+                        task_status = self.get_fetch_statuses().get(task_name)
+                        if task_status is not None and task_status.status == "failed":
+                            detail = task_status.error_message or task_status.reason or "unknown failure"
+                            errors[task_name] = detail
+                            pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
+                            self.logger.error(f"\u2717 {task_name.capitalize()} fetch failed: {detail}")
+                        elif task_status is not None and task_status.status == "empty":
+                            pbar.set_postfix_str(f"\u2205 {task_name}", refresh=True)
+                            self.logger.warning(f"\u2205 {task_name.capitalize()} fetch returned no components")
+                        else:
+                            pbar.set_postfix_str(f"\u2713 {task_name}", refresh=True)
+                            self.logger.info(f"\u2713 {task_name.capitalize()} fetch completed")
                     except Exception as e:  # Intentional: per-task boundary for heterogeneous worker failures
                         errors[task_name] = str(e)
+                        self._record_fetch_status(
+                            task_name,
+                            "failed",
+                            reason="future_exception",
+                            error_message=str(e),
+                        )
                         pbar.set_postfix_str(f"\u2717 {task_name}", refresh=True)
                         self.logger.error(f"\u2717 {task_name.capitalize()} fetch failed: {e}")
                     pbar.update(1)
@@ -123,7 +185,7 @@ class ParallelAPIFetcher:
         self.perf_tracker.end("Parallel API Fetch")
 
         # Log summary
-        success_count = sum(1 for v in results.values() if v is not None)
+        success_count = sum(1 for status in self.get_fetch_statuses().values() if status.status == "success")
         self.logger.info(f"Parallel fetch complete: {success_count}/3 successful")
 
         if errors:
@@ -186,19 +248,34 @@ class ParallelAPIFetcher:
 
             if metrics is None or (isinstance(metrics, pd.DataFrame) and metrics.empty):
                 self.logger.warning("No metrics returned from API")
+                self._record_fetch_status("metrics", "empty", reason="empty_response", item_count=0)
                 return pd.DataFrame()
 
             self.logger.info(f"Successfully fetched {len(metrics)} metrics")
+            self._record_fetch_status("metrics", "success", item_count=len(metrics))
             return metrics
 
         except CircuitBreakerOpen as e:
             self.logger.warning(f"Circuit breaker open for metrics fetch: {e.message}")
+            self._record_fetch_status(
+                "metrics",
+                "failed",
+                reason="circuit_breaker_open",
+                error_message=e.message,
+            )
             return pd.DataFrame()
         except AttributeError as e:
             self.logger.error(f"API method error - getMetrics may not be available: {e!s}")
+            self._record_fetch_status(
+                "metrics",
+                "failed",
+                reason="attribute_error",
+                error_message=str(e),
+            )
             return pd.DataFrame()
         except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for metrics fetch
             self.logger.error(f"Failed to fetch metrics: {e!s}")
+            self._record_fetch_status("metrics", "failed", reason="exception", error_message=str(e))
             return pd.DataFrame()
 
     def _fetch_dimensions(self, data_view_id: str) -> pd.DataFrame:
@@ -217,19 +294,34 @@ class ParallelAPIFetcher:
 
             if dimensions is None or (isinstance(dimensions, pd.DataFrame) and dimensions.empty):
                 self.logger.warning("No dimensions returned from API")
+                self._record_fetch_status("dimensions", "empty", reason="empty_response", item_count=0)
                 return pd.DataFrame()
 
             self.logger.info(f"Successfully fetched {len(dimensions)} dimensions")
+            self._record_fetch_status("dimensions", "success", item_count=len(dimensions))
             return dimensions
 
         except CircuitBreakerOpen as e:
             self.logger.warning(f"Circuit breaker open for dimensions fetch: {e.message}")
+            self._record_fetch_status(
+                "dimensions",
+                "failed",
+                reason="circuit_breaker_open",
+                error_message=e.message,
+            )
             return pd.DataFrame()
         except AttributeError as e:
             self.logger.error(f"API method error - getDimensions may not be available: {e!s}")
+            self._record_fetch_status(
+                "dimensions",
+                "failed",
+                reason="attribute_error",
+                error_message=str(e),
+            )
             return pd.DataFrame()
         except Exception as e:  # Intentional: preserve resilient fallback-to-empty contract for dimensions fetch
             self.logger.error(f"Failed to fetch dimensions: {e!s}")
+            self._record_fetch_status("dimensions", "failed", reason="exception", error_message=str(e))
             return pd.DataFrame()
 
     def _fetch_dataview_info(self, data_view_id: str) -> dict:
@@ -243,6 +335,12 @@ class ParallelAPIFetcher:
             assessment = assess_dataview_lookup_payload(lookup_data, expected_data_view_id=data_view_id)
             if not assessment.is_valid:
                 self.logger.error("Data view information returned invalid payload (%s)", assessment.reason)
+                self._record_fetch_status(
+                    "dataview",
+                    "failed",
+                    reason=assessment.reason,
+                    error_message="invalid data view lookup payload",
+                )
                 detail = "invalid data view lookup payload"
                 if isinstance(lookup_data, dict):
                     error_text = lookup_data.get("error") or lookup_data.get("message")
@@ -256,10 +354,17 @@ class ParallelAPIFetcher:
 
             validated_payload = assessment.payload or {}
             self.logger.info(f"Successfully fetched data view info: {validated_payload.get('name', 'Unknown')}")
+            self._record_fetch_status("dataview", "success")
             return validated_payload
 
         except CircuitBreakerOpen as e:
             self.logger.warning(f"Circuit breaker open for data view fetch: {e.message}")
+            self._record_fetch_status(
+                "dataview",
+                "failed",
+                reason="circuit_breaker_open",
+                error_message=e.message,
+            )
             return self._build_lookup_failure_payload(
                 data_view_id,
                 reason="circuit_breaker_open",
@@ -268,6 +373,7 @@ class ParallelAPIFetcher:
             )
         except Exception as e:  # Intentional: preserve resilient lookup-failure payload contract
             self.logger.error(f"Failed to fetch data view information: {e!s}")
+            self._record_fetch_status("dataview", "failed", reason="exception", error_message=str(e))
             return self._build_lookup_failure_payload(
                 data_view_id,
                 reason="exception",

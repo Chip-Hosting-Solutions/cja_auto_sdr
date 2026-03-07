@@ -192,11 +192,16 @@ The policy file supports these keys:
 {
   "fail_on_quality": "HIGH",
   "quality_report": "json",
-  "max_issues": 50
+  "max_issues": 50,
+  "allow_partial": false
 }
 ```
 
-Explicit CLI flags (`--fail-on-quality`, `--quality-report`, `--max-issues`) always take precedence over policy file values.
+`allow_partial` is optional and defaults to `false`.
+
+Explicit CLI flags (`--fail-on-quality`, `--quality-report`, `--max-issues`, `--allow-partial`) always take precedence over policy file values.
+
+`allow_partial` cannot be combined with `fail_on_quality` or `quality_report` in the same policy file.
 
 ## Production Mode
 

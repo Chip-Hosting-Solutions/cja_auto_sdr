@@ -381,6 +381,15 @@ class TestProcessSingleDataviewSharedCache:
             sample_dataview_info,
         )
         fake_shared_cache = MagicMock()
+        fake_shared_cache.get_statistics.return_value = {
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
+            "size": 0,
+            "max_size": 1000,
+            "evictions": 0,
+            "total_requests": 0,
+        }
 
         result = process_single_dataview(
             data_view_id="dv_test_12345",
@@ -2065,7 +2074,7 @@ class TestProcessInventorySummaryExceptionHandlers:
         original_import = builtins.__import__
 
         def fail_calculated_import(name, *args, **kwargs):
-            if name == "cja_calculated_metrics_inventory":
+            if name == "cja_auto_sdr.inventory.calculated_metrics":
                 raise ImportError("no calculated module")
             return original_import(name, *args, **kwargs)
 
@@ -2113,7 +2122,7 @@ class TestProcessInventorySummaryExceptionHandlers:
         original_import = builtins.__import__
 
         def fail_segments_import(name, *args, **kwargs):
-            if name == "cja_segments_inventory":
+            if name == "cja_auto_sdr.inventory.segments":
                 raise ImportError("no segments module")
             return original_import(name, *args, **kwargs)
 

@@ -169,10 +169,10 @@ class TestCredentialResolverFallbacks:
 
 
 class TestConfigFromEnv:
-    """Test temporary config file creation from env credentials"""
+    """Test direct cjapy configuration from env credentials."""
 
-    def test_creates_temp_config(self):
-        """Test that _config_from_env creates a valid temp config"""
+    def test_configures_cjapy_directly(self):
+        """Test that _config_from_env configures cjapy without writing temp files."""
         credentials = {
             "org_id": "test_org@AdobeOrg",
             "client_id": "test_client_id",
@@ -180,24 +180,17 @@ class TestConfigFromEnv:
             "scopes": "openid",
         }
         logger = MagicMock()
+        expected_secret = credentials["secret"]
 
         with patch("cja_auto_sdr.api.client.cjapy") as mock_cjapy:
             _config_from_env(credentials, logger)
 
-            # Verify importConfigFile was called
-            mock_cjapy.importConfigFile.assert_called_once()
-
-            # Get the temp file path that was used
-            config_path = mock_cjapy.importConfigFile.call_args[0][0]
-
-            # Verify it's a valid JSON file with correct content
-            with open(config_path) as f:
-                saved_config = json.load(f)
-
-            assert saved_config["org_id"] == "test_org@AdobeOrg"
-            assert saved_config["client_id"] == "test_client_id"
-            assert saved_config["secret"] == "test_secret"
-            assert saved_config["scopes"] == "openid"
+            mock_cjapy.configure.assert_called_once_with(
+                org_id="test_org@AdobeOrg",
+                client_id="test_client_id",
+                secret=expected_secret,
+                scopes="openid",
+            )
 
 
 class TestEnvVarMapping:
