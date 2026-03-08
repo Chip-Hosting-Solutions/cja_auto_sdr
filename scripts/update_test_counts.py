@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Update test-count references in documentation using pytest collection output.
 
@@ -14,8 +13,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,16 +26,14 @@ def run_pytest_collect() -> str:
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            "pytest collection failed. stderr:\n" + (proc.stderr.strip() or "(empty)")
-        )
+        raise RuntimeError("pytest collection failed. stderr:\n" + (proc.stderr.strip() or "(empty)"))
     return proc.stdout
 
 
-def parse_counts(collect_output: str) -> Dict[str, int]:
+def parse_counts(collect_output: str) -> dict[str, int]:
     module_re = re.compile(r"^\s*<Module ([^>]+)>")
     func_re = re.compile(r"^\s*<Function ")
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     current: str | None = None
     for line in collect_output.splitlines():
         mod_match = module_re.match(line)
@@ -64,44 +59,45 @@ def update_readme(text: str, total: int) -> str:
     )
 
 
-def update_tests_readme(text: str, counts: Dict[str, int], total: int) -> str:
+def update_tests_readme(text: str, counts: dict[str, int], total: int) -> str:
     lines = text.splitlines()
-    updated: List[str] = []
+    updated: list[str] = []
 
-    for line in lines:
-        if line.strip().startswith("**Total:") and "comprehensive tests" in line:
-            line = f"**Total: {total:,} comprehensive tests**"
+    for original_line in lines:
+        updated_line = original_line
+        if updated_line.strip().startswith("**Total:") and "comprehensive tests" in updated_line:
+            updated_line = f"**Total: {total:,} comprehensive tests**"
 
-        if line.strip().startswith("| **Total** |"):
-            line = f"| **Total** | **{total:,}** | **Collected via pytest --collect-only** |"
+        if updated_line.strip().startswith("| **Total** |"):
+            updated_line = f"| **Total** | **{total:,}** | **Collected via pytest --collect-only** |"
 
         # Update table rows for test files
-        if line.strip().startswith("| `test_") and "|" in line:
-            match = re.search(r"`(test_[^`]+)`", line)
+        if updated_line.strip().startswith("| `test_") and "|" in updated_line:
+            match = re.search(r"`(test_[^`]+)`", updated_line)
             if match:
                 test_file = match.group(1)
                 if test_file in counts:
-                    line = re.sub(
+                    updated_line = re.sub(
                         r"\| `test_[^`]+` \| \d+ \|",
                         f"| `{test_file}` | {counts[test_file]} |",
-                        line,
+                        updated_line,
                     )
 
         # Update completed enhancements counts
         for test_file, count in counts.items():
             pattern = rf"({re.escape(test_file)}\) - )\d+ tests"
-            if re.search(pattern, line):
-                line = re.sub(pattern, rf"\g<1>{count} tests", line)
+            if re.search(pattern, updated_line):
+                updated_line = re.sub(pattern, rf"\g<1>{count} tests", updated_line)
 
         # Update overall total mentions
-        if "Comprehensive test coverage" in line:
-            line = re.sub(
+        if "Comprehensive test coverage" in updated_line:
+            updated_line = re.sub(
                 r"\(\d[\d,]* tests total\)",
                 f"({total:,} tests total)",
-                line,
+                updated_line,
             )
 
-        updated.append(line)
+        updated.append(updated_line)
 
     return "\n".join(updated) + "\n"
 
@@ -115,20 +111,19 @@ def update_diff_comparison_docs(text: str, count: int) -> str:
 
 
 def update_output_formats_docs(text: str, count: int) -> str:
-    text = re.sub(
+    updated = re.sub(
         r"includes \d+ comprehensive tests covering",
         f"includes {count} comprehensive tests covering",
         text,
     )
-    text = re.sub(
+    return re.sub(
         r"\*\*Fully Tested:\*\* \d+ comprehensive tests",
         f"**Fully Tested:** {count} comprehensive tests",
-        text,
+        updated,
     )
-    return text
 
 
-def apply_updates(files: List[Tuple[Path, str]]) -> int:
+def apply_updates(files: list[tuple[Path, str]]) -> int:
     changed = 0
     for path, new_content in files:
         old_content = path.read_text()
@@ -150,15 +145,13 @@ def main() -> int:
 
     total = sum(counts.values())
 
-    files: List[Tuple[Path, str]] = []
+    files: list[tuple[Path, str]] = []
 
     readme_path = ROOT / "README.md"
     files.append((readme_path, update_readme(readme_path.read_text(), total)))
 
     tests_readme_path = ROOT / "tests" / "README.md"
-    files.append(
-        (tests_readme_path, update_tests_readme(tests_readme_path.read_text(), counts, total))
-    )
+    files.append((tests_readme_path, update_tests_readme(tests_readme_path.read_text(), counts, total)))
 
     diff_docs_path = ROOT / "docs" / "DIFF_COMPARISON.md"
     if diff_docs_path.exists() and "test_diff_comparison.py" in counts:
@@ -169,19 +162,22 @@ def main() -> int:
     output_docs_path = ROOT / "docs" / "OUTPUT_FORMATS.md"
     if output_docs_path.exists() and "test_output_formats.py" in counts:
         files.append(
-            (output_docs_path, update_output_formats_docs(output_docs_path.read_text(), counts["test_output_formats.py"]))
+            (
+                output_docs_path,
+                update_output_formats_docs(output_docs_path.read_text(), counts["test_output_formats.py"]),
+            )
         )
 
     if args.check:
         for path, new_content in files:
             if path.read_text() != new_content:
-                print(f"Out of date: {path.relative_to(ROOT)}")
+                sys.stdout.write(f"Out of date: {path.relative_to(ROOT)}\n")
                 return 1
-        print("Test counts are up to date.")
+        sys.stdout.write("Test counts are up to date.\n")
         return 0
 
     changed = apply_updates(files)
-    print(f"Updated {changed} file(s).")
+    sys.stdout.write(f"Updated {changed} file(s).\n")
     return 0
 
 
