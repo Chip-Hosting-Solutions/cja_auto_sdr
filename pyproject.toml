@@ -146,8 +146,10 @@ ignore = [
 "src/cja_auto_sdr/core/credentials.py" = ["PLW2901"]  # line=line.strip() pattern
 "src/cja_auto_sdr/inventory/calculated_metrics.py" = ["ERA001"]  # section header comments
 "src/cja_auto_sdr/org/__init__.py" = ["ERA001"]  # section header comments
+"src/cja_auto_sdr/org/writers/__init__.py" = ["T201", "ERA001", "RUF001", "RUF003"]  # T201: intentional CLI console output; ERA001: section header comments; RUF001/3: intentional Unicode symbols
 "src/cja_auto_sdr/core/exit_codes.py" = ["T201"]  # intentional CLI console output
 "src/cja_auto_sdr/core/logging.py" = ["PLW0603", "T201"]  # legitimate global state for logging init; T201: fallback console output before logger is ready
+"src/cja_auto_sdr/api/quality_policy.py" = ["T201"]  # intentional CLI console output (quality report to stdout)
 "src/cja_auto_sdr/api/*.py" = ["F822"]       # lazy forwarding modules (resolved via __getattr__)
 "src/cja_auto_sdr/cli/*.py" = ["F822"]       # lazy forwarding modules
 "src/cja_auto_sdr/core/profiles.py" = ["F822"]  # lazy forwarding module
@@ -155,6 +157,7 @@ ignore = [
 "src/cja_auto_sdr/diff/snapshot.py" = ["F822", "T201"]  # lazy forwarding + intentional CLI progress output
 "src/cja_auto_sdr/inventory/*.py" = ["F822"] # lazy forwarding modules
 "src/cja_auto_sdr/output/**/*.py" = ["F822"] # lazy forwarding modules
+"src/cja_auto_sdr/output/sdr/__init__.py" = ["F822", "ERA001", "RUF001", "RUF003"]  # F822: lazy forwarding; ERA001: section header comments; RUF001/3: intentional Unicode symbols
 "src/cja_auto_sdr/pipeline/*.py" = ["F822"]  # lazy forwarding modules
 "tests/**" = ["B", "SIM", "RUF012", "PERF", "DTZ", "S105", "S108", "S110", "S314", "PT017", "PT018", "PT019", "ARG", "T201", "ERA001", "PD011", "FLY002"]
 

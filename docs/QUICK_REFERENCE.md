@@ -1,6 +1,6 @@
 # Quick Reference Card
 
-Single-page command cheat sheet for CJA SDR Generator v3.3.9.
+Single-page command cheat sheet for CJA SDR Generator v3.4.0.
 
 ## Four Main Modes
 
@@ -247,8 +247,26 @@ cja_auto_sdr --org-report --sample 50 --sample-seed 42
 cja_auto_sdr --org-report --sample 50 --sample-stratified
 
 # --- Trending & Comparison ---
+# Show trending across last 10 cached snapshots (default)
+cja_auto_sdr --org-report --trending-window
+
+# Show trending across last 5 cached snapshots
+cja_auto_sdr --org-report --trending-window 5 --format json
+
 # Compare against previous org report
 cja_auto_sdr --org-report --compare-org-report ./previous.json
+
+# List cached org-report snapshots
+cja_auto_sdr --list-org-report-snapshots
+
+# Inspect one cached org-report snapshot
+cja_auto_sdr --inspect-org-report-snapshot ./org_report_test_org_AdobeOrg_2026_03_01T00_00_00Z.json
+
+# Prune cached org-report snapshots
+cja_auto_sdr --prune-org-report-snapshots --org-report-keep-last 10
+
+# Review snapshot history eligibility metadata before pruning
+cja_auto_sdr --inspect-org-report-snapshot ./org_report_test_org_AdobeOrg_2026_03_01T00_00_00Z.json --format json
 
 # --- Naming Audit ---
 # Audit naming conventions

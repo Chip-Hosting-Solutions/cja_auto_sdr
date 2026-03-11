@@ -1,9 +1,7 @@
 """CLI module - Command-line interface components.
 
 ``parse_arguments`` lives in ``cli.parser`` (canonical implementation).
-Other symbols (``main``, ``list_dataviews``, etc.) still live in
-``generator.py`` and are resolved lazily via ``__getattr__`` to avoid
-circular imports.
+Other symbols are resolved lazily via ``__getattr__`` to avoid circular imports.
 """
 
 from cja_auto_sdr.core.lazy import make_getattr
@@ -26,14 +24,14 @@ __getattr__ = make_getattr(
     mapping={
         # Canonical implementation in cli.parser
         "parse_arguments": "cja_auto_sdr.cli.parser",
-        # Everything else still lives in generator
-        "generate_sample_config": "cja_auto_sdr.generator",
+        # Remaining entrypoints
+        "generate_sample_config": "cja_auto_sdr.cli.commands.config",
         "interactive_select_dataviews": "cja_auto_sdr.generator",
         "interactive_wizard": "cja_auto_sdr.generator",
-        "list_dataviews": "cja_auto_sdr.generator",
+        "list_dataviews": "cja_auto_sdr.cli.commands.list",
         "main": "cja_auto_sdr.generator",
         "prompt_for_selection": "cja_auto_sdr.generator",
-        "show_config_status": "cja_auto_sdr.generator",
-        "validate_config_only": "cja_auto_sdr.generator",
+        "show_config_status": "cja_auto_sdr.cli.commands.config",
+        "validate_config_only": "cja_auto_sdr.cli.commands.config",
     },
 )

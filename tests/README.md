@@ -91,10 +91,15 @@ tests/
 ├── test_generator_mock_contract.py  # Generator mock symbol contract tests
 ├── test_exception_narrowing.py     # Exception narrowing boundary tests
 ├── test_coverage_hardening.py      # Coverage hardening tests
+├── test_trending_models.py         # Trending dataclass construction and bridge tests
+├── test_trending_discovery.py      # Snapshot cache discovery, deltas, drift scoring
+├── test_trending_cli.py            # --trending-window CLI flag parsing
+├── test_trending_output.py         # Trending output across all 6 formats
+├── test_trending_integration.py    # Trending backwards compatibility and integration
 └── README.md                        # This file
 ```
 
-**Total: 5,459 comprehensive tests**
+**Total: 5,672 comprehensive tests**
 
 ### Test Count Breakdown
 
@@ -104,7 +109,7 @@ tests/
 | `test_ux_features.py` | 123 | UX features: --open, --stats, --output, --list-dataviews formats, inventory validation, inventory summary, include-all-inventory |
 | `test_org_report.py` | 175 | Org-wide component analysis: config, distribution, similarity, output formats, large org scaling, output path aliases |
 | `test_org_report_integration.py` | 17 | Org-wide analysis integration tests: end-to-end flows, caching, filtering, governance |
-| `test_cli.py` | 428 | Command-line interface and argument parsing |
+| `test_cli.py` | 431 | Command-line interface and argument parsing |
 | `test_profiles.py` | 77 | Multi-organization profile support |
 | `test_derived_inventory.py` | 62 | Derived fields inventory feature |
 | `test_inventory_utils.py` | 47 | Inventory utilities and helpers |
@@ -155,28 +160,28 @@ tests/
 | `test_lazy_forwarding.py` | 71 | Lazy-forwarding infrastructure and make_getattr() |
 | `test_lock_backend_edge_cases.py` | 165 | Lock backend metadata I/O, stale detection, legacy parsing |
 | `test_derived_fields_coverage.py` | 161 | Derived field complexity scoring, logic summary, predicates |
-| `test_org_analyzer_coverage.py` | 155 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
+| `test_org_analyzer_coverage.py` | 157 | Org analyzer governance, naming audit, sampling, memory, drift, clustering |
 | `test_api_coverage.py` | 94 | API cache, quality, fetch, resilience exception paths |
 | `test_diff_coverage.py` | 61 | Diff comparator, models, git integration edge cases |
 | `test_generator_coverage.py` | 143 | Generator utility functions — coercion, normalization, diff formatting |
 | `test_segments_coverage.py` | 78 | Segment comparison operators, container types, sequence variants |
 | `test_small_module_coverage.py` | 113 | Logging, utils, calculated metrics, constants, lazy, tuning, locks, org cache |
 | `test_diff_inventory_output.py` | 88 | Inventory diff output across all formats (console, JSON, HTML, Excel, MD, CSV) |
-| `test_cli_command_handlers.py` | 132 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
+| `test_cli_command_handlers.py` | 146 | CLI dispatch for --stats, --org-report, --list-snapshots, discovery inspection, diff config unpacking |
 | `test_profile_management.py` | 46 | Interactive profile creation, import, test, show |
 | `test_snapshot_commands.py` | 58 | Snapshot creation, comparison, name resolution |
 | `test_config_and_resolution.py` | 108 | Config status, validation, stats, name resolution |
 | `test_derived_fields_edge_cases.py` | 34 | Derived fields edge cases and coverage |
 | `test_diff_command_coverage.py` | 45 | Diff command edge cases and coverage |
-| `test_generator_interactive_and_console.py` | 24 | Generator interactive and console tests |
+| `test_generator_interactive_and_console.py` | 35 | Generator interactive and console tests |
 | `test_generator_remaining_coverage.py` | 82 | Generator remaining coverage edge cases |
 | `test_interactive_discovery_coverage.py` | 112 | Interactive discovery and helpers coverage |
 | `test_lock_backends.py` | 46 | Lock backends edge cases and coverage |
 | `test_main_impl_cli_coverage.py` | 90 | _main_impl CLI path coverage |
 | `test_main_impl_coverage.py` | 57 | _main_impl coverage edge cases |
 | `test_near_100_coverage.py` | 4 | Near-100% coverage gap tests |
-| `test_org_cache_branches.py` | 15 | Org cache branch coverage |
-| `test_org_writer_coverage.py` | 98 | Org writer edge cases and coverage |
+| `test_org_cache_branches.py` | 40 | Org cache branch coverage |
+| `test_org_writer_coverage.py` | 102 | Org writer edge cases and coverage |
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
 | `test_backwards_compat.py` | 34 | Backwards compatibility tests |
 | `test_exception_contracts.py` | 19 | Exception boundary contract tests |
@@ -187,7 +192,12 @@ tests/
 | `test_completion.py` | 43 | Shell completion flag (--completion bash/zsh/fish) |
 | `test_exception_narrowing.py` | 50 | Exception narrowing boundary tests |
 | `test_coverage_hardening.py` | 108 | Coverage hardening tests |
-| **Total** | **5,459** | **Collected via pytest --collect-only** |
+| `test_trending_models.py` | 18 | Trending dataclass construction and bridge tests |
+| `test_trending_discovery.py` | 70 | Snapshot cache discovery, deltas, drift scoring |
+| `test_trending_cli.py` | 9 | --trending-window CLI flag parsing |
+| `test_trending_output.py` | 22 | Trending output across all 6 formats |
+| `test_trending_integration.py` | 15 | Trending backwards compatibility and integration |
+| **Total** | **5,672** | **Collected via pytest --collect-only** |
 
 ## Running Tests
 
@@ -591,7 +601,7 @@ Check for drift (CI-friendly):
 - [x] Performance benchmarking tests (implemented in test_optimized_validation.py)
 - [x] Tests for output formats including Excel (test_output_formats.py)
 - [x] Tests for batch processing functionality (test_batch_processor.py)
-- [x] Comprehensive test coverage (5,459 tests total)
+- [x] Comprehensive test coverage (5,672 tests total)
 - [x] Org-wide analysis tests (test_org_report.py) - 175 tests (including large org scaling, output path aliases, memory warnings, smart cache invalidation)
 - [x] Org-wide analysis integration tests (test_org_report_integration.py) - 17 tests (end-to-end flows, caching, filtering, governance thresholds)
 - [x] Profile management tests (test_profiles.py) - 77 tests

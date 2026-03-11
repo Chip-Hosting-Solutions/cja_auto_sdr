@@ -269,6 +269,23 @@ def _make_org_result(
     )
 
 
+def _mark_full_fidelity_baseline(payload):
+    """Add current snapshot-fidelity markers to manual comparison fixtures."""
+    payload = dict(payload)
+    parameters = dict(payload.get("parameters", {}))
+    parameters.setdefault("skip_similarity", False)
+    parameters.setdefault("org_stats_only", False)
+    payload["parameters"] = parameters
+
+    summary = dict(payload.get("summary", {}))
+    summary.setdefault("similarity_analysis_complete", True)
+    summary.setdefault("similarity_analysis_mode", "complete")
+    payload["summary"] = summary
+
+    payload.setdefault("similarity_pairs", [])
+    return payload
+
+
 # ===================================================================
 # compare_org_reports
 # ===================================================================
@@ -279,21 +296,23 @@ class TestCompareOrgReports:
 
     def test_compare_with_flat_similarity_pairs(self, tmp_path):
         """Cover lines 10479-10481: flat dv1_id/dv2_id format."""
-        prev_report = {
-            "generated_at": "2024-12-01T10:00:00Z",
-            "data_views": [
-                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
-                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
-            ],
-            "summary": {"total_unique_components": 20},
-            "distribution": {
-                "core": {"metrics_count": 5, "dimensions_count": 3},
-                "isolated": {"metrics_count": 2, "dimensions_count": 1},
-            },
-            "similarity_pairs": [
-                {"dv1_id": "dv_001", "dv2_id": "dv_002", "jaccard_similarity": 0.95},
-            ],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-12-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"metrics_count": 5, "dimensions_count": 3},
+                    "isolated": {"metrics_count": 2, "dimensions_count": 1},
+                },
+                "similarity_pairs": [
+                    {"dv1_id": "dv_001", "dv2_id": "dv_002", "jaccard_similarity": 0.95},
+                ],
+            }
+        )
         prev_path = tmp_path / "prev_report.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -306,25 +325,27 @@ class TestCompareOrgReports:
 
     def test_compare_with_nested_similarity_pairs(self, tmp_path):
         """Cover lines 10483-10484: old nested data_view_1/data_view_2 format."""
-        prev_report = {
-            "generated_at": "2024-11-01T10:00:00Z",
-            "data_views": [
-                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
-                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
-            ],
-            "summary": {"total_unique_components": 15},
-            "distribution": {
-                "core": {"total": 5},
-                "isolated": {"total": 2},
-            },
-            "similarity_pairs": [
-                {
-                    "data_view_1": {"id": "dv_001"},
-                    "data_view_2": {"id": "dv_002"},
-                    "jaccard_similarity": 0.91,
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-11-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+                ],
+                "summary": {"total_unique_components": 15},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
                 },
-            ],
-        }
+                "similarity_pairs": [
+                    {
+                        "data_view_1": {"id": "dv_001"},
+                        "data_view_2": {"id": "dv_002"},
+                        "jaccard_similarity": 0.91,
+                    },
+                ],
+            }
+        )
         prev_path = tmp_path / "prev_report_old.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -339,19 +360,21 @@ class TestCompareOrgReports:
 
     def test_compare_detects_added_and_removed_dvs(self, tmp_path):
         """Verify data_views_added and data_views_removed are populated."""
-        prev_report = {
-            "timestamp": "2024-10-01T10:00:00Z",
-            "data_views": [
-                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
-                {"data_view_id": "dv_old", "data_view_name": "Old DV"},
-            ],
-            "summary": {"total_unique_components": 10},
-            "distribution": {
-                "core": {"metrics_count": 2, "dimensions_count": 1},
-                "isolated": {"metrics_count": 1, "dimensions_count": 0},
-            },
-            "similarity_pairs": [],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "timestamp": "2024-10-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                    {"data_view_id": "dv_old", "data_view_name": "Old DV"},
+                ],
+                "summary": {"total_unique_components": 10},
+                "distribution": {
+                    "core": {"metrics_count": 2, "dimensions_count": 1},
+                    "isolated": {"metrics_count": 1, "dimensions_count": 0},
+                },
+                "similarity_pairs": [],
+            }
+        )
         prev_path = tmp_path / "prev.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -365,18 +388,20 @@ class TestCompareOrgReports:
 
     def test_compare_uses_fallback_key_names(self, tmp_path):
         """Cover fallback key parsing: 'id' instead of 'data_view_id'."""
-        prev_report = {
-            "generated_at": "2024-09-01T10:00:00Z",
-            "data_views": [
-                {"id": "dv_001", "name": "DV 1"},
-            ],
-            "summary": {"total_unique_components": 5},
-            "distribution": {
-                "core": {"metrics_count": 1, "dimensions_count": 1},
-                "isolated": {"metrics_count": 0, "dimensions_count": 0},
-            },
-            "similarity_pairs": [],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-09-01T10:00:00Z",
+                "data_views": [
+                    {"id": "dv_001", "name": "DV 1"},
+                ],
+                "summary": {"total_unique_components": 5},
+                "distribution": {
+                    "core": {"metrics_count": 1, "dimensions_count": 1},
+                    "isolated": {"metrics_count": 0, "dimensions_count": 0},
+                },
+                "similarity_pairs": [],
+            }
+        )
         prev_path = tmp_path / "prev_fallback.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -389,23 +414,25 @@ class TestCompareOrgReports:
 
     def test_compare_new_and_resolved_pairs(self, tmp_path):
         """Verify new_high_similarity_pairs and resolved_pairs are computed."""
-        prev_report = {
-            "generated_at": "2024-08-01T10:00:00Z",
-            "data_views": [
-                {"data_view_id": "dv_001", "data_view_name": "DV 1"},
-                {"data_view_id": "dv_002", "data_view_name": "DV 2"},
-                {"data_view_id": "dv_003", "data_view_name": "DV 3"},
-            ],
-            "summary": {"total_unique_components": 20},
-            "distribution": {
-                "core": {"total": 5},
-                "isolated": {"total": 2},
-            },
-            "similarity_pairs": [
-                # Old pair that will be "resolved" because current has no such pair
-                {"dv1_id": "dv_002", "dv2_id": "dv_003", "jaccard_similarity": 0.95},
-            ],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "DV 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "DV 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "DV 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [
+                    # Old pair that will be "resolved" because current has no such pair
+                    {"dv1_id": "dv_002", "dv2_id": "dv_003", "jaccard_similarity": 0.95},
+                ],
+            }
+        )
         prev_path = tmp_path / "prev_pairs.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -418,20 +445,22 @@ class TestCompareOrgReports:
 
     def test_compare_excludes_failed_data_views_with_blank_error(self, tmp_path):
         """Blank error text should still exclude a DV from current-side comparison sets."""
-        prev_report = {
-            "generated_at": "2024-08-01T10:00:00Z",
-            "data_views": [
-                {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
-                {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
-                {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
-            ],
-            "summary": {"total_unique_components": 20},
-            "distribution": {
-                "core": {"total": 5},
-                "isolated": {"total": 2},
-            },
-            "similarity_pairs": [],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
         prev_path = tmp_path / "prev_blank_error.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
@@ -442,6 +471,105 @@ class TestCompareOrgReports:
 
         assert "dv_001" in comparison.data_views_removed
         assert "dv_001" not in comparison.data_views_added
+
+    def test_compare_excludes_failed_previous_data_views_from_summary_deltas(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2", "error": "timeout"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 3,
+                    "data_views_analyzed": 2,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_partial_failure.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+        current.data_view_summaries = [
+            _make_data_view_summary("dv_001", "Data View 1"),
+            _make_data_view_summary("dv_003", "Data View 3"),
+        ]
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.data_views_added == []
+        assert comparison.data_views_removed == []
+        assert comparison.summary["data_views_delta"] == 0
+
+    def test_compare_uses_exact_component_ids_when_available(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [{"data_view_id": "dv_001", "data_view_name": "Data View 1"}],
+                "summary": {"total_unique_components": 2},
+                "component_index": {
+                    "shared": {"type": "metric", "data_views": ["dv_001"]},
+                    "removed": {"type": "dimension", "data_views": ["dv_001"]},
+                },
+                "distribution": {
+                    "core": {"total": 1},
+                    "isolated": {"total": 1},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_exact_components.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = OrgReportResult(
+            timestamp="2025-01-15T10:00:00Z",
+            org_id="test_org",
+            parameters=OrgReportConfig(),
+            data_view_summaries=[_make_data_view_summary("dv_001", "Data View 1")],
+            component_index={
+                "shared": _make_component_info("shared", data_views=["dv_001"]),
+                "added_1": _make_component_info("added_1", data_views=["dv_001"]),
+                "added_2": _make_component_info("added_2", data_views=["dv_001"]),
+            },
+            distribution=ComponentDistribution(),
+            similarity_pairs=[],
+            recommendations=[],
+            duration=1.0,
+        )
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.components_added == 2
+        assert comparison.components_removed == 1
+        assert comparison.summary["components_delta"] == 1
+
+    def test_compare_rejects_cached_markerless_legacy_baseline(self, tmp_path):
+        prev_report = {
+            "generated_at": "2024-08-01T10:00:00Z",
+            "_snapshot_meta": {
+                "snapshot_id": "persisted-123",
+                "history_eligible": True,
+                "history_exclusion_reason": None,
+            },
+            "data_views": [{"data_view_id": "dv_001", "data_view_name": "Data View 1"}],
+            "summary": {"total_unique_components": 2},
+            "distribution": {"core": {"total": 1}, "isolated": {"total": 1}},
+            "similarity_pairs": [],
+        }
+        prev_path = tmp_path / "prev_legacy.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False)
+
+        with pytest.raises(ValueError, match="legacy_missing_fidelity_markers"):
+            compare_org_reports(current, str(prev_path))
 
 
 # ===================================================================
@@ -1145,6 +1273,8 @@ class TestBuildOrgReportJsonData:
         assert "component_index" in data
         assert "recommendations" in data
         assert data["summary"]["data_views_failed"] == 0
+        assert data["summary"]["similarity_analysis_complete"] is True
+        assert data["summary"]["similarity_analysis_mode"] == "complete"
         assert data["data_view_fetch_failures"]["count"] == 0
         assert data["data_view_fetch_failures"]["data_view_ids"] == []
         assert data["data_view_fetch_failures"]["failure_reason_counts"] == {}
@@ -1198,6 +1328,8 @@ class TestBuildOrgReportJsonData:
         assert data["data_view_fetch_failures"]["count"] == 1
         assert data["data_view_fetch_failures"]["data_view_ids"] == ["dv_err_blank"]
         assert data["data_view_fetch_failures"]["failure_reason_counts"] == {"Unknown error": 1}
+        serialized_error = next(dv for dv in data["data_views"] if dv["id"] == "dv_err_blank")["error"]
+        assert serialized_error == "Unknown error"
 
     def test_json_data_with_clusters(self):
         result = _make_org_result(include_clusters=True)
@@ -1212,6 +1344,8 @@ class TestBuildOrgReportJsonData:
         data = build_org_report_json_data(result)
 
         assert data["similarity_pairs"] == []
+        assert data["summary"]["similarity_analysis_complete"] is False
+        assert data["summary"]["similarity_analysis_mode"] == "runtime_skipped"
 
     def test_json_data_governance_fields(self):
         result = _make_org_result(
@@ -1227,6 +1361,23 @@ class TestBuildOrgReportJsonData:
         assert data["naming_audit"] is not None
         assert data["owner_summary"] is not None
         assert data["stale_components"] is not None
+
+    def test_json_data_sorts_order_insensitive_snapshot_collections(self):
+        result = _make_org_result()
+        result.distribution.core_metrics = ["core_metric_1", "core_metric_0"]
+        result.distribution.common_dimensions = ["common_d_1", "common_d_0"]
+        result.component_index = {
+            "zeta": _make_component_info("zeta", data_views=["dv_010", "dv_002", "dv_001"]),
+            "alpha": _make_component_info("alpha", data_views=["dv_003", "dv_001"]),
+        }
+
+        data = build_org_report_json_data(result)
+
+        assert data["distribution"]["core"]["metrics"] == ["core_metric_0", "core_metric_1"]
+        assert data["distribution"]["common"]["dimensions"] == ["common_d_0", "common_d_1"]
+        assert list(data["component_index"]) == ["alpha", "zeta"]
+        assert data["component_index"]["alpha"]["data_views"] == ["dv_001", "dv_003"]
+        assert data["component_index"]["zeta"]["data_views"] == ["dv_001", "dv_002", "dv_010"]
 
 
 # ===================================================================
@@ -1409,16 +1560,18 @@ class TestRunOrgReport:
         mock_analyzer_cls.return_value.run_analysis.return_value = result
 
         # Write a previous report file
-        prev_report = {
-            "generated_at": "2024-12-01T10:00:00Z",
-            "data_views": [{"data_view_id": "dv_001", "data_view_name": "DV 1"}],
-            "summary": {"total_unique_components": 10},
-            "distribution": {
-                "core": {"total": 3},
-                "isolated": {"total": 1},
-            },
-            "similarity_pairs": [],
-        }
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-12-01T10:00:00Z",
+                "data_views": [{"data_view_id": "dv_001", "data_view_name": "DV 1"}],
+                "summary": {"total_unique_components": 10},
+                "distribution": {
+                    "core": {"total": 3},
+                    "isolated": {"total": 1},
+                },
+                "similarity_pairs": [],
+            }
+        )
         prev_path = tmp_path / "prev.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 

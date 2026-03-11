@@ -682,6 +682,10 @@ cja_auto_sdr --org-report --compare-org-report baseline.json
 # - Resolved pairs
 ```
 
+`--compare-org-report` expects a full-fidelity baseline. Pre-v3.4 JSON reports that do not include
+snapshot-fidelity markers are treated as ineligible because the old format cannot distinguish full
+similarity runs from `--skip-similarity`/`--org-stats` baselines reliably.
+
 #### CI/CD Trending Example
 
 Track changes between org-report runs with GitHub Actions:
@@ -836,6 +840,47 @@ if ($LASTEXITCODE -eq 2) {
 
 Write-Host "GOVERNANCE CHECK PASSED"
 ```
+
+### Temporal Trending
+
+Track how your org's data views and components change over time using cached org-report snapshots.
+
+```bash
+# Show trending across last 10 cached snapshots (default window)
+cja_auto_sdr --org-report --trending-window
+
+# Show trending across last 5 snapshots in JSON format
+cja_auto_sdr --org-report --trending-window 5 --format json
+
+# Combine trending with comparison for full context
+cja_auto_sdr --org-report --trending-window 10 --compare-org-report ./baseline.json
+
+# List cached org-report snapshots used for trending
+cja_auto_sdr --list-org-report-snapshots
+
+# Inspect one cached org-report snapshot
+cja_auto_sdr --inspect-org-report-snapshot ./org_report_test_org_AdobeOrg_2026_03_01T00_00_00Z.json
+
+# Prune old cached org-report snapshots
+cja_auto_sdr --prune-org-report-snapshots --org-report-keep-last 10
+```
+
+Trending output includes:
+- **Snapshot table**: data view count, component count, core/isolated counts, and high-similarity pairs across each cached run.
+- **Deltas**: period-over-period changes between consecutive snapshots.
+- **Drift scores**: per-data-view weighted score (0.0-1.0) highlighting which data views changed most by accumulating period-over-period churn across the full window, based on component count change (40%), core/isolated ratio shift (20%), similarity change (20%), and presence change (20%).
+
+Trending renders in all 6 output formats (console, JSON, Excel, Markdown, HTML, CSV).
+The persisted history lives under `~/.cja_auto_sdr/cache/org_report_snapshots/<ORG_ID>/`. When `--trending-window`
+is used, the current run is saved there even for console output, and older entries are pruned automatically to keep
+the cache bounded.
+
+If you created local trending history with early v3.4.0 builds before snapshot-fidelity hardening landed and later
+see suspicious deltas, prune that cache and rebuild it from fresh full-fidelity org reports. Legacy markerless
+snapshots are now treated as ineligible rather than guessed as complete. Use
+`cja_auto_sdr --inspect-org-report-snapshot <FILE> --format json` to review `history_eligible` and
+`history_exclusion_reason` for current snapshots, and `cja_auto_sdr --prune-org-report-snapshots ...` to remove
+older entries.
 
 ## Related Documentation
 

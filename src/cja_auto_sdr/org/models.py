@@ -422,3 +422,243 @@ class OrgReportComparison:
     new_high_similarity_pairs: list[dict[str, Any]] = field(default_factory=list)
     resolved_pairs: list[dict[str, Any]] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OrgReportComparisonInput:
+    """Normalized comparison input for org-report delta calculations."""
+
+    timestamp: str
+    data_view_ids: set[str] = field(default_factory=set)
+    has_data_view_ids: bool = False
+    data_view_names: dict[str, str] = field(default_factory=dict)
+    data_view_count: int = 0
+    comparison_data_view_count: int | None = None
+    component_count: int = 0
+    component_ids: set[str] | None = None
+    core_count: int = 0
+    isolated_count: int = 0
+    high_similarity_pairs: set[tuple[str, str]] = field(default_factory=set)
+
+
+def _resolve_data_view_total(source: OrgReportComparisonInput) -> int:
+    """Resolve the authoritative data-view total for summary deltas."""
+    if source.has_data_view_ids:
+        return len(source.data_view_ids)
+    if source.comparison_data_view_count is not None:
+        return _safe_non_negative_int(source.comparison_data_view_count)
+    return _safe_non_negative_int(source.data_view_count)
+
+
+def _resolve_component_total(source: OrgReportComparisonInput) -> int:
+    """Resolve component totals, preferring exact component identities when present."""
+    if source.component_ids is not None:
+        return len(source.component_ids)
+    return _safe_non_negative_int(source.component_count)
+
+
+def _safe_non_negative_int(value: Any) -> int:
+    """Coerce arbitrary count-like values to a non-negative integer."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return 0
+        try:
+            return max(0, int(stripped))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _resolve_component_change_counts(
+    previous: OrgReportComparisonInput,
+    current: OrgReportComparisonInput,
+) -> tuple[int, int]:
+    """Compute added/removed component counts with exact-set fallback."""
+    if previous.component_ids is not None and current.component_ids is not None:
+        return (
+            len(current.component_ids - previous.component_ids),
+            len(previous.component_ids - current.component_ids),
+        )
+
+    current_total = _resolve_component_total(current)
+    previous_total = _resolve_component_total(previous)
+    return (
+        max(0, current_total - previous_total),
+        max(0, previous_total - current_total),
+    )
+
+
+def _serialize_similarity_pair_delta(pairs: set[tuple[str, str]]) -> list[dict[str, str]]:
+    """Render normalized similarity-pair identities in stable order."""
+    return [{"dv1_id": dv1_id, "dv2_id": dv2_id} for dv1_id, dv2_id in sorted(pairs)]
+
+
+def _resolve_data_view_id_changes(
+    previous: OrgReportComparisonInput,
+    current: OrgReportComparisonInput,
+) -> tuple[list[str], list[str]]:
+    """Return exact added/removed data-view IDs when both sides expose them."""
+    if not previous.has_data_view_ids or not current.has_data_view_ids:
+        return [], []
+    return (
+        sorted(current.data_view_ids - previous.data_view_ids),
+        sorted(previous.data_view_ids - current.data_view_ids),
+    )
+
+
+def build_org_report_comparison(
+    *,
+    previous: OrgReportComparisonInput,
+    current: OrgReportComparisonInput,
+) -> OrgReportComparison:
+    """Build a comparison from normalized org-report snapshot inputs."""
+    added_ids, removed_ids = _resolve_data_view_id_changes(previous, current)
+    components_added, components_removed = _resolve_component_change_counts(previous, current)
+
+    current_dv_total = _resolve_data_view_total(current)
+    previous_dv_total = _resolve_data_view_total(previous)
+    current_component_total = _resolve_component_total(current)
+    previous_component_total = _resolve_component_total(previous)
+
+    new_pairs = current.high_similarity_pairs - previous.high_similarity_pairs
+    resolved_pairs = previous.high_similarity_pairs - current.high_similarity_pairs
+
+    return OrgReportComparison(
+        current_timestamp=current.timestamp,
+        previous_timestamp=previous.timestamp,
+        data_views_added=added_ids,
+        data_views_removed=removed_ids,
+        data_views_added_names=[current.data_view_names.get(dv_id, dv_id) for dv_id in added_ids],
+        data_views_removed_names=[previous.data_view_names.get(dv_id, dv_id) for dv_id in removed_ids],
+        components_added=components_added,
+        components_removed=components_removed,
+        core_delta=current.core_count - previous.core_count,
+        isolated_delta=current.isolated_count - previous.isolated_count,
+        new_high_similarity_pairs=_serialize_similarity_pair_delta(new_pairs),
+        resolved_pairs=_serialize_similarity_pair_delta(resolved_pairs),
+        summary={
+            "data_views_delta": current_dv_total - previous_dv_total,
+            "components_delta": current_component_total - previous_component_total,
+            "core_delta": current.core_count - previous.core_count,
+            "isolated_delta": current.isolated_count - previous.isolated_count,
+            "new_duplicates": len(new_pairs),
+            "resolved_duplicates": len(resolved_pairs),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Trending dataclasses (v3.4.0)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TrendingSnapshot:
+    """A single point-in-time snapshot of org-report key metrics.
+
+    Extracted from a cached org-report JSON file.  Snapshots are ordered
+    oldest-to-newest within an OrgReportTrending instance.
+    """
+
+    timestamp: str
+    org_id: str | None = None
+    data_view_count: int = 0
+    analyzed_data_view_count: int | None = None
+    component_count: int = 0
+    core_count: int = 0
+    isolated_count: int = 0
+    high_sim_pair_count: int = 0
+    # Snapshot identity metadata for persistence/deduplication.
+    snapshot_id: str | None = None
+    content_hash: str | None = None
+    source_path: str | None = None
+    component_ids: set[str] | None = None
+    high_similarity_pairs: set[tuple[str, str]] = field(default_factory=set)
+    # Per-data-view component counts for drift scoring
+    dv_component_counts: dict[str, int] = field(default_factory=dict)
+    dv_core_ratios: dict[str, float] = field(default_factory=dict)
+    dv_max_similarity: dict[str, float] = field(default_factory=dict)
+    dv_ids: set[str] = field(default_factory=set)
+    dv_names: dict[str, str] = field(default_factory=dict)
+    has_data_view_ids: bool = False
+
+    def __post_init__(self) -> None:
+        """Infer ID availability for manually constructed snapshots when possible."""
+        if not self.has_data_view_ids and (self.dv_ids or self.dv_names):
+            self.has_data_view_ids = True
+
+
+@dataclass
+class TrendingDelta:
+    """Computed delta between two consecutive TrendingSnapshots."""
+
+    from_timestamp: str
+    to_timestamp: str
+    data_view_delta: int = 0
+    component_delta: int = 0
+    core_delta: int = 0
+    isolated_delta: int = 0
+    high_sim_pair_delta: int = 0
+
+
+@dataclass
+class OrgReportTrending:
+    """Multi-snapshot trending analysis across cached org-reports.
+
+    Attributes:
+        snapshots: Ordered oldest-to-newest list of snapshot summaries.
+        deltas: Computed deltas between consecutive snapshots.
+        drift_scores: Per-data-view drift score (0.0-1.0) across the window.
+        window_size: Actual number of snapshots included.
+    """
+
+    snapshots: list[TrendingSnapshot] = field(default_factory=list)
+    deltas: list[TrendingDelta] = field(default_factory=list)
+    drift_scores: dict[str, float] = field(default_factory=dict)
+    window_size: int = 0
+
+    def to_comparison(self) -> OrgReportComparison | None:
+        """Produce an OrgReportComparison for the most recent pair.
+
+        Returns None if fewer than 2 snapshots exist.
+        """
+        if len(self.snapshots) < 2:
+            return None
+
+        prev = self.snapshots[-2]
+        curr = self.snapshots[-1]
+        return build_org_report_comparison(
+            previous=OrgReportComparisonInput(
+                timestamp=prev.timestamp,
+                data_view_ids=set(prev.dv_ids),
+                has_data_view_ids=prev.has_data_view_ids,
+                data_view_names=dict(prev.dv_names),
+                data_view_count=prev.data_view_count,
+                comparison_data_view_count=prev.analyzed_data_view_count,
+                component_count=prev.component_count,
+                component_ids=None if prev.component_ids is None else set(prev.component_ids),
+                core_count=prev.core_count,
+                isolated_count=prev.isolated_count,
+                high_similarity_pairs=set(prev.high_similarity_pairs),
+            ),
+            current=OrgReportComparisonInput(
+                timestamp=curr.timestamp,
+                data_view_ids=set(curr.dv_ids),
+                has_data_view_ids=curr.has_data_view_ids,
+                data_view_names=dict(curr.dv_names),
+                data_view_count=curr.data_view_count,
+                comparison_data_view_count=curr.analyzed_data_view_count,
+                component_count=curr.component_count,
+                component_ids=None if curr.component_ids is None else set(curr.component_ids),
+                core_count=curr.core_count,
+                isolated_count=curr.isolated_count,
+                high_similarity_pairs=set(curr.high_similarity_pairs),
+            ),
+        )

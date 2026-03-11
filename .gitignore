@@ -47,3 +47,7 @@ plan.md
 # Claude Code session files
 .claude/
 CLAUDE.md
+
+# Git worktrees
+.worktrees/
+plan.md

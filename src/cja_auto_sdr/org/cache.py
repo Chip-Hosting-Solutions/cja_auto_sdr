@@ -19,6 +19,24 @@ from typing import Any
 
 from cja_auto_sdr.core.locks.manager import LockManager
 from cja_auto_sdr.org.models import DataViewSummary
+from cja_auto_sdr.org.snapshot_utils import (
+    ORG_REPORT_SNAPSHOT_ROOT_DIRNAME,
+    is_org_report_snapshot_payload,
+    iter_org_report_snapshot_files,
+    newest_first_snapshot_sort_fields,
+    org_report_snapshot_content_hash,
+    org_report_snapshot_dedupe_key,
+    org_report_snapshot_dir_key,
+    org_report_snapshot_dir_paths,
+    org_report_snapshot_history_eligible,
+    org_report_snapshot_history_exclusion_reason,
+    org_report_snapshot_metadata,
+    org_report_snapshot_preference_key,
+    snapshot_path_text,
+    snapshot_slug,
+)
+
+DEFAULT_ORG_REPORT_SNAPSHOT_KEEP_LAST = 25
 
 
 class OrgReportLock:
@@ -167,6 +185,276 @@ class OrgReportCache:
             self.logger.warning(f"Failed to save org report cache to {self.cache_file}: {e}")
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
+
+    @staticmethod
+    def _sanitize_org_id(org_id: str | None) -> str:
+        """Return a filesystem-safe org identifier."""
+        return snapshot_slug(org_id)
+
+    def get_org_report_snapshot_dir(self, org_id: str | None = None) -> Path:
+        """Return the persistent snapshot directory for org-report trending history."""
+        return self.get_org_report_snapshot_root_dir() / org_report_snapshot_dir_key(org_id)
+
+    def _iter_org_report_snapshot_dirs(self, org_id: str | None = None) -> list[Path]:
+        """Return snapshot directories to scan, including legacy layouts for one org."""
+        return list(org_report_snapshot_dir_paths(self.get_org_report_snapshot_root_dir(), org_id=org_id))
+
+    def get_org_report_snapshot_root_dir(self) -> Path:
+        """Return the root directory containing per-org snapshot history."""
+        return self.cache_dir / ORG_REPORT_SNAPSHOT_ROOT_DIRNAME
+
+    def save_org_report_snapshot(self, report_data: dict[str, Any], org_id: str | None = None) -> Path:
+        """Persist an org-report JSON payload for future trending windows."""
+        if not is_org_report_snapshot_payload(report_data):
+            raise ValueError("Invalid org-report snapshot payload")
+
+        resolved_org_id = org_id or str(report_data.get("org_id") or "unknown")
+        snapshot_dir = self.get_org_report_snapshot_dir(resolved_org_id)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = str(report_data.get("generated_at") or datetime.now(UTC).isoformat())
+        timestamp_slug = snapshot_slug(timestamp, fallback="snapshot")
+        snapshot_id = uuid.uuid4().hex
+        history_exclusion_reason = org_report_snapshot_history_exclusion_reason(report_data)
+        payload = dict(report_data)
+        payload["_snapshot_meta"] = {
+            "snapshot_id": snapshot_id,
+            "content_hash": org_report_snapshot_content_hash(report_data),
+            "history_eligible": org_report_snapshot_history_eligible(report_data),
+            "history_exclusion_reason": history_exclusion_reason,
+        }
+        file_path = snapshot_dir / (
+            f"org_report_{self._sanitize_org_id(resolved_org_id)}_{timestamp_slug}_{snapshot_id[:8]}.json"
+        )
+        tmp_path = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, file_path)
+        except OSError, TypeError, ValueError:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+            raise
+
+        return file_path
+
+    @staticmethod
+    def _snapshot_metadata_sort_key(snapshot: dict[str, Any]) -> tuple[bool, float, str, str]:
+        """Return a stable newest-first sort key for snapshot metadata."""
+        return newest_first_snapshot_sort_fields(
+            snapshot.get("generated_at"),
+            tie_breaker=str(snapshot.get("filepath", "")),
+        )
+
+    @classmethod
+    def _sort_snapshot_metadata(cls, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Sort snapshot metadata newest-first with undated entries at the end."""
+        return sorted(snapshots, key=cls._snapshot_metadata_sort_key)
+
+    @staticmethod
+    def _snapshot_counts_against_keep_last(snapshot: dict[str, Any]) -> bool:
+        """Return True when a persisted snapshot should consume keep-last quota."""
+        return bool(snapshot.get("filepath"))
+
+    @classmethod
+    def _retained_keep_last_paths(
+        cls,
+        snapshots: list[dict[str, Any]],
+        *,
+        keep_last: int,
+    ) -> set[str]:
+        """Return normalized paths for snapshots protected by keep-last retention."""
+        if keep_last <= 0:
+            return set()
+
+        counted_snapshots = [snapshot for snapshot in snapshots if cls._snapshot_counts_against_keep_last(snapshot)]
+        return {
+            snapshot_path_text(snapshot.get("filepath"))
+            for snapshot in counted_snapshots[:keep_last]
+            if snapshot.get("filepath")
+        }
+
+    @staticmethod
+    def _should_retain_snapshot(
+        snapshot: dict[str, Any],
+        *,
+        retained_paths: set[str],
+        cutoff: datetime | None,
+    ) -> bool:
+        """Return True when a snapshot satisfies at least one retention rule."""
+        filepath = snapshot_path_text(snapshot.get("filepath"))
+        if filepath and filepath in retained_paths:
+            return True
+        if cutoff is None:
+            return False
+
+        snapshot_epoch = snapshot.get("generated_at_epoch")
+        if snapshot_epoch is None:
+            return False
+        return datetime.fromtimestamp(snapshot_epoch, tz=UTC) >= cutoff
+
+    def _load_org_report_snapshot_metadata(
+        self,
+        snapshot_file: str | Path,
+        *,
+        include_data_views: bool = False,
+    ) -> dict[str, Any] | None:
+        """Load one persisted org-report snapshot and return summarized metadata."""
+        path = Path(snapshot_file)
+        try:
+            with open(path, encoding="utf-8") as f:
+                payload = json.load(f)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self.logger.warning("Skipping org-report snapshot %s: %s", path, exc)
+            return None
+
+        if not isinstance(payload, dict):
+            self.logger.warning("Skipping org-report snapshot %s: expected JSON object", path)
+            return None
+
+        metadata = org_report_snapshot_metadata(payload, source_path=path, include_data_views=include_data_views)
+        if metadata is None:
+            self.logger.warning("Skipping org-report snapshot %s: expected org-report snapshot payload", path)
+            return None
+        return metadata
+
+    @staticmethod
+    def _snapshot_identity_key(snapshot: dict[str, Any]) -> tuple[str, ...]:
+        """Return the logical identity for one persisted snapshot."""
+        return org_report_snapshot_dedupe_key(
+            org_id=snapshot.get("org_id"),
+            content_hash=snapshot.get("content_hash"),
+            snapshot_id=snapshot.get("snapshot_id"),
+            generated_at=snapshot.get("generated_at"),
+            source_path=snapshot.get("filepath"),
+        )
+
+    @staticmethod
+    def _snapshot_preference_key(snapshot: dict[str, Any]) -> tuple[int, int]:
+        """Return how strongly one physical snapshot copy should be preferred."""
+        return org_report_snapshot_preference_key(
+            org_id=snapshot.get("org_id"),
+            source_path=snapshot.get("filepath"),
+            snapshot_id=snapshot.get("snapshot_id"),
+        )
+
+    @classmethod
+    def _canonical_snapshot_metadata(cls, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return the preferred physical copy for one logical snapshot."""
+        preferred_snapshot = snapshots[0]
+        preferred_key = cls._snapshot_preference_key(preferred_snapshot)
+        for snapshot in snapshots[1:]:
+            snapshot_key = cls._snapshot_preference_key(snapshot)
+            if snapshot_key > preferred_key:
+                preferred_snapshot = snapshot
+                preferred_key = snapshot_key
+        return preferred_snapshot
+
+    @classmethod
+    def _group_snapshot_metadata_by_identity(
+        cls,
+        snapshots: list[dict[str, Any]],
+    ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
+        """Group physical snapshot files by logical snapshot identity."""
+        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for snapshot in snapshots:
+            grouped.setdefault(cls._snapshot_identity_key(snapshot), []).append(snapshot)
+        return grouped
+
+    def _load_org_report_snapshots(self, org_id: str | None = None) -> list[dict[str, Any]]:
+        """Load raw org-report snapshot metadata, one entry per physical file."""
+        snapshots: list[dict[str, Any]] = []
+        for snapshot_file in iter_org_report_snapshot_files(self.get_org_report_snapshot_root_dir(), org_id=org_id):
+            metadata = self._load_org_report_snapshot_metadata(snapshot_file)
+            if metadata is None:
+                continue
+            if org_id is not None and str(metadata.get("org_id") or "unknown") != str(org_id):
+                continue
+            snapshots.append(metadata)
+        return snapshots
+
+    def list_org_report_snapshots(self, org_id: str | None = None) -> list[dict[str, Any]]:
+        """List persisted org-report snapshots, optionally filtered to one org."""
+        grouped_snapshots = self._group_snapshot_metadata_by_identity(self._load_org_report_snapshots(org_id=org_id))
+        canonical_snapshots = [
+            self._canonical_snapshot_metadata(group_snapshots) for group_snapshots in grouped_snapshots.values()
+        ]
+        return self._sort_snapshot_metadata(canonical_snapshots)
+
+    def inspect_org_report_snapshot(self, snapshot_file: str | Path) -> dict[str, Any]:
+        """Return detailed summary metadata for one persisted org-report snapshot."""
+        metadata = self._load_org_report_snapshot_metadata(snapshot_file, include_data_views=True)
+        if metadata is None:
+            raise ValueError(f"Invalid org-report snapshot: {snapshot_file}")
+        return metadata
+
+    def prune_org_report_snapshots(
+        self,
+        *,
+        org_id: str | None = None,
+        keep_last: int = 0,
+        keep_since_days: int | None = None,
+        preserved_snapshot_paths: list[str | Path] | tuple[str | Path, ...] = (),
+    ) -> list[str]:
+        """Delete persisted org-report snapshots outside the requested retention window."""
+        if keep_last <= 0 and keep_since_days is None:
+            return []
+
+        snapshots = self._load_org_report_snapshots(org_id=org_id)
+        preserved_paths = {
+            normalized for normalized in (snapshot_path_text(path) for path in preserved_snapshot_paths) if normalized
+        }
+        grouped: dict[str, list[tuple[dict[str, Any], list[dict[str, Any]]]]] = {}
+        for duplicate_group in self._group_snapshot_metadata_by_identity(snapshots).values():
+            canonical_snapshot = self._canonical_snapshot_metadata(duplicate_group)
+            grouped.setdefault(str(canonical_snapshot.get("org_id") or "unknown"), []).append(
+                (canonical_snapshot, duplicate_group)
+            )
+
+        cutoff: datetime | None = None
+        if keep_since_days is not None and keep_since_days >= 0:
+            cutoff = datetime.now(UTC) - timedelta(days=keep_since_days)
+
+        deleted_paths: list[str] = []
+        for org_snapshot_groups in grouped.values():
+            sorted_snapshots = self._sort_snapshot_metadata(
+                [canonical_snapshot for canonical_snapshot, _ in org_snapshot_groups]
+            )
+            duplicate_groups_by_key = {
+                self._snapshot_identity_key(canonical_snapshot): duplicate_group
+                for canonical_snapshot, duplicate_group in org_snapshot_groups
+            }
+
+            retained_paths: set[str] = set()
+            if keep_last > 0:
+                retained_paths = self._retained_keep_last_paths(sorted_snapshots, keep_last=keep_last)
+
+            for snapshot in sorted_snapshots:
+                duplicate_group = duplicate_groups_by_key.get(self._snapshot_identity_key(snapshot), [])
+                duplicate_paths = {
+                    filepath
+                    for filepath in (snapshot_path_text(item.get("filepath")) for item in duplicate_group)
+                    if filepath
+                }
+                if not duplicate_paths:
+                    continue
+
+                keep_group = self._should_retain_snapshot(snapshot, retained_paths=retained_paths, cutoff=cutoff)
+                preserved_duplicate_paths = duplicate_paths & preserved_paths
+                keep_group = keep_group or bool(preserved_duplicate_paths)
+
+                kept_paths = set(preserved_duplicate_paths)
+                canonical_path = snapshot_path_text(snapshot.get("filepath"))
+                if keep_group and canonical_path:
+                    kept_paths.add(canonical_path)
+
+                for filepath in sorted(duplicate_paths - kept_paths):
+                    with contextlib.suppress(OSError):
+                        Path(filepath).unlink()
+                    if not Path(filepath).exists():
+                        deleted_paths.append(filepath)
+
+        return sorted(set(deleted_paths))
 
     def get(
         self,
