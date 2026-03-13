@@ -28,6 +28,7 @@ from cja_auto_sdr.org.models import (
     OrgReportTrending,
     TrendingDelta,
     TrendingSnapshot,
+    _snapshot_effective_data_view_count,
 )
 from cja_auto_sdr.org.snapshot_utils import sorted_snapshot_strings
 
@@ -75,14 +76,16 @@ def _build_trending_metric_rows(
     delta: bool,
 ) -> list[tuple[str, list[int]]]:
     """Return standard trending metric rows for snapshots or period deltas."""
-    attr_selector = 2 if delta else 1
-    return [
-        (
-            label,
-            [getattr(record, delta_attr if attr_selector == 2 else snapshot_attr) for record in records],
-        )
-        for label, snapshot_attr, delta_attr in _TRENDING_METRIC_SPECS
-    ]
+    metric_rows: list[tuple[str, list[int]]] = []
+    for label, snapshot_attr, delta_attr in _TRENDING_METRIC_SPECS:
+        if delta:
+            values = [getattr(record, delta_attr) for record in records]
+        elif snapshot_attr == "data_view_count":
+            values = [_snapshot_effective_data_view_count(record) for record in records]
+        else:
+            values = [getattr(record, snapshot_attr) for record in records]
+        metric_rows.append((label, values))
+    return metric_rows
 
 
 def _trending_snapshot_metric_rows(
@@ -169,11 +172,28 @@ def _render_markdown_trending_table(
         return []
 
     render_value = value_formatter or _stringify_trending_value
-    lines = ["| Metric | " + " | ".join(column_labels) + " |"]
+    lines = ["| Metric | " + " | ".join(_escape_markdown_table_cell(label) for label in column_labels) + " |"]
     lines.append("|--------|" + "|".join("---------:" for _ in column_labels) + "|")
     for label, values in metric_rows:
-        lines.append(f"| {label} | " + " | ".join(render_value(value) for value in values) + " |")
+        lines.append(
+            f"| {_escape_markdown_table_cell(label)} | "
+            + " | ".join(_escape_markdown_table_cell(render_value(value)) for value in values)
+            + " |"
+        )
     return lines
+
+
+def _escape_markdown_table_cell(value: Any) -> str:
+    """Escape Markdown table cell content without changing readable text."""
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("`", "\\`")
+        .replace("\r\n", "<br>")
+        .replace("\n", "<br>")
+        .replace("\r", "<br>")
+    )
 
 
 def _render_html_trending_table(
@@ -368,7 +388,7 @@ def _trending_snapshots_to_dicts(trending: OrgReportTrending) -> dict[str, Any]:
         "snapshots": [
             {
                 "timestamp": s.timestamp,
-                "data_view_count": s.data_view_count,
+                "data_view_count": _snapshot_effective_data_view_count(s),
                 "component_count": s.component_count,
                 "core_count": s.core_count,
                 "isolated_count": s.isolated_count,
@@ -429,8 +449,9 @@ def _render_trending_markdown(trending: OrgReportTrending) -> str:
         lines.append("| Data View ID | Data View Name | Drift Score |")
         lines.append("|--------------|----------------|------------:|")
         for entry in _ranked_drift_entries(trending, limit=10):
-            dv_name = entry["data_view_name"] or ""
-            lines.append(f"| `{entry['data_view_id']}` | {dv_name} | {entry['drift_score']:.2f} |")
+            dv_id = _escape_markdown_table_cell(entry["data_view_id"])
+            dv_name = _escape_markdown_table_cell(entry["data_view_name"] or "")
+            lines.append(f"| {dv_id} | {dv_name} | {entry['drift_score']:.2f} |")
         lines.append("")
 
     return "\n".join(lines)

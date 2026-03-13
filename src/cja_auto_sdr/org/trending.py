@@ -12,26 +12,27 @@ from cja_auto_sdr.org.models import (
     OrgReportTrending,
     TrendingDelta,
     TrendingSnapshot,
+    _snapshot_effective_data_view_count,
 )
 from cja_auto_sdr.org.snapshot_utils import (
+    _org_report_snapshot_state,
     chronological_snapshot_sort_fields,
     coerce_snapshot_float,
     is_org_report_snapshot_payload,
     is_org_report_snapshot_root_dir,
     iter_org_report_snapshot_files,
+    normalize_org_report_data_view_id,
+    normalized_similarity_pair_ids,
     org_report_data_view_row_has_error,
-    org_report_high_similarity_pairs,
+    org_report_data_view_row_id,
     org_report_snapshot_content_hash,
-    org_report_snapshot_data_view_stats,
     org_report_snapshot_dedupe_key,
-    org_report_snapshot_history_eligible,
     org_report_snapshot_metadata,
     org_report_snapshot_preference_key,
     snapshot_identity_tokens,
     snapshot_mapping_dict,
     snapshot_mapping_int,
     snapshot_mapping_list,
-    successful_org_report_data_view_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -169,7 +170,8 @@ def _data_view_row_has_error(data_view: Any) -> bool:
 
 def _successful_data_view_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Return only successfully analyzed data-view rows from a snapshot payload."""
-    return successful_org_report_data_view_rows(data)
+    state = _org_report_snapshot_state(data)
+    return list(state.successful_data_views)
 
 
 def _extract_snapshot_from_json(
@@ -181,26 +183,31 @@ def _extract_snapshot_from_json(
 
     Returns None if the payload is missing required top-level keys.
     """
-    metadata = org_report_snapshot_metadata(data, source_path=source_path)
+    state = _org_report_snapshot_state(
+        data,
+        include_component_ids=True,
+        include_high_similarity_pairs=True,
+    )
+    metadata = org_report_snapshot_metadata(data, state=state, source_path=source_path)
     if metadata is None:
         return None
-    if not org_report_snapshot_history_eligible(data):
+    if not state.history_assessment.eligible:
         return None
 
     timestamp = metadata["generated_at"]
-    distribution = _mapping_dict(data.get("distribution", {}))
-    data_view_stats = org_report_snapshot_data_view_stats(data)
-    successful_data_views = _successful_data_view_rows(data)
-    high_similarity_pairs = org_report_high_similarity_pairs(data)
+    distribution = state.distribution
+    data_view_stats = state.data_view_assessment.stats
+    successful_data_views = list(state.successful_data_views)
+    high_similarity_pairs = set(state.high_similarity_pairs)
     sim_pairs = _mapping_list(data.get("similarity_pairs", []))
 
     # Per-DV metrics for drift scoring (single pass over data_views)
     dv_component_counts: dict[str, int] = {}
     dv_core_ratios: dict[str, float] = {}
     dv_max_similarity: dict[str, float] = {}
-    dv_ids: set[str] = set()
-    dv_names: dict[str, str] = {}
-    has_data_view_ids = isinstance(data.get("data_views"), list)
+    dv_ids = set(state.data_view_inventory.ids)
+    dv_names = dict(state.data_view_inventory.names)
+    has_data_view_ids = bool(dv_ids)
 
     # Core ratio per DV: fraction of DV's components that are "core"
     # (shared across >= threshold% of DVs).  Approximated from the global
@@ -217,30 +224,27 @@ def _extract_snapshot_from_json(
     dv_core_component_counts: dict[str, int] = {}
 
     for dv in successful_data_views:
-        dv_id = str(dv.get("data_view_id") or dv.get("id") or "")
+        dv_id = org_report_data_view_row_id(dv)
         if not dv_id:
             continue
-        dv_ids.add(dv_id)
         metrics = _mapping_int(dv, "metrics_count", "metric_count") or 0
         dims = _mapping_int(dv, "dimensions_count", "dimension_count") or 0
         dv_component_counts[dv_id] = metrics + dims
-        dv_names[dv_id] = str(dv.get("data_view_name") or dv.get("name") or dv_id)
         dv_core_component_counts[dv_id] = 0
         dv_max_similarity[dv_id] = 0.0
 
     raw_component_index = data.get("component_index")
     component_index = _mapping_dict(raw_component_index)
-    component_ids: set[str] | None = None
-    if isinstance(raw_component_index, dict):
-        component_ids = {str(component_id) for component_id in raw_component_index if str(component_id)}
+    component_ids: set[str] | None = None if state.component_ids is None else set(state.component_ids)
     if component_index and core_ids:
         for comp_id in core_ids:
             comp_info = component_index.get(comp_id)
             if not isinstance(comp_info, dict):
                 continue
             for dv_id in _mapping_list(comp_info.get("data_views", [])):
-                if dv_id in dv_core_component_counts:
-                    dv_core_component_counts[dv_id] += 1
+                normalized_dv_id = normalize_org_report_data_view_id(dv_id)
+                if normalized_dv_id in dv_core_component_counts:
+                    dv_core_component_counts[normalized_dv_id] += 1
 
     for dv_id, total_components in dv_component_counts.items():
         if total_components > 0 and core_ids:
@@ -252,8 +256,10 @@ def _extract_snapshot_from_json(
     for pair in sim_pairs:
         if not isinstance(pair, dict):
             continue
-        dv1 = str(pair.get("dv1_id") or _mapping_dict(pair.get("data_view_1", {})).get("id") or "")
-        dv2 = str(pair.get("dv2_id") or _mapping_dict(pair.get("data_view_2", {})).get("id") or "")
+        normalized_pair = normalized_similarity_pair_ids(pair)
+        if normalized_pair is None:
+            continue
+        dv1, dv2 = normalized_pair
         sim = coerce_snapshot_float(pair.get("jaccard_similarity")) or 0.0
         if dv1 in dv_ids and dv2 in dv_ids:
             dv_max_similarity[dv1] = max(dv_max_similarity.get(dv1, 0.0), sim)
@@ -279,6 +285,8 @@ def _extract_snapshot_from_json(
         dv_ids=dv_ids,
         dv_names=dv_names,
         has_data_view_ids=has_data_view_ids,
+        complete_data_view_ids=state.data_view_assessment.ids_complete,
+        complete_high_similarity_pairs=state.comparison_assessment.complete_high_similarity_pairs,
     )
 
 
@@ -381,7 +389,7 @@ def compute_deltas(snapshots: list[TrendingSnapshot]) -> list[TrendingDelta]:
             TrendingDelta(
                 from_timestamp=prev.timestamp,
                 to_timestamp=curr.timestamp,
-                data_view_delta=curr.data_view_count - prev.data_view_count,
+                data_view_delta=_snapshot_effective_data_view_count(curr) - _snapshot_effective_data_view_count(prev),
                 component_delta=curr.component_count - prev.component_count,
                 core_delta=curr.core_count - prev.core_count,
                 isolated_delta=curr.isolated_count - prev.isolated_count,

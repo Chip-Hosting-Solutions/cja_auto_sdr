@@ -46,7 +46,21 @@ from cja_auto_sdr.org.models import (
     OrgReportComparison,
     OrgReportConfig,
     OrgReportResult,
+    OrgReportTrending,
     SimilarityPair,
+    TrendingDelta,
+    TrendingSnapshot,
+)
+from cja_auto_sdr.org.writers import (
+    _format_trending_timestamp_short,
+    _render_console_trending_table,
+    _render_html_trending_table,
+    _render_markdown_trending_table,
+    _render_trending_console,
+    _render_trending_html,
+    _render_trending_markdown,
+    _top_drift_scores,
+    _trending_date_range,
 )
 
 # ---------------------------------------------------------------------------
@@ -378,7 +392,7 @@ class TestCompareOrgReports:
         prev_path = tmp_path / "prev.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
-        current = _make_org_result(include_similarity=False)
+        current = _make_org_result(include_similarity=True)
         comparison = compare_org_reports(current, str(prev_path))
 
         # dv_old was removed, dv_002 and dv_003 were added
@@ -405,7 +419,7 @@ class TestCompareOrgReports:
         prev_path = tmp_path / "prev_fallback.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
-        current = _make_org_result(include_similarity=False)
+        current = _make_org_result(include_similarity=True)
         comparison = compare_org_reports(current, str(prev_path))
 
         assert comparison.previous_timestamp == "2024-09-01T10:00:00Z"
@@ -443,8 +457,123 @@ class TestCompareOrgReports:
         assert comparison.summary["new_duplicates"] >= 1
         assert comparison.summary["resolved_duplicates"] >= 1
 
-    def test_compare_excludes_failed_data_views_with_blank_error(self, tmp_path):
-        """Blank error text should still exclude a DV from current-side comparison sets."""
+    def test_compare_allows_current_reports_when_similarity_is_skipped(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [
+                    {"dv1_id": "dv_001", "dv2_id": "dv_002", "jaccard_similarity": 0.95},
+                ],
+            }
+        )
+        prev_path = tmp_path / "prev_skip_similarity.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=False, config_overrides={"skip_similarity": True})
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.current_timestamp == current.timestamp
+        assert comparison.summary["data_views_delta"] == 0
+        assert comparison.summary["new_duplicates"] == 0
+        assert comparison.summary["resolved_duplicates"] == 0
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
+
+    def test_compare_allows_cached_previous_reports_when_persisted_skip_similarity_matches_payload(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "_snapshot_meta": {
+                    "snapshot_id": "persisted-123",
+                    "history_eligible": False,
+                    "history_exclusion_reason": "skip_similarity",
+                },
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2", "error": None},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 3,
+                    "data_views_analyzed": 3,
+                    "total_unique_components": 20,
+                    "similarity_analysis_complete": False,
+                    "similarity_analysis_mode": "skip_similarity",
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_cached_skip_similarity.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.previous_timestamp == "2024-08-01T10:00:00Z"
+        assert comparison.summary["data_views_delta"] == 0
+        assert comparison.summary["resolved_duplicates"] == 0
+        assert comparison.resolved_pairs == []
+
+    def test_compare_rejects_previous_reports_with_persisted_manual_override(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "_snapshot_meta": {
+                    "snapshot_id": "persisted-123",
+                    "history_eligible": False,
+                    "history_exclusion_reason": "manual_override",
+                },
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2", "error": None},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 3,
+                    "data_views_analyzed": 3,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_manual_override.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        with pytest.raises(ValueError, match="manual_override"):
+            compare_org_reports(current, str(prev_path))
+
+    @pytest.mark.parametrize("payload", [([1, 2, 3],), ("scalar-root",), (7,)])
+    def test_compare_rejects_previous_reports_with_non_object_json_root(self, tmp_path, payload):
+        prev_path = tmp_path / "prev_non_object.json"
+        prev_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        with pytest.raises(ValueError, match=r"Previous report .*expected org-report snapshot payload"):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_rejects_current_reports_with_failed_data_views(self, tmp_path):
+        """Current partial results should fail closed instead of emitting drift deltas."""
         prev_report = _mark_full_fidelity_baseline(
             {
                 "generated_at": "2024-08-01T10:00:00Z",
@@ -464,15 +593,113 @@ class TestCompareOrgReports:
         prev_path = tmp_path / "prev_blank_error.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
-        current = _make_org_result(include_similarity=False)
+        current = _make_org_result(include_similarity=True)
         current.data_view_summaries[0] = _make_data_view_summary("dv_001", "Data View 1", error="")
+
+        with pytest.raises(
+            ValueError,
+            match=r"Current org-report is not eligible for comparison: .*incomplete_data_views",
+        ):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_allows_current_reports_with_missing_data_view_ids_but_suppresses_exact_dv_lists(
+        self,
+        tmp_path,
+    ):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_missing_current_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        current.data_view_summaries[1] = _make_data_view_summary("", "Missing Data View 2")
 
         comparison = compare_org_reports(current, str(prev_path))
 
-        assert "dv_001" in comparison.data_views_removed
-        assert "dv_001" not in comparison.data_views_added
+        assert comparison.data_views_added == []
+        assert comparison.data_views_removed == []
+        assert comparison.summary["data_views_delta"] == 0
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
 
-    def test_compare_excludes_failed_previous_data_views_from_summary_deltas(self, tmp_path):
+    def test_compare_allows_current_reports_with_duplicate_normalized_data_view_ids_but_suppresses_exact_dv_lists(
+        self,
+        tmp_path,
+    ):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_duplicate_current.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        current.data_view_summaries[1] = _make_data_view_summary(" dv_001 ", "Duplicate Data View 1")
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.data_views_added == []
+        assert comparison.data_views_removed == []
+        assert comparison.summary["data_views_delta"] == 0
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
+
+    def test_compare_rejects_current_reports_with_duplicate_exact_raw_data_view_ids(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1"},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2"},
+                    {"data_view_id": "dv_003", "data_view_name": "Data View 3"},
+                ],
+                "summary": {"total_unique_components": 20},
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_duplicate_current_raw_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+        current.data_view_summaries[1] = _make_data_view_summary("dv_001", "Duplicate Data View 1")
+
+        with pytest.raises(
+            ValueError,
+            match=r"Current org-report is not eligible for comparison: .*incomplete_data_views",
+        ):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_rejects_incomplete_previous_reports(self, tmp_path):
         prev_report = _mark_full_fidelity_baseline(
             {
                 "generated_at": "2024-08-01T10:00:00Z",
@@ -496,17 +723,187 @@ class TestCompareOrgReports:
         prev_path = tmp_path / "prev_partial_failure.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
-        current = _make_org_result(include_similarity=False)
+        current = _make_org_result(include_similarity=True)
         current.data_view_summaries = [
             _make_data_view_summary("dv_001", "Data View 1"),
             _make_data_view_summary("dv_003", "Data View 3"),
         ]
+
+        with pytest.raises(ValueError, match="incomplete_data_views"):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_rejects_previous_reports_with_compact_rows(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_id": "dv_002", "data_view_name": "Data View 2", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 3,
+                    "data_views_analyzed": 3,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_compact_rows.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        with pytest.raises(ValueError, match="incomplete_data_views"):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_allows_previous_reports_with_missing_data_view_ids_but_suppresses_exact_dv_lists(
+        self,
+        tmp_path,
+    ):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_name": "Missing ID", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 2,
+                    "data_views_analyzed": 2,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_missing_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.data_views_added == []
+        assert comparison.data_views_removed == []
+        assert comparison.summary["data_views_delta"] == 1
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
+
+    def test_compare_allows_previous_reports_with_blank_legacy_aliases_when_id_fallbacks_are_unique(
+        self,
+        tmp_path,
+    ):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "", "id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"data_view_id": "   ", "id": "dv_002", "data_view_name": "Data View 2", "error": None},
+                    {"data_view_id": None, "id": "dv_003", "data_view_name": "Data View 3", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 3,
+                    "data_views_analyzed": 3,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [
+                    {
+                        "dv1_id": "",
+                        "dv2_id": "   ",
+                        "data_view_1": {"id": "dv_001"},
+                        "data_view_2": {"id": "dv_002"},
+                        "jaccard_similarity": 0.95,
+                    }
+                ],
+            }
+        )
+        prev_path = tmp_path / "prev_blank_legacy_alias_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
 
         comparison = compare_org_reports(current, str(prev_path))
 
         assert comparison.data_views_added == []
         assert comparison.data_views_removed == []
         assert comparison.summary["data_views_delta"] == 0
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
+
+    def test_compare_rejects_previous_reports_with_duplicate_exact_raw_data_view_ids(self, tmp_path):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"id": "dv_001", "name": "Duplicate Data View 1", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 2,
+                    "data_views_analyzed": 2,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_duplicate_exact_raw_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        with pytest.raises(ValueError, match="incomplete_data_views"):
+            compare_org_reports(current, str(prev_path))
+
+    def test_compare_allows_previous_reports_with_duplicate_normalized_data_view_ids_but_suppresses_exact_dv_lists(
+        self,
+        tmp_path,
+    ):
+        prev_report = _mark_full_fidelity_baseline(
+            {
+                "generated_at": "2024-08-01T10:00:00Z",
+                "data_views": [
+                    {"data_view_id": "dv_001", "data_view_name": "Data View 1", "error": None},
+                    {"id": " dv_001 ", "name": "Duplicate Data View 1", "error": None},
+                ],
+                "summary": {
+                    "data_views_total": 2,
+                    "data_views_analyzed": 2,
+                    "total_unique_components": 20,
+                },
+                "distribution": {
+                    "core": {"total": 5},
+                    "isolated": {"total": 2},
+                },
+                "similarity_pairs": [],
+            }
+        )
+        prev_path = tmp_path / "prev_duplicate_id.json"
+        prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
+
+        current = _make_org_result(include_similarity=True)
+
+        comparison = compare_org_reports(current, str(prev_path))
+
+        assert comparison.data_views_added == []
+        assert comparison.data_views_removed == []
+        assert comparison.summary["data_views_delta"] == 1
+        assert comparison.new_high_similarity_pairs == []
+        assert comparison.resolved_pairs == []
 
     def test_compare_uses_exact_component_ids_when_available(self, tmp_path):
         prev_report = _mark_full_fidelity_baseline(
@@ -566,7 +963,7 @@ class TestCompareOrgReports:
         prev_path = tmp_path / "prev_legacy.json"
         prev_path.write_text(json.dumps(prev_report), encoding="utf-8")
 
-        current = _make_org_result(include_similarity=False)
+        current = _make_org_result(include_similarity=True)
 
         with pytest.raises(ValueError, match="legacy_missing_fidelity_markers"):
             compare_org_reports(current, str(prev_path))
@@ -1933,3 +2330,261 @@ class TestMainImplWorkersValidation:
 
         with pytest.raises(SystemExit):
             _main_impl()
+
+
+# ===================================================================
+# org.writers edge-case tests (L68-69, L147, L169, L187, L267, L309,
+# L320, L400, L443, L1088)
+# ===================================================================
+
+
+def _make_trending(num_snapshots: int = 2) -> OrgReportTrending:
+    """Build a minimal OrgReportTrending with *num_snapshots* entries."""
+    snapshots = [
+        TrendingSnapshot(
+            timestamp=f"2025-0{i + 1}-01T00:00:00",
+            data_view_count=i + 3,
+            component_count=(i + 1) * 10,
+            core_count=(i + 1) * 5,
+            isolated_count=i,
+            high_sim_pair_count=i,
+        )
+        for i in range(num_snapshots)
+    ]
+    deltas = []
+    if num_snapshots >= 2:
+        for i in range(num_snapshots - 1):
+            deltas.append(
+                TrendingDelta(
+                    from_timestamp=snapshots[i].timestamp,
+                    to_timestamp=snapshots[i + 1].timestamp,
+                    data_view_delta=1,
+                    component_delta=10,
+                    core_delta=5,
+                    isolated_delta=1,
+                    high_sim_pair_delta=1,
+                )
+            )
+    return OrgReportTrending(
+        snapshots=snapshots,
+        deltas=deltas,
+        drift_scores={"dv_001": 0.8, "dv_002": 0.5},
+        window_size=num_snapshots,
+    )
+
+
+class TestFormatTrendingTimestampShortFallback:
+    """Tests for _format_trending_timestamp_short fallback (L68-69)."""
+
+    def test_valid_iso_timestamp_formats_correctly(self):
+        result = _format_trending_timestamp_short("2025-03-15T10:30:00")
+        assert result == "Mar 15"
+
+    def test_invalid_timestamp_returns_first_10_chars(self):
+        """ValueError path: non-ISO string triggers fallback (L68-69)."""
+        result = _format_trending_timestamp_short("not-a-real-date-string")
+        assert result == "not-a-real"
+
+    def test_short_invalid_timestamp_returns_truncated(self):
+        """ValueError path: short invalid string still returns ts[:10]."""
+        result = _format_trending_timestamp_short("bad")
+        assert result == "bad"
+
+    def test_empty_string_returns_empty(self):
+        """ValueError path: empty string triggers fallback returning empty."""
+        result = _format_trending_timestamp_short("")
+        assert result == ""
+
+
+class TestRenderConsoleTrendingTableEmpty:
+    """Tests for _render_console_trending_table empty-input guard (L147)."""
+
+    def test_empty_column_labels_returns_empty_list(self):
+        """L147: empty column_labels -> return []."""
+        result = _render_console_trending_table([], [("Metrics", [1, 2])])
+        assert result == []
+
+    def test_empty_metric_rows_returns_empty_list(self):
+        """L147: empty metric_rows -> return []."""
+        result = _render_console_trending_table(["Jan 01", "Feb 01"], [])
+        assert result == []
+
+    def test_both_empty_returns_empty_list(self):
+        """L147: both empty -> return []."""
+        result = _render_console_trending_table([], [])
+        assert result == []
+
+
+class TestRenderMarkdownTrendingTableEmpty:
+    """Tests for _render_markdown_trending_table empty-input guard (L169)."""
+
+    def test_empty_column_labels_returns_empty_list(self):
+        """L169: empty column_labels -> return []."""
+        result = _render_markdown_trending_table([], [("Metrics", [1, 2])])
+        assert result == []
+
+    def test_empty_metric_rows_returns_empty_list(self):
+        """L169: empty metric_rows -> return []."""
+        result = _render_markdown_trending_table(["Jan 01", "Feb 01"], [])
+        assert result == []
+
+    def test_both_empty_returns_empty_list(self):
+        """L169: both empty -> return []."""
+        result = _render_markdown_trending_table([], [])
+        assert result == []
+
+
+class TestRenderHtmlTrendingTableEmpty:
+    """Tests for _render_html_trending_table empty-input guard (L187)."""
+
+    def test_empty_column_labels_returns_empty_string(self):
+        """L187: empty column_labels -> return ''."""
+        result = _render_html_trending_table([], [("Metrics", [1, 2])])
+        assert result == ""
+
+    def test_empty_metric_rows_returns_empty_string(self):
+        """L187: empty metric_rows -> return ''."""
+        result = _render_html_trending_table(["Jan 01", "Feb 01"], [])
+        assert result == ""
+
+    def test_both_empty_returns_empty_string(self):
+        """L187: both empty -> return ''."""
+        result = _render_html_trending_table([], [])
+        assert result == ""
+
+
+class TestTopDriftScores:
+    """Tests for _top_drift_scores (L267)."""
+
+    def test_returns_top_n_entries(self):
+        """L267: result is sliced to limit."""
+        scores = {"dv_a": 0.9, "dv_b": 0.7, "dv_c": 0.5, "dv_d": 0.3}
+        result = _top_drift_scores(scores, limit=2)
+        assert len(result) == 2
+        assert result[0][0] == "dv_a"
+        assert result[1][0] == "dv_b"
+
+    def test_default_limit_is_ten(self):
+        """L267: default limit is 10."""
+        scores = {f"dv_{i:02d}": float(i) for i in range(20)}
+        result = _top_drift_scores(scores)
+        assert len(result) == 10
+
+    def test_empty_scores_returns_empty(self):
+        """L267: empty dict returns empty list."""
+        result = _top_drift_scores({})
+        assert result == []
+
+
+class TestTrendingDateRangeEmptySnapshots:
+    """Tests for _trending_date_range empty guard (L309)."""
+
+    def test_empty_snapshots_returns_empty_string(self):
+        """L309: empty snapshots list -> return ''."""
+        result = _trending_date_range([])
+        assert result == ""
+
+    def test_single_snapshot_returns_same_label_both_sides(self):
+        """L309 not triggered: single snapshot returns first == last."""
+        snapshots = [TrendingSnapshot(timestamp="2025-01-15T00:00:00")]
+        result = _trending_date_range(snapshots)
+        assert result == "Jan 15 \u2192 Jan 15"
+
+
+class TestRenderTrendingConsoleOneSnapshot:
+    """Tests for _render_trending_console with <2 snapshots (L320)."""
+
+    def test_single_snapshot_returns_empty_string(self):
+        """L320: len(snapshots) < 2 -> return ''."""
+        trending = _make_trending(num_snapshots=1)
+        result = _render_trending_console(trending)
+        assert result == ""
+
+    def test_no_snapshots_returns_empty_string(self):
+        """L320: no snapshots -> return ''."""
+        trending = OrgReportTrending(snapshots=[], deltas=[], drift_scores={}, window_size=0)
+        result = _render_trending_console(trending)
+        assert result == ""
+
+
+class TestRenderTrendingMarkdownOneSnapshot:
+    """Tests for _render_trending_markdown with <2 snapshots (L400)."""
+
+    def test_single_snapshot_returns_empty_string(self):
+        """L400: len(snapshots) < 2 -> return ''."""
+        trending = _make_trending(num_snapshots=1)
+        result = _render_trending_markdown(trending)
+        assert result == ""
+
+    def test_no_snapshots_returns_empty_string(self):
+        """L400: no snapshots -> return ''."""
+        trending = OrgReportTrending(snapshots=[], deltas=[], drift_scores={}, window_size=0)
+        result = _render_trending_markdown(trending)
+        assert result == ""
+
+
+class TestRenderTrendingMarkdownEscaping:
+    """Trending Markdown should escape DV cells so drift tables remain valid."""
+
+    def test_drift_rows_escape_pipes_and_backticks(self):
+        trending = OrgReportTrending(
+            snapshots=[
+                TrendingSnapshot(
+                    timestamp="2026-03-01T00:00:00Z",
+                    data_view_count=1,
+                    dv_ids={"dv|1"},
+                    dv_names={"dv|1": "Name | Broken `Table`"},
+                ),
+                TrendingSnapshot(
+                    timestamp="2026-03-02T00:00:00Z",
+                    data_view_count=1,
+                    dv_ids={"dv|1"},
+                    dv_names={"dv|1": "Name | Broken `Table`"},
+                ),
+            ],
+            drift_scores={"dv|1": 1.0},
+            window_size=2,
+        )
+
+        result = _render_trending_markdown(trending)
+
+        assert "| dv\\|1 | Name \\| Broken \\`Table\\` | 1.00 |" in result
+        assert "| dv|1 | Name | Broken `Table` | 1.00 |" not in result
+
+
+class TestRenderTrendingHtmlOneSnapshot:
+    """Tests for _render_trending_html with <2 snapshots (L443)."""
+
+    def test_single_snapshot_returns_empty_string(self):
+        """L443: len(snapshots) < 2 -> return ''."""
+        trending = _make_trending(num_snapshots=1)
+        result = _render_trending_html(trending)
+        assert result == ""
+
+    def test_no_snapshots_returns_empty_string(self):
+        """L443: no snapshots -> return ''."""
+        trending = OrgReportTrending(snapshots=[], deltas=[], drift_scores={}, window_size=0)
+        result = _render_trending_html(trending)
+        assert result == ""
+
+
+class TestBuildOrgReportJsonDataSkipSimilarity:
+    """Tests for build_org_report_json_data skip_similarity path (L1088)."""
+
+    def test_skip_similarity_sets_mode(self):
+        """L1088: parameters.skip_similarity=True -> similarity_analysis_mode='skip_similarity'."""
+        result = _make_org_result(include_similarity=False, config_overrides={"skip_similarity": True})
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["similarity_analysis_mode"] == "skip_similarity"
+        assert data["summary"]["similarity_analysis_complete"] is False
+
+    def test_org_stats_only_takes_priority_over_skip_similarity(self):
+        """org_stats_only path (L1086) takes priority even if skip_similarity is also True."""
+        result = _make_org_result(
+            include_similarity=False,
+            config_overrides={"org_stats_only": True, "skip_similarity": True},
+        )
+        data = build_org_report_json_data(result)
+
+        assert data["summary"]["similarity_analysis_mode"] == "org_stats_only"

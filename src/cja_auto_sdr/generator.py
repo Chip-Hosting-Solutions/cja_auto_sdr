@@ -199,6 +199,7 @@ from cja_auto_sdr.org.models import (
     OrgReportComparisonInput,
     OrgReportConfig,
     OrgReportResult,
+    OrgReportTrending,
     SimilarityPair,
     build_org_report_comparison,
 )
@@ -8092,49 +8093,27 @@ def compare_org_reports(current: OrgReportResult, previous_path: str) -> OrgRepo
         org_report_snapshot_comparison_input,
     )
 
-    # Extract data view IDs from both
-    current_dv_ids = {s.data_view_id for s in current.data_view_summaries if not s.has_error}
-    current_dv_names = {s.data_view_id: s.data_view_name for s in current.data_view_summaries}
-    current_comparison_dv_count = len(current_dv_ids)
-
-    # Component counts
-    current_components = len(current.component_index)
-    current_component_ids = set(current.component_index)
-
-    # Distribution deltas
-    current_core = current.distribution.total_core
-    current_isolated = current.distribution.total_isolated
-
-    # High-similarity pairs comparison (normalize order for stability)
-    def _pair_key(dv1: str, dv2: str) -> tuple[str, str]:
-        return tuple(sorted([dv1, dv2]))
-
-    current_high_sim = set()
-    if current.similarity_pairs:
-        for p in current.similarity_pairs:
-            if p.jaccard_similarity >= 0.9:
-                current_high_sim.add(_pair_key(p.dv1_id, p.dv2_id))
-
     try:
-        previous_snapshot = org_report_snapshot_comparison_input(prev_data, require_history_eligible=True)
+        previous_snapshot = org_report_snapshot_comparison_input(
+            prev_data,
+            require_history_eligible=False,
+            require_comparison_eligible=True,
+        )
     except ValueError as exc:
         raise ValueError(f"Previous report {previous_path} is not eligible for comparison: {exc}") from exc
 
+    try:
+        current_snapshot = org_report_snapshot_comparison_input(
+            build_org_report_json_data(current),
+            require_history_eligible=False,
+            require_comparison_eligible=True,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Current org-report is not eligible for comparison: {exc}") from exc
+
     return build_org_report_comparison(
         previous=previous_snapshot,
-        current=OrgReportComparisonInput(
-            timestamp=current.timestamp,
-            data_view_ids=current_dv_ids,
-            has_data_view_ids=True,
-            data_view_names=current_dv_names,
-            data_view_count=current.total_data_views,
-            comparison_data_view_count=current_comparison_dv_count,
-            component_count=current_components,
-            component_ids=current_component_ids,
-            core_count=current_core,
-            isolated_count=current_isolated,
-            high_similarity_pairs=current_high_sim,
-        ),
+        current=current_snapshot,
     )
 
 
@@ -8167,6 +8146,46 @@ def _requested_org_report_baseline_path(org_config: OrgReportConfig) -> Path | N
     return Path(org_config.compare_org_report)
 
 
+def _org_report_trending_preserved_snapshot_paths(
+    *,
+    snapshot_cache_dir: Path,
+    org_id: str,
+    trending_window: int,
+    saved_snapshot_path: str | Path,
+    explicit_history_file: str | Path | None,
+    trending: OrgReportTrending | None,
+) -> list[str]:
+    """Return normalized snapshot paths that must survive auto-prune."""
+    from cja_auto_sdr.org.snapshot_utils import snapshot_path_text
+    from cja_auto_sdr.org.trending import discover_snapshots
+
+    eligible_window = (
+        trending.snapshots
+        if trending is not None
+        else discover_snapshots(
+            cache_dir=snapshot_cache_dir,
+            window_size=trending_window,
+            explicit_file=explicit_history_file,
+            org_id=org_id,
+        )
+    )
+
+    preserved_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for raw_path in (
+        saved_snapshot_path,
+        explicit_history_file,
+        *(snapshot.source_path for snapshot in eligible_window),
+    ):
+        normalized_path = snapshot_path_text(raw_path)
+        if not normalized_path or normalized_path in seen_paths:
+            continue
+        seen_paths.add(normalized_path)
+        preserved_paths.append(normalized_path)
+
+    return preserved_paths
+
+
 def _build_org_report_trending_window(
     *,
     result: OrgReportResult,
@@ -8178,14 +8197,15 @@ def _build_org_report_trending_window(
     status_print: Callable[..., None],
 ):
     """Build a trending window while treating current-run eligibility and persistence separately."""
-    from cja_auto_sdr.org.snapshot_utils import org_report_snapshot_history_exclusion_reason
+    from cja_auto_sdr.org.snapshot_utils import org_report_snapshot_history_assessment
     from cja_auto_sdr.org.trending import _extract_snapshot_from_json, build_trending
     from cja_auto_sdr.org.writers import build_org_report_json_data as _build_json_for_snapshot
 
     snapshot_cache = cache if cache is not None else OrgReportCache(logger=logger)
     snapshot_cache_dir = snapshot_cache.get_org_report_snapshot_root_dir()
     current_json = _build_json_for_snapshot(result)
-    history_exclusion_reason = org_report_snapshot_history_exclusion_reason(current_json)
+    history_assessment = org_report_snapshot_history_assessment(current_json)
+    history_exclusion_reason = history_assessment.exclusion_reason
 
     current_snapshot = None
     saved_snapshot_path: str | Path | None = None
@@ -8231,9 +8251,14 @@ def _build_org_report_trending_window(
             )
 
     if saved_snapshot_path is not None:
-        preserved_snapshot_paths: list[str | Path] = [saved_snapshot_path]
-        if explicit_history_file is not None:
-            preserved_snapshot_paths.append(explicit_history_file)
+        preserved_snapshot_paths = _org_report_trending_preserved_snapshot_paths(
+            snapshot_cache_dir=snapshot_cache_dir,
+            org_id=result.org_id,
+            trending_window=trending_window,
+            saved_snapshot_path=saved_snapshot_path,
+            explicit_history_file=explicit_history_file,
+            trending=trending,
+        )
         try:
             snapshot_cache.prune_org_report_snapshots(
                 org_id=result.org_id,

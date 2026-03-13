@@ -7,6 +7,22 @@ All notable changes to the CJA SDR Generator project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-03-13
+
+### Changed
+- **Snapshot comparison fidelity** (`generator.py`, `org/models.py`): refactored `compare_org_reports()` to use `org_report_snapshot_comparison_input()` for both current and previous snapshots, eliminating duplicated extraction logic and ensuring both sides go through the same validation/normalization path.
+- **Completeness tracking** (`org/models.py`): added `complete_data_view_ids` and `complete_high_similarity_pairs` flags to `OrgReportComparisonInput`, gating exact delta computation on completeness so partial snapshots degrade gracefully.
+- **Count-provenance tracking** (`org/models.py`): `TrendingSnapshot` now tracks whether `data_view_count` was explicitly set vs inferred via internal fields and custom `__setattr__`, with centralized assessment helpers (`_snapshot_identifier_assessment()`, `_snapshot_data_view_assessment()`, `_snapshot_effective_data_view_count()`) replacing inline logic.
+- **Snapshot state normalization** (`org/snapshot_utils.py`): new `OrgReportSnapshotDataViewInventory` and `_OrgReportSnapshotState` dataclasses centralize normalized snapshot state; `_SnapshotIdAliasResolution` resolves serialized snapshot ID aliases defensively; `comparison_complete` flag separated from `history_complete` for eligibility checks.
+- **Snapshot eligibility** (`org/snapshot_utils.py`): added `require_comparison_eligible` parameter and completeness-aware validation to `org_report_snapshot_comparison_input()`; duplicate raw-ID collision detection prevents ambiguous DV identifiers from passing comparison checks.
+- **Prune safety** (`generator.py`): extracted `_org_report_trending_preserved_snapshot_paths()` helper that collects all eligible-window paths before auto-prune, preventing retention pressure from deleting snapshots needed for trending.
+- **Shared identifier normalization** (`org/identifiers.py`): extracted `normalize_org_report_data_view_id()` into a dedicated module, replacing duplicated inline logic across `models.py`, `snapshot_utils.py`, and `trending.py`.
+
+### Added
+- **+565 tests** (5,672 → 6,237): 7 new test files and 9 expanded existing files covering all previously uncovered branches across 9 modules — `org/trending`, `org/snapshot_utils`, `org/models`, `org/cache`, `org/writers`, `cli/commands/list`, `cli/commands/config`, `cli/execution`, `diff/git`, and `generator.py` trending integration paths. All 9 target modules raised to 100% coverage; overall coverage 96% → 97%.
+- **Contract tests**: `test_org_trending_contracts.py` (167 tests) for public API signatures, return types, and semantic guarantees; `test_cli_diff_contracts.py` (69 tests) for CLI list-command factories, config returns, and `diff/git` tuple contracts.
+- **Adversarial & stress tests**: `test_org_trending_adversarial.py` (51 tests) for malformed JSON, corrupted cache dirs, timestamp edge cases, org ID sanitization, drift score robustness, and 50+ snapshot window stress.
+
 ## [3.4.0] - 2026-03-11
 
 ### Added
