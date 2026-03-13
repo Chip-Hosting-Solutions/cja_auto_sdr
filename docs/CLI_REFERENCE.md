@@ -1204,7 +1204,7 @@ Throughput: 9.7 data views per minute
 
 Enable tab-completion for all CLI options using the `argcomplete` package.
 
-**Quick setup (v3.3.4+):**
+**Quick setup:**
 
 ```bash
 cja_auto_sdr --completion bash >> ~/.bashrc

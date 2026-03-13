@@ -86,7 +86,6 @@ tests/
 ├── test_org_writer_coverage.py      # Org writer edge cases and coverage
 ├── test_output_writer_coverage.py   # Output writer edge cases and coverage
 ├── test_exception_contracts.py      # Exception boundary contract tests
-├── test_parallel_validation.py      # Parallel validation operations
 ├── test_cli_smoke_modes.py          # CLI smoke tests for core command modes
 ├── test_generator_mock_contract.py  # Generator mock symbol contract tests
 ├── test_exception_narrowing.py     # Exception narrowing boundary tests
@@ -105,6 +104,15 @@ tests/
 ├── test_cli_execution.py          # CLI execution edge cases and coverage
 ├── test_diff_git_coverage.py      # Diff/git subprocess error path coverage
 ├── test_generator_trending_coverage.py # Generator trending integration coverage
+├── test_check_version_sync.py       # Version string sync validation across files
+├── test_cli_color_policy_e2e.py     # End-to-end CLI color policy behavior tests
+├── test_completion.py               # Shell completion flag (--completion bash/zsh/fish)
+├── test_derived_fields_coverage.py  # Derived field complexity scoring, logic summary, predicates
+├── test_discovery_exceptions.py     # Discovery exception classification contracts
+├── test_lock_backend_edge_cases.py  # Lock backend metadata I/O, stale detection, legacy parsing
+├── test_org_analyzer_coverage.py    # Org analyzer governance, naming audit, sampling, memory, drift, clustering
+├── test_pipeline_single.py          # Modular single-dataview pipeline wrapper tests
+├── test_processing_execution_policy.py # Processing execution-policy derivation tests
 └── README.md                        # This file
 ```
 
@@ -194,7 +202,6 @@ tests/
 | `test_output_writer_coverage.py` | 36 | Output writer edge cases and coverage |
 | `test_backwards_compat.py` | 34 | Backwards compatibility tests |
 | `test_exception_contracts.py` | 19 | Exception boundary contract tests |
-| `test_parallel_validation.py` | 9 | Parallel validation operations |
 | `test_update_test_counts.py` | 2 | Test count validation tests |
 | `test_cli_smoke_modes.py` | 10 | CLI smoke tests for core command modes |
 | `test_generator_mock_contract.py` | 2 | Generator mock symbol contract tests |
@@ -215,6 +222,11 @@ tests/
 | `test_cli_execution.py` | 18 | CLI execution edge cases and coverage |
 | `test_diff_git_coverage.py` | 27 | Diff/git subprocess error path coverage |
 | `test_generator_trending_coverage.py` | 19 | Generator trending integration coverage |
+| `test_check_version_sync.py` | 18 | Version string sync validation across files |
+| `test_cli_color_policy_e2e.py` | 7 | End-to-end CLI color policy behavior tests |
+| `test_discovery_exceptions.py` | 6 | Discovery exception classification contracts |
+| `test_pipeline_single.py` | 1 | Modular single-dataview pipeline wrapper tests |
+| `test_processing_execution_policy.py` | 10 | Processing execution-policy derivation tests |
 | **Total** | **6,237** | **Collected via pytest --collect-only** |
 
 ## Running Tests
