@@ -8344,7 +8344,7 @@ def _to_numeric_sort_value(value: Any) -> float | None:
         try:
             if pd.isna(value):
                 return None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
         return float(value)
 
@@ -8368,7 +8368,7 @@ def _is_missing_sort_value(value: Any) -> bool:
         return True
     try:
         return bool(pd.isna(value))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
 
 
